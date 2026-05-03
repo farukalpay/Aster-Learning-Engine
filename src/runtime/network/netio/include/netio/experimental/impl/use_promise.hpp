@@ -1,0 +1,55 @@
+#ifndef NETIO_EXPERIMENTAL_IMPL_USE_PROMISE_HPP
+#define NETIO_EXPERIMENTAL_IMPL_USE_PROMISE_HPP
+
+#if defined(_MSC_VER) && (_MSC_VER >= 1200)
+# pragma once
+#endif // defined(_MSC_VER) && (_MSC_VER >= 1200)
+
+#include "netio/detail/config.hpp"
+#include <memory>
+#include "netio/async_result.hpp"
+
+#include "netio/detail/push_options.hpp"
+
+namespace netio {
+namespace experimental {
+
+template <typename Allocator>
+struct use_promise_t;
+
+namespace detail {
+
+template<typename Signature, typename Executor, typename Allocator>
+struct promise_handler;
+
+} // namespace detail
+} // namespace experimental
+
+#if !defined(GENERATING_DOCUMENTATION)
+
+template <typename Allocator, typename R, typename... Args>
+struct async_result<experimental::use_promise_t<Allocator>, R(Args...)>
+{
+  template <typename Initiation, typename... InitArgs>
+  static auto initiate(Initiation initiation,
+      experimental::use_promise_t<Allocator> up, InitArgs... args)
+    -> experimental::promise<void(decay_t<Args>...),
+      netio::associated_executor_t<Initiation>, Allocator>
+  {
+    using handler_type = experimental::detail::promise_handler<
+      void(decay_t<Args>...),
+      netio::associated_executor_t<Initiation>, Allocator>;
+
+    handler_type ht{up.get_allocator(), get_associated_executor(initiation)};
+    std::move(initiation)(ht, std::move(args)...);
+    return ht.make_promise();
+  }
+};
+
+#endif // !defined(GENERATING_DOCUMENTATION)
+
+} // namespace netio
+
+#include "netio/detail/pop_options.hpp"
+
+#endif // NETIO_EXPERIMENTAL_IMPL_USE_PROMISE_HPP

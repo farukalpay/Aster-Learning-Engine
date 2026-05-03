@@ -1,0 +1,111 @@
+# Build trees and generated packages
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+/dist/
+/install/
+.ninja_*
+build.ninja
+rules.ninja
+/Makefile
+
+# OS and editor noise
+.DS_Store
+**/.DS_Store
+._*
+.AppleDB
+.AppleDesktop
+.AppleDouble
+.LSOverride
+.TemporaryItems/
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+.apdisk
+Icon?
+Network Trash Folder/
+Temporary Items/
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.idea/
+.vscode/
+.vs/
+*.sublime-workspace
+*.sw?
+*.swp
+*.swo
+*.bak
+*.orig
+*.rej
+*.tmp
+*~
+.#*
+#*#
+
+# CMake and test products
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+Testing/
+install_manifest.txt
+CTestTestfile.cmake
+DartConfiguration.tcl
+
+# Native compiler/linker products
+*.a
+*.dSYM/
+*.dylib
+*.dll
+*.exe
+*.exp
+*.ilk
+*.lib
+*.o
+*.obj
+*.pdb
+*.so
+a.out
+aster_lumen_run
+aster_studio
+aster_preview
+aster_net_probe
+aster_tests
+
+# IDE and platform user files
+*.user
+*.suo
+*.vcxproj.user
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Local captures and logs
+*.ppm
+*.tmp.ppm
+*.log
+*.trace
+*.profraw
+*.profdata
+
+# Local-only presets and Python environments
+CMakeUserPresets.json
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+.cache/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
