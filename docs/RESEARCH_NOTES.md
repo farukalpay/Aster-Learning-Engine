@@ -2,12 +2,6 @@
 
 This file records what influenced the current architecture and what is only a roadmap item. It deliberately avoids claiming that unimplemented research ideas are engine features.
 
-## Project References
-
-- [The Forge](https://github.com/ConfettiFX/The-Forge) is a useful reference for cross-platform rendering framework boundaries, explicit platform support, resource loading, and tooling organization.
-- [Filament](https://github.com/google/filament) was used as a rendering and material-system reference, especially for PBR vocabulary, tone-management direction, and sample presentation discipline. Aster does not vendor Filament code or assets.
-- Desktop window/context creation is handled by Aster's runtime windowing bridge.
-
 ## Rendering Research Direction
 
 - [Neural Visibility Cache for Real-Time Light Sampling](https://arxiv.org/abs/2506.05930) describes an online-trained visibility cache for many-light direct illumination and notes compatibility with reservoir sampling approaches.
