@@ -2,7 +2,7 @@
 
 This file records what influenced the current architecture and what is only a roadmap item. It deliberately avoids claiming that unimplemented research ideas are engine features.
 
-## Rendering Research Direction
+## Rendering Research References
 
 - [Neural Visibility Cache for Real-Time Light Sampling](https://arxiv.org/abs/2506.05930) describes an online-trained visibility cache for many-light direct illumination and notes compatibility with reservoir sampling approaches.
 - [Neural Two-Level Monte Carlo Real-Time Rendering](https://arxiv.org/abs/2412.04634) frames neural incident radiance caches as an online component that can reduce noise while preserving a residual unbiased estimator.
