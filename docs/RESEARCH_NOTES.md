@@ -11,10 +11,6 @@ Godot's local source tree was used for two focused patterns:
 - `core/input/input_map.*`: named input actions are a better app contract than scattered key polling.
 - `scene/3d/node_3d.*` and `core/math/transform_3d.*`: scene-facing transforms should be inspectable data, while matrix conversion should stay below the scene contract.
 
-raylib-cpp was used as an API ergonomics reference: small RAII-facing wrappers, readable examples, and direct game-loop clarity. Aster keeps its own naming and module boundaries instead of vendoring raylib-cpp headers.
-
-Aster does not vendor Blender, Godot, or raylib-cpp code. The current implementation is original and intentionally much smaller.
-
 ## Project References
 
 - [The Forge](https://github.com/ConfettiFX/The-Forge) is a useful reference for cross-platform rendering framework boundaries, explicit platform support, resource loading, and tooling organization.
