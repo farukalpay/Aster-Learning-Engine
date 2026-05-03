@@ -1,7 +1,7 @@
 /// @ref core
 /// @file aster_linear/integer.hpp
 ///
-/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 ///
 /// @defgroup core_func_integer Integer functions
 /// @ingroup core
@@ -31,8 +31,8 @@ namespace aster_linear
 	///
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/uaddCarry.xml">GLSL uaddCarry man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/uaddCarry.xml">GLSL uaddCarry man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<length_t L, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, uint, Q> uaddCarry(
 		vec<L, uint, Q> const& x,
@@ -45,8 +45,8 @@ namespace aster_linear
 	///
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/usubBorrow.xml">GLSL usubBorrow man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/usubBorrow.xml">GLSL usubBorrow man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<length_t L, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, uint, Q> usubBorrow(
 		vec<L, uint, Q> const& x,
@@ -59,8 +59,8 @@ namespace aster_linear
 	///
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/umulExtended.xml">GLSL umulExtended man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/umulExtended.xml">GLSL umulExtended man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<length_t L, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL void umulExtended(
 		vec<L, uint, Q> const& x,
@@ -74,8 +74,8 @@ namespace aster_linear
 	///
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/imulExtended.xml">GLSL imulExtended man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/imulExtended.xml">GLSL imulExtended man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<length_t L, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL void imulExtended(
 		vec<L, int, Q> const& x,
@@ -97,8 +97,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Signed or unsigned integer scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/bitfieldExtract.xml">GLSL bitfieldExtract man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/bitfieldExtract.xml">GLSL bitfieldExtract man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> bitfieldExtract(
 		vec<L, T, Q> const& Value,
@@ -118,8 +118,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Signed or unsigned integer scalar or vector types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/bitfieldInsert.xml">GLSL bitfieldInsert man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/bitfieldInsert.xml">GLSL bitfieldInsert man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> bitfieldInsert(
 		vec<L, T, Q> const& Base,
@@ -134,8 +134,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Signed or unsigned integer scalar or vector types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/bitfieldReverse.xml">GLSL bitfieldReverse man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/bitfieldReverse.xml">GLSL bitfieldReverse man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> bitfieldReverse(vec<L, T, Q> const& v);
 
@@ -143,8 +143,8 @@ namespace aster_linear
 	///
 	/// @tparam genType Signed or unsigned integer scalar or vector types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/bitCount.xml">GLSL bitCount man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/bitCount.xml">GLSL bitCount man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<typename genType>
 	ASTER_LINEAR_FUNC_DECL int bitCount(genType v);
 
@@ -153,8 +153,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Signed or unsigned integer scalar or vector types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/bitCount.xml">GLSL bitCount man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/bitCount.xml">GLSL bitCount man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, int, Q> bitCount(vec<L, T, Q> const& v);
 
@@ -164,8 +164,8 @@ namespace aster_linear
 	///
 	/// @tparam genIUType Signed or unsigned integer scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/findLSB.xml">GLSL findLSB man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/findLSB.xml">GLSL findLSB man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<typename genIUType>
 	ASTER_LINEAR_FUNC_DECL int findLSB(genIUType x);
 
@@ -176,8 +176,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Signed or unsigned integer scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/findLSB.xml">GLSL findLSB man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/findLSB.xml">GLSL findLSB man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, int, Q> findLSB(vec<L, T, Q> const& v);
 
@@ -188,8 +188,8 @@ namespace aster_linear
 	///
 	/// @tparam genIUType Signed or unsigned integer scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/findMSB.xml">GLSL findMSB man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/findMSB.xml">GLSL findMSB man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<typename genIUType>
 	ASTER_LINEAR_FUNC_DECL int findMSB(genIUType x);
 
@@ -201,8 +201,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Signed or unsigned integer scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/findMSB.xml">GLSL findMSB man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/findMSB.xml">GLSL findMSB man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.8 Integer Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, int, Q> findMSB(vec<L, T, Q> const& v);
 

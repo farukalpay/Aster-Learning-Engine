@@ -113,9 +113,7 @@ if(APPLE)
 elseif(WIN32)
   target_compile_definitions(aster_windowing PRIVATE _DESKTOP_WINDOW_WIN32 UNICODE _UNICODE)
   target_sources(aster_windowing PRIVATE
-    ${ASTER_WINDOWING_SRC_DIR}/egl_context.c
-    ${ASTER_WINDOWING_SRC_DIR}/osmesa_context.c
-    ${ASTER_WINDOWING_SRC_DIR}/wgl_context.c
+    ${ASTER_WINDOWING_SRC_DIR}/desktop_context_disabled.c
     ${ASTER_WINDOWING_SRC_DIR}/win32_init.c
     ${ASTER_WINDOWING_SRC_DIR}/win32_joystick.c
     ${ASTER_WINDOWING_SRC_DIR}/win32_joystick.h
@@ -146,8 +144,7 @@ else()
   endif()
 
   target_sources(aster_windowing PRIVATE
-    ${ASTER_WINDOWING_SRC_DIR}/egl_context.c
-    ${ASTER_WINDOWING_SRC_DIR}/osmesa_context.c
+    ${ASTER_WINDOWING_SRC_DIR}/desktop_context_disabled.c
     ${ASTER_WINDOWING_SRC_DIR}/posix_module.c
     ${ASTER_WINDOWING_SRC_DIR}/posix_thread.c
     ${ASTER_WINDOWING_SRC_DIR}/posix_thread.h
@@ -172,7 +169,6 @@ else()
     ${X11_Xshape_INCLUDE_PATH}
     )
   target_sources(aster_windowing PRIVATE
-    ${ASTER_WINDOWING_SRC_DIR}/glx_context.c
     ${ASTER_WINDOWING_SRC_DIR}/x11_init.c
     ${ASTER_WINDOWING_SRC_DIR}/x11_monitor.c
     ${ASTER_WINDOWING_SRC_DIR}/x11_platform.h
@@ -193,7 +189,6 @@ else()
     pkg_check_modules(Wayland REQUIRED
       wayland-client>=0.2.7
       wayland-cursor>=0.2.7
-      wayland-egl>=0.2.7
       xkbcommon>=0.5.0
     )
 

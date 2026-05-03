@@ -41,7 +41,7 @@ the rule DSL generic; games provide only the evidence-to-symbol adapter.
 
 `include/aster/render`
 
-Camera, mesh generation/upload, shader management, and render submission. The public `RenderDevice` contract is intentionally smaller than the current OpenGL implementation so future backends can implement the same responsibility without leaking API-specific handles into product code.
+Camera, mesh generation/upload, pipeline management, and render submission. The public `RenderDevice` contract stays backend-neutral so platform-specific presentation details do not leak into product code.
 
 `include/aster/platform`
 
@@ -59,7 +59,7 @@ Thin executables. `aster_studio` wires the editor together. `aster_lumen_run` wi
 
 ```mermaid
 flowchart LR
-  Window["Window + GL context"] --> Device["RenderDevice"]
+  Window["Window surface"] --> Device["RenderDevice"]
   Window --> Input["Input snapshot"]
   Input --> Actions["ControlState"]
   Network["TCP node"] --> Router["NodeRouter"]
@@ -71,8 +71,8 @@ flowchart LR
   Game --> Coherence
   Game --> Trace
   Camera["OrbitCamera"] --> Device
-  Device --> Shader["ShaderProgram"]
-  Device --> Meshes["GpuMesh"]
+  Device --> Pipeline["Render pipeline"]
+  Device --> Meshes["Native mesh buffers"]
   Device --> Frame["FrameStats"]
   Frame --> UI["EditorUi / UiCanvas"]
   UI --> Scene
@@ -86,7 +86,7 @@ flowchart LR
 
 ## Backend Strategy
 
-The OpenGL renderer is the first backend, not the engine architecture. Future backends should implement the same high-level responsibilities:
+The renderer is a backend behind the engine contract, not the engine architecture. Backends implement the same high-level responsibilities:
 
 - Resource creation and lifetime
 - Shader/pipeline ownership
@@ -98,10 +98,9 @@ The scene layer should remain backend-neutral. Backend-specific capabilities sho
 
 ## Known Compromises
 
-- Windowing, OpenGL loading, profiling, and TCP transport support are built from engine-owned runtime sources, so a clean checkout can configure without fetching code.
-- The macOS build uses Aster's native Cocoa windowing bridge internally. Most engine source is C/C++, while platform bridge files may compile through Objective-C where the OS requires it.
-- The current renderer is OpenGL. This is a portability baseline, not the final high-performance Apple Silicon backend.
+- Windowing, profiling, and TCP transport support are built from engine-owned runtime sources, so a clean checkout can configure without fetching code.
+- The macOS build uses Aster's native Cocoa windowing bridge and Metal presentation internally. Most engine source is C/C++, while platform bridge files may compile through Objective-C where the OS requires it.
 - The current UI layer is intentionally compact: it covers panels, bitmap text, buttons, checkboxes, sliders, progress bars, and HUD drawings used by the sample game and studio. It is not a general retained-mode editor framework.
 - The preview renderer approximates non-uniformly scaled spheres with a representative radius. The interactive renderer handles full object matrices.
-- Native screenshots use `glReadPixels`, so they validate the actual OpenGL framebuffer rather than a browser harness.
+- Native screenshots are captured from the engine framebuffer rather than a browser harness.
 - The first network transport is a compact TCP loopback implementation. Higher-level replication, login, proxy, and world services should be built as named router services rather than fixed server categories.

@@ -52,7 +52,7 @@ static int choosePixelFormatWGL(_DESKTOP_WINDOWwindow* window,
 
     if (_desktop_window.wgl.ARB_pixel_format)
     {
-        ADD_ATTRIB(WGL_SUPPORT_OPENGL_ARB);
+        ADD_ATTRIB(WGL_SUPPORT_DESKTOP_GRAPHICS_ARB);
         ADD_ATTRIB(WGL_DRAW_TO_WINDOW_ARB);
         ADD_ATTRIB(WGL_PIXEL_TYPE_ARB);
         ADD_ATTRIB(WGL_ACCELERATION_ARB);
@@ -78,7 +78,7 @@ static int choosePixelFormatWGL(_DESKTOP_WINDOWwindow* window,
         if (_desktop_window.wgl.ARB_multisample)
             ADD_ATTRIB(WGL_SAMPLES_ARB);
 
-        if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_API)
+        if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
         {
             if (_desktop_window.wgl.ARB_framebuffer_sRGB || _desktop_window.wgl.EXT_framebuffer_sRGB)
                 ADD_ATTRIB(WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB);
@@ -130,7 +130,7 @@ static int choosePixelFormatWGL(_DESKTOP_WINDOWwindow* window,
                 return 0;
             }
 
-            if (!FIND_ATTRIB_VALUE(WGL_SUPPORT_OPENGL_ARB) ||
+            if (!FIND_ATTRIB_VALUE(WGL_SUPPORT_DESKTOP_GRAPHICS_ARB) ||
                 !FIND_ATTRIB_VALUE(WGL_DRAW_TO_WINDOW_ARB))
             {
                 continue;
@@ -166,7 +166,7 @@ static int choosePixelFormatWGL(_DESKTOP_WINDOWwindow* window,
             if (_desktop_window.wgl.ARB_multisample)
                 u->samples = FIND_ATTRIB_VALUE(WGL_SAMPLES_ARB);
 
-            if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_API)
+            if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
             {
                 if (_desktop_window.wgl.ARB_framebuffer_sRGB ||
                     _desktop_window.wgl.EXT_framebuffer_sRGB)
@@ -203,7 +203,7 @@ static int choosePixelFormatWGL(_DESKTOP_WINDOWwindow* window,
             }
 
             if (!(pfd.dwFlags & PFD_DRAW_TO_WINDOW) ||
-                !(pfd.dwFlags & PFD_SUPPORT_OPENGL))
+                !(pfd.dwFlags & PFD_SUPPORT_DESKTOP_GRAPHICS))
             {
                 continue;
             }
@@ -246,7 +246,7 @@ static int choosePixelFormatWGL(_DESKTOP_WINDOWwindow* window,
     if (!usableCount)
     {
         _desktop_windowInputError(DESKTOP_WINDOW_API_UNAVAILABLE,
-                        "WGL: The driver does not appear to support OpenGL");
+                        "WGL: The driver does not appear to support DesktopGraphics");
 
         _desktop_window_free(usableConfigs);
         return 0;
@@ -385,11 +385,11 @@ DESKTOP_WINDOWbool _desktop_windowInitWGL(void)
     if (_desktop_window.wgl.instance)
         return DESKTOP_WINDOW_TRUE;
 
-    _desktop_window.wgl.instance = _desktop_windowPlatformLoadModule("opengl32.dll");
+    _desktop_window.wgl.instance = _desktop_windowPlatformLoadModule("desktop_graphics32.dll");
     if (!_desktop_window.wgl.instance)
     {
         _desktop_windowInputErrorWin32(DESKTOP_WINDOW_PLATFORM_ERROR,
-                             "WGL: Failed to load opengl32.dll");
+                             "WGL: Failed to load desktop_graphics32.dll");
         return DESKTOP_WINDOW_FALSE;
     }
 
@@ -408,8 +408,8 @@ DESKTOP_WINDOWbool _desktop_windowInitWGL(void)
     _desktop_window.wgl.ShareLists = (PFN_wglShareLists)
         _desktop_windowPlatformGetModuleSymbol(_desktop_window.wgl.instance, "wglShareLists");
 
-    // NOTE: A dummy context has to be created for opengl32.dll to load the
-    //       OpenGL ICD, from which we can then query WGL extensions
+    // NOTE: A dummy context has to be created for desktop_graphics32.dll to load the
+    //       DesktopGraphics ICD, from which we can then query WGL extensions
     // NOTE: This code will accept the Microsoft GDI ICD; accelerated context
     //       creation failure occurs during manual pixel format enumeration
 
@@ -418,7 +418,7 @@ DESKTOP_WINDOWbool _desktop_windowInitWGL(void)
     ZeroMemory(&pfd, sizeof(pfd));
     pfd.nSize = sizeof(pfd);
     pfd.nVersion = 1;
-    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_DESKTOP_GRAPHICS | PFD_DOUBLEBUFFER;
     pfd.iPixelType = PFD_TYPE_RGBA;
     pfd.cColorBits = 24;
 
@@ -509,7 +509,7 @@ void _desktop_windowTerminateWGL(void)
     attribs[index++] = v; \
 }
 
-// Create the OpenGL or OpenGL ES context
+// Create the DesktopGraphics or DesktopGraphics ES context
 //
 DESKTOP_WINDOWbool _desktop_windowCreateContextWGL(_DESKTOP_WINDOWwindow* window,
                                const _DESKTOP_WINDOWctxconfig* ctxconfig,
@@ -550,14 +550,14 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextWGL(_DESKTOP_WINDOWwindow* window
         return DESKTOP_WINDOW_FALSE;
     }
 
-    if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_API)
+    if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
     {
         if (ctxconfig->forward)
         {
             if (!_desktop_window.wgl.ARB_create_context)
             {
                 _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                                "WGL: A forward compatible OpenGL context requested but WGL_ARB_create_context is unavailable");
+                                "WGL: A forward compatible DesktopGraphics context requested but WGL_ARB_create_context is unavailable");
                 return DESKTOP_WINDOW_FALSE;
             }
         }
@@ -567,7 +567,7 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextWGL(_DESKTOP_WINDOWwindow* window
             if (!_desktop_window.wgl.ARB_create_context_profile)
             {
                 _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                                "WGL: OpenGL profile requested but WGL_ARB_create_context_profile is unavailable");
+                                "WGL: DesktopGraphics profile requested but WGL_ARB_create_context_profile is unavailable");
                 return DESKTOP_WINDOW_FALSE;
             }
         }
@@ -579,7 +579,7 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextWGL(_DESKTOP_WINDOWwindow* window
             !_desktop_window.wgl.EXT_create_context_es2_profile)
         {
             _desktop_windowInputError(DESKTOP_WINDOW_API_UNAVAILABLE,
-                            "WGL: OpenGL ES requested but WGL_ARB_create_context_es2_profile is unavailable");
+                            "WGL: DesktopGraphics ES requested but WGL_ARB_create_context_es2_profile is unavailable");
             return DESKTOP_WINDOW_FALSE;
         }
     }
@@ -588,14 +588,14 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextWGL(_DESKTOP_WINDOWwindow* window
     {
         int index = 0, mask = 0, flags = 0;
 
-        if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_API)
+        if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
         {
             if (ctxconfig->forward)
                 flags |= WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB;
 
-            if (ctxconfig->profile == DESKTOP_WINDOW_OPENGL_CORE_PROFILE)
+            if (ctxconfig->profile == DESKTOP_WINDOW_DESKTOP_GRAPHICS_CORE_PROFILE)
                 mask |= WGL_CONTEXT_CORE_PROFILE_BIT_ARB;
-            else if (ctxconfig->profile == DESKTOP_WINDOW_OPENGL_COMPAT_PROFILE)
+            else if (ctxconfig->profile == DESKTOP_WINDOW_DESKTOP_GRAPHICS_COMPAT_PROFILE)
                 mask |= WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB;
         }
         else
@@ -643,7 +643,7 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextWGL(_DESKTOP_WINDOWwindow* window
         if (ctxconfig->noerror)
         {
             if (_desktop_window.wgl.ARB_create_context_no_error)
-                SET_ATTRIB(WGL_CONTEXT_OPENGL_NO_ERROR_ARB, DESKTOP_WINDOW_TRUE);
+                SET_ATTRIB(WGL_CONTEXT_DESKTOP_GRAPHICS_NO_ERROR_ARB, DESKTOP_WINDOW_TRUE);
         }
 
         // NOTE: Only request an explicitly versioned context when necessary, as
@@ -671,17 +671,17 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextWGL(_DESKTOP_WINDOWwindow* window
 
             if (error == (0xc0070000 | ERROR_INVALID_VERSION_ARB))
             {
-                if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_API)
+                if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
                 {
                     _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                                    "WGL: Driver does not support OpenGL version %i.%i",
+                                    "WGL: Driver does not support DesktopGraphics version %i.%i",
                                     ctxconfig->major,
                                     ctxconfig->minor);
                 }
                 else
                 {
                     _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                                    "WGL: Driver does not support OpenGL ES version %i.%i",
+                                    "WGL: Driver does not support DesktopGraphics ES version %i.%i",
                                     ctxconfig->major,
                                     ctxconfig->minor);
                 }
@@ -689,7 +689,7 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextWGL(_DESKTOP_WINDOWwindow* window
             else if (error == (0xc0070000 | ERROR_INVALID_PROFILE_ARB))
             {
                 _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                                "WGL: Driver does not support the requested OpenGL profile");
+                                "WGL: Driver does not support the requested DesktopGraphics profile");
             }
             else if (error == (0xc0070000 | ERROR_INCOMPATIBLE_DEVICE_CONTEXTS_ARB))
             {
@@ -698,15 +698,15 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextWGL(_DESKTOP_WINDOWwindow* window
             }
             else
             {
-                if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_API)
+                if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
                 {
                     _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                                    "WGL: Failed to create OpenGL context");
+                                    "WGL: Failed to create DesktopGraphics context");
                 }
                 else
                 {
                     _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                                    "WGL: Failed to create OpenGL ES context");
+                                    "WGL: Failed to create DesktopGraphics ES context");
                 }
             }
 
@@ -719,7 +719,7 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextWGL(_DESKTOP_WINDOWwindow* window
         if (!window->context.wgl.handle)
         {
             _desktop_windowInputErrorWin32(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                                 "WGL: Failed to create OpenGL context");
+                                 "WGL: Failed to create DesktopGraphics context");
             return DESKTOP_WINDOW_FALSE;
         }
 
@@ -728,7 +728,7 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextWGL(_DESKTOP_WINDOWwindow* window
             if (!wglShareLists(share, window->context.wgl.handle))
             {
                 _desktop_windowInputErrorWin32(DESKTOP_WINDOW_PLATFORM_ERROR,
-                                     "WGL: Failed to enable sharing with specified OpenGL context");
+                                     "WGL: Failed to enable sharing with specified DesktopGraphics context");
                 return DESKTOP_WINDOW_FALSE;
             }
         }

@@ -103,7 +103,7 @@ extern "C" {
  #endif
  #if defined(DESKTOP_WINDOW_EXPOSE_NATIVE_GLX)
   /* This is a workaround for the fact that desktop_window3.h defines GLAPIENTRY because by
-   * default it also acts as an OpenGL header
+   * default it also acts as an DesktopGraphics header
    * However, glx.h will include gl.h, which will define it unconditionally
    */
   #if defined(DESKTOP_WINDOW_GLAPIENTRY_DEFINED)
@@ -117,7 +117,7 @@ extern "C" {
  #endif
  #if defined(DESKTOP_WINDOW_EXPOSE_NATIVE_OSMESA)
   /* This is a workaround for the fact that desktop_window3.h defines GLAPIENTRY because by
-   * default it also acts as an OpenGL header
+   * default it also acts as an DesktopGraphics header
    * However, osmesa.h will include gl.h, which will define it unconditionally
    */
   #if defined(DESKTOP_WINDOW_GLAPIENTRY_DEFINED)
@@ -278,9 +278,9 @@ DESKTOP_WINDOWAPI id desktop_windowGetCocoaView(DESKTOP_WINDOWwindow* window);
 #endif
 
 #if defined(DESKTOP_WINDOW_EXPOSE_NATIVE_NSGL)
-/*! @brief Returns the `NSOpenGLContext` of the specified window.
+/*! @brief Returns the `NSDesktopGraphicsContext` of the specified window.
  *
- *  @return The `NSOpenGLContext` of the specified window, or `nil` if an
+ *  @return The `NSDesktopGraphicsContext` of the specified window, or `nil` if an
  *  [error](@ref error_handling) occurred.
  *
  *  @errors Possible errors include @ref DESKTOP_WINDOW_NOT_INITIALIZED, @ref

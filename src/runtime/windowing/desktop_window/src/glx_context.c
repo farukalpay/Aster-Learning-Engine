@@ -116,7 +116,7 @@ static DESKTOP_WINDOWbool chooseGLXFBConfig(const _DESKTOP_WINDOWfbconfig* desir
     return closest != NULL;
 }
 
-// Create the OpenGL context using legacy API
+// Create the DesktopGraphics context using legacy API
 //
 static GLXContext createLegacyContextGLX(_DESKTOP_WINDOWwindow* window,
                                          GLXFBConfig fbconfig,
@@ -420,7 +420,7 @@ void _desktop_windowTerminateGLX(void)
     attribs[index++] = v; \
 }
 
-// Create the OpenGL or OpenGL ES context
+// Create the DesktopGraphics or DesktopGraphics ES context
 //
 DESKTOP_WINDOWbool _desktop_windowCreateContextGLX(_DESKTOP_WINDOWwindow* window,
                                const _DESKTOP_WINDOWctxconfig* ctxconfig,
@@ -440,14 +440,14 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextGLX(_DESKTOP_WINDOWwindow* window
         return DESKTOP_WINDOW_FALSE;
     }
 
-    if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_ES_API)
+    if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API)
     {
         if (!_desktop_window.glx.ARB_create_context ||
             !_desktop_window.glx.ARB_create_context_profile ||
             !_desktop_window.glx.EXT_create_context_es2_profile)
         {
             _desktop_windowInputError(DESKTOP_WINDOW_API_UNAVAILABLE,
-                            "GLX: OpenGL ES requested but GLX_EXT_create_context_es2_profile is unavailable");
+                            "GLX: DesktopGraphics ES requested but GLX_EXT_create_context_es2_profile is unavailable");
             return DESKTOP_WINDOW_FALSE;
         }
     }
@@ -468,7 +468,7 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextGLX(_DESKTOP_WINDOWwindow* window
             !_desktop_window.glx.ARB_create_context_profile)
         {
             _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                            "GLX: An OpenGL profile requested but GLX_ARB_create_context_profile is unavailable");
+                            "GLX: An DesktopGraphics profile requested but GLX_ARB_create_context_profile is unavailable");
             return DESKTOP_WINDOW_FALSE;
         }
     }
@@ -479,14 +479,14 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextGLX(_DESKTOP_WINDOWwindow* window
     {
         int index = 0, mask = 0, flags = 0;
 
-        if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_API)
+        if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
         {
             if (ctxconfig->forward)
                 flags |= GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB;
 
-            if (ctxconfig->profile == DESKTOP_WINDOW_OPENGL_CORE_PROFILE)
+            if (ctxconfig->profile == DESKTOP_WINDOW_DESKTOP_GRAPHICS_CORE_PROFILE)
                 mask |= GLX_CONTEXT_CORE_PROFILE_BIT_ARB;
-            else if (ctxconfig->profile == DESKTOP_WINDOW_OPENGL_COMPAT_PROFILE)
+            else if (ctxconfig->profile == DESKTOP_WINDOW_DESKTOP_GRAPHICS_COMPAT_PROFILE)
                 mask |= GLX_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB;
         }
         else
@@ -534,7 +534,7 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextGLX(_DESKTOP_WINDOWwindow* window
         if (ctxconfig->noerror)
         {
             if (_desktop_window.glx.ARB_create_context_no_error)
-                SET_ATTRIB(GLX_CONTEXT_OPENGL_NO_ERROR_ARB, DESKTOP_WINDOW_TRUE);
+                SET_ATTRIB(GLX_CONTEXT_DESKTOP_GRAPHICS_NO_ERROR_ARB, DESKTOP_WINDOW_TRUE);
         }
 
         // NOTE: Only request an explicitly versioned context when necessary, as
@@ -568,8 +568,8 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextGLX(_DESKTOP_WINDOWwindow* window
         if (!window->context.glx.handle)
         {
             if (_desktop_window.x11.errorCode == _desktop_window.glx.errorBase + GLXBadProfileARB &&
-                ctxconfig->client == DESKTOP_WINDOW_OPENGL_API &&
-                ctxconfig->profile == DESKTOP_WINDOW_OPENGL_ANY_PROFILE &&
+                ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API &&
+                ctxconfig->profile == DESKTOP_WINDOW_DESKTOP_GRAPHICS_ANY_PROFILE &&
                 ctxconfig->forward == DESKTOP_WINDOW_FALSE)
             {
                 window->context.glx.handle =

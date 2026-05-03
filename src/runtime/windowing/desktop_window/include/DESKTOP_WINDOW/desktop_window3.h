@@ -19,9 +19,9 @@ extern "C" {
  *  For more information about how to use this file, see @ref build_include.
  */
 /*! @defgroup context Context reference
- *  @brief Functions and types related to OpenGL and OpenGL ES contexts.
+ *  @brief Functions and types related to DesktopGraphics and DesktopGraphics ES contexts.
  *
- *  This is the reference documentation for OpenGL and OpenGL ES context related
+ *  This is the reference documentation for DesktopGraphics and DesktopGraphics ES context related
  *  functions.  For more task-oriented information, see the @ref context_guide.
  */
 /*! @defgroup vulkan Vulkan support reference
@@ -69,7 +69,7 @@ extern "C" {
 #endif /* _WIN32 */
 
 /* Include because most Windows GLU headers need wchar_t and
- * the macOS OpenGL header blocks the definition of ptrdiff_t by glext.h.
+ * the macOS DesktopGraphics header blocks the definition of ptrdiff_t by glext.h.
  * Include it unconditionally to avoid surprising side-effects.
  */
 #include <stddef.h>
@@ -87,8 +87,8 @@ extern "C" {
  * VK_USE_PLATFORM_WIN32_KHR) so we offer our replacement symbols after it.
  */
 
-/* It is customary to use APIENTRY for OpenGL function pointer declarations on
- * all platforms.  Additionally, the Windows OpenGL header needs APIENTRY.
+/* It is customary to use APIENTRY for DesktopGraphics function pointer declarations on
+ * all platforms.  Additionally, the Windows DesktopGraphics header needs APIENTRY.
  */
 #if !defined(APIENTRY)
  #if defined(_WIN32)
@@ -99,7 +99,7 @@ extern "C" {
  #define DESKTOP_WINDOW_APIENTRY_DEFINED
 #endif /* APIENTRY */
 
-/* Some Windows OpenGL headers need this.
+/* Some Windows DesktopGraphics headers need this.
  */
 #if !defined(WINGDIAPI) && defined(_WIN32)
  #define WINGDIAPI __declspec(dllimport)
@@ -113,7 +113,7 @@ extern "C" {
  #define DESKTOP_WINDOW_CALLBACK_DEFINED
 #endif /* CALLBACK */
 
-/* Include the chosen OpenGL or OpenGL ES headers.
+/* Include the chosen DesktopGraphics or DesktopGraphics ES headers.
  */
 #if defined(DESKTOP_WINDOW_INCLUDE_ES1)
 
@@ -154,9 +154,9 @@ extern "C" {
 
  #if defined(__APPLE__)
 
-  #include <OpenGL/gl3.h>
+  #include <DesktopGraphics/gl3.h>
   #if defined(DESKTOP_WINDOW_INCLUDE_GLEXT)
-   #include <OpenGL/gl3ext.h>
+   #include <DesktopGraphics/gl3ext.h>
   #endif /*DESKTOP_WINDOW_INCLUDE_GLEXT*/
 
  #else /*__APPLE__*/
@@ -173,7 +173,7 @@ extern "C" {
  #if defined(__APPLE__)
 
   #if defined(DESKTOP_WINDOW_INCLUDE_GLU)
-   #include <OpenGL/glu.h>
+   #include <DesktopGraphics/glu.h>
   #endif
 
  #else /*__APPLE__*/
@@ -206,7 +206,7 @@ extern "C" {
   #if !defined(DESKTOP_WINDOW_INCLUDE_GLEXT)
    #define GL_GLEXT_LEGACY
   #endif
-  #include <OpenGL/gl.h>
+  #include <DesktopGraphics/gl.h>
 
  #else /*__APPLE__*/
 
@@ -217,7 +217,7 @@ extern "C" {
 
  #endif /*__APPLE__*/
 
-#endif /* OpenGL and OpenGL ES headers */
+#endif /* DesktopGraphics and DesktopGraphics ES headers */
 
 #if defined(DESKTOP_WINDOW_DLL) && defined(_DESKTOP_WINDOW_BUILD_DLL)
  /* DESKTOP_WINDOW_DLL must be defined by applications that are linking against the DLL
@@ -654,7 +654,7 @@ extern "C" {
 /*! @brief No context is current for this thread.
  *
  *  This occurs if a DESKTOP_WINDOW function was called that needs and operates on the
- *  current OpenGL or OpenGL ES context but no context is current on the calling
+ *  current DesktopGraphics or DesktopGraphics ES context but no context is current on the calling
  *  thread.  One such function is @ref desktop_windowSwapInterval.
  *
  *  @analysis Application programmer error.  Ensure a context is current before
@@ -672,9 +672,9 @@ extern "C" {
 /*! @brief One of the arguments to the function was an invalid value.
  *
  *  One of the arguments to the function was an invalid value, for example
- *  requesting a non-existent OpenGL or OpenGL ES version like 2.7.
+ *  requesting a non-existent DesktopGraphics or DesktopGraphics ES version like 2.7.
  *
- *  Requesting a valid but unavailable OpenGL or OpenGL ES version will instead
+ *  Requesting a valid but unavailable DesktopGraphics or DesktopGraphics ES version will instead
  *  result in a @ref DESKTOP_WINDOW_VERSION_UNAVAILABLE error.
  *
  *  @analysis Application programmer error.  Fix the offending call.
@@ -697,16 +697,16 @@ extern "C" {
  *  Below are a few examples.
  *
  *  @par
- *  Some pre-installed Windows graphics drivers do not support OpenGL.  AMD only
- *  supports OpenGL ES via EGL, while Nvidia and Intel only support it via
- *  a WGL or GLX extension.  macOS does not provide OpenGL ES at all.  The Mesa
- *  EGL, OpenGL and OpenGL ES libraries do not interface with the Nvidia binary
+ *  Some pre-installed Windows graphics drivers do not support DesktopGraphics.  AMD only
+ *  supports DesktopGraphics ES via EGL, while Nvidia and Intel only support it via
+ *  a WGL or GLX extension.  macOS does not provide DesktopGraphics ES at all.  The Mesa
+ *  EGL, DesktopGraphics and DesktopGraphics ES libraries do not interface with the Nvidia binary
  *  driver.  Older graphics drivers do not support Vulkan.
  */
 #define DESKTOP_WINDOW_API_UNAVAILABLE        0x00010006
-/*! @brief The requested OpenGL or OpenGL ES version is not available.
+/*! @brief The requested DesktopGraphics or DesktopGraphics ES version is not available.
  *
- *  The requested OpenGL or OpenGL ES version (including any requested context
+ *  The requested DesktopGraphics or DesktopGraphics ES version (including any requested context
  *  or framebuffer hints) is not available on this machine.
  *
  *  @analysis The machine does not support your requirements.  If your
@@ -715,7 +715,7 @@ extern "C" {
  *  requirements.
  *
  *  @par
- *  Future invalid OpenGL and OpenGL ES versions, for example OpenGL 4.8 if 5.0
+ *  Future invalid DesktopGraphics and DesktopGraphics ES versions, for example DesktopGraphics 4.8 if 5.0
  *  comes out before the 4.x series gets that far, also fail with this error and
  *  not @ref DESKTOP_WINDOW_INVALID_VALUE, because DESKTOP_WINDOW cannot know what future versions
  *  will exist.
@@ -751,9 +751,9 @@ extern "C" {
  *  the user, as appropriate.
  */
 #define DESKTOP_WINDOW_FORMAT_UNAVAILABLE     0x00010009
-/*! @brief The specified window does not have an OpenGL or OpenGL ES context.
+/*! @brief The specified window does not have an DesktopGraphics or DesktopGraphics ES context.
  *
- *  A window that does not have an OpenGL or OpenGL ES context was passed to
+ *  A window that does not have an DesktopGraphics or DesktopGraphics ES context was passed to
  *  a function that requires it to have one.
  *
  *  @analysis Application programmer error.  Fix the offending call.
@@ -968,9 +968,9 @@ extern "C" {
  *  Framebuffer auxiliary buffer [hint](@ref DESKTOP_WINDOW_AUX_BUFFERS).
  */
 #define DESKTOP_WINDOW_AUX_BUFFERS            0x0002100B
-/*! @brief OpenGL stereoscopic rendering hint.
+/*! @brief DesktopGraphics stereoscopic rendering hint.
  *
- *  OpenGL stereoscopic rendering [hint](@ref DESKTOP_WINDOW_STEREO).
+ *  DesktopGraphics stereoscopic rendering [hint](@ref DESKTOP_WINDOW_STEREO).
  */
 #define DESKTOP_WINDOW_STEREO                 0x0002100C
 /*! @brief Framebuffer MSAA samples hint.
@@ -1025,12 +1025,12 @@ extern "C" {
  *  and [attribute](@ref DESKTOP_WINDOW_CONTEXT_ROBUSTNESS_attrib).
  */
 #define DESKTOP_WINDOW_CONTEXT_ROBUSTNESS     0x00022005
-/*! @brief OpenGL forward-compatibility hint and attribute.
+/*! @brief DesktopGraphics forward-compatibility hint and attribute.
  *
- *  OpenGL forward-compatibility [hint](@ref DESKTOP_WINDOW_OPENGL_FORWARD_COMPAT_hint)
- *  and [attribute](@ref DESKTOP_WINDOW_OPENGL_FORWARD_COMPAT_attrib).
+ *  DesktopGraphics forward-compatibility [hint](@ref DESKTOP_WINDOW_DESKTOP_GRAPHICS_FORWARD_COMPAT_hint)
+ *  and [attribute](@ref DESKTOP_WINDOW_DESKTOP_GRAPHICS_FORWARD_COMPAT_attrib).
  */
-#define DESKTOP_WINDOW_OPENGL_FORWARD_COMPAT  0x00022006
+#define DESKTOP_WINDOW_DESKTOP_GRAPHICS_FORWARD_COMPAT  0x00022006
 /*! @brief Debug mode context hint and attribute.
  *
  *  Debug mode context [hint](@ref DESKTOP_WINDOW_CONTEXT_DEBUG_hint) and
@@ -1041,13 +1041,13 @@ extern "C" {
  *
  *  This is an alias for compatibility with earlier versions.
  */
-#define DESKTOP_WINDOW_OPENGL_DEBUG_CONTEXT   DESKTOP_WINDOW_CONTEXT_DEBUG
-/*! @brief OpenGL profile hint and attribute.
+#define DESKTOP_WINDOW_DESKTOP_GRAPHICS_DEBUG_CONTEXT   DESKTOP_WINDOW_CONTEXT_DEBUG
+/*! @brief DesktopGraphics profile hint and attribute.
  *
- *  OpenGL profile [hint](@ref DESKTOP_WINDOW_OPENGL_PROFILE_hint) and
- *  [attribute](@ref DESKTOP_WINDOW_OPENGL_PROFILE_attrib).
+ *  DesktopGraphics profile [hint](@ref DESKTOP_WINDOW_DESKTOP_GRAPHICS_PROFILE_hint) and
+ *  [attribute](@ref DESKTOP_WINDOW_DESKTOP_GRAPHICS_PROFILE_attrib).
  */
-#define DESKTOP_WINDOW_OPENGL_PROFILE         0x00022008
+#define DESKTOP_WINDOW_DESKTOP_GRAPHICS_PROFILE         0x00022008
 /*! @brief Context flush-on-release hint and attribute.
  *
  *  Context flush-on-release [hint](@ref DESKTOP_WINDOW_CONTEXT_RELEASE_BEHAVIOR_hint) and
@@ -1110,16 +1110,16 @@ extern "C" {
 /*! @} */
 
 #define DESKTOP_WINDOW_NO_API                          0
-#define DESKTOP_WINDOW_OPENGL_API             0x00030001
-#define DESKTOP_WINDOW_OPENGL_ES_API          0x00030002
+#define DESKTOP_WINDOW_DESKTOP_GRAPHICS_API             0x00030001
+#define DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API          0x00030002
 
 #define DESKTOP_WINDOW_NO_ROBUSTNESS                   0
 #define DESKTOP_WINDOW_NO_RESET_NOTIFICATION  0x00031001
 #define DESKTOP_WINDOW_LOSE_CONTEXT_ON_RESET  0x00031002
 
-#define DESKTOP_WINDOW_OPENGL_ANY_PROFILE              0
-#define DESKTOP_WINDOW_OPENGL_CORE_PROFILE    0x00032001
-#define DESKTOP_WINDOW_OPENGL_COMPAT_PROFILE  0x00032002
+#define DESKTOP_WINDOW_DESKTOP_GRAPHICS_ANY_PROFILE              0
+#define DESKTOP_WINDOW_DESKTOP_GRAPHICS_CORE_PROFILE    0x00032001
+#define DESKTOP_WINDOW_DESKTOP_GRAPHICS_COMPAT_PROFILE  0x00032002
 
 #define DESKTOP_WINDOW_CURSOR                 0x00033001
 #define DESKTOP_WINDOW_STICKY_KEYS            0x00033002
@@ -1141,8 +1141,8 @@ extern "C" {
 #define DESKTOP_WINDOW_OSMESA_CONTEXT_API     0x00036003
 
 #define DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_NONE    0x00037001
-#define DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_OPENGL  0x00037002
-#define DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_OPENGLES 0x00037003
+#define DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_DESKTOP_GRAPHICS  0x00037002
+#define DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_DESKTOP_GRAPHICS_ES 0x00037003
 #define DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_D3D9    0x00037004
 #define DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_D3D11   0x00037005
 #define DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_VULKAN  0x00037007
@@ -2368,7 +2368,7 @@ DESKTOP_WINDOWAPI void desktop_windowGetVersion(int* major, int* minor, int* rev
  *  This function returns the compile-time generated
  *  [version string](@ref intro_version_string) of the DESKTOP_WINDOW library binary.  It describes
  *  the version, platforms, compiler and any platform or operating system specific
- *  compile-time options.  It should not be confused with the OpenGL or OpenGL ES version
+ *  compile-time options.  It should not be confused with the DesktopGraphics or DesktopGraphics ES version
  *  string, queried with `glGetString`.
  *
  *  __Do not use the version string__ to parse the DESKTOP_WINDOW library version.  The
@@ -2877,7 +2877,7 @@ DESKTOP_WINDOWAPI const DESKTOP_WINDOWvidmode* desktop_windowGetVideoMode(DESKTO
  *  This means that setting a perfectly linear ramp, or gamma 1.0, will produce
  *  the default (usually sRGB-like) behavior.
  *
- *  For gamma correct rendering with OpenGL or OpenGL ES, see the @ref
+ *  For gamma correct rendering with DesktopGraphics or DesktopGraphics ES, see the @ref
  *  DESKTOP_WINDOW_SRGB_CAPABLE hint.
  *
  *  @param[in] monitor The monitor whose gamma ramp to set.
@@ -2940,7 +2940,7 @@ DESKTOP_WINDOWAPI const DESKTOP_WINDOWgammaramp* desktop_windowGetGammaRamp(DESK
  *  This means that setting a perfectly linear ramp, or gamma 1.0, will produce
  *  the default (usually sRGB-like) behavior.
  *
- *  For gamma correct rendering with OpenGL or OpenGL ES, see the @ref
+ *  For gamma correct rendering with DesktopGraphics or DesktopGraphics ES, see the @ref
  *  DESKTOP_WINDOW_SRGB_CAPABLE hint.
  *
  *  @param[in] monitor The monitor whose gamma ramp to set.
@@ -3064,7 +3064,7 @@ DESKTOP_WINDOWAPI void desktop_windowWindowHintString(int hint, const char* valu
 
 /*! @brief Creates a window and its associated context.
  *
- *  This function creates a window and its associated OpenGL or OpenGL ES
+ *  This function creates a window and its associated DesktopGraphics or DesktopGraphics ES
  *  context.  Most of the options controlling how the window and its context
  *  should be created are specified with [window hints](@ref window_hints).
  *
@@ -3095,7 +3095,7 @@ DESKTOP_WINDOWAPI void desktop_windowWindowHintString(int hint, const char* valu
  *
  *  Once you have created the window, you can switch it between windowed and
  *  full screen mode with @ref desktop_windowSetWindowMonitor.  This will not affect its
- *  OpenGL or OpenGL ES context.
+ *  DesktopGraphics or DesktopGraphics ES context.
  *
  *  By default, newly created windows use the placement recommended by the
  *  window system.  To create the window at a specific position, set the @ref
@@ -3131,7 +3131,7 @@ DESKTOP_WINDOWAPI void desktop_windowWindowHintString(int hint, const char* valu
  *  DESKTOP_WINDOW_NO_WINDOW_CONTEXT and @ref DESKTOP_WINDOW_PLATFORM_ERROR.
  *
  *  @remark @win32 Window creation will fail if the Microsoft GDI software
- *  OpenGL implementation is the only one available.
+ *  DesktopGraphics implementation is the only one available.
  *
  *  @remark @win32 If the executable has an icon resource named `DESKTOP_WINDOW_ICON,` it
  *  will be set as the initial icon for the window.  If no such icon is present,
@@ -3141,10 +3141,10 @@ DESKTOP_WINDOWAPI void desktop_windowWindowHintString(int hint, const char* valu
  *  @remark @win32 The context to share resources with must not be current on
  *  any other thread.
  *
- *  @remark @macos The OS only supports core profile contexts for OpenGL
- *  versions 3.2 and later.  Before creating an OpenGL context of version 3.2 or
- *  later you must set the [DESKTOP_WINDOW_OPENGL_PROFILE](@ref DESKTOP_WINDOW_OPENGL_PROFILE_hint)
- *  hint accordingly.  OpenGL 3.0 and 3.1 contexts are not supported at all
+ *  @remark @macos The OS only supports core profile contexts for DesktopGraphics
+ *  versions 3.2 and later.  Before creating an DesktopGraphics context of version 3.2 or
+ *  later you must set the [DESKTOP_WINDOW_DESKTOP_GRAPHICS_PROFILE](@ref DESKTOP_WINDOW_DESKTOP_GRAPHICS_PROFILE_hint)
+ *  hint accordingly.  DesktopGraphics 3.0 and 3.1 contexts are not supported at all
  *  on macOS.
  *
  *  @remark @macos The DESKTOP_WINDOW window has no icon, as it is not a document
@@ -4025,7 +4025,7 @@ DESKTOP_WINDOWAPI DESKTOP_WINDOWmonitor* desktop_windowGetWindowMonitor(DESKTOP_
  *  @errors Possible errors include @ref DESKTOP_WINDOW_NOT_INITIALIZED and @ref
  *  DESKTOP_WINDOW_PLATFORM_ERROR.
  *
- *  @remark The OpenGL or OpenGL ES context will not be destroyed or otherwise
+ *  @remark The DesktopGraphics or DesktopGraphics ES context will not be destroyed or otherwise
  *  affected by any resizing or mode switching, although you may need to update
  *  your viewport if the framebuffer size has changed.
  *
@@ -4048,7 +4048,7 @@ DESKTOP_WINDOWAPI void desktop_windowSetWindowMonitor(DESKTOP_WINDOWwindow* wind
 /*! @brief Returns an attribute of the specified window.
  *
  *  This function returns the value of an attribute of the specified window or
- *  its OpenGL or OpenGL ES context.
+ *  its DesktopGraphics or DesktopGraphics ES context.
  *
  *  @param[in] window The window to query.
  *  @param[in] attrib The [window attribute](@ref window_attribs) whose value to
@@ -6038,7 +6038,7 @@ DESKTOP_WINDOWAPI uint64_t desktop_windowGetTimerFrequency(void);
 /*! @brief Makes the context of the specified window current for the calling
  *  thread.
  *
- *  This function makes the OpenGL or OpenGL ES context of the specified window
+ *  This function makes the DesktopGraphics or DesktopGraphics ES context of the specified window
  *  current on the calling thread.  It can also detach the current context from
  *  the calling thread without making a new one current by passing in `NULL`.
  *
@@ -6055,7 +6055,7 @@ DESKTOP_WINDOWAPI uint64_t desktop_windowGetTimerFrequency(void);
  *  [DESKTOP_WINDOW_CONTEXT_RELEASE_BEHAVIOR](@ref DESKTOP_WINDOW_CONTEXT_RELEASE_BEHAVIOR_hint)
  *  hint.
  *
- *  The specified window must have an OpenGL or OpenGL ES context.  Specifying
+ *  The specified window must have an DesktopGraphics or DesktopGraphics ES context.  Specifying
  *  a window without a context will generate a @ref DESKTOP_WINDOW_NO_WINDOW_CONTEXT
  *  error.
  *
@@ -6082,7 +6082,7 @@ DESKTOP_WINDOWAPI void desktop_windowMakeContextCurrent(DESKTOP_WINDOWwindow* wi
 
 /*! @brief Returns the window whose context is current on the calling thread.
  *
- *  This function returns the window whose OpenGL or OpenGL ES context is
+ *  This function returns the window whose DesktopGraphics or DesktopGraphics ES context is
  *  current on the calling thread.
  *
  *  @return The window whose context is current, or `NULL` if no window's
@@ -6104,11 +6104,11 @@ DESKTOP_WINDOWAPI DESKTOP_WINDOWwindow* desktop_windowGetCurrentContext(void);
 /*! @brief Swaps the front and back buffers of the specified window.
  *
  *  This function swaps the front and back buffers of the specified window when
- *  rendering with OpenGL or OpenGL ES.  If the swap interval is greater than
+ *  rendering with DesktopGraphics or DesktopGraphics ES.  If the swap interval is greater than
  *  zero, the GPU driver waits the specified number of screen updates before
  *  swapping the buffers.
  *
- *  The specified window must have an OpenGL or OpenGL ES context.  Specifying
+ *  The specified window must have an DesktopGraphics or DesktopGraphics ES context.  Specifying
  *  a window without a context will generate a @ref DESKTOP_WINDOW_NO_WINDOW_CONTEXT
  *  error.
  *
@@ -6137,7 +6137,7 @@ DESKTOP_WINDOWAPI void desktop_windowSwapBuffers(DESKTOP_WINDOWwindow* window);
 
 /*! @brief Sets the swap interval for the current context.
  *
- *  This function sets the swap interval for the current OpenGL or OpenGL ES
+ *  This function sets the swap interval for the current DesktopGraphics or DesktopGraphics ES
  *  context, i.e. the number of screen updates to wait from the time @ref
  *  desktop_windowSwapBuffers was called before swapping the buffers and returning.  This
  *  is sometimes called _vertical synchronization_, _vertical retrace
@@ -6184,8 +6184,8 @@ DESKTOP_WINDOWAPI void desktop_windowSwapInterval(int interval);
 /*! @brief Returns whether the specified extension is available.
  *
  *  This function returns whether the specified
- *  [API extension](@ref context_glext) is supported by the current OpenGL or
- *  OpenGL ES context.  It searches both for client API extension and context
+ *  [API extension](@ref context_glext) is supported by the current DesktopGraphics or
+ *  DesktopGraphics ES context.  It searches both for client API extension and context
  *  creation API extensions.
  *
  *  A context must be current on the calling thread.  Calling this function
@@ -6222,7 +6222,7 @@ DESKTOP_WINDOWAPI int desktop_windowExtensionSupported(const char* extension);
 /*! @brief Returns the address of the specified function for the current
  *  context.
  *
- *  This function returns the address of the specified OpenGL or OpenGL ES
+ *  This function returns the address of the specified DesktopGraphics or DesktopGraphics ES
  *  [core or extension function](@ref context_glext), if it is supported
  *  by the current context.
  *
@@ -6500,7 +6500,7 @@ DESKTOP_WINDOWAPI VkResult desktop_windowCreateWindowSurface(VkInstance instance
  #undef DESKTOP_WINDOW_CALLBACK_DEFINED
 #endif
 
-/* Some OpenGL related headers need GLAPIENTRY, but it is unconditionally
+/* Some DesktopGraphics related headers need GLAPIENTRY, but it is unconditionally
  * defined by some gl.h variants (OpenBSD) so define it after if needed.
  */
 #ifndef GLAPIENTRY

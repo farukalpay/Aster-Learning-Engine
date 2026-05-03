@@ -119,7 +119,7 @@ namespace aster_linear
 	template<typename genType>
 	ASTER_LINEAR_FUNC_DECL genType fclamp(genType x, genType minVal, genType maxVal);
 
-	/// Simulate GL_CLAMP OpenGL wrap mode
+	/// Simulate GL_CLAMP DesktopGraphics wrap mode
 	///
 	/// @tparam genType Floating-point scalar types.
 	///
@@ -127,7 +127,7 @@ namespace aster_linear
 	template<typename genType>
 	ASTER_LINEAR_FUNC_DECL genType clamp(genType const& Texcoord);
 
-	/// Simulate GL_REPEAT OpenGL wrap mode
+	/// Simulate GL_REPEAT DesktopGraphics wrap mode
 	///
 	/// @tparam genType Floating-point scalar types.
 	///
@@ -135,7 +135,7 @@ namespace aster_linear
 	template<typename genType>
 	ASTER_LINEAR_FUNC_DECL genType repeat(genType const& Texcoord);
 
-	/// Simulate GL_MIRRORED_REPEAT OpenGL wrap mode
+	/// Simulate GL_MIRRORED_REPEAT DesktopGraphics wrap mode
 	///
 	/// @tparam genType Floating-point scalar types.
 	///
@@ -143,7 +143,7 @@ namespace aster_linear
 	template<typename genType>
 	ASTER_LINEAR_FUNC_DECL genType mirrorClamp(genType const& Texcoord);
 
-	/// Simulate GL_MIRROR_REPEAT OpenGL wrap mode
+	/// Simulate GL_MIRROR_REPEAT DesktopGraphics wrap mode
 	///
 	/// @tparam genType Floating-point scalar types.
 	///
@@ -158,7 +158,7 @@ namespace aster_linear
 	/// @param x The values of the argument must be greater or equal to zero.
 	/// @tparam genType floating point scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/round.xml">GLSL round man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/round.xml">GLSL round man page</a>
 	/// @see ext_scalar_common extension.
 	template<typename genType>
 	ASTER_LINEAR_FUNC_DECL int iround(genType const& x);
@@ -170,7 +170,7 @@ namespace aster_linear
 	/// @param x The values of the argument must be greater or equal to zero.
 	/// @tparam genType floating point scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/round.xml">GLSL round man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/round.xml">GLSL round man page</a>
 	/// @see ext_scalar_common extension.
 	template<typename genType>
 	ASTER_LINEAR_FUNC_DECL uint uround(genType const& x);

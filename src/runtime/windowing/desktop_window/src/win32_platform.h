@@ -192,7 +192,7 @@ typedef enum
 #endif
 
 #define WGL_NUMBER_PIXEL_FORMATS_ARB 0x2000
-#define WGL_SUPPORT_OPENGL_ARB 0x2010
+#define WGL_SUPPORT_DESKTOP_GRAPHICS_ARB 0x2010
 #define WGL_DRAW_TO_WINDOW_ARB 0x2001
 #define WGL_PIXEL_TYPE_ARB 0x2013
 #define WGL_TYPE_RGBA_ARB 0x202b
@@ -234,7 +234,7 @@ typedef enum
 #define WGL_CONTEXT_RELEASE_BEHAVIOR_ARB 0x2097
 #define WGL_CONTEXT_RELEASE_BEHAVIOR_NONE_ARB 0
 #define WGL_CONTEXT_RELEASE_BEHAVIOR_FLUSH_ARB 0x2098
-#define WGL_CONTEXT_OPENGL_NO_ERROR_ARB 0x31b3
+#define WGL_CONTEXT_DESKTOP_GRAPHICS_NO_ERROR_ARB 0x31b3
 #define WGL_COLORSPACE_EXT 0x309d
 #define WGL_COLORSPACE_SRGB_EXT 0x3089
 
@@ -300,7 +300,7 @@ typedef HGLRC (WINAPI * PFNWGLCREATECONTEXTATTRIBSARBPROC)(HDC,HGLRC,const int*)
 #define wglGetExtensionsStringARB _desktop_window.wgl.GetExtensionsStringARB
 #define wglCreateContextAttribsARB _desktop_window.wgl.CreateContextAttribsARB
 
-// opengl32.dll function pointer typedefs
+// desktop_graphics32.dll function pointer typedefs
 typedef HGLRC (WINAPI * PFN_wglCreateContext)(HDC);
 typedef BOOL (WINAPI * PFN_wglDeleteContext)(HGLRC);
 typedef PROC (WINAPI * PFN_wglGetProcAddress)(LPCSTR);

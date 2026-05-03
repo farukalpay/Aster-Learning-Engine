@@ -1860,10 +1860,10 @@ EGLenum _desktop_windowGetEGLPlatformCocoa(EGLint** attribs)
     {
         int type = 0;
 
-        if (_desktop_window.egl.ANGLE_platform_angle_opengl)
+        if (_desktop_window.egl.ANGLE_platform_angle_desktop_graphics)
         {
-            if (_desktop_window.hints.init.angleType == DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_OPENGL)
-                type = EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE;
+            if (_desktop_window.hints.init.angleType == DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_DESKTOP_GRAPHICS)
+                type = EGL_PLATFORM_ANGLE_TYPE_DESKTOP_GRAPHICS_ANGLE;
         }
 
         if (_desktop_window.egl.ANGLE_platform_angle_metal)

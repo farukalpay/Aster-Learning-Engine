@@ -30,8 +30,8 @@ DESKTOP_WINDOWbool _desktop_windowIsValidContextConfig(const _DESKTOP_WINDOWctxc
     }
 
     if (ctxconfig->client != DESKTOP_WINDOW_NO_API &&
-        ctxconfig->client != DESKTOP_WINDOW_OPENGL_API &&
-        ctxconfig->client != DESKTOP_WINDOW_OPENGL_ES_API)
+        ctxconfig->client != DESKTOP_WINDOW_DESKTOP_GRAPHICS_API &&
+        ctxconfig->client != DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API)
     {
         _desktop_windowInputError(DESKTOP_WINDOW_INVALID_ENUM,
                         "Invalid client API 0x%08X",
@@ -56,7 +56,7 @@ DESKTOP_WINDOWbool _desktop_windowIsValidContextConfig(const _DESKTOP_WINDOWctxc
         }
     }
 
-    if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_API)
+    if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
     {
         if ((ctxconfig->major < 1 || ctxconfig->minor < 0) ||
             (ctxconfig->major == 1 && ctxconfig->minor > 5) ||
@@ -77,8 +77,8 @@ DESKTOP_WINDOWbool _desktop_windowIsValidContextConfig(const _DESKTOP_WINDOWctxc
 
         if (ctxconfig->profile)
         {
-            if (ctxconfig->profile != DESKTOP_WINDOW_OPENGL_CORE_PROFILE &&
-                ctxconfig->profile != DESKTOP_WINDOW_OPENGL_COMPAT_PROFILE)
+            if (ctxconfig->profile != DESKTOP_WINDOW_DESKTOP_GRAPHICS_CORE_PROFILE &&
+                ctxconfig->profile != DESKTOP_WINDOW_DESKTOP_GRAPHICS_COMPAT_PROFILE)
             {
                 _desktop_windowInputError(DESKTOP_WINDOW_INVALID_ENUM,
                                 "Invalid legacy graphics API profile 0x%08X",
@@ -106,7 +106,7 @@ DESKTOP_WINDOWbool _desktop_windowIsValidContextConfig(const _DESKTOP_WINDOWctxc
             return DESKTOP_WINDOW_FALSE;
         }
     }
-    else if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_ES_API)
+    else if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API)
     {
         if (ctxconfig->major < 1 || ctxconfig->minor < 0 ||
             (ctxconfig->major == 1 && ctxconfig->minor > 1) ||
@@ -330,7 +330,7 @@ DESKTOP_WINDOWbool _desktop_windowRefreshContextAttribs(_DESKTOP_WINDOWwindow* w
     };
 
     window->context.source = ctxconfig->source;
-    window->context.client = DESKTOP_WINDOW_OPENGL_API;
+    window->context.client = DESKTOP_WINDOW_DESKTOP_GRAPHICS_API;
 
     previous = _desktop_windowPlatformGetTls(&_desktop_window.contextSlot);
     desktop_windowMakeContextCurrent((DESKTOP_WINDOWwindow*) window);
@@ -351,7 +351,7 @@ DESKTOP_WINDOWbool _desktop_windowRefreshContextAttribs(_DESKTOP_WINDOWwindow* w
     version = (const char*) window->context.GetString(GL_VERSION);
     if (!version)
     {
-        if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_API)
+        if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
         {
             _desktop_windowInputError(DESKTOP_WINDOW_PLATFORM_ERROR,
                             "legacy graphics API version string retrieval is broken");
@@ -373,7 +373,7 @@ DESKTOP_WINDOWbool _desktop_windowRefreshContextAttribs(_DESKTOP_WINDOWwindow* w
         if (strncmp(version, prefixes[i], length) == 0)
         {
             version += length;
-            window->context.client = DESKTOP_WINDOW_OPENGL_ES_API;
+            window->context.client = DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API;
             break;
         }
     }
@@ -383,7 +383,7 @@ DESKTOP_WINDOWbool _desktop_windowRefreshContextAttribs(_DESKTOP_WINDOWwindow* w
                 &window->context.minor,
                 &window->context.revision))
     {
-        if (window->context.client == DESKTOP_WINDOW_OPENGL_API)
+        if (window->context.client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
         {
             _desktop_windowInputError(DESKTOP_WINDOW_PLATFORM_ERROR,
                             "No version found in legacy graphics API version string");
@@ -409,7 +409,7 @@ DESKTOP_WINDOWbool _desktop_windowRefreshContextAttribs(_DESKTOP_WINDOWwindow* w
         // For API consistency, we emulate the behavior of the
         // {GLX|WGL}_ARB_create_context extension and fail here
 
-        if (window->context.client == DESKTOP_WINDOW_OPENGL_API)
+        if (window->context.client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
         {
             _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
                             "Requested legacy graphics API version %i.%i, got version %i.%i",
@@ -445,7 +445,7 @@ DESKTOP_WINDOWbool _desktop_windowRefreshContextAttribs(_DESKTOP_WINDOWwindow* w
         }
     }
 
-    if (window->context.client == DESKTOP_WINDOW_OPENGL_API)
+    if (window->context.client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
     {
         // Read back context flags (legacy graphics API 3.0 and above)
         if (window->context.major >= 3)
@@ -479,16 +479,16 @@ DESKTOP_WINDOWbool _desktop_windowRefreshContextAttribs(_DESKTOP_WINDOWwindow* w
             window->context.GetIntegerv(GL_CONTEXT_PROFILE_MASK, &mask);
 
             if (mask & GL_CONTEXT_COMPATIBILITY_PROFILE_BIT)
-                window->context.profile = DESKTOP_WINDOW_OPENGL_COMPAT_PROFILE;
+                window->context.profile = DESKTOP_WINDOW_DESKTOP_GRAPHICS_COMPAT_PROFILE;
             else if (mask & GL_CONTEXT_CORE_PROFILE_BIT)
-                window->context.profile = DESKTOP_WINDOW_OPENGL_CORE_PROFILE;
+                window->context.profile = DESKTOP_WINDOW_DESKTOP_GRAPHICS_CORE_PROFILE;
             else if (desktop_windowExtensionSupported("GL_ARB_compatibility"))
             {
                 // HACK: This is a workaround for the compatibility profile bit
                 //       not being set in the context flags if an legacy graphics API 3.2+
                 //       context was created without having requested a specific
                 //       version
-                window->context.profile = DESKTOP_WINDOW_OPENGL_COMPAT_PROFILE;
+                window->context.profile = DESKTOP_WINDOW_DESKTOP_GRAPHICS_COMPAT_PROFILE;
             }
         }
 

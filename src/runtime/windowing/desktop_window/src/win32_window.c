@@ -419,7 +419,7 @@ static void acquireMonitor(_DESKTOP_WINDOWwindow* window)
         SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED);
 
         // HACK: When mouse trails are enabled the cursor becomes invisible when
-        //       the OpenGL ICD switches to page flipping
+        //       the DesktopGraphics ICD switches to page flipping
         SystemParametersInfoW(SPI_GETMOUSETRAILS, 0, &_desktop_window.win32.mouseTrailSize, 0);
         SystemParametersInfoW(SPI_SETMOUSETRAILS, 0, 0, 0);
     }
@@ -2441,12 +2441,12 @@ EGLenum _desktop_windowGetEGLPlatformWin32(EGLint** attribs)
     {
         int type = 0;
 
-        if (_desktop_window.egl.ANGLE_platform_angle_opengl)
+        if (_desktop_window.egl.ANGLE_platform_angle_desktop_graphics)
         {
-            if (_desktop_window.hints.init.angleType == DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_OPENGL)
-                type = EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE;
-            else if (_desktop_window.hints.init.angleType == DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_OPENGLES)
-                type = EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE;
+            if (_desktop_window.hints.init.angleType == DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_DESKTOP_GRAPHICS)
+                type = EGL_PLATFORM_ANGLE_TYPE_DESKTOP_GRAPHICS_ANGLE;
+            else if (_desktop_window.hints.init.angleType == DESKTOP_WINDOW_ANGLE_PLATFORM_TYPE_DESKTOP_GRAPHICS_ES)
+                type = EGL_PLATFORM_ANGLE_TYPE_DESKTOP_GRAPHICS_ES_ANGLE;
         }
 
         if (_desktop_window.egl.ANGLE_platform_angle_d3d)

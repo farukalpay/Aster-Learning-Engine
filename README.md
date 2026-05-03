@@ -21,7 +21,7 @@ The images below were regenerated from the current build.
 
 ![Aster Learning Studio](assets/screenshots/learning_studio.png)
 
-![Offline preview renderer](assets/screenshots/offline_preview.png)
+![Aster preview renderer](assets/screenshots/aster_preview.png)
 
 ## Educational Goals
 
@@ -54,7 +54,6 @@ Prerequisites:
 
 - CMake 3.24+
 - A C++20 compiler
-- OpenGL-capable desktop environment
 - macOS or a Linux desktop with the needed windowing development packages
 
 ```bash
@@ -97,7 +96,7 @@ rm -f assets/screenshots/*
 sips -s format png /tmp/aster_learning_shots/lumen_run.ppm --out assets/screenshots/lumen_run.png
 sips -s format png /tmp/aster_learning_shots/lumen_inventory.ppm --out assets/screenshots/lumen_inventory.png
 sips -s format png /tmp/aster_learning_shots/studio.ppm --out assets/screenshots/learning_studio.png
-sips -s format png /tmp/aster_learning_shots/preview.ppm --out assets/screenshots/offline_preview.png
+sips -s format png /tmp/aster_learning_shots/preview.ppm --out assets/screenshots/aster_preview.png
 ```
 
 On non-macOS hosts, replace `sips` with ImageMagick, FFmpeg, or another PPM to

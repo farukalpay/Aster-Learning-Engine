@@ -229,9 +229,9 @@ void desktop_windowDefaultWindowHints(void)
 {
     _DESKTOP_WINDOW_REQUIRE_INIT();
 
-    // The default is OpenGL with minimum version 1.0
+    // The default is DesktopGraphics with minimum version 1.0
     memset(&_desktop_window.hints.context, 0, sizeof(_desktop_window.hints.context));
-    _desktop_window.hints.context.client = DESKTOP_WINDOW_OPENGL_API;
+    _desktop_window.hints.context.client = DESKTOP_WINDOW_DESKTOP_GRAPHICS_API;
     _desktop_window.hints.context.source = DESKTOP_WINDOW_NATIVE_CONTEXT_API;
     _desktop_window.hints.context.major  = 1;
     _desktop_window.hints.context.minor  = 0;
@@ -385,7 +385,7 @@ DESKTOP_WINDOWAPI void desktop_windowWindowHint(int hint, int value)
         case DESKTOP_WINDOW_CONTEXT_ROBUSTNESS:
             _desktop_window.hints.context.robustness = value;
             return;
-        case DESKTOP_WINDOW_OPENGL_FORWARD_COMPAT:
+        case DESKTOP_WINDOW_DESKTOP_GRAPHICS_FORWARD_COMPAT:
             _desktop_window.hints.context.forward = value ? DESKTOP_WINDOW_TRUE : DESKTOP_WINDOW_FALSE;
             return;
         case DESKTOP_WINDOW_CONTEXT_DEBUG:
@@ -394,7 +394,7 @@ DESKTOP_WINDOWAPI void desktop_windowWindowHint(int hint, int value)
         case DESKTOP_WINDOW_CONTEXT_NO_ERROR:
             _desktop_window.hints.context.noerror = value ? DESKTOP_WINDOW_TRUE : DESKTOP_WINDOW_FALSE;
             return;
-        case DESKTOP_WINDOW_OPENGL_PROFILE:
+        case DESKTOP_WINDOW_DESKTOP_GRAPHICS_PROFILE:
             _desktop_window.hints.context.profile = value;
             return;
         case DESKTOP_WINDOW_CONTEXT_RELEASE_BEHAVIOR:
@@ -881,11 +881,11 @@ DESKTOP_WINDOWAPI int desktop_windowGetWindowAttrib(DESKTOP_WINDOWwindow* handle
             return window->context.revision;
         case DESKTOP_WINDOW_CONTEXT_ROBUSTNESS:
             return window->context.robustness;
-        case DESKTOP_WINDOW_OPENGL_FORWARD_COMPAT:
+        case DESKTOP_WINDOW_DESKTOP_GRAPHICS_FORWARD_COMPAT:
             return window->context.forward;
         case DESKTOP_WINDOW_CONTEXT_DEBUG:
             return window->context.debug;
-        case DESKTOP_WINDOW_OPENGL_PROFILE:
+        case DESKTOP_WINDOW_DESKTOP_GRAPHICS_PROFILE:
             return window->context.profile;
         case DESKTOP_WINDOW_CONTEXT_RELEASE_BEHAVIOR:
             return window->context.release;

@@ -12,7 +12,7 @@ static void makeContextCurrentNSGL(_DESKTOP_WINDOWwindow* window)
     if (window)
         [window->context.nsgl.object makeCurrentContext];
     else
-        [NSOpenGLContext clearCurrentContext];
+        [NSDesktopGraphicsContext clearCurrentContext];
 
     _desktop_windowPlatformSetTls(&_desktop_window.contextSlot, window);
 
@@ -29,7 +29,7 @@ static void swapBuffersNSGL(_DESKTOP_WINDOWwindow* window)
     {
         int interval = 0;
         [window->context.nsgl.object getValues:&interval
-                                  forParameter:NSOpenGLContextParameterSwapInterval];
+                                  forParameter:NSDesktopGraphicsContextParameterSwapInterval];
 
         if (interval > 0)
         {
@@ -58,7 +58,7 @@ static void swapIntervalNSGL(int interval)
     assert(window != NULL);
 
     [window->context.nsgl.object setValues:&interval
-                              forParameter:NSOpenGLContextParameterSwapInterval];
+                              forParameter:NSDesktopGraphicsContextParameterSwapInterval];
 
     } // autoreleasepool
 }
@@ -101,7 +101,7 @@ static void destroyContextNSGL(_DESKTOP_WINDOWwindow* window)
 //////                       DESKTOP_WINDOW internal API                      //////
 //////////////////////////////////////////////////////////////////////////
 
-// Initialize OpenGL support
+// Initialize DesktopGraphics support
 //
 DESKTOP_WINDOWbool _desktop_windowInitNSGL(void)
 {
@@ -109,33 +109,33 @@ DESKTOP_WINDOWbool _desktop_windowInitNSGL(void)
         return DESKTOP_WINDOW_TRUE;
 
     _desktop_window.nsgl.framework =
-        CFBundleGetBundleWithIdentifier(CFSTR("com.apple.opengl"));
+        CFBundleGetBundleWithIdentifier(CFSTR("com.apple.desktop_graphics"));
     if (_desktop_window.nsgl.framework == NULL)
     {
         _desktop_windowInputError(DESKTOP_WINDOW_API_UNAVAILABLE,
-                        "NSGL: Failed to locate OpenGL framework");
+                        "NSGL: Failed to locate DesktopGraphics framework");
         return DESKTOP_WINDOW_FALSE;
     }
 
     return DESKTOP_WINDOW_TRUE;
 }
 
-// Terminate OpenGL support
+// Terminate DesktopGraphics support
 //
 void _desktop_windowTerminateNSGL(void)
 {
 }
 
-// Create the OpenGL context
+// Create the DesktopGraphics context
 //
 DESKTOP_WINDOWbool _desktop_windowCreateContextNSGL(_DESKTOP_WINDOWwindow* window,
                                 const _DESKTOP_WINDOWctxconfig* ctxconfig,
                                 const _DESKTOP_WINDOWfbconfig* fbconfig)
 {
-    if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_ES_API)
+    if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API)
     {
         _desktop_windowInputError(DESKTOP_WINDOW_API_UNAVAILABLE,
-                        "NSGL: OpenGL ES is not available via NSGL");
+                        "NSGL: DesktopGraphics ES is not available via NSGL");
         return DESKTOP_WINDOW_FALSE;
     }
 
@@ -144,12 +144,12 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextNSGL(_DESKTOP_WINDOWwindow* windo
         if (ctxconfig->major == 3 && ctxconfig->minor < 2)
         {
             _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                            "NSGL: The targeted version of macOS does not support OpenGL 3.0 or 3.1 but may support 3.2 and above");
+                            "NSGL: The targeted version of macOS does not support DesktopGraphics 3.0 or 3.1 but may support 3.2 and above");
             return DESKTOP_WINDOW_FALSE;
         }
     }
 
-    if (ctxconfig->major >= 3 && ctxconfig->profile == DESKTOP_WINDOW_OPENGL_COMPAT_PROFILE)
+    if (ctxconfig->major >= 3 && ctxconfig->profile == DESKTOP_WINDOW_DESKTOP_GRAPHICS_COMPAT_PROFILE)
     {
         _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
                         "NSGL: The compatibility profile is not available on macOS");
@@ -175,18 +175,18 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextNSGL(_DESKTOP_WINDOWwindow* windo
 }
 #define SET_ATTRIB(a, v) { ADD_ATTRIB(a); ADD_ATTRIB(v); }
 
-    NSOpenGLPixelFormatAttribute attribs[40];
+    NSDesktopGraphicsPixelFormatAttribute attribs[40];
     int index = 0;
 
-    ADD_ATTRIB(NSOpenGLPFAAccelerated);
-    ADD_ATTRIB(NSOpenGLPFAClosestPolicy);
+    ADD_ATTRIB(NSDesktopGraphicsPFAAccelerated);
+    ADD_ATTRIB(NSDesktopGraphicsPFAClosestPolicy);
 
     if (ctxconfig->nsgl.offline)
     {
-        ADD_ATTRIB(NSOpenGLPFAAllowOfflineRenderers);
+        ADD_ATTRIB(NSDesktopGraphicsPFAAllowOfflineRenderers);
         // NOTE: This replaces the NSSupportsAutomaticGraphicsSwitching key in
         //       Info.plist for unbundled applications
-        // HACK: This assumes that NSOpenGLPixelFormat will remain
+        // HACK: This assumes that NSDesktopGraphicsPixelFormat will remain
         //       a straightforward wrapper of its CGL counterpart
         ADD_ATTRIB(kCGLPFASupportsAutomaticGraphicsSwitching);
     }
@@ -194,19 +194,19 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextNSGL(_DESKTOP_WINDOWwindow* windo
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
     if (ctxconfig->major >= 4)
     {
-        SET_ATTRIB(NSOpenGLPFAOpenGLProfile, NSOpenGLProfileVersion4_1Core);
+        SET_ATTRIB(NSDesktopGraphicsPFADesktopGraphicsProfile, NSDesktopGraphicsProfileVersion4_1Core);
     }
     else
 #endif /*MAC_OS_X_VERSION_MAX_ALLOWED*/
     if (ctxconfig->major >= 3)
     {
-        SET_ATTRIB(NSOpenGLPFAOpenGLProfile, NSOpenGLProfileVersion3_2Core);
+        SET_ATTRIB(NSDesktopGraphicsPFADesktopGraphicsProfile, NSDesktopGraphicsProfileVersion3_2Core);
     }
 
     if (ctxconfig->major <= 2)
     {
         if (fbconfig->auxBuffers != DESKTOP_WINDOW_DONT_CARE)
-            SET_ATTRIB(NSOpenGLPFAAuxBuffers, fbconfig->auxBuffers);
+            SET_ATTRIB(NSDesktopGraphicsPFAAuxBuffers, fbconfig->auxBuffers);
 
         if (fbconfig->accumRedBits != DESKTOP_WINDOW_DONT_CARE &&
             fbconfig->accumGreenBits != DESKTOP_WINDOW_DONT_CARE &&
@@ -218,7 +218,7 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextNSGL(_DESKTOP_WINDOWwindow* windo
                                   fbconfig->accumBlueBits +
                                   fbconfig->accumAlphaBits;
 
-            SET_ATTRIB(NSOpenGLPFAAccumSize, accumBits);
+            SET_ATTRIB(NSDesktopGraphicsPFAAccumSize, accumBits);
         }
     }
 
@@ -236,17 +236,17 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextNSGL(_DESKTOP_WINDOWwindow* windo
         else if (colorBits < 15)
             colorBits = 15;
 
-        SET_ATTRIB(NSOpenGLPFAColorSize, colorBits);
+        SET_ATTRIB(NSDesktopGraphicsPFAColorSize, colorBits);
     }
 
     if (fbconfig->alphaBits != DESKTOP_WINDOW_DONT_CARE)
-        SET_ATTRIB(NSOpenGLPFAAlphaSize, fbconfig->alphaBits);
+        SET_ATTRIB(NSDesktopGraphicsPFAAlphaSize, fbconfig->alphaBits);
 
     if (fbconfig->depthBits != DESKTOP_WINDOW_DONT_CARE)
-        SET_ATTRIB(NSOpenGLPFADepthSize, fbconfig->depthBits);
+        SET_ATTRIB(NSDesktopGraphicsPFADepthSize, fbconfig->depthBits);
 
     if (fbconfig->stencilBits != DESKTOP_WINDOW_DONT_CARE)
-        SET_ATTRIB(NSOpenGLPFAStencilSize, fbconfig->stencilBits);
+        SET_ATTRIB(NSDesktopGraphicsPFAStencilSize, fbconfig->stencilBits);
 
     if (fbconfig->stereo)
     {
@@ -255,27 +255,27 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextNSGL(_DESKTOP_WINDOWwindow* windo
                         "NSGL: Stereo rendering is deprecated");
         return DESKTOP_WINDOW_FALSE;
 #else
-        ADD_ATTRIB(NSOpenGLPFAStereo);
+        ADD_ATTRIB(NSDesktopGraphicsPFAStereo);
 #endif
     }
 
     if (fbconfig->doublebuffer)
-        ADD_ATTRIB(NSOpenGLPFADoubleBuffer);
+        ADD_ATTRIB(NSDesktopGraphicsPFADoubleBuffer);
 
     if (fbconfig->samples != DESKTOP_WINDOW_DONT_CARE)
     {
         if (fbconfig->samples == 0)
         {
-            SET_ATTRIB(NSOpenGLPFASampleBuffers, 0);
+            SET_ATTRIB(NSDesktopGraphicsPFASampleBuffers, 0);
         }
         else
         {
-            SET_ATTRIB(NSOpenGLPFASampleBuffers, 1);
-            SET_ATTRIB(NSOpenGLPFASamples, fbconfig->samples);
+            SET_ATTRIB(NSDesktopGraphicsPFASampleBuffers, 1);
+            SET_ATTRIB(NSDesktopGraphicsPFASamples, fbconfig->samples);
         }
     }
 
-    // NOTE: All NSOpenGLPixelFormats on the relevant cards support sRGB
+    // NOTE: All NSDesktopGraphicsPixelFormats on the relevant cards support sRGB
     //       framebuffer, so there's no need (and no way) to request it
 
     ADD_ATTRIB(0);
@@ -284,7 +284,7 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextNSGL(_DESKTOP_WINDOWwindow* windo
 #undef SET_ATTRIB
 
     window->context.nsgl.pixelFormat =
-        [[NSOpenGLPixelFormat alloc] initWithAttributes:attribs];
+        [[NSDesktopGraphicsPixelFormat alloc] initWithAttributes:attribs];
     if (window->context.nsgl.pixelFormat == nil)
     {
         _desktop_windowInputError(DESKTOP_WINDOW_FORMAT_UNAVAILABLE,
@@ -292,18 +292,18 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextNSGL(_DESKTOP_WINDOWwindow* windo
         return DESKTOP_WINDOW_FALSE;
     }
 
-    NSOpenGLContext* share = nil;
+    NSDesktopGraphicsContext* share = nil;
 
     if (ctxconfig->share)
         share = ctxconfig->share->context.nsgl.object;
 
     window->context.nsgl.object =
-        [[NSOpenGLContext alloc] initWithFormat:window->context.nsgl.pixelFormat
+        [[NSDesktopGraphicsContext alloc] initWithFormat:window->context.nsgl.pixelFormat
                                    shareContext:share];
     if (window->context.nsgl.object == nil)
     {
         _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                        "NSGL: Failed to create OpenGL context");
+                        "NSGL: Failed to create DesktopGraphics context");
         return DESKTOP_WINDOW_FALSE;
     }
 
@@ -311,10 +311,10 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextNSGL(_DESKTOP_WINDOWwindow* windo
     {
         GLint opaque = 0;
         [window->context.nsgl.object setValues:&opaque
-                                  forParameter:NSOpenGLContextParameterSurfaceOpacity];
+                                  forParameter:NSDesktopGraphicsContextParameterSurfaceOpacity];
     }
 
-    [window->ns.view setWantsBestResolutionOpenGLSurface:window->ns.scaleFramebuffer];
+    [window->ns.view setWantsBestResolutionDesktopGraphicsSurface:window->ns.scaleFramebuffer];
 
     [window->context.nsgl.object setView:window->ns.view];
 

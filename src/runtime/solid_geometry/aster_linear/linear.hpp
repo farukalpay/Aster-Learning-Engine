@@ -9,7 +9,7 @@
 /// C++ functions that mirror the GLSL functions.
 ///
 /// The best documentation for ASTER_LINEAR Core is the current GLSL specification,
-/// <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.clean.pdf">version 4.2
+/// <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.clean.pdf">version 4.2
 /// (pdf file)</a>.
 ///
 /// ASTER_LINEAR core functionalities require <aster_linear/linear.hpp> to be included to be used.
@@ -27,8 +27,8 @@
 /// @brief Vector types with precision qualifiers which may result in various precision in term of ULPs
 ///
 /// GLSL allows defining qualifiers for particular variables.
-/// With OpenGL's GLSL, these qualifiers have no effect; they are there for compatibility,
-/// with OpenGL ES's GLSL, these qualifiers do have an effect.
+/// With DesktopGraphics's GLSL, these qualifiers have no effect; they are there for compatibility,
+/// with DesktopGraphics ES's GLSL, these qualifiers do have an effect.
 ///
 /// C++ has no language equivalent to qualifier qualifiers. So ASTER_LINEAR provides the next-best thing:
 /// a number of typedefs that use a particular qualifier.
@@ -51,8 +51,8 @@
 /// @brief Matrix types with precision qualifiers which may result in various precision in term of ULPs
 ///
 /// GLSL allows defining qualifiers for particular variables.
-/// With OpenGL's GLSL, these qualifiers have no effect; they are there for compatibility,
-/// with OpenGL ES's GLSL, these qualifiers do have an effect.
+/// With DesktopGraphics's GLSL, these qualifiers have no effect; they are there for compatibility,
+/// with DesktopGraphics ES's GLSL, these qualifiers do have an effect.
 ///
 /// C++ has no language equivalent to qualifier qualifiers. So ASTER_LINEAR provides the next-best thing:
 /// a number of typedefs that use a particular qualifier.
@@ -95,7 +95,7 @@
 /// at once by including <aster_linear/ext.hpp>. Otherwise, each extension needs to be
 /// included  a specific file.
 ///
-/// @mainpage OpenGL Mathematics (ASTER_LINEAR)
+/// @mainpage DesktopGraphics Mathematics (ASTER_LINEAR)
 /// - <a href="modules.html">ASTER_LINEAR API documentation</a>
 
 #include "detail/_fixes.hpp"

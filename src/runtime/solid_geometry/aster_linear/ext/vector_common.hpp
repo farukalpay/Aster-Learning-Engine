@@ -158,7 +158,7 @@ namespace aster_linear
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> fclamp(vec<L, T, Q> const& x, vec<L, T, Q> const& minVal, vec<L, T, Q> const& maxVal);
 
-	/// Simulate GL_CLAMP OpenGL wrap mode
+	/// Simulate GL_CLAMP DesktopGraphics wrap mode
 	///
 	/// @tparam L Integer between 1 and 4 included that qualify the dimension of the vector
 	/// @tparam T Floating-point scalar types
@@ -168,7 +168,7 @@ namespace aster_linear
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> clamp(vec<L, T, Q> const& Texcoord);
 
-	/// Simulate GL_REPEAT OpenGL wrap mode
+	/// Simulate GL_REPEAT DesktopGraphics wrap mode
 	///
 	/// @tparam L Integer between 1 and 4 included that qualify the dimension of the vector
 	/// @tparam T Floating-point scalar types
@@ -178,7 +178,7 @@ namespace aster_linear
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> repeat(vec<L, T, Q> const& Texcoord);
 
-	/// Simulate GL_MIRRORED_REPEAT OpenGL wrap mode
+	/// Simulate GL_MIRRORED_REPEAT DesktopGraphics wrap mode
 	///
 	/// @tparam L Integer between 1 and 4 included that qualify the dimension of the vector
 	/// @tparam T Floating-point scalar types
@@ -188,7 +188,7 @@ namespace aster_linear
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> mirrorClamp(vec<L, T, Q> const& Texcoord);
 
-	/// Simulate GL_MIRROR_REPEAT OpenGL wrap mode
+	/// Simulate GL_MIRROR_REPEAT DesktopGraphics wrap mode
 	///
 	/// @tparam L Integer between 1 and 4 included that qualify the dimension of the vector
 	/// @tparam T Floating-point scalar types
@@ -205,7 +205,7 @@ namespace aster_linear
 	/// @param x The values of the argument must be greater or equal to zero.
 	/// @tparam T floating point scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/round.xml">GLSL round man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/round.xml">GLSL round man page</a>
 	/// @see ext_vector_common extension.
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, int, Q> iround(vec<L, T, Q> const& x);
@@ -217,7 +217,7 @@ namespace aster_linear
 	/// @param x The values of the argument must be greater or equal to zero.
 	/// @tparam T floating point scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/round.xml">GLSL round man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/round.xml">GLSL round man page</a>
 	/// @see ext_vector_common extension.
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, uint, Q> uround(vec<L, T, Q> const& x);

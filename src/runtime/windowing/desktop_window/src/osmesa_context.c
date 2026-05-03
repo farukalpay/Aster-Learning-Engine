@@ -177,10 +177,10 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextOSMesa(_DESKTOP_WINDOWwindow* win
                           fbconfig->accumBlueBits +
                           fbconfig->accumAlphaBits;
 
-    if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_ES_API)
+    if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API)
     {
         _desktop_windowInputError(DESKTOP_WINDOW_API_UNAVAILABLE,
-                        "OSMesa: OpenGL ES is not available on OSMesa");
+                        "OSMesa: DesktopGraphics ES is not available on OSMesa");
         return DESKTOP_WINDOW_FALSE;
     }
 
@@ -196,11 +196,11 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextOSMesa(_DESKTOP_WINDOWwindow* win
         SET_ATTRIB(OSMESA_STENCIL_BITS, fbconfig->stencilBits);
         SET_ATTRIB(OSMESA_ACCUM_BITS, accumBits);
 
-        if (ctxconfig->profile == DESKTOP_WINDOW_OPENGL_CORE_PROFILE)
+        if (ctxconfig->profile == DESKTOP_WINDOW_DESKTOP_GRAPHICS_CORE_PROFILE)
         {
             SET_ATTRIB(OSMESA_PROFILE, OSMESA_CORE_PROFILE);
         }
-        else if (ctxconfig->profile == DESKTOP_WINDOW_OPENGL_COMPAT_PROFILE)
+        else if (ctxconfig->profile == DESKTOP_WINDOW_DESKTOP_GRAPHICS_COMPAT_PROFILE)
         {
             SET_ATTRIB(OSMESA_PROFILE, OSMESA_COMPAT_PROFILE);
         }
@@ -228,7 +228,7 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextOSMesa(_DESKTOP_WINDOWwindow* win
         if (ctxconfig->profile)
         {
             _desktop_windowInputError(DESKTOP_WINDOW_VERSION_UNAVAILABLE,
-                            "OSMesa: OpenGL profiles unavailable");
+                            "OSMesa: DesktopGraphics profiles unavailable");
             return DESKTOP_WINDOW_FALSE;
         }
 

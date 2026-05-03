@@ -37,8 +37,8 @@ namespace aster_linear
 	///
 	/// @tparam genType Floating-point scalar or vector types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/isnan.xml">GLSL isnan man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.3 Common Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/isnan.xml">GLSL isnan man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.3 Common Functions</a>
 	template<typename genType>
 	ASTER_LINEAR_FUNC_DECL typename genType::bool_type isdenormal(genType const& x);
 
@@ -46,7 +46,7 @@ namespace aster_linear
 	/// Returns 'x - y * trunc(x/y)' instead of 'x - y * floor(x/y)'
 	///
 	/// @see <a href="http://stackoverflow.com/questions/7610631/glsl-mod-vs-hlsl-fmod">GLSL mod vs HLSL fmod</a>
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/mod.xml">GLSL mod man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/mod.xml">GLSL mod man page</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> fmod(vec<L, T, Q> const& v);
 

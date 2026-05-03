@@ -68,15 +68,15 @@ static DESKTOP_WINDOWbool chooseEGLConfig(const _DESKTOP_WINDOWctxconfig* ctxcon
     int i, nativeCount, usableCount, apiBit;
     DESKTOP_WINDOWbool wrongApiAvailable = DESKTOP_WINDOW_FALSE;
 
-    if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_ES_API)
+    if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API)
     {
         if (ctxconfig->major == 1)
-            apiBit = EGL_OPENGL_ES_BIT;
+            apiBit = EGL_DESKTOP_GRAPHICS_ES_BIT;
         else
-            apiBit = EGL_OPENGL_ES2_BIT;
+            apiBit = EGL_DESKTOP_GRAPHICS_ES2_BIT;
     }
     else
-        apiBit = EGL_OPENGL_BIT;
+        apiBit = EGL_DESKTOP_GRAPHICS_BIT;
 
     if (fbconfig->stereo)
     {
@@ -177,23 +177,23 @@ static DESKTOP_WINDOWbool chooseEGLConfig(const _DESKTOP_WINDOWctxconfig* ctxcon
     {
         if (wrongApiAvailable)
         {
-            if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_ES_API)
+            if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API)
             {
                 if (ctxconfig->major == 1)
                 {
                     _desktop_windowInputError(DESKTOP_WINDOW_API_UNAVAILABLE,
-                                    "EGL: Failed to find support for OpenGL ES 1.x");
+                                    "EGL: Failed to find support for DesktopGraphics ES 1.x");
                 }
                 else
                 {
                     _desktop_windowInputError(DESKTOP_WINDOW_API_UNAVAILABLE,
-                                    "EGL: Failed to find support for OpenGL ES 2 or later");
+                                    "EGL: Failed to find support for DesktopGraphics ES 2 or later");
                 }
             }
             else
             {
                 _desktop_windowInputError(DESKTOP_WINDOW_API_UNAVAILABLE,
-                                "EGL: Failed to find support for OpenGL");
+                                "EGL: Failed to find support for DesktopGraphics");
             }
         }
         else
@@ -300,7 +300,7 @@ static void destroyContextEGL(_DESKTOP_WINDOWwindow* window)
     // NOTE: Do not unload libGL.so.1 while the X11 display is still open,
     //       as it will make XCloseDisplay segfault
     if (_desktop_window.platform.platformID != DESKTOP_WINDOW_PLATFORM_X11 ||
-        window->context.client != DESKTOP_WINDOW_OPENGL_API)
+        window->context.client != DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
     {
         if (window->context.egl.client)
         {
@@ -442,8 +442,8 @@ DESKTOP_WINDOWbool _desktop_windowInitEGL(void)
             _desktop_windowStringInExtensionString("EGL_EXT_platform_wayland", extensions);
         _desktop_window.egl.ANGLE_platform_angle =
             _desktop_windowStringInExtensionString("EGL_ANGLE_platform_angle", extensions);
-        _desktop_window.egl.ANGLE_platform_angle_opengl =
-            _desktop_windowStringInExtensionString("EGL_ANGLE_platform_angle_opengl", extensions);
+        _desktop_window.egl.ANGLE_platform_angle_desktop_graphics =
+            _desktop_windowStringInExtensionString("EGL_ANGLE_platform_angle_desktop_graphics", extensions);
         _desktop_window.egl.ANGLE_platform_angle_d3d =
             _desktop_windowStringInExtensionString("EGL_ANGLE_platform_angle_d3d", extensions);
         _desktop_window.egl.ANGLE_platform_angle_vulkan =
@@ -533,7 +533,7 @@ void _desktop_windowTerminateEGL(void)
     attribs[index++] = v; \
 }
 
-// Create the OpenGL or OpenGL ES context
+// Create the DesktopGraphics or DesktopGraphics ES context
 //
 DESKTOP_WINDOWbool _desktop_windowCreateContextEGL(_DESKTOP_WINDOWwindow* window,
                                const _DESKTOP_WINDOWctxconfig* ctxconfig,
@@ -557,22 +557,22 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextEGL(_DESKTOP_WINDOWwindow* window
     if (!chooseEGLConfig(ctxconfig, fbconfig, &config))
         return DESKTOP_WINDOW_FALSE;
 
-    if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_ES_API)
+    if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API)
     {
-        if (!eglBindAPI(EGL_OPENGL_ES_API))
+        if (!eglBindAPI(EGL_DESKTOP_GRAPHICS_ES_API))
         {
             _desktop_windowInputError(DESKTOP_WINDOW_API_UNAVAILABLE,
-                            "EGL: Failed to bind OpenGL ES: %s",
+                            "EGL: Failed to bind DesktopGraphics ES: %s",
                             getEGLErrorString(eglGetError()));
             return DESKTOP_WINDOW_FALSE;
         }
     }
     else
     {
-        if (!eglBindAPI(EGL_OPENGL_API))
+        if (!eglBindAPI(EGL_DESKTOP_GRAPHICS_API))
         {
             _desktop_windowInputError(DESKTOP_WINDOW_API_UNAVAILABLE,
-                            "EGL: Failed to bind OpenGL: %s",
+                            "EGL: Failed to bind DesktopGraphics: %s",
                             getEGLErrorString(eglGetError()));
             return DESKTOP_WINDOW_FALSE;
         }
@@ -582,34 +582,34 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextEGL(_DESKTOP_WINDOWwindow* window
     {
         int mask = 0, flags = 0;
 
-        if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_API)
+        if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_API)
         {
             if (ctxconfig->forward)
-                flags |= EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE_BIT_KHR;
+                flags |= EGL_CONTEXT_DESKTOP_GRAPHICS_FORWARD_COMPATIBLE_BIT_KHR;
 
-            if (ctxconfig->profile == DESKTOP_WINDOW_OPENGL_CORE_PROFILE)
-                mask |= EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR;
-            else if (ctxconfig->profile == DESKTOP_WINDOW_OPENGL_COMPAT_PROFILE)
-                mask |= EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR;
+            if (ctxconfig->profile == DESKTOP_WINDOW_DESKTOP_GRAPHICS_CORE_PROFILE)
+                mask |= EGL_CONTEXT_DESKTOP_GRAPHICS_CORE_PROFILE_BIT_KHR;
+            else if (ctxconfig->profile == DESKTOP_WINDOW_DESKTOP_GRAPHICS_COMPAT_PROFILE)
+                mask |= EGL_CONTEXT_DESKTOP_GRAPHICS_COMPATIBILITY_PROFILE_BIT_KHR;
         }
 
         if (ctxconfig->debug)
-            flags |= EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR;
+            flags |= EGL_CONTEXT_DESKTOP_GRAPHICS_DEBUG_BIT_KHR;
 
         if (ctxconfig->robustness)
         {
             if (ctxconfig->robustness == DESKTOP_WINDOW_NO_RESET_NOTIFICATION)
             {
-                SET_ATTRIB(EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_KHR,
+                SET_ATTRIB(EGL_CONTEXT_DESKTOP_GRAPHICS_RESET_NOTIFICATION_STRATEGY_KHR,
                            EGL_NO_RESET_NOTIFICATION_KHR);
             }
             else if (ctxconfig->robustness == DESKTOP_WINDOW_LOSE_CONTEXT_ON_RESET)
             {
-                SET_ATTRIB(EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_KHR,
+                SET_ATTRIB(EGL_CONTEXT_DESKTOP_GRAPHICS_RESET_NOTIFICATION_STRATEGY_KHR,
                            EGL_LOSE_CONTEXT_ON_RESET_KHR);
             }
 
-            flags |= EGL_CONTEXT_OPENGL_ROBUST_ACCESS_BIT_KHR;
+            flags |= EGL_CONTEXT_DESKTOP_GRAPHICS_ROBUST_ACCESS_BIT_KHR;
         }
 
         if (ctxconfig->major != 1 || ctxconfig->minor != 0)
@@ -621,18 +621,18 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextEGL(_DESKTOP_WINDOWwindow* window
         if (ctxconfig->noerror)
         {
             if (_desktop_window.egl.KHR_create_context_no_error)
-                SET_ATTRIB(EGL_CONTEXT_OPENGL_NO_ERROR_KHR, DESKTOP_WINDOW_TRUE);
+                SET_ATTRIB(EGL_CONTEXT_DESKTOP_GRAPHICS_NO_ERROR_KHR, DESKTOP_WINDOW_TRUE);
         }
 
         if (mask)
-            SET_ATTRIB(EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR, mask);
+            SET_ATTRIB(EGL_CONTEXT_DESKTOP_GRAPHICS_PROFILE_MASK_KHR, mask);
 
         if (flags)
             SET_ATTRIB(EGL_CONTEXT_FLAGS_KHR, flags);
     }
     else
     {
-        if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_ES_API)
+        if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API)
             SET_ATTRIB(EGL_CONTEXT_CLIENT_VERSION, ctxconfig->major);
     }
 
@@ -749,20 +749,20 @@ DESKTOP_WINDOWbool _desktop_windowCreateContextEGL(_DESKTOP_WINDOWwindow* window
         };
         const char* glsonames[] =
         {
-#if defined(_DESKTOP_WINDOW_OPENGL_LIBRARY)
-            _DESKTOP_WINDOW_OPENGL_LIBRARY,
+#if defined(_DESKTOP_WINDOW_DESKTOP_GRAPHICS_LIBRARY)
+            _DESKTOP_WINDOW_DESKTOP_GRAPHICS_LIBRARY,
 #elif defined(_DESKTOP_WINDOW_WIN32)
 #elif defined(_DESKTOP_WINDOW_COCOA)
 #elif defined(__OpenBSD__) || defined(__NetBSD__)
             "libGL.so",
 #else
-            "libOpenGL.so.0",
+            "libDesktopGraphics.so.0",
             "libGL.so.1",
 #endif
             NULL
         };
 
-        if (ctxconfig->client == DESKTOP_WINDOW_OPENGL_ES_API)
+        if (ctxconfig->client == DESKTOP_WINDOW_DESKTOP_GRAPHICS_ES_API)
         {
             if (ctxconfig->major == 1)
                 sonames = es1sonames;

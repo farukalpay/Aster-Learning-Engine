@@ -1,7 +1,7 @@
 /// @ref core
 /// @file aster_linear/exponential.hpp
 ///
-/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
+/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
 ///
 /// @defgroup core_func_exponential Exponential functions
 /// @ingroup core
@@ -30,8 +30,8 @@ namespace aster_linear
 	/// @param base Floating point value. pow function is defined for input values of 'base' defined in the range (inf-, inf+) in the limit of the type qualifier.
 	/// @param exponent Floating point value representing the 'exponent'.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/pow.xml">GLSL pow man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/pow.xml">GLSL pow man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> pow(vec<L, T, Q> const& base, vec<L, T, Q> const& exponent);
 
@@ -41,8 +41,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Floating-point scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/exp.xml">GLSL exp man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/exp.xml">GLSL exp man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> exp(vec<L, T, Q> const& v);
 
@@ -54,8 +54,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Floating-point scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/log.xml">GLSL log man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/log.xml">GLSL log man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> log(vec<L, T, Q> const& v);
 
@@ -65,8 +65,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Floating-point scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/exp2.xml">GLSL exp2 man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/exp2.xml">GLSL exp2 man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> exp2(vec<L, T, Q> const& v);
 
@@ -77,8 +77,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Floating-point scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/log2.xml">GLSL log2 man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/log2.xml">GLSL log2 man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> log2(vec<L, T, Q> const& v);
 
@@ -88,8 +88,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Floating-point scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/sqrt.xml">GLSL sqrt man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/sqrt.xml">GLSL sqrt man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> sqrt(vec<L, T, Q> const& v);
 
@@ -99,8 +99,8 @@ namespace aster_linear
 	/// @tparam L An integer between 1 and 4 included that qualify the dimension of the vector.
 	/// @tparam T Floating-point scalar types.
 	///
-	/// @see <a href="http://www.opengl.org/sdk/docs/manglsl/xhtml/inversesqrt.xml">GLSL inversesqrt man page</a>
-	/// @see <a href="http://www.opengl.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
+	/// @see <a href="http://www.desktop_graphics.org/sdk/docs/manglsl/xhtml/inversesqrt.xml">GLSL inversesqrt man page</a>
+	/// @see <a href="http://www.desktop_graphics.org/registry/doc/GLSLangSpec.4.20.8.pdf">GLSL 4.20.8 specification, section 8.2 Exponential Functions</a>
 	template<length_t L, typename T, qualifier Q>
 	ASTER_LINEAR_FUNC_DECL vec<L, T, Q> inversesqrt(vec<L, T, Q> const& v);
 

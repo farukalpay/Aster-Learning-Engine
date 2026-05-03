@@ -21,8 +21,8 @@ typedef void* id;
 //       the base SDK does not provide the newer names.
 
 #if MAC_OS_X_VERSION_MAX_ALLOWED < 101400
- #define NSOpenGLContextParameterSwapInterval NSOpenGLCPSwapInterval
- #define NSOpenGLContextParameterSurfaceOpacity NSOpenGLCPSurfaceOpacity
+ #define NSDesktopGraphicsContextParameterSwapInterval NSDesktopGraphicsCPSwapInterval
+ #define NSDesktopGraphicsContextParameterSurfaceOpacity NSDesktopGraphicsCPSurfaceOpacity
 #endif
 
 #if MAC_OS_X_VERSION_MAX_ALLOWED < 101200
@@ -104,7 +104,7 @@ typedef struct _DESKTOP_WINDOWcontextNSGL
 //
 typedef struct _DESKTOP_WINDOWlibraryNSGL
 {
-    // dlopen handle for OpenGL.framework (for desktop_windowGetProcAddress)
+    // dlopen handle for DesktopGraphics.framework (for desktop_windowGetProcAddress)
     CFBundleRef     framework;
 } _DESKTOP_WINDOWlibraryNSGL;
 
