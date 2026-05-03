@@ -2,15 +2,6 @@
 
 This file records what influenced the current architecture and what is only a roadmap item. It deliberately avoids claiming that unimplemented research ideas are engine features.
 
-## Local Source Reading
-
-Blender's local source tree was used as architectural reading, especially the separation between GPU frontend concepts and backend implementations under `source/blender/gpu`, plus the editor/UI split under `source/blender/editors/interface`.
-
-Godot's local source tree was used for two focused patterns:
-
-- `core/input/input_map.*`: named input actions are a better app contract than scattered key polling.
-- `scene/3d/node_3d.*` and `core/math/transform_3d.*`: scene-facing transforms should be inspectable data, while matrix conversion should stay below the scene contract.
-
 ## Project References
 
 - [The Forge](https://github.com/ConfettiFX/The-Forge) is a useful reference for cross-platform rendering framework boundaries, explicit platform support, resource loading, and tooling organization.
