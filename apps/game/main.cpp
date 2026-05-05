@@ -228,16 +228,6 @@ bool scriptedRun(const float seconds) {
   return seconds > 3.40f && seconds < 4.20f;
 }
 
-aster::Vec2 caveEntryAxis(const float seconds) {
-  if (seconds < 2.85f) {
-    return aster::normalize(aster::Vec2{-0.16f, -1.0f});
-  }
-  if (seconds < 3.35f) {
-    return aster::normalize(aster::Vec2{-0.05f, -0.42f});
-  }
-  return {};
-}
-
 bool scriptedJump(const float seconds) {
   return seconds > 1.04f && seconds < 1.10f;
 }
@@ -370,7 +360,6 @@ int main(int argc, char **argv) {
         hasArgument(argc, argv, "--profile") || !profile_capture_path.empty();
     const bool frame_report_enabled = hasArgument(argc, argv, "--frame-report");
     const bool startup_report_enabled = hasArgument(argc, argv, "--startup-report");
-    const bool cave_entry_capture = hasArgument(argc, argv, "--capture-cave-entry");
     const bool open_chest_for_capture = hasArgument(argc, argv, "--open-chest");
     const std::string take_chest_item_for_capture = argumentString(argc, argv, "--take-chest-item");
     const int select_hotbar_for_capture = argumentInt(argc, argv, "--select-hotbar", 0);
@@ -419,9 +408,6 @@ int main(int argc, char **argv) {
 
     aster::LumenRun game;
     mark_startup("game_reset");
-    if (cave_entry_capture) {
-      game.relocatePlayer({30.35f, 6.0f, -55.45f}, aster::radians(171.0f));
-    }
     if (open_chest_for_capture || !take_chest_item_for_capture.empty()) {
       game.openChest();
     }
@@ -439,22 +425,15 @@ int main(int argc, char **argv) {
     camera.pitch = kGameplayCameraPitch;
     camera.yaw = kGameplayCameraYaw;
     camera.radius = 7.2f;
-    aster::Vec3 scripted_camera_target =
-        cave_entry_capture ? aster::Vec3{31.0f, 6.20f, -59.0f}
-                           : aster::Vec3{2.25f, 0.48f, -0.95f};
+    aster::Vec3 scripted_camera_target = {2.25f, 0.48f, -0.95f};
     if (scripted_capture) {
       scripted_camera_target = {argumentFloat(argc, argv, "--camera-target-x", 2.25f),
                                 argumentFloat(argc, argv, "--camera-target-y", 0.48f),
                                 argumentFloat(argc, argv, "--camera-target-z", -0.95f)};
-      if (cave_entry_capture && !hasArgument(argc, argv, "--camera-target-x")) {
-        scripted_camera_target = {31.0f, 6.20f, -59.0f};
-      }
-      const float default_pitch = cave_entry_capture ? 24.0f : 28.0f;
-      const float default_yaw = cave_entry_capture ? 0.0f : -31.0f;
-      const float default_radius = cave_entry_capture ? 8.7f : 7.8f;
-      camera.pitch = aster::radians(argumentFloat(argc, argv, "--camera-pitch-deg", default_pitch));
-      camera.yaw = aster::radians(argumentFloat(argc, argv, "--camera-yaw-deg", default_yaw));
-      camera.radius = argumentFloat(argc, argv, "--camera-radius", default_radius);
+      camera.pitch =
+          aster::radians(argumentFloat(argc, argv, "--camera-pitch-deg", 28.0f));
+      camera.yaw = aster::radians(argumentFloat(argc, argv, "--camera-yaw-deg", -31.0f));
+      camera.radius = argumentFloat(argc, argv, "--camera-radius", 7.8f);
       camera.vertical_fov =
           aster::radians(std::clamp(argumentFloat(argc, argv, "--camera-fov-deg", 54.0f), 18.0f,
                                     72.0f));
@@ -669,10 +648,9 @@ int main(int argc, char **argv) {
         jump = false;
         jump_buffered = false;
       } else if (scripted_capture) {
-        axis = cave_entry_capture ? caveEntryAxis(static_cast<float>(elapsed))
-                                  : attractAxis(static_cast<float>(elapsed));
-        run = cave_entry_capture ? elapsed < 2.85 : scriptedRun(static_cast<float>(elapsed));
-        jump = cave_entry_capture ? false : scriptedJump(static_cast<float>(elapsed));
+        axis = attractAxis(static_cast<float>(elapsed));
+        run = scriptedRun(static_cast<float>(elapsed));
+        jump = scriptedJump(static_cast<float>(elapsed));
         jump_buffered = false;
       }
 
