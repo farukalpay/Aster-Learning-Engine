@@ -16,9 +16,20 @@ Material material(const Vec3 base, const Vec3 emission, const float roughness, c
                   const SurfacePattern pattern = SurfacePattern::None,
                   const Vec2 pattern_scale = {1.0f, 1.0f}, const float pattern_depth = 0.0f,
                   const float pattern_contrast = 0.0f, const float pattern_mortar = 0.08f) {
-  return {base,          emission,      roughness,        metallic,          glow,
-          detail,        detail_scale,  edge_wear,        ambient_occlusion, pattern,
-          pattern_scale, pattern_depth, pattern_contrast, pattern_mortar};
+  return makeMaterial({.base_color = base,
+                       .emission_color = emission,
+                       .roughness = roughness,
+                       .metallic = metallic,
+                       .emission_strength = glow,
+                       .detail_strength = detail,
+                       .detail_scale = detail_scale,
+                       .edge_wear = edge_wear,
+                       .ambient_occlusion = ambient_occlusion,
+                       .surface_pattern = pattern,
+                       .pattern_scale = pattern_scale,
+                       .pattern_depth = pattern_depth,
+                       .pattern_contrast = pattern_contrast,
+                       .pattern_mortar = pattern_mortar});
 }
 
 std::shared_ptr<const CpuMesh> showcaseGatehouseMesh() {
@@ -43,18 +54,75 @@ std::shared_ptr<const CpuMesh> showcaseHouseMesh() {
 
 } // namespace
 
+Material makeMaterial(const MaterialDesc &desc) {
+  Material material;
+  material.base_color = desc.base_color;
+  material.emission_color = desc.emission_color;
+  material.roughness = desc.roughness;
+  material.metallic = desc.metallic;
+  material.emission_strength = desc.emission_strength;
+  material.detail_strength = desc.detail_strength;
+  material.detail_scale = desc.detail_scale;
+  material.edge_wear = desc.edge_wear;
+  material.ambient_occlusion = desc.ambient_occlusion;
+  material.surface_pattern = desc.surface_pattern;
+  material.pattern_scale = desc.pattern_scale;
+  material.pattern_depth = desc.pattern_depth;
+  material.pattern_contrast = desc.pattern_contrast;
+  material.pattern_mortar = desc.pattern_mortar;
+  material.opacity = desc.opacity;
+  material.double_sided = desc.double_sided;
+  material.cull_mode = desc.cull_mode;
+  material.render_role = desc.render_role;
+  material.alpha_mode = desc.alpha_mode;
+  material.depth_write = desc.depth_write;
+  material.camera_occlusion = desc.camera_occlusion;
+  material.procedural = desc.procedural;
+  return material;
+}
+
 Material makeSupportSurfaceMaterial(Material material) {
   material.opacity = 1.0f;
   material.double_sided = true;
   material.render_role = MaterialRenderRole::SupportSurface;
+  material.alpha_mode = MaterialAlphaMode::Opaque;
+  material.depth_write = MaterialDepthWrite::Enabled;
+  material.camera_occlusion = CameraOcclusionPolicy::Solid;
   return material;
 }
 
-bool isMaterialTranslucent(const Material &material) {
+MaterialRenderQueue classifyMaterialRenderQueue(const Material &material) {
   if (material.render_role == MaterialRenderRole::SupportSurface) {
+    return MaterialRenderQueue::Opaque;
+  }
+  if (material.alpha_mode == MaterialAlphaMode::Blend || material.opacity < 0.999f) {
+    return MaterialRenderQueue::Translucent;
+  }
+  if (material.alpha_mode == MaterialAlphaMode::Masked ||
+      material.alpha_mode == MaterialAlphaMode::DitheredCoverage) {
+    return MaterialRenderQueue::Masked;
+  }
+  return MaterialRenderQueue::Opaque;
+}
+
+bool materialWritesDepth(const Material &material) {
+  if (material.depth_write == MaterialDepthWrite::Enabled) {
+    return true;
+  }
+  if (material.depth_write == MaterialDepthWrite::Disabled) {
     return false;
   }
-  return material.opacity < 0.999f;
+  return classifyMaterialRenderQueue(material) != MaterialRenderQueue::Translucent;
+}
+
+bool allowsCameraOcclusionFade(const Material &material) {
+  return material.render_role == MaterialRenderRole::Surface &&
+         material.camera_occlusion == CameraOcclusionPolicy::Fade &&
+         classifyMaterialRenderQueue(material) != MaterialRenderQueue::Translucent;
+}
+
+bool isMaterialTranslucent(const Material &material) {
+  return classifyMaterialRenderQueue(material) == MaterialRenderQueue::Translucent;
 }
 
 bool isDoubleSidedMaterial(const Material &material) {

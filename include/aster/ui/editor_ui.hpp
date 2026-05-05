@@ -10,7 +10,6 @@
 namespace aster {
 
 class Scene;
-class Window;
 
 class EditorUi {
 public:
@@ -20,8 +19,8 @@ public:
   EditorUi(const EditorUi &) = delete;
   EditorUi &operator=(const EditorUi &) = delete;
 
-  void initialize(Window &window);
-  void beginFrame();
+  void initialize();
+  void beginFrame(Vec2 viewport_size, const ControlSnapshot &input);
   void draw(Scene &scene, OrbitCamera &camera, RendererSettings &settings, const FrameStats &stats);
   void endFrame();
   void shutdown();
@@ -31,6 +30,8 @@ public:
 
 private:
   UiCanvas canvas_;
+  ControlSnapshot input_{};
+  float renderer_panel_scroll_ = 0.0f;
   bool initialized_ = false;
 };
 

@@ -48,14 +48,6 @@ struct PreparedObject {
   aster::Vec3 bounds_max{};
 };
 
-aster::Vec3 transformPoint(const aster::Mat4 &matrix, const aster::Vec3 point) {
-  return {
-      matrix.m[0] * point.x + matrix.m[4] * point.y + matrix.m[8] * point.z + matrix.m[12],
-      matrix.m[1] * point.x + matrix.m[5] * point.y + matrix.m[9] * point.z + matrix.m[13],
-      matrix.m[2] * point.x + matrix.m[6] * point.y + matrix.m[10] * point.z + matrix.m[14],
-  };
-}
-
 void expandBounds(PreparedObject &out, const aster::Vec3 point) {
   out.bounds_min.x = std::min(out.bounds_min.x, point.x);
   out.bounds_min.y = std::min(out.bounds_min.y, point.y);
@@ -74,9 +66,12 @@ void prepareTriangleMesh(PreparedObject &out, const aster::CpuMesh &mesh) {
   out.triangles.reserve(mesh.indices.size() / 3u);
 
   for (std::size_t i = 0; i < mesh.indices.size(); i += 3u) {
-    const aster::Vec3 a = transformPoint(model, mesh.vertices[mesh.indices[i + 0u]].position);
-    const aster::Vec3 b = transformPoint(model, mesh.vertices[mesh.indices[i + 1u]].position);
-    const aster::Vec3 c = transformPoint(model, mesh.vertices[mesh.indices[i + 2u]].position);
+    const aster::Vec3 a =
+        aster::transformPoint(model, mesh.vertices[mesh.indices[i + 0u]].position);
+    const aster::Vec3 b =
+        aster::transformPoint(model, mesh.vertices[mesh.indices[i + 1u]].position);
+    const aster::Vec3 c =
+        aster::transformPoint(model, mesh.vertices[mesh.indices[i + 2u]].position);
     const aster::Vec3 normal = aster::normalize(aster::cross(b - a, c - a));
     if (aster::length(normal) <= 0.0f) {
       continue;

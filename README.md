@@ -1,21 +1,22 @@
 # Aster Learning Engine
 
-Aster Learning Engine is an educational C/C++ game-engine study project by
-Faruk Alpay. The project keeps the engine, sample game, renderer, physics,
-input, UI, asset, and test code in one readable tree so each subsystem can be
-studied, modified, and verified without hiding the implementation behind a
-large commercial engine.
+Aster Learning Engine is an educational C++20 game engine by Faruk Alpay. The
+core engine, native renderer, platform adapters, networking, profiling, sample
+game, editor UI, generated media, and tests live in one inspectable source tree.
 
-The included game sample is **Lumen Run**. It is intentionally treated as a
-teaching scene: gameplay, camera control, collision, material rendering,
-procedural terrain, HUD, inventory, screenshots, and smoke tests all exercise
-the reusable engine layer under `include/aster` and `src`.
+Aster v1 keeps reusable code in `include/aster` and `src`, keeps executable code
+thin, and limits outside boundaries to standard C++ plus direct operating-system
+APIs inside isolated platform files.
 
-## Current Captures
+## Captures
 
-The images below were regenerated from the current build.
+The images below are generated from the current build.
 
 ![Lumen Run gameplay](assets/screenshots/lumen_run.png)
+
+![Lumen Run cave route](assets/screenshots/lumen_cave.png)
+
+![Lumen Run cave interior](assets/screenshots/lumen_cave_interior.png)
 
 ![Lumen Run inventory](assets/screenshots/lumen_inventory.png)
 
@@ -23,29 +24,31 @@ The images below were regenerated from the current build.
 
 ![Aster preview renderer](assets/screenshots/aster_preview.png)
 
-## Educational Goals
+## What Is Included
 
-- Show how a compact engine is split into scene, render, physics, input, UI,
-  asset, game, and platform layers.
-- Keep app-facing files thin while reusable behavior stays in library modules.
-- Prefer inspectable systems over hidden engine magic: camera collision,
-  line-of-sight fade, procedural materials, terrain generation, and screenshots
-  are all implemented in source.
-- Keep the build reproducible with local targets for tests, smoke checks, and
-  framebuffer captures.
-- Make the project useful as a learning base, not as a vendor drop or black-box
-  framework.
+- A macOS native Metal renderer with depth, translucent sorting, procedural
+  material shading, contact shadows, fog, tonemapping, frame pacing, and UI
+  composition.
+- A deterministic software renderer used for fallback, capture, preview, and
+  renderer diagnostics.
+- Lumen Run, a playable sample that exercises terrain, castle geometry, cave
+  traversal, mineral formations, water, vegetation, avatar animation,
+  inventory, HUD, interaction, physics, particles, and capture automation.
+- Engine-owned math, mesh preparation, brush level mesh generation, procedural
+  noise, scene import, scenery assembly, TCP loopback transport, and lightweight
+  CPU profiling.
+- Native platform adapters behind `aster::Window`; product code consumes only
+  window size and input snapshots.
 
 ## Repository Layout
 
 | Path | Purpose |
 | --- | --- |
-| `apps/` | Thin executables for Lumen Run, Studio, preview, and net probe |
+| `apps/` | Thin executables for Lumen Run, Studio, preview, and network probe |
 | `include/aster/` | Public engine headers |
-| `src/` | Engine and sample implementation |
-| `src/runtime/` | Integrated runtime/platform support code |
-| `tests/` | Unit and regression tests |
-| `assets/` | Sample assets and README screenshots |
+| `src/` | Engine, renderer, platform, game, UI, asset, geometry, net, and core code |
+| `tests/` | Unit, regression, and structure tests |
+| `assets/` | Generated screenshots and README media |
 | `docs/` | Architecture and research notes |
 
 ## Build
@@ -54,7 +57,7 @@ Prerequisites:
 
 - CMake 3.24+
 - A C++20 compiler
-- macOS or a Linux desktop with the needed windowing development packages
+- macOS with Cocoa and Metal, or Linux with a local X server
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -62,13 +65,16 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Run the sample game:
+Run the game:
 
 ```bash
 ./build/aster_lumen_run
 ```
 
-Run the learning studio:
+The desktop executables default to frame-paced interactive presentation. Pass
+`--unlocked` only when measuring raw throughput or debugging the render loop.
+
+Run the studio:
 
 ```bash
 ./build/aster_studio
@@ -82,35 +88,48 @@ Run smoke checks:
 ./build/aster_net_probe
 ```
 
+Check frame timing:
+
+```bash
+./build/aster_lumen_run --frame-report --frame-report-warmup 30 --run-frames 240 --lag-budget-ms 16.7 --window-width 1280 --window-height 720 --msaa 0
+```
+
+Set `ASTER_FORCE_SOFTWARE_RENDERER=1` to run the deterministic software fallback
+on macOS.
+
 ## Refresh Screenshots
 
 ```bash
 mkdir -p assets/screenshots /tmp/aster_learning_shots
-rm -f assets/screenshots/*
+find /tmp/aster_learning_shots -type f \( -name '*.ppm' -o -name '*.png' \) -delete
 
-./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_run.ppm --capture-hud --no-vsync --window-width 1600 --window-height 900
-./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_inventory.ppm --open-inventory --capture-hud --no-vsync --window-width 1600 --window-height 900
-./build/aster_studio --screenshot /tmp/aster_learning_shots/studio.ppm --no-vsync --window-width 1600 --window-height 900
+./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_run.ppm --screenshot-frame 8 --capture-hud --msaa 0 --window-width 1280 --window-height 720
+./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_cave.ppm --screenshot-frame 8 --msaa 0 --window-width 1280 --window-height 720 --camera-target-x 31.0 --camera-target-y 6.3 --camera-target-z -59.0 --camera-yaw-deg 0 --camera-pitch-deg 31 --camera-radius 16.2 --camera-fov-deg 31
+./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_cave_interior.ppm --screenshot-frame 8 --msaa 0 --window-width 1280 --window-height 720 --camera-target-x 31.2 --camera-target-y 2.65 --camera-target-z -85.0 --camera-yaw-deg 2 --camera-pitch-deg 7 --camera-radius 5.6 --camera-fov-deg 50
+./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_inventory.ppm --screenshot-frame 2 --open-inventory --capture-hud --msaa 0 --window-width 1280 --window-height 720
+./build/aster_studio --screenshot /tmp/aster_learning_shots/studio.ppm --window-width 1280 --window-height 720
 ./build/aster_preview --output /tmp/aster_learning_shots/preview.ppm --width 960 --height 540
 
 sips -s format png /tmp/aster_learning_shots/lumen_run.ppm --out assets/screenshots/lumen_run.png
+sips -s format png /tmp/aster_learning_shots/lumen_cave.ppm --out assets/screenshots/lumen_cave.png
+sips -s format png /tmp/aster_learning_shots/lumen_cave_interior.ppm --out assets/screenshots/lumen_cave_interior.png
 sips -s format png /tmp/aster_learning_shots/lumen_inventory.ppm --out assets/screenshots/lumen_inventory.png
 sips -s format png /tmp/aster_learning_shots/studio.ppm --out assets/screenshots/learning_studio.png
 sips -s format png /tmp/aster_learning_shots/preview.ppm --out assets/screenshots/aster_preview.png
 ```
 
-On non-macOS hosts, replace `sips` with ImageMagick, FFmpeg, or another PPM to
-PNG converter.
+On non-macOS hosts, use an equivalent PPM-to-PNG encoder for the media refresh
+commands.
 
-## Notes For Study
+## Platform Targets
 
-`aster_lumen_run` wires the window, controls, camera, HUD, and game state. The
-camera resolver, physics world, renderer, procedural mesh builders, terrain
-generation, UI canvas, and inventory logic live in reusable engine modules.
+Aster v1 targets macOS and Linux.
 
-The renderer currently uses a native desktop path with procedural meshes,
-procedural material patterns, fog, tonemapping, contact shadows, and native
-framebuffer capture. It is deliberately small enough to read in one sitting.
+- macOS uses a native Cocoa adapter for windows, events, cursor state, and
+  Metal presentation.
+- Linux uses a raw X11 protocol adapter implemented over POSIX sockets; no
+  desktop client library is linked.
+- Windows and Wayland are not v1 targets.
 
 ## Authorship
 
@@ -120,9 +139,6 @@ Engine-owned source files include:
 Author: Faruk Alpay
 Do not remove this notice.
 ```
-
-This notice is not applied to integrated runtime/vendor-style support code where
-claiming authorship would be misleading.
 
 ## License
 

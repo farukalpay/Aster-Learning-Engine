@@ -5,6 +5,9 @@
 /out/
 /dist/
 /install/
+/artifacts/
+/captures/
+/tmp/
 .ninja_*
 build.ninja
 rules.ninja
@@ -33,6 +36,7 @@ $RECYCLE.BIN/
 .idea/
 .vscode/
 .vs/
+DerivedData/
 *.sublime-workspace
 *.sw?
 *.swp
@@ -54,6 +58,8 @@ Testing/
 install_manifest.txt
 CTestTestfile.cmake
 DartConfiguration.tcl
+CPackConfig.cmake
+CPackSourceConfig.cmake
 
 # Native compiler/linker products
 *.a
@@ -67,6 +73,8 @@ DartConfiguration.tcl
 *.o
 *.obj
 *.pdb
+*.pcm
+*.gch
 *.so
 a.out
 aster_lumen_run
@@ -79,17 +87,26 @@ aster_tests
 *.user
 *.suo
 *.vcxproj.user
+*.xcodeproj/*.mode1v3
+*.xcodeproj/*.mode2v3
+*.xcodeproj/*.perspectivev3
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 
-# Local captures and logs
+# Local captures, diagnostics, and profiler outputs
 *.ppm
 *.tmp.ppm
 *.log
 *.trace
+*.dmp
+*.dump
 *.profraw
 *.profdata
+*.gcda
+*.gcno
+*.gcov
+.lldb/
 
 # Local-only presets and Python environments
 CMakeUserPresets.json
@@ -104,6 +121,8 @@ __pycache__/
 htmlcov/
 
 .cache/
+.clangd/index/
+.ccls-cache/
 
 # Local environment and secrets
 .env

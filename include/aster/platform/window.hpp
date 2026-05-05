@@ -6,9 +6,8 @@
 #include "aster/core/config.hpp"
 #include "aster/input/control_scheme.hpp"
 
+#include <memory>
 #include <utility>
-
-struct DESKTOP_WINDOWwindow;
 
 namespace aster {
 
@@ -39,10 +38,10 @@ public:
   [[nodiscard]] std::pair<int, int> windowSize() const;
   [[nodiscard]] std::pair<int, int> framebufferSize() const;
   [[nodiscard]] ControlSnapshot captureControls(const ControlScheme &scheme) const;
-  [[nodiscard]] DESKTOP_WINDOWwindow *nativeHandle() const;
 
 private:
-  DESKTOP_WINDOWwindow *handle_ = nullptr;
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
   bool scale_framebuffer_to_display_ = false;
 };
 

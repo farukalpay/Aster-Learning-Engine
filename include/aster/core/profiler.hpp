@@ -3,53 +3,45 @@
 
 #pragma once
 
+#include <chrono>
+
 #ifndef ASTER_HAS_PROFILING_RUNTIME
 #define ASTER_HAS_PROFILING_RUNTIME 0
 #endif
 
-#if ASTER_HAS_PROFILING_RUNTIME
-#include <profile_runtime.h>
-#endif
-
 namespace aster::profile {
 
-inline bool startCapture() {
-#if ASTER_HAS_PROFILING_RUNTIME
-  return ProfileRuntime::StartCapture();
-#else
-  return false;
-#endif
-}
+bool startCapture();
+bool stopCapture();
+bool saveCapture(const char *path);
+void shutdown();
+void record(const char *name, double seconds);
 
-inline bool stopCapture() {
-#if ASTER_HAS_PROFILING_RUNTIME
-  return ProfileRuntime::StopCapture();
-#else
-  return false;
-#endif
-}
+class Scope {
+public:
+  explicit Scope(const char *name) : name_(name), start_(std::chrono::steady_clock::now()) {}
 
-inline bool saveCapture(const char *path) {
-#if ASTER_HAS_PROFILING_RUNTIME
-  return ProfileRuntime::SaveCapture(path);
-#else
-  (void)path;
-  return false;
-#endif
-}
+  Scope(const Scope &) = delete;
+  Scope &operator=(const Scope &) = delete;
 
-inline void shutdown() {
-#if ASTER_HAS_PROFILING_RUNTIME
-  ProfileRuntime::Shutdown();
-#endif
-}
+  ~Scope() {
+    const auto end = std::chrono::steady_clock::now();
+    record(name_, std::chrono::duration<double>(end - start_).count());
+  }
+
+private:
+  const char *name_ = "";
+  std::chrono::steady_clock::time_point start_;
+};
 
 } // namespace aster::profile
 
 #if ASTER_HAS_PROFILING_RUNTIME
-#define ASTER_PROFILE_FRAME(NAME) PROFILE_RUNTIME_FRAME(NAME)
-#define ASTER_PROFILE_SCOPE(NAME) PROFILE_RUNTIME_EVENT(NAME)
-#define ASTER_PROFILE_FUNCTION() PROFILE_RUNTIME_EVENT()
+#define ASTER_PROFILE_JOIN_INNER(A, B) A##B
+#define ASTER_PROFILE_JOIN(A, B) ASTER_PROFILE_JOIN_INNER(A, B)
+#define ASTER_PROFILE_FRAME(NAME) ::aster::profile::Scope ASTER_PROFILE_JOIN(_aster_frame_, __LINE__)(NAME)
+#define ASTER_PROFILE_SCOPE(NAME) ::aster::profile::Scope ASTER_PROFILE_JOIN(_aster_scope_, __LINE__)(NAME)
+#define ASTER_PROFILE_FUNCTION() ASTER_PROFILE_SCOPE(__func__)
 #else
 #define ASTER_PROFILE_FRAME(NAME) ((void)0)
 #define ASTER_PROFILE_SCOPE(NAME) ((void)0)
