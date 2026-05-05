@@ -83,6 +83,7 @@ public:
   [[nodiscard]] const LumenStatus &status() const;
   [[nodiscard]] Vec3 playerPosition() const;
   [[nodiscard]] Vec3 playerRenderPosition() const;
+  void relocatePlayer(Vec3 position, float facing_yaw = 0.0f);
   [[nodiscard]] float resolveCameraRadius(Vec3 target, float yaw, float pitch,
                                           float desired_radius) const;
   void updateRenderInterpolation(float alpha);
@@ -106,6 +107,7 @@ public:
   [[nodiscard]] std::optional<DynamicPointLight> equippedLight() const;
   [[nodiscard]] std::optional<DynamicPointLight> pondAccentLight() const;
   [[nodiscard]] CaveLightingState caveLightingState() const;
+  [[nodiscard]] CaveLightingState caveLightingStateAt(Vec3 position) const;
 
 private:
   struct Shard {

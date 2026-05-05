@@ -20,6 +20,11 @@ constexpr aster::UiColor kAmber{0.88f, 0.58f, 0.23f, 1.0f};
 constexpr float kPanelMargin = 16.0f;
 constexpr float kPanelPad = 18.0f;
 
+bool pointInRect(const aster::Vec2 point, const aster::UiRect rect) {
+  return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y &&
+         point.y <= rect.y + rect.height;
+}
+
 void drawPanelTexture(aster::UiCanvas &canvas, const aster::UiRect rect) {
   canvas.fillRoundRect(rect, 8.0f, kPanel);
   canvas.strokeRect(rect, kPanelEdge, 1.0f);
@@ -41,14 +46,14 @@ void section(aster::UiCanvas &canvas, const std::string &title, const float x, f
 void sliderRow(aster::UiCanvas &canvas, const std::string &label, float &value,
                const float min_value, const float max_value, const float x, float &y,
                const float width, const std::string &id) {
-  canvas.slider({x, y + 19.0f, width, 9.0f}, label, value, min_value, max_value, id);
-  y += 40.0f;
+  canvas.slider({x, y + 17.0f, width, 8.0f}, label, value, min_value, max_value, id);
+  y += 34.0f;
 }
 
 void checkboxRow(aster::UiCanvas &canvas, const std::string &label, bool &value, const float x,
                  float &y, const float width, const std::string &id) {
-  canvas.checkbox({x, y, width, 28.0f}, label, value, id);
-  y += 30.0f;
+  canvas.checkbox({x, y, width, 24.0f}, label, value, id);
+  y += 26.0f;
 }
 
 void drawFramePanel(aster::UiCanvas &canvas, const aster::UiRect panel,
@@ -106,13 +111,14 @@ EditorUi::~EditorUi() {
   shutdown();
 }
 
-void EditorUi::initialize(Window &window) {
-  canvas_.initialize(window.nativeHandle());
+void EditorUi::initialize() {
+  canvas_.initialize();
   initialized_ = true;
 }
 
-void EditorUi::beginFrame() {
-  canvas_.beginFrame();
+void EditorUi::beginFrame(const Vec2 viewport_size, const ControlSnapshot &input) {
+  input_ = input;
+  canvas_.beginFrame(viewport_size, input);
 }
 
 void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &settings,
@@ -121,8 +127,13 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
   const float panel_height = std::max(320.0f, viewport.y - kPanelMargin * 2.0f);
   const UiRect panel{kPanelMargin, kPanelMargin, 420.0f, panel_height};
   drawPanelTexture(canvas_, panel);
+  if (pointInRect(input_.pointer, panel) && input_.scroll.y != 0.0f) {
+    renderer_panel_scroll_ =
+        std::max(0.0f, renderer_panel_scroll_ - input_.scroll.y * 36.0f);
+  }
 
-  float y = panel.y + kPanelPad;
+  canvas_.pushClip({panel.x + 1.0f, panel.y + 1.0f, panel.width - 2.0f, panel.height - 2.0f});
+  float y = panel.y + kPanelPad - renderer_panel_scroll_;
   const float x = panel.x + kPanelPad;
   const float width = panel.width - kPanelPad * 2.0f;
   const float panel_bottom = panel.y + panel.height - kPanelPad;
@@ -161,7 +172,20 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
               "cull");
   checkboxRow(canvas_, "Multisampling", settings.pipeline.multisampling, x, y, width, "msaa");
   y += 8.0f;
-  drawSceneSummary(canvas_, scene, x, y, width, panel_bottom);
+  drawSceneSummary(canvas_, scene, x, y, width, panel_bottom + renderer_panel_scroll_ + 10000.0f);
+  const float content_height = y + kPanelPad + renderer_panel_scroll_ - panel.y;
+  const float max_scroll = std::max(0.0f, content_height - panel.height);
+  renderer_panel_scroll_ = std::clamp(renderer_panel_scroll_, 0.0f, max_scroll);
+  if (max_scroll > 1.0f) {
+    const float track_height = panel.height - 32.0f;
+    const float thumb_height = std::max(34.0f, track_height * (panel.height / content_height));
+    const float thumb_y = panel.y + 16.0f +
+                          (track_height - thumb_height) *
+                              (renderer_panel_scroll_ / std::max(max_scroll, 0.001f));
+    canvas_.fillRoundRect({panel.x + panel.width - 9.0f, thumb_y, 4.0f, thumb_height}, 2.0f,
+                          {0.78f, 0.58f, 0.31f, 0.46f});
+  }
+  canvas_.popClip();
 
   if (viewport.x >= 900.0f) {
     const float side_width = 324.0f;

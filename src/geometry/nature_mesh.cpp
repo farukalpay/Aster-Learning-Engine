@@ -3,8 +3,7 @@
 
 #include "aster/geometry/nature_mesh.hpp"
 #include "aster/geometry/water_mesh.hpp"
-
-#include <detail_noise.hpp>
+#include "aster/math/noise.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -942,11 +941,6 @@ CpuMesh makeBirdNestMesh(BirdNestMeshSpec spec) {
     throw std::invalid_argument("Bird nest mesh requires ordered radii and enough twigs.");
   }
 
-  AsterDetailNoise noise;
-  noise.SetSeed(spec.seed);
-  noise.SetNoiseType(AsterDetailNoise::NoiseType_OpenSimplex2);
-  noise.SetFrequency(1.7f);
-
   CpuMesh mesh;
   mesh.vertices.reserve(static_cast<std::size_t>(spec.twig_count * (spec.radial_segments + 1) * 2));
   mesh.indices.reserve(static_cast<std::size_t>(spec.twig_count * spec.radial_segments * 6));
@@ -956,10 +950,16 @@ CpuMesh makeBirdNestMesh(BirdNestMeshSpec spec) {
     const float fill = (static_cast<float>(twig) + 0.5f) / static_cast<float>(spec.twig_count);
     const float angle = static_cast<float>(twig) * golden_angle;
     const float ring_noise =
-        noise.GetNoise(std::cos(angle) * 2.1f, std::sin(angle) * 2.1f, fill * 3.3f);
+        fractalNoise({std::cos(angle) * 2.1f, std::sin(angle) * 2.1f, fill * 3.3f}, spec.seed,
+                     4) *
+            2.0f -
+        1.0f;
     const float radius = spec.inner_radius + (spec.outer_radius - spec.inner_radius) *
                                                  (0.28f + 0.72f * std::sqrt(fill));
-    const float arc = 0.46f + 0.20f * noise.GetNoise(fill * 4.1f, 2.0f, 0.3f);
+    const float arc =
+        0.46f + 0.20f *
+                    (fractalNoise({fill * 4.1f, 2.0f, 0.3f}, spec.seed + 17u, 4) * 2.0f -
+                     1.0f);
     const float lift = spec.height * (0.12f + fill * 0.76f);
     const Vec3 from{std::cos(angle - arc) * radius,
                     lift - spec.depth * (0.35f + 0.24f * ring_noise),
@@ -967,7 +967,10 @@ CpuMesh makeBirdNestMesh(BirdNestMeshSpec spec) {
     const Vec3 to{std::cos(angle + arc) * (radius + ring_noise * spec.twig_radius * 3.0f),
                   lift - spec.depth * (0.28f - 0.18f * ring_noise),
                   std::sin(angle + arc) * (radius - ring_noise * spec.twig_radius * 2.0f)};
-    const float taper = 0.58f + 0.30f * noise.GetNoise(fill * 5.0f, 1.7f, 8.1f);
+    const float taper =
+        0.58f + 0.30f *
+                    (fractalNoise({fill * 5.0f, 1.7f, 8.1f}, spec.seed + 31u, 4) * 2.0f -
+                     1.0f);
     appendTaperedCylinder(mesh, from, to, spec.twig_radius * (0.82f + fill * 0.42f),
                           spec.twig_radius * std::max(taper, 0.24f), spec.radial_segments,
                           {0.0f, fill}, {1.0f, 0.04f});

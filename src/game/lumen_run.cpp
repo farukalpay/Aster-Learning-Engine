@@ -8,6 +8,7 @@
 #include "aster/geometry/cable_mesh.hpp"
 #include "aster/geometry/castle_course.hpp"
 #include "aster/geometry/cave_system.hpp"
+#include "aster/geometry/generated_scenery.hpp"
 #include "aster/geometry/mesh_projection.hpp"
 #include "aster/geometry/nature_mesh.hpp"
 #include "aster/geometry/stroke_mesh.hpp"
@@ -187,20 +188,20 @@ aster::Material material(const aster::Vec3 base, const aster::Vec3 emission, con
                          const aster::Vec2 pattern_scale = {1.0f, 1.0f},
                          const float pattern_depth = 0.0f, const float pattern_contrast = 0.0f,
                          const float pattern_mortar = 0.08f) {
-  return {base,
-          emission,
-          roughness,
-          metallic,
-          glow,
-          detail,
-          detail_scale,
-          wear,
-          ambient_occlusion,
-          pattern,
-          pattern_scale,
-          pattern_depth,
-          pattern_contrast,
-          pattern_mortar};
+  return aster::makeMaterial({.base_color = base,
+                              .emission_color = emission,
+                              .roughness = roughness,
+                              .metallic = metallic,
+                              .emission_strength = glow,
+                              .detail_strength = detail,
+                              .detail_scale = detail_scale,
+                              .edge_wear = wear,
+                              .ambient_occlusion = ambient_occlusion,
+                              .surface_pattern = pattern,
+                              .pattern_scale = pattern_scale,
+                              .pattern_depth = pattern_depth,
+                              .pattern_contrast = pattern_contrast,
+                              .pattern_mortar = pattern_mortar});
 }
 
 std::shared_ptr<const aster::CpuMesh> makeSharedMesh(aster::CpuMesh mesh) {
@@ -1243,12 +1244,39 @@ aster::CaveComplexSpec lumenCaveComplexSpec(const float floor_y) {
               .intersection_threshold_b = 0.25f,
               .wall_inset = 0.040f,
               .min_spacing = 0.98f};
+  spec.features = {.seed = kLumenCaveSeed + 421u,
+                   .candidates = 168,
+                   .max_features = 46,
+                   .start_t = 0.06f,
+                   .end_t = 0.92f,
+                   .min_spacing = 0.64f,
+                   .wall_inset = 0.12f,
+                   .ceiling_fraction = 0.40f,
+                   .column_fraction = 0.12f,
+                   .shelf_fraction = 0.18f,
+                   .mineral_fraction = 0.28f};
   return spec;
 }
 
-aster::CaveComplexSpec lumenTerrainCoveredCaveComplexSpec(const aster::TerrainHeightField &,
+aster::CaveComplexSpec lumenTerrainCoveredCaveComplexSpec(const aster::TerrainHeightField &terrain,
                                                           const float floor_y) {
   aster::CaveComplexSpec spec = lumenCaveComplexSpec(floor_y);
+  const aster::CaveTerrainCoverFit cover_fit = aster::fitCaveTunnelToTerrainCover(
+      spec.tunnel,
+      [&terrain](const aster::Vec2 position) {
+        const aster::TerrainSurfaceSample sample = aster::sampleTerrain(terrain, position);
+        return aster::CaveTerrainCoverSample{sample.valid, sample.valid ? sample.height : 0.0f};
+      },
+      {.samples = 96,
+       .required_consecutive_samples = 3,
+       .min_t = 0.0f,
+       .max_t = 0.52f,
+       .roof_clearance = 0.24f});
+  if (cover_fit.cover_found) {
+    spec.tunnel = cover_fit.tunnel;
+    spec.tunnel.visible_wall_start_t =
+        aster::clamp(cover_fit.first_covered_t - 0.018f, 0.0f, 0.40f);
+  }
   return spec;
 }
 
@@ -1258,13 +1286,23 @@ aster::Vec3 caveEntranceLightPosition(const float floor_y) {
 }
 
 aster::CaveWallFixtureProfile lumenCaveWallFixtureProfile() {
-  return {.start_t = 0.24f,
-          .end_t = 0.62f,
-          .target_spacing = 6.4f,
-          .max_count = 3,
+  return {.start_t = 0.10f,
+          .end_t = 0.72f,
+          .target_spacing = 4.6f,
+          .max_count = 5,
           .wall_side = -1.0f,
           .mount_height = 1.22f,
           .wall_inset = 0.18f};
+}
+
+aster::CaveWallFixtureProfile lumenCaveSecondaryWallFixtureProfile() {
+  aster::CaveWallFixtureProfile profile = lumenCaveWallFixtureProfile();
+  profile.start_t = 0.18f;
+  profile.end_t = 0.66f;
+  profile.target_spacing = 6.2f;
+  profile.max_count = 3;
+  profile.wall_side = 1.0f;
+  return profile;
 }
 
 std::shared_ptr<const aster::CpuMesh> grassTuftMesh() {
@@ -1732,6 +1770,29 @@ Vec3 LumenRun::playerRenderPosition() const {
   return player_render_position_valid_ ? player_render_position_ : player_position_;
 }
 
+void LumenRun::relocatePlayer(Vec3 position, const float facing_yaw) {
+  const TerrainSurfaceSample ground =
+      support_surfaces_.sample({{position.x, position.z}, position.y, 0.64f, 6.0f});
+  if (ground.valid) {
+    position.y = ground.height + playerSupportExtent();
+  }
+  player_position_ = position;
+  player_velocity_ = {};
+  player_facing_yaw_ = facing_yaw;
+  player_render_position_ = player_position_;
+  player_render_position_valid_ = false;
+  player_avatar_pose_valid_ = false;
+  player_swimming_ = false;
+  player_swim_blend_ = 0.0f;
+  player_climbing_ = false;
+  player_climb_blend_ = 0.0f;
+  if (physics_.valid(player_body_)) {
+    physics_.setPosition(player_body_, player_position_);
+    physics_.setVelocity(player_body_, {});
+  }
+  updateSceneObjects(1.0f / 60.0f);
+}
+
 void LumenRun::updateRenderInterpolation(const float alpha) {
   if (death_state_ != DeathSequenceState::Alive || player_preview_yaw_enabled_ ||
       !player_avatar_pose_valid_ || !physics_.valid(player_body_) ||
@@ -1760,7 +1821,8 @@ float LumenRun::resolveCameraRadius(const Vec3 target, const float yaw, const fl
   const TerrainSurfaceSample cave_ground =
       sampleTerrain(terrain_, {cave_entrance.x, cave_entrance.z});
   const float cave_floor_y = (cave_ground.valid ? cave_ground.height : 0.0f) + 0.030f;
-  const CaveTunnelProfile cave_tunnel = lumenCaveTunnelProfile(cave_floor_y);
+  const CaveTunnelProfile cave_tunnel =
+      lumenTerrainCoveredCaveComplexSpec(terrain_, cave_floor_y).tunnel;
   const CaveInteriorSample cave_target = sampleCaveInteriorVolume(cave_tunnel, target);
   const bool cave_visibility_camera = cave_target.interior > 0.045f;
   const float minimum_radius =
@@ -2142,21 +2204,34 @@ std::optional<DynamicPointLight> LumenRun::pondAccentLight() const {
 }
 
 CaveLightingState LumenRun::caveLightingState() const {
+  return caveLightingStateAt(player_position_);
+}
+
+CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
   const Vec3 entrance = caveEntrancePlanar();
   const TerrainSurfaceSample cave_ground = sampleTerrain(terrain_, {entrance.x, entrance.z});
   const float cave_floor_y = (cave_ground.valid ? cave_ground.height : 0.0f) + 0.030f;
-  const CaveTunnelProfile cave_tunnel = lumenCaveTunnelProfile(cave_floor_y);
-  const CaveInteriorSample cave_sample = sampleCaveInteriorVolume(cave_tunnel, player_position_);
+  const CaveTunnelProfile cave_tunnel =
+      lumenTerrainCoveredCaveComplexSpec(terrain_, cave_floor_y).tunnel;
+  const CaveInteriorSample cave_sample = sampleCaveInteriorVolume(cave_tunnel, position);
   const std::vector<CaveWallFixturePlacement> fixtures =
       placeCaveWallFixtures(cave_tunnel, lumenCaveWallFixtureProfile());
+  const std::vector<CaveWallFixturePlacement> secondary_fixtures =
+      placeCaveWallFixtures(cave_tunnel, lumenCaveSecondaryWallFixtureProfile());
   Vec3 wall_light_position = caveEntranceLightPosition(cave_floor_y);
   float best_distance = std::numeric_limits<float>::infinity();
-  for (const CaveWallFixturePlacement &fixture : fixtures) {
-    const float distance = length(fixture.position - player_position_);
+  const auto consider_fixture = [&](const CaveWallFixturePlacement &fixture) {
+    const float distance = length(fixture.position - position);
     if (distance < best_distance) {
       best_distance = distance;
       wall_light_position = fixture.position + fixture.normal * 0.32f;
     }
+  };
+  for (const CaveWallFixturePlacement &fixture : fixtures) {
+    consider_fixture(fixture);
+  }
+  for (const CaveWallFixturePlacement &fixture : secondary_fixtures) {
+    consider_fixture(fixture);
   }
   const float wall_light =
       clamp(cave_sample.interior + cave_sample.entrance_light * 0.55f, 0.0f, 1.0f);
@@ -2205,13 +2280,13 @@ void LumenRun::rebuildScene() {
   decorative_ground_surfaces.setTerrainPlacementValidator(terrain_placement);
 
   const Material stone_plaza = makeSupportSurfaceMaterial(
-      material({0.34f, 0.33f, 0.29f}, {0.0f, 0.0f, 0.0f}, 0.9f, 0.0f, 0.0f, 0.92f, 4.8f, 0.28f,
+      material({0.40f, 0.39f, 0.34f}, {0.0f, 0.0f, 0.0f}, 0.9f, 0.0f, 0.0f, 0.92f, 4.8f, 0.28f,
                0.74f, SurfacePattern::CourseCells, {1.45f, 1.45f}, 0.050f, 0.56f, 0.050f));
   const Material brick_facade =
-      material({0.45f, 0.31f, 0.245f}, {0.0f, 0.0f, 0.0f}, 0.91f, 0.0f, 0.0f, 0.92f, 7.2f, 0.46f,
+      material({0.50f, 0.34f, 0.25f}, {0.0f, 0.0f, 0.0f}, 0.91f, 0.0f, 0.0f, 0.92f, 7.2f, 0.46f,
                0.58f, SurfacePattern::WeatheredStone, {5.4f, 8.2f}, 0.100f, 0.86f, 0.055f);
   const Material dark_masonry =
-      material({0.30f, 0.295f, 0.275f}, {0.0f, 0.0f, 0.0f}, 0.94f, 0.0f, 0.0f, 0.76f, 6.2f, 0.40f,
+      material({0.31f, 0.325f, 0.305f}, {0.0f, 0.0f, 0.0f}, 0.94f, 0.0f, 0.0f, 0.76f, 6.2f, 0.40f,
                0.62f, SurfacePattern::WeatheredStone, {4.6f, 6.6f}, 0.070f, 0.74f, 0.070f);
   const Material warm_window = material({0.74f, 0.58f, 0.36f}, {1.0f, 0.66f, 0.32f}, 0.5f, 0.0f,
                                         0.18f, 0.0f, 1.0f, 0.0f, 1.0f);
@@ -2226,26 +2301,30 @@ void LumenRun::rebuildScene() {
       material({0.13f, 0.145f, 0.13f}, {0.82f, 0.24f, 0.08f}, 0.52f, 0.36f, 0.18f, 0.46f, 10.0f,
                0.24f, 0.84f, SurfacePattern::FiberStrands, {4.0f, 9.0f}, 0.018f, 0.42f, 0.05f);
   const Material grass_soil = makeSupportSurfaceMaterial(
-      material({0.29f, 0.35f, 0.18f}, {0.0f, 0.0f, 0.0f}, 0.94f, 0.0f, 0.0f, 0.82f, 10.5f, 0.18f,
-               0.92f, SurfacePattern::GrassSoil, {5.6f, 6.4f}, 0.085f, 0.82f, 0.08f));
+      material({0.30f, 0.44f, 0.20f}, {0.0f, 0.0f, 0.0f}, 0.90f, 0.0f, 0.0f, 0.92f, 12.0f, 0.16f,
+               0.96f, SurfacePattern::GrassSoil, {6.2f, 7.4f}, 0.095f, 0.88f, 0.08f));
   Material terrain_transition = makeSupportSurfaceMaterial(
-      material({0.35f, 0.33f, 0.27f}, {0.0f, 0.0f, 0.0f}, 0.95f, 0.0f, 0.0f, 0.62f, 7.4f, 0.08f,
-               0.90f, SurfacePattern::TerrainBlend, {1.45f, 1.45f}, 0.024f, 0.58f, 0.08f));
+      material({0.42f, 0.39f, 0.30f}, {0.0f, 0.0f, 0.0f}, 0.94f, 0.0f, 0.0f, 0.72f, 8.6f, 0.08f,
+               0.94f, SurfacePattern::TerrainBlend, {1.65f, 1.65f}, 0.030f, 0.66f, 0.08f));
   Material hardscape_dust = makeSupportSurfaceMaterial(
-      material({0.39f, 0.355f, 0.27f}, {0.0f, 0.0f, 0.0f}, 0.98f, 0.0f, 0.0f, 0.44f, 7.2f, 0.06f,
-               0.94f, SurfacePattern::TerrainBlend, {3.10f, 3.60f}, 0.018f, 0.56f, 0.08f));
+      material({0.46f, 0.45f, 0.36f}, {0.0f, 0.0f, 0.0f}, 0.96f, 0.0f, 0.0f, 0.56f, 8.4f, 0.06f,
+               0.96f, SurfacePattern::TerrainBlend, {3.40f, 4.10f}, 0.024f, 0.62f, 0.08f));
   Material hardscape_substrate = hardscape_dust;
-  hardscape_substrate.base_color = {0.46f, 0.425f, 0.33f};
+  hardscape_substrate.base_color = {0.49f, 0.51f, 0.40f};
   hardscape_substrate.opacity = 1.0f;
   hardscape_substrate.pattern_contrast = 0.30f;
   Material grass_blades =
-      material({0.27f, 0.34f, 0.15f}, {0.0f, 0.0f, 0.0f}, 0.90f, 0.0f, 0.0f, 0.44f, 7.5f, 0.05f,
+      material({0.23f, 0.44f, 0.15f}, {0.0f, 0.0f, 0.0f}, 0.90f, 0.0f, 0.0f, 0.44f, 7.5f, 0.05f,
                0.96f, SurfacePattern::Foliage, {7.2f, 8.4f}, 0.018f, 0.46f, 0.08f);
   grass_blades.double_sided = true;
+  grass_blades.alpha_mode = MaterialAlphaMode::Masked;
+  grass_blades.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material exotic_leaf =
-      material({0.18f, 0.42f, 0.22f}, {0.015f, 0.040f, 0.016f}, 0.68f, 0.0f, 0.025f, 0.36f, 8.8f,
+      material({0.15f, 0.50f, 0.28f}, {0.015f, 0.040f, 0.016f}, 0.68f, 0.0f, 0.025f, 0.36f, 8.8f,
                0.02f, 0.96f, SurfacePattern::Foliage, {8.6f, 12.2f}, 0.026f, 0.56f, 0.06f);
   exotic_leaf.double_sided = true;
+  exotic_leaf.alpha_mode = MaterialAlphaMode::Masked;
+  exotic_leaf.camera_occlusion = CameraOcclusionPolicy::Solid;
   const Material exotic_flower =
       material({0.72f, 0.26f, 0.52f}, {0.16f, 0.035f, 0.10f}, 0.58f, 0.0f, 0.08f, 0.18f, 6.2f,
                0.02f, 0.92f, SurfacePattern::FiberStrands, {5.0f, 7.2f}, 0.012f, 0.36f, 0.05f);
@@ -2256,16 +2335,19 @@ void LumenRun::rebuildScene() {
       {0.78f, 0.36f, 0.16f}, {0.06f, 0.025f, 0.010f}, 0.44f, 0.0f, 0.018f, 0.18f, 8.0f, 0.03f,
       0.94f, SurfacePattern::IridescentScales, {12.0f, 15.5f}, 0.013f, 0.28f, 0.04f);
   Material pond_water =
-      material({0.050f, 0.34f, 0.38f}, {0.018f, 0.070f, 0.065f}, 0.12f, 0.0f, 0.030f, 0.20f, 5.2f,
-               0.0f, 0.94f, SurfacePattern::WaterSurface, {4.8f, 5.4f}, 0.035f, 0.78f, 0.04f);
-  pond_water.opacity = 0.88f;
+      material({0.055f, 0.54f, 0.68f}, {0.025f, 0.12f, 0.13f}, 0.10f, 0.0f, 0.050f, 0.34f, 7.0f,
+               0.0f, 0.98f, SurfacePattern::WaterSurface, {5.8f, 6.6f}, 0.045f, 0.86f, 0.04f);
+  pond_water.opacity = 0.78f;
   pond_water.double_sided = true;
+  pond_water.alpha_mode = MaterialAlphaMode::Blend;
+  pond_water.depth_write = MaterialDepthWrite::Disabled;
+  pond_water.camera_occlusion = CameraOcclusionPolicy::Solid;
   const Material pond_stone =
       material({0.54f, 0.49f, 0.40f}, {0.0f, 0.0f, 0.0f}, 0.88f, 0.0f, 0.0f, 0.58f, 6.4f, 0.16f,
                0.92f, SurfacePattern::WeatheredStone, {3.4f, 4.8f}, 0.040f, 0.54f, 0.07f);
   const Material soil_path = makeSupportSurfaceMaterial(
-      material({0.44f, 0.31f, 0.18f}, {0.0f, 0.0f, 0.0f}, 0.92f, 0.0f, 0.0f, 0.76f, 5.8f, 0.14f,
-               0.90f, SurfacePattern::SoilPath, {5.6f, 8.2f}, 0.036f, 0.82f, 0.05f));
+      material({0.60f, 0.43f, 0.24f}, {0.0f, 0.0f, 0.0f}, 0.88f, 0.0f, 0.0f, 0.86f, 7.4f, 0.10f,
+               0.95f, SurfacePattern::SoilPath, {6.4f, 9.0f}, 0.040f, 0.88f, 0.05f));
   const Material fishing_line_material = material({0.50f, 0.52f, 0.46f}, {0.02f, 0.02f, 0.015f},
                                                   0.56f, 0.0f, 0.02f, 0.08f, 10.0f, 0.02f, 0.96f);
   const Material fishing_rod_material = material({0.16f, 0.105f, 0.055f}, {0.0f, 0.0f, 0.0f}, 0.54f,
@@ -2274,7 +2356,7 @@ void LumenRun::rebuildScene() {
       material({0.30f, 0.18f, 0.095f}, {0.0f, 0.0f, 0.0f}, 0.82f, 0.02f, 0.0f, 0.66f, 10.5f, 0.18f,
                0.88f, SurfacePattern::PaintedWood, {3.2f, 12.0f}, 0.042f, 0.72f, 0.06f);
   const Material layered_terrain = makeSupportSurfaceMaterial(
-      material({0.31f, 0.34f, 0.22f}, {0.0f, 0.0f, 0.0f}, 0.94f, 0.0f, 0.0f, 0.76f, 3.4f, 0.08f,
+      material({0.215f, 0.310f, 0.185f}, {0.0f, 0.0f, 0.0f}, 0.94f, 0.0f, 0.0f, 0.76f, 3.4f, 0.08f,
                0.92f, SurfacePattern::LayeredTerrain, {0.42f, 0.48f}, 0.055f, 0.92f, 0.08f));
   Material mountain_stone =
       material({0.245f, 0.255f, 0.235f}, {0.0f, 0.0f, 0.0f}, 0.96f, 0.0f, 0.0f, 0.90f, 7.6f, 0.30f,
@@ -2290,11 +2372,13 @@ void LumenRun::rebuildScene() {
   cave_mouth_stone.edge_wear = 0.24f;
   cave_mouth_stone.ambient_occlusion = 0.66f;
   cave_mouth_stone.double_sided = true;
+  cave_mouth_stone.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_wall =
       material({0.082f, 0.078f, 0.067f}, {0.012f, 0.009f, 0.005f}, 0.98f, 0.0f, 0.012f, 0.96f, 8.8f,
                0.30f, 0.60f, SurfacePattern::CaveRock, {2.4f, 4.2f}, 0.120f, 0.94f, 0.060f);
   cave_wall.cull_mode = FaceCullMode::Back;
   cave_wall.double_sided = true;
+  cave_wall.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_entrance_wall = cave_wall;
   cave_entrance_wall.base_color = {0.170f, 0.158f, 0.130f};
   cave_entrance_wall.emission_color = {0.030f, 0.021f, 0.012f};
@@ -2305,10 +2389,25 @@ void LumenRun::rebuildScene() {
   cave_floor.pattern_scale = {3.2f, 4.4f};
   cave_floor.pattern_depth = 0.085f;
   cave_floor.ambient_occlusion = 0.48f;
+  Material cave_talus = makeSupportSurfaceMaterial(
+      material({0.155f, 0.150f, 0.128f}, {0.010f, 0.008f, 0.005f}, 0.94f, 0.0f, 0.008f,
+               0.82f, 8.6f, 0.30f, 0.62f, SurfacePattern::None, {0.46f, 0.52f}, 0.0f,
+               0.28f, 0.055f));
+  cave_talus.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material cave_calcite =
+      material({0.46f, 0.39f, 0.30f}, {0.035f, 0.024f, 0.014f}, 0.88f, 0.0f, 0.018f, 0.82f,
+               13.0f, 0.34f, 0.58f, SurfacePattern::CaveRock, {3.0f, 9.0f}, 0.095f, 0.88f,
+               0.050f);
+  cave_calcite.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material cave_mineral_glow =
+      material({0.72f, 0.46f, 0.24f}, {0.86f, 0.44f, 0.14f}, 0.28f, 0.0f, 0.30f, 0.36f, 12.0f,
+               0.04f, 0.92f, SurfacePattern::AmberResin, {7.0f, 11.0f}, 0.020f, 0.64f, 0.04f);
+  cave_mineral_glow.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material coal_ore_material =
       material({0.036f, 0.034f, 0.030f}, {0.080f, 0.060f, 0.032f}, 0.62f, 0.08f, 0.070f, 0.98f,
                20.0f, 0.18f, 0.92f, SurfacePattern::CoalVein, {8.2f, 14.0f}, 0.120f, 0.98f, 0.035f);
   coal_ore_material.opacity = 1.0f;
+  coal_ore_material.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material industrial_light_metal = material(
       {0.070f, 0.064f, 0.055f}, {0.004f, 0.003f, 0.002f}, 0.52f, 0.68f, 0.004f, 0.54f, 12.0f, 0.16f,
       0.78f, SurfacePattern::WeatheredStone, {4.2f, 6.4f}, 0.024f, 0.56f, 0.05f);
@@ -2317,6 +2416,8 @@ void LumenRun::rebuildScene() {
       material({0.92f, 0.56f, 0.30f}, {1.0f, 0.42f, 0.18f}, 0.34f, 0.0f, 0.34f, 0.26f, 6.0f, 0.02f,
                0.88f, SurfacePattern::AmberResin, {4.4f, 7.2f}, 0.010f, 0.50f, 0.04f);
   industrial_red_lens.double_sided = true;
+  industrial_red_lens.alpha_mode = MaterialAlphaMode::Blend;
+  industrial_red_lens.depth_write = MaterialDepthWrite::Disabled;
   const Material teddy_fur =
       material({0.39f, 0.255f, 0.155f}, {0.0f, 0.0f, 0.0f}, 0.99f, 0.0f, 0.0f, 1.08f, 18.0f, 0.035f,
                0.86f, SurfacePattern::FurFibers, {9.5f, 18.0f}, 0.060f, 0.92f, 0.08f);
@@ -2342,6 +2443,8 @@ void LumenRun::rebuildScene() {
       material({0.20f, 0.31f, 0.18f}, {0.0f, 0.0f, 0.0f}, 0.92f, 0.0f, 0.0f, 0.58f, 9.5f, 0.08f,
                0.95f, SurfacePattern::Foliage, {8.5f, 11.0f}, 0.024f, 0.58f, 0.08f);
   wetland_blades.double_sided = true;
+  wetland_blades.alpha_mode = MaterialAlphaMode::Masked;
+  wetland_blades.camera_occlusion = CameraOcclusionPolicy::Solid;
   const Material crocodile_hide =
       material({0.11f, 0.23f, 0.115f}, {0.010f, 0.020f, 0.006f}, 0.72f, 0.0f, 0.018f, 0.68f, 15.0f,
                0.18f, 0.86f, SurfacePattern::ReptileScales, {22.0f, 30.0f}, 0.048f, 0.92f, 0.030f);
@@ -2360,37 +2463,25 @@ void LumenRun::rebuildScene() {
       material({0.10f, 0.48f, 0.36f}, {0.018f, 0.060f, 0.046f}, 0.46f, 0.0f, 0.025f, 0.44f, 12.0f,
                0.04f, 0.92f, SurfacePattern::FeatherVanes, {5.6f, 13.0f}, 0.030f, 0.62f, 0.05f);
   emerald_feathers.double_sided = true;
+  emerald_feathers.alpha_mode = MaterialAlphaMode::Masked;
   Material crimson_feathers =
       material({0.54f, 0.12f, 0.18f}, {0.045f, 0.010f, 0.018f}, 0.50f, 0.0f, 0.030f, 0.40f, 11.5f,
                0.03f, 0.93f, SurfacePattern::FeatherVanes, {5.2f, 12.4f}, 0.028f, 0.58f, 0.05f);
   crimson_feathers.double_sided = true;
+  crimson_feathers.alpha_mode = MaterialAlphaMode::Masked;
   Material ink_white_feathers =
       material({0.12f, 0.11f, 0.105f}, {0.020f, 0.018f, 0.016f}, 0.54f, 0.0f, 0.018f, 0.46f, 13.5f,
                0.02f, 0.94f, SurfacePattern::FeatherVanes, {6.6f, 15.5f}, 0.026f, 0.66f, 0.05f);
   ink_white_feathers.double_sided = true;
+  ink_white_feathers.alpha_mode = MaterialAlphaMode::Masked;
   Material gold_blue_feathers =
       material({0.78f, 0.48f, 0.13f}, {0.058f, 0.032f, 0.012f}, 0.44f, 0.0f, 0.026f, 0.38f, 10.8f,
                0.03f, 0.92f, SurfacePattern::FeatherVanes, {4.8f, 11.2f}, 0.024f, 0.56f, 0.05f);
   gold_blue_feathers.double_sided = true;
+  gold_blue_feathers.alpha_mode = MaterialAlphaMode::Masked;
   const Material nest_twig_material =
       material({0.35f, 0.22f, 0.12f}, {0.0f, 0.0f, 0.0f}, 0.84f, 0.0f, 0.0f, 0.66f, 14.0f, 0.18f,
                0.86f, SurfacePattern::TwigNest, {8.0f, 14.0f}, 0.040f, 0.82f, 0.06f);
-  const auto supportsLineOfSightFade = [](const Material &candidate) {
-    switch (candidate.surface_pattern) {
-    case SurfacePattern::LayeredTerrain:
-    case SurfacePattern::TerrainBlend:
-    case SurfacePattern::GrassSoil:
-    case SurfacePattern::SoilPath:
-    case SurfacePattern::Foliage:
-    case SurfacePattern::WaterSurface:
-    case SurfacePattern::CaveRock:
-    case SurfacePattern::CoalVein:
-      return false;
-    default:
-      return true;
-    }
-  };
-
   auto appendScenery = [&](const char *name, const MeshPrimitive primitive, const Vec3 position,
                            const Vec3 scale, const Vec3 rotation, const Material &scenery_material,
                            const float spin_rate = 0.0f) {
@@ -2401,7 +2492,7 @@ void LumenRun::rebuildScene() {
     object.transform.scale = scale;
     object.transform.rotation = rotation;
     object.material = scenery_material;
-    object.camera_occlusion_fade = supportsLineOfSightFade(scenery_material);
+    object.camera_occlusion_fade = allowsCameraOcclusionFade(scenery_material);
     object.spin_rate = spin_rate;
     const std::size_t index = appendObject(object);
     scenery_objects_.push_back(index);
@@ -2420,7 +2511,7 @@ void LumenRun::rebuildScene() {
     object.transform.scale = scale;
     object.transform.rotation = rotation;
     object.material = scenery_material;
-    object.camera_occlusion_fade = supportsLineOfSightFade(scenery_material);
+    object.camera_occlusion_fade = allowsCameraOcclusionFade(scenery_material);
     object.spin_rate = spin_rate;
     const std::size_t index = appendObject(object);
     scenery_objects_.push_back(index);
@@ -2654,8 +2745,8 @@ void LumenRun::rebuildScene() {
   const TerrainSurfaceSample cave_ground =
       sampleTerrain(terrain_, {cave_entrance.x, cave_entrance.z});
   const float cave_floor_y = (cave_ground.valid ? cave_ground.height : 0.0f) + 0.030f;
-  CaveComplex cave_complex =
-      buildCaveComplex(lumenTerrainCoveredCaveComplexSpec(terrain_, cave_floor_y));
+  const CaveComplexSpec cave_spec = lumenTerrainCoveredCaveComplexSpec(terrain_, cave_floor_y);
+  CaveComplex cave_complex = buildCaveComplex(cave_spec);
   cave_viewer_cull_volume_ = viewerCullVolumeForMesh(cave_complex.collision_mesh, 0.20f,
                                                      FaceCullMode::Back, FaceCullMode::Back);
   cave_collision_mesh_ = makeSharedMesh(std::move(cave_complex.collision_mesh));
@@ -2671,6 +2762,9 @@ void LumenRun::rebuildScene() {
   torch_flame_material.emission_color = {1.0f, 0.34f, 0.08f};
   torch_flame_material.emission_strength = 0.78f;
   torch_flame_material.opacity = 0.94f;
+  torch_flame_material.alpha_mode = MaterialAlphaMode::Blend;
+  torch_flame_material.depth_write = MaterialDepthWrite::Disabled;
+  torch_flame_material.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material dark_chest_interior =
       material({0.030f, 0.020f, 0.014f}, {0.020f, 0.010f, 0.004f}, 0.72f, 0.0f, 0.02f);
 
@@ -2897,12 +2991,70 @@ void LumenRun::rebuildScene() {
 
   const Vec3 cave_inward = caveInwardDirection();
   const float cave_yaw = std::atan2(-cave_inward.x, -cave_inward.z);
+  appendGroundUnderlay(
+      "Cave mouth fractured talus apron",
+      makeSharedMesh(makePathJunctionMesh({.radial_segments = 128,
+                                           .rings = 7,
+                                           .radius_x = 2.25f,
+                                           .radius_z = 2.10f,
+                                           .crown_height = 0.038f,
+                                           .surface_noise = 0.026f,
+                                           .edge_irregularity = 0.18f,
+                                           .radius_x_negative = 2.60f,
+                                           .radius_x_positive = 2.85f,
+                                           .radius_z_negative = 1.58f,
+                                           .radius_z_positive = 3.85f,
+                                           .edge_skirt_depth = 0.045f})),
+      cave_entrance + Vec3{0.08f, cave_floor_y + 0.060f, 0.36f}, cave_talus);
   const std::shared_ptr<const CpuMesh> cave_portal_mesh =
       makeSharedMesh(std::move(cave_complex.portal_mesh));
   appendGeneratedStructuralScenery(
       "Natural embedded cave mouth", cave_portal_mesh,
       {cave_entrance.x, cave_floor_y + 0.015f, cave_entrance.z + 0.05f}, {1.0f, 1.0f, 1.0f},
       {0.0f, cave_yaw, 0.0f}, cave_mouth_stone);
+  const std::shared_ptr<const CpuMesh> cave_portal_blend_mesh =
+      makeSharedMesh(std::move(cave_complex.portal_blend_mesh));
+  appendGeneratedStructuralScenery(
+      "Smooth terrain blended cave overhang", cave_portal_blend_mesh,
+      {cave_entrance.x, cave_floor_y - 0.010f, cave_entrance.z + 0.10f}, {1.0f, 1.0f, 1.0f},
+      {0.0f, cave_yaw, 0.0f}, cave_mouth_stone);
+  for (const float side : {-1.0f, 1.0f}) {
+    keepCameraSolid(appendScenery("Cave mouth smoothed cliff shoulder", MeshPrimitive::Rock,
+                                  cave_entrance + Vec3{side * 1.66f, cave_floor_y + 0.96f, -0.20f},
+                                  {0.42f, 0.82f, 0.34f},
+                                  {0.06f, cave_yaw + side * 0.22f, side * 0.05f},
+                                  cave_mouth_stone));
+    keepCameraSolid(appendScenery("Cave mouth dark basalt rib", MeshPrimitive::Rock,
+                                  cave_entrance + Vec3{side * 1.32f, cave_floor_y + 1.82f, -0.24f},
+                                  {0.22f, 0.56f, 0.22f},
+                                  {0.18f, cave_yaw - side * 0.16f, side * 0.10f}, cave_wall));
+    keepCameraSolid(appendScenery("Cave mouth layered rock seam", MeshPrimitive::Rock,
+                                  cave_entrance + Vec3{side * 1.08f, cave_floor_y + 1.08f, -0.18f},
+                                  {0.14f, 0.30f, 0.13f},
+                                  {radians(6.0f), cave_yaw + side * 0.08f, side * 0.05f},
+                                  cave_mouth_stone));
+  }
+  keepCameraSolid(appendScenery("Cave mouth rounded upper crown", MeshPrimitive::Rock,
+                                cave_entrance + Vec3{0.0f, cave_floor_y + 2.28f, -0.20f},
+                                {0.72f, 0.22f, 0.22f}, {0.04f, cave_yaw, 0.0f},
+                                cave_mouth_stone));
+  for (const float side : {-1.0f, 1.0f}) {
+    keepCameraSolid(appendScenery("Cave mouth rounded fallen stone", MeshPrimitive::Rock,
+                                  cave_entrance + Vec3{side * 0.74f, cave_floor_y + 0.56f, 0.42f},
+                                  {0.22f, 0.18f, 0.20f},
+                                  {radians(8.0f), cave_yaw + side * 0.16f, side * 0.10f},
+                                  cave_mouth_stone));
+    keepCameraSolid(appendScenery("Cave mouth embedded side stone", MeshPrimitive::Rock,
+                                  cave_entrance + Vec3{side * 1.02f, cave_floor_y + 0.42f, 0.28f},
+                                  {0.16f, 0.15f, 0.13f},
+                                  {radians(-5.0f), cave_yaw - side * 0.11f, side * 0.22f},
+                                  cave_mouth_stone));
+    keepCameraSolid(appendScenery("Cave mouth eroded limestone nub", MeshPrimitive::Rock,
+                                  cave_entrance + Vec3{side * 0.36f, cave_floor_y + 0.28f, 0.62f},
+                                  {0.15f, 0.12f, 0.12f},
+                                  {radians(2.0f), cave_yaw + side * 0.08f, side * 0.06f},
+                                  cave_calcite));
+  }
   const std::shared_ptr<const CpuMesh> cave_portal_floor_mesh =
       makeSharedMesh(std::move(cave_complex.portal_floor_mesh));
   appendGeneratedScenery("Walkable cave entrance threshold", cave_portal_floor_mesh,
@@ -2924,10 +3076,49 @@ void LumenRun::rebuildScene() {
     scene_.objects()[chunk_index].viewer_cull_volume = cave_viewer_cull_volume_;
     ++cave_chunk_index;
   }
-  const CaveTunnelProfile cave_tunnel = lumenCaveTunnelProfile(cave_floor_y);
+  const CaveTunnelProfile cave_tunnel = cave_spec.tunnel;
   for (const CaveWallFixturePlacement &fixture :
        placeCaveWallFixtures(cave_tunnel, lumenCaveWallFixtureProfile())) {
     appendIndustrialWallLight(fixture, industrial_light_metal, industrial_red_lens);
+  }
+  for (const CaveWallFixturePlacement &fixture :
+       placeCaveWallFixtures(cave_tunnel, lumenCaveSecondaryWallFixtureProfile())) {
+    appendIndustrialWallLight(fixture, industrial_light_metal, industrial_red_lens);
+  }
+
+  const float mineral_cutoff = 1.0f - std::clamp(cave_spec.features.mineral_fraction, 0.0f, 1.0f);
+  for (const CaveFeaturePlacement &feature : cave_complex.features) {
+    const bool mineral_accent = feature.mineral >= mineral_cutoff;
+    const Material &feature_material = mineral_accent ? cave_mouth_stone : cave_calcite;
+    constexpr MeshPrimitive primitive = MeshPrimitive::Rock;
+    Vec3 position = feature.position;
+    Vec3 rotation{};
+    Vec3 scale = feature.scale;
+    const char *name = "Cave calcite formation";
+    switch (feature.kind) {
+    case CaveFeatureKind::Stalactite:
+      name = mineral_accent ? "Cave iron-stained stalactite" : "Cave calcite stalactite";
+      position = feature.position + feature.normal * (feature.scale.y * 0.88f);
+      rotation = segmentRotation(feature.position, feature.position + feature.normal);
+      break;
+    case CaveFeatureKind::Stalagmite:
+      name = mineral_accent ? "Cave iron-stained stalagmite" : "Cave calcite stalagmite";
+      position = feature.position + feature.normal * (feature.scale.y * 0.88f);
+      rotation = segmentRotation(feature.position, feature.position + feature.normal);
+      break;
+    case CaveFeatureKind::Column:
+      name = mineral_accent ? "Cave iron-stained column" : "Cave calcite column";
+      rotation = segmentRotation(feature.position, feature.position + feature.normal);
+      scale.x *= 1.12f;
+      scale.z *= 1.12f;
+      break;
+    case CaveFeatureKind::WallShelf:
+      name = mineral_accent ? "Cave iron-stained wall shelf" : "Cave flowstone wall shelf";
+      rotation = {0.0f, std::atan2(feature.normal.x, feature.normal.z), 0.0f};
+      break;
+    }
+    keepCameraSolid(
+        appendScenery(name, primitive, position, scale, rotation, feature_material));
   }
 
   const Vec3 sign_base = {cave_entrance.x - 1.78f, cave_floor_y + 0.50f, cave_entrance.z + 1.32f};
@@ -2989,11 +3180,23 @@ void LumenRun::rebuildScene() {
   const PathRibbonMeshSpec nest_path_spec = castleNestPathSpec();
   appendPathShoulders("Mounded verge to bird nest", nest_path_spec, 0.42f, 0.086f);
   appendSoilPath("Packed soil path to bird nest", *castleNestPathMesh());
-  appendGeneratedScenery("Bird nest tree trunk", climbableTreeTrunkMesh(), bird_tree_base,
-                         {0.70f, 0.92f, 0.70f}, {0.0f, radians(-10.0f), 0.0f}, tree_bark);
-  appendGeneratedScenery("Bird nest tree crown", treeCanopyMesh(),
-                         bird_tree_base + Vec3{0.0f, 3.12f, 0.0f}, {0.92f, 0.78f, 0.90f},
-                         {0.0f, radians(16.0f), 0.0f}, exotic_leaf);
+  const GeneratedSceneryBundle bird_tree_bundle = assembleGeneratedScenery(
+      {.root = {.position = bird_tree_base},
+       .meshes = {GeneratedSceneryMeshPart{.name = "Bird nest tree trunk",
+                                           .mesh = climbableTreeTrunkMesh(),
+                                           .transform = {.rotation = {0.0f, radians(-10.0f), 0.0f},
+                                                         .scale = {0.70f, 0.92f, 0.70f}},
+                                           .material = tree_bark},
+                  GeneratedSceneryMeshPart{.name = "Bird nest tree crown",
+                                           .mesh = treeCanopyMesh(),
+                                           .transform = {.position = {0.0f, 3.12f, 0.0f},
+                                                         .rotation = {0.0f, radians(16.0f), 0.0f},
+                                                         .scale = {0.92f, 0.78f, 0.90f}},
+                                           .material = exotic_leaf}},
+       .sockets = {GeneratedScenerySocket{.name = "nest",
+                                          .transform = {.position = {0.0f, 3.56f, 0.0f}},
+                                          .radius = 0.42f}}});
+  aster::appendGeneratedScenery(scene_, bird_tree_bundle, &scenery_objects_);
   appendGeneratedBeam("Bird nest support branch", fishingRodMesh(),
                       bird_tree_base + Vec3{-0.48f, 2.72f, 0.18f},
                       castle_bird_nest_position_ + Vec3{-0.08f, -0.08f, 0.02f}, 0.035f, tree_bark);
@@ -3588,7 +3791,8 @@ SceneCoherenceProblem LumenRun::buildSceneCoherenceProblem() const {
     const Vec3 entrance = caveEntrancePlanar();
     const TerrainSurfaceSample cave_ground = sampleTerrain(terrain_, {entrance.x, entrance.z});
     const float cave_floor_y = (cave_ground.valid ? cave_ground.height : 0.0f) + 0.030f;
-    const CaveTunnelProfile tunnel = lumenCaveTunnelProfile(cave_floor_y);
+    const CaveTunnelProfile tunnel =
+        lumenTerrainCoveredCaveComplexSpec(terrain_, cave_floor_y).tunnel;
     addRoute("cave passage", {.segments = 64,
                               .width = tunnel.floor_width,
                               .width_variation = 0.0f,
@@ -3989,7 +4193,8 @@ void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const b
     const TerrainSurfaceSample cave_ground = sampleTerrain(terrain_, {entrance.x, entrance.z});
     const float cave_floor_y = (cave_ground.valid ? cave_ground.height : 0.0f) + 0.030f;
     const CaveTraversalConstraint cave_constraint = constrainCaveTraversalPosition(
-        lumenCaveTunnelProfile(cave_floor_y), body.position, tuning_.player_radius);
+        lumenTerrainCoveredCaveComplexSpec(terrain_, cave_floor_y).tunnel, body.position,
+        tuning_.player_radius);
     if (cave_constraint.active && length(cave_constraint.correction) > 0.0001f) {
       const Vec3 correction_direction = normalize(cave_constraint.correction);
       const float outward_speed = dot(body.velocity, correction_direction);

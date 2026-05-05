@@ -3,14 +3,14 @@
 
 #include "aster/asset/mesh_pipeline.hpp"
 
-#include <mesh_workbench.h>
-#include <surface_basis.h>
-
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <limits>
 #include <stdexcept>
+#include <unordered_map>
 #include <vector>
 
 namespace aster {
@@ -18,10 +18,6 @@ namespace {
 
 constexpr float kRelativeAreaTolerance =
     std::numeric_limits<float>::epsilon() * std::numeric_limits<float>::epsilon() * 64.0f;
-
-struct TangentBuildMesh {
-  CpuMesh *mesh = nullptr;
-};
 
 bool finite(const float value) {
   return std::isfinite(value);
@@ -56,6 +52,14 @@ bool degenerateTriangle(const Vertex &a, const Vertex &b, const Vertex &c) {
 
   return triangleAreaSquared(a, b, c) <=
          edge_scale_squared * edge_scale_squared * kRelativeAreaTolerance;
+}
+
+Vec3 faceNormal(const Vec3 a, const Vec3 b, const Vec3 c) {
+  Vec3 normal = normalize(cross(b - a, c - a));
+  if (length(normal) <= 0.0001f) {
+    return {0.0f, 1.0f, 0.0f};
+  }
+  return normal;
 }
 
 void validateMesh(const CpuMesh &mesh) {
@@ -147,105 +151,170 @@ CpuMesh expandIndexedTriangles(const CpuMesh &mesh) {
   return expanded;
 }
 
-int basisFaceCount(const SSurfaceBasisContext *context) {
-  const auto *data = static_cast<const TangentBuildMesh *>(context->m_pUserData);
-  return static_cast<int>(data->mesh->indices.size() / 3u);
-}
-
-int basisVerticesForFace(const SSurfaceBasisContext *, const int) {
-  return 3;
-}
-
-Vertex &basisVertex(const SSurfaceBasisContext *context, const int face, const int vertex) {
-  const auto *data = static_cast<const TangentBuildMesh *>(context->m_pUserData);
-  const std::uint32_t index =
-      data->mesh->indices[static_cast<std::size_t>(face) * 3u + static_cast<std::size_t>(vertex)];
-  return data->mesh->vertices[index];
-}
-
-void basisPosition(const SSurfaceBasisContext *context, float out[], const int face,
-                   const int vertex) {
-  const Vec3 position = basisVertex(context, face, vertex).position;
-  out[0] = position.x;
-  out[1] = position.y;
-  out[2] = position.z;
-}
-
-void basisNormal(const SSurfaceBasisContext *context, float out[], const int face,
-                 const int vertex) {
-  const Vec3 normal = basisVertex(context, face, vertex).normal;
-  out[0] = normal.x;
-  out[1] = normal.y;
-  out[2] = normal.z;
-}
-
-void basisTexCoord(const SSurfaceBasisContext *context, float out[], const int face,
-                   const int vertex) {
-  const Vec2 uv = basisVertex(context, face, vertex).uv;
-  out[0] = uv.x;
-  out[1] = uv.y;
-}
-
-void basisSetTangent(const SSurfaceBasisContext *context, const float tangent[], const float sign,
-                     const int face, const int vertex) {
-  Vertex &out = basisVertex(context, face, vertex);
-  out.tangent = {tangent[0], tangent[1], tangent[2], sign};
-}
-
 void generateTangents(CpuMesh &mesh, MeshDiagnostics &diagnostics) {
   CpuMesh expanded = expandIndexedTriangles(mesh);
-  TangentBuildMesh data{&expanded};
-  SSurfaceBasisInterface callbacks{};
-  callbacks.m_getNumFaces = basisFaceCount;
-  callbacks.m_getNumVerticesOfFace = basisVerticesForFace;
-  callbacks.m_getPosition = basisPosition;
-  callbacks.m_getNormal = basisNormal;
-  callbacks.m_getTexCoord = basisTexCoord;
-  callbacks.m_setTSpaceBasic = basisSetTangent;
 
-  SSurfaceBasisContext context{};
-  context.m_pInterface = &callbacks;
-  context.m_pUserData = &data;
+  for (std::size_t i = 0; i < expanded.indices.size(); i += 3u) {
+    Vertex &a = expanded.vertices[expanded.indices[i + 0u]];
+    Vertex &b = expanded.vertices[expanded.indices[i + 1u]];
+    Vertex &c = expanded.vertices[expanded.indices[i + 2u]];
 
-  if (!genTangSpaceDefault(&context)) {
-    throw std::runtime_error("SurfaceBasis tangent generation failed.");
+    const Vec3 edge_ab = b.position - a.position;
+    const Vec3 edge_ac = c.position - a.position;
+    const Vec2 uv_ab = b.uv - a.uv;
+    const Vec2 uv_ac = c.uv - a.uv;
+    const float denominator = uv_ab.x * uv_ac.y - uv_ac.x * uv_ab.y;
+
+    Vec3 tangent{};
+    float sign = 1.0f;
+    if (std::abs(denominator) > 0.000001f) {
+      const float inv = 1.0f / denominator;
+      tangent = (edge_ab * uv_ac.y - edge_ac * uv_ab.y) * inv;
+      const Vec3 bitangent = (edge_ac * uv_ab.x - edge_ab * uv_ac.x) * inv;
+      const Vec3 n = normalize(a.normal + b.normal + c.normal);
+      sign = dot(cross(n, tangent), bitangent) < 0.0f ? -1.0f : 1.0f;
+    } else {
+      Vec3 n = normalize(a.normal + b.normal + c.normal);
+      if (length(n) <= 0.0001f) {
+        n = faceNormal(a.position, b.position, c.position);
+      }
+      const Vec3 reference = std::abs(n.y) > 0.80f ? Vec3{1.0f, 0.0f, 0.0f}
+                                                    : Vec3{0.0f, 1.0f, 0.0f};
+      tangent = normalize(cross(reference, n));
+    }
+
+    const auto assign_tangent = [&](Vertex &vertex) {
+      Vec3 t = tangent - vertex.normal * dot(vertex.normal, tangent);
+      if (length(t) <= 0.0001f) {
+        const Vec3 reference = std::abs(vertex.normal.y) > 0.80f ? Vec3{1.0f, 0.0f, 0.0f}
+                                                                 : Vec3{0.0f, 1.0f, 0.0f};
+        t = cross(reference, vertex.normal);
+      }
+      t = normalize(t);
+      vertex.tangent = {t.x, t.y, t.z, sign};
+    };
+
+    assign_tangent(a);
+    assign_tangent(b);
+    assign_tangent(c);
   }
 
   diagnostics.generated_tangents = expanded.vertices.size();
   mesh = std::move(expanded);
 }
 
+struct VertexKey {
+  Vertex vertex{};
+
+  bool operator==(const VertexKey &other) const {
+    return std::memcmp(&vertex, &other.vertex, sizeof(Vertex)) == 0;
+  }
+};
+
+struct VertexKeyHash {
+  std::size_t operator()(const VertexKey &key) const {
+    const auto *bytes = reinterpret_cast<const unsigned char *>(&key.vertex);
+    std::size_t hash = 1469598103934665603ull;
+    for (std::size_t i = 0; i < sizeof(Vertex); ++i) {
+      hash ^= bytes[i];
+      hash *= 1099511628211ull;
+    }
+    return hash;
+  }
+};
+
 void compactEquivalentVertices(CpuMesh &mesh, MeshDiagnostics &diagnostics) {
-  std::vector<unsigned int> remap(mesh.vertices.size());
-  const std::size_t vertex_count =
-      meshwork_generateVertexRemap(remap.data(), mesh.indices.data(), mesh.indices.size(),
-                                   mesh.vertices.data(), mesh.vertices.size(), sizeof(Vertex));
+  std::unordered_map<VertexKey, std::uint32_t, VertexKeyHash> remap;
+  remap.reserve(mesh.vertices.size());
+  std::vector<Vertex> vertices;
+  vertices.reserve(mesh.vertices.size());
+  std::vector<std::uint32_t> indices;
+  indices.reserve(mesh.indices.size());
 
-  std::vector<Vertex> vertices(vertex_count);
-  std::vector<std::uint32_t> indices(mesh.indices.size());
-  meshwork_remapVertexBuffer(vertices.data(), mesh.vertices.data(), mesh.vertices.size(),
-                             sizeof(Vertex), remap.data());
-  meshwork_remapIndexBuffer(indices.data(), mesh.indices.data(), mesh.indices.size(), remap.data());
+  for (const std::uint32_t source_index : mesh.indices) {
+    const VertexKey key{mesh.vertices[source_index]};
+    const auto existing = remap.find(key);
+    if (existing != remap.end()) {
+      indices.push_back(existing->second);
+      continue;
+    }
 
-  diagnostics.remapped_vertices = mesh.vertices.size() - vertex_count;
+    const std::uint32_t new_index = static_cast<std::uint32_t>(vertices.size());
+    vertices.push_back(key.vertex);
+    remap.emplace(key, new_index);
+    indices.push_back(new_index);
+  }
+
+  diagnostics.remapped_vertices = mesh.vertices.size() - vertices.size();
   mesh.vertices = std::move(vertices);
   mesh.indices = std::move(indices);
 }
 
 void optimizeIndicesAndVertices(CpuMesh &mesh, const MeshProcessOptions &options) {
   if (options.optimize_vertex_cache) {
-    std::vector<std::uint32_t> optimized(mesh.indices.size());
-    meshwork_optimizeVertexCache(optimized.data(), mesh.indices.data(), mesh.indices.size(),
-                                 mesh.vertices.size());
-    mesh.indices = std::move(optimized);
+    const std::size_t triangle_count = mesh.indices.size() / 3u;
+    std::vector<std::vector<std::uint32_t>> vertex_triangles(mesh.vertices.size());
+    for (std::uint32_t triangle = 0; triangle < triangle_count; ++triangle) {
+      const std::size_t base = static_cast<std::size_t>(triangle) * 3u;
+      vertex_triangles[mesh.indices[base + 0u]].push_back(triangle);
+      vertex_triangles[mesh.indices[base + 1u]].push_back(triangle);
+      vertex_triangles[mesh.indices[base + 2u]].push_back(triangle);
+    }
+
+    std::vector<std::uint32_t> reordered;
+    reordered.reserve(mesh.indices.size());
+    std::vector<std::uint8_t> state(triangle_count, 0u);
+    std::deque<std::uint32_t> pending;
+
+    const auto queue_triangle = [&](const std::uint32_t triangle) {
+      if (triangle < state.size() && state[triangle] == 0u) {
+        state[triangle] = 1u;
+        pending.push_back(triangle);
+      }
+    };
+
+    for (std::uint32_t seed = 0; seed < triangle_count; ++seed) {
+      queue_triangle(seed);
+      while (!pending.empty()) {
+        const std::uint32_t triangle = pending.front();
+        pending.pop_front();
+        if (state[triangle] == 2u) {
+          continue;
+        }
+        state[triangle] = 2u;
+        const std::size_t base = static_cast<std::size_t>(triangle) * 3u;
+        const std::array<std::uint32_t, 3> corners{mesh.indices[base + 0u],
+                                                   mesh.indices[base + 1u],
+                                                   mesh.indices[base + 2u]};
+        reordered.insert(reordered.end(), corners.begin(), corners.end());
+        for (const std::uint32_t vertex : corners) {
+          for (const std::uint32_t adjacent : vertex_triangles[vertex]) {
+            queue_triangle(adjacent);
+          }
+        }
+      }
+
+      if (state[seed] == 2u) {
+        continue;
+      }
+    }
+
+    if (reordered.size() == mesh.indices.size()) {
+      mesh.indices = std::move(reordered);
+    }
   }
 
   if (options.optimize_vertex_fetch) {
-    std::vector<Vertex> vertices(mesh.vertices.size());
-    const std::size_t vertex_count =
-        meshwork_optimizeVertexFetch(vertices.data(), mesh.indices.data(), mesh.indices.size(),
-                                     mesh.vertices.data(), mesh.vertices.size(), sizeof(Vertex));
-    vertices.resize(vertex_count);
+    std::vector<std::uint32_t> remap(mesh.vertices.size(), std::numeric_limits<std::uint32_t>::max());
+    std::vector<Vertex> vertices;
+    vertices.reserve(mesh.vertices.size());
+    for (std::uint32_t &index : mesh.indices) {
+      if (remap[index] == std::numeric_limits<std::uint32_t>::max()) {
+        remap[index] = static_cast<std::uint32_t>(vertices.size());
+        vertices.push_back(mesh.vertices[index]);
+      }
+      index = remap[index];
+    }
     mesh.vertices = std::move(vertices);
   }
 }

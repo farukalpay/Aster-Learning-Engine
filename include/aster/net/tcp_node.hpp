@@ -41,8 +41,6 @@ public:
   [[nodiscard]] std::size_t peerCount() const;
 
 private:
-  friend class TcpSession;
-
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

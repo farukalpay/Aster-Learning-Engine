@@ -3,8 +3,6 @@
 
 #include "aster/ui/hud_layer.hpp"
 
-#include "aster/platform/window.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -379,13 +377,13 @@ HudLayer::~HudLayer() {
   shutdown();
 }
 
-void HudLayer::initialize(Window &window) {
-  canvas_.initialize(window.nativeHandle());
+void HudLayer::initialize() {
+  canvas_.initialize();
   initialized_ = true;
 }
 
-void HudLayer::beginFrame() {
-  canvas_.beginFrame();
+void HudLayer::beginFrame(const Vec2 viewport_size, const ControlSnapshot &input) {
+  canvas_.beginFrame(viewport_size, input);
 }
 
 HudAction HudLayer::draw(const HudModel &model) {

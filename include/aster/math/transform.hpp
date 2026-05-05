@@ -16,4 +16,12 @@ struct Transform {
   [[nodiscard]] Mat4 matrix() const;
 };
 
+inline Vec3 transformPoint(const Transform &transform, const Vec3 point) {
+  return aster::transformPoint(transform.matrix(), point);
+}
+
+inline Vec3 transformVector(const Transform &transform, const Vec3 value) {
+  return aster::transformVector(transform.matrix(), value);
+}
+
 } // namespace aster

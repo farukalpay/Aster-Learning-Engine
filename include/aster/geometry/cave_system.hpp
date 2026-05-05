@@ -19,6 +19,24 @@ struct CaveOreNodePlacement {
   float radius = 0.22f;
 };
 
+enum class CaveFeatureKind {
+  Stalagmite,
+  Stalactite,
+  Column,
+  WallShelf,
+};
+
+struct CaveFeaturePlacement {
+  CaveFeatureKind kind = CaveFeatureKind::Stalagmite;
+  Vec3 position{};
+  Vec3 normal{0.0f, 1.0f, 0.0f};
+  Vec3 tangent{0.0f, 0.0f, -1.0f};
+  Vec3 scale{0.18f, 0.42f, 0.18f};
+  float radius = 0.18f;
+  float t = 0.0f;
+  float mineral = 0.0f;
+};
+
 struct CaveTunnelProfile {
   std::uint32_t seed = 1u;
   Vec3 start{};
@@ -67,19 +85,36 @@ struct CaveOreVeinProfile {
   float min_spacing = 1.08f;
 };
 
+struct CaveFeatureProfile {
+  std::uint32_t seed = 1u;
+  int candidates = 96;
+  int max_features = 34;
+  float start_t = 0.16f;
+  float end_t = 0.94f;
+  float min_spacing = 0.82f;
+  float wall_inset = 0.18f;
+  float ceiling_fraction = 0.36f;
+  float column_fraction = 0.10f;
+  float shelf_fraction = 0.16f;
+  float mineral_fraction = 0.18f;
+};
+
 struct CaveComplexSpec {
   CaveTunnelProfile tunnel{};
   CavePortalProfile portal{};
   CaveOreVeinProfile ore{};
+  CaveFeatureProfile features{};
 };
 
 struct CaveComplex {
   CpuMesh portal_mesh{};
+  CpuMesh portal_blend_mesh{};
   CpuMesh portal_floor_mesh{};
   CpuMesh floor_mesh{};
   CpuMesh collision_mesh{};
   std::vector<CpuMesh> tunnel_chunks;
   std::vector<CaveOreNodePlacement> ore_nodes;
+  std::vector<CaveFeaturePlacement> features;
   Vec3 chest_position{};
   float chest_yaw = 0.0f;
 };

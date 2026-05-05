@@ -10,6 +10,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 
@@ -19,6 +20,7 @@ constexpr std::size_t kRenderLightCount = 4;
 
 class Scene;
 enum class MeshPrimitive;
+class NativeRenderBackend;
 struct RenderObject;
 
 struct Light {
@@ -143,16 +145,7 @@ private:
   [[nodiscard]] const CpuMesh &meshForPrimitive(MeshPrimitive primitive) const;
   [[nodiscard]] const CpuMesh &meshForObject(const RenderObject &object);
 
-  struct NativeMeshBuffers {
-    void *vertex_buffer = nullptr;
-    void *index_buffer = nullptr;
-    std::uint32_t index_count = 0;
-  };
-
-  [[nodiscard]] NativeMeshBuffers &nativeBuffersForMesh(const CpuMesh &mesh);
-  void releaseNativeMeshBuffers(NativeMeshBuffers &buffers);
-  void ensureNativeRenderTargets(int width, int height);
-
+  std::unique_ptr<NativeRenderBackend> native_backend_;
   CpuMesh box_;
   CpuMesh sphere_;
   CpuMesh plane_;
@@ -162,17 +155,6 @@ private:
   CpuMesh ruin_block_;
   CpuMesh pillar_;
   std::unordered_map<const CpuMesh *, CpuMesh> custom_mesh_cache_;
-  std::unordered_map<const CpuMesh *, NativeMeshBuffers> native_mesh_cache_;
-  void *native_device_ = nullptr;
-  void *native_queue_ = nullptr;
-  void *native_library_ = nullptr;
-  void *native_pipeline_ = nullptr;
-  void *native_depth_write_state_ = nullptr;
-  void *native_depth_read_state_ = nullptr;
-  void *native_color_texture_ = nullptr;
-  void *native_depth_texture_ = nullptr;
-  int native_width_ = 0;
-  int native_height_ = 0;
 };
 
 } // namespace aster

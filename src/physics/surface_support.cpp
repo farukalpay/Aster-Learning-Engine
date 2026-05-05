@@ -14,32 +14,6 @@ constexpr float kEpsilon = 0.000001f;
 constexpr std::size_t kTargetTrianglesPerSupportCell = 8u;
 constexpr int kMaxSupportGridAxisCells = 128;
 
-aster::Vec3 rotateX(const aster::Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x, value.y * c - value.z * s, value.y * s + value.z * c};
-}
-
-aster::Vec3 rotateY(const aster::Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x * c + value.z * s, value.y, -value.x * s + value.z * c};
-}
-
-aster::Vec3 rotateZ(const aster::Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x * c - value.y * s, value.x * s + value.y * c, value.z};
-}
-
-aster::Vec3 transformPoint(const aster::Transform &transform, const aster::Vec3 point) {
-  aster::Vec3 out = point * transform.scale;
-  out = rotateX(out, transform.rotation.x);
-  out = rotateY(out, transform.rotation.y);
-  out = rotateZ(out, transform.rotation.z);
-  return out + transform.position;
-}
-
 bool projectTriangleHeight(const aster::Vec3 a, const aster::Vec3 b, const aster::Vec3 c,
                            const aster::Vec2 point, float &height) {
   const float v0x = b.x - a.x;

@@ -1,106 +1,172 @@
 # Aster Architecture
 
-Aster separates reusable engine code from application code from the first commit. The intent is to keep research logic, rendering logic, scene contracts, and UI controls out of each other's way.
+Aster keeps product code thin and reusable behavior in engine modules. The core
+rule is that app files wire systems together; they do not own platform handles,
+protocol parsing, geometry processing, renderer policy, or research logic.
 
 ## Module Boundaries
 
 `include/aster/math`
 
-Pure vector, matrix, and color utilities. This layer has no platform, renderer, or UI dependency.
-
-`include/aster/input`
-
-Command-oriented input contracts. The library stores named commands and bindings, then resolves per-frame command state from a platform snapshot. It does not know about window backends or editor behavior.
+Vector, matrix, transform, color, and procedural noise utilities. This layer is
+standard C++ only and does not depend on platform, renderer, game, or UI code.
 
 `include/aster/asset`
 
-CPU-side asset preparation contracts. Scene documents are parsed into material slots and mesh primitives, then mesh data is validated, deterministically repaired where possible, assigned SurfaceBasis tangents, and reordered for GPU-friendly index and vertex access before render backends see it.
+CPU-side scene import and mesh preparation. Importers translate data into engine
+materials and mesh primitives. The mesh pipeline validates topology, rebuilds
+missing normals, generates tangents, compacts equivalent vertices, and performs
+bounded cache/fetch ordering before render code sees the mesh.
+
+`include/aster/geometry`
+
+Reusable geometry generation and queries: brush level mesh construction,
+terrain, cave tunnel/formation placement, castle, nature, generated scenery
+assembly, and procedural support-surface helpers. Public gameplay-facing APIs
+remain stable where practical, including `buildBrushLevelMesh(...)` and
+`assembleGeneratedScenery(...)`. Cave entrance fitting, portal blend geometry,
+walkable threshold meshes, collision meshes, ore nodes, and formation placement
+belong in this layer so games wire cave specs instead of rebuilding cave rules.
 
 `include/aster/net`
 
-Network contracts. The frame codec and node router are pure C++ and can be tested without sockets. The TCP node is an optional transport that feeds decoded messages into the same router instead of forcing app code to own protocol parsing.
+Message framing, routing, and TCP transport. `NetMessage`, `NodeRouter`, and
+`TcpNode` stay as the app-facing contracts. The transport is a POSIX socket
+event loop with owned queues and frame decoding; application code never parses
+socket bytes directly.
 
-`include/aster/game`
+`include/aster/core`
 
-Reusable gameplay systems. `LumenRun` owns gameplay state and writes a renderable `Scene`, while the executable only wires windowing, controls, rendering, and HUD.
-
-`include/aster/scene`
-
-Data contracts for renderable objects. Scene objects own inspectable transform/material data, but they do not own GPU resources and do not call renderer APIs.
-
-The scene module also owns the backend-neutral coherence contract used to compare
-sampled visual, collision, navigation, visibility, material, light, and fluid
-layers. It reports inspectable energy contributions instead of pushing
-research or game-specific inference rules into app code.
-
-The same module owns symbolic scene trace validation. Runtime or build-time
-samplers can encode player-facing evidence as ordered symbol words, then validate
-those words with bounded-horizon language rules such as forbidden events,
-same-frame implications, and finite-window continuity. The implementation keeps
-the rule DSL generic; games provide only the evidence-to-symbol adapter.
-
-`include/aster/render`
-
-Camera, mesh generation/upload, pipeline management, and render submission. The public `RenderDevice` contract stays backend-neutral so platform-specific presentation details do not leak into product code.
+Configuration, clocks, frame timing, and profiling. The profiler macros map to a
+lightweight CPU trace sink with scope timing, an in-memory ring, and text export.
 
 `include/aster/platform`
 
-Window and graphics context ownership. The input bridge lives here because it translates platform state into the engine's platform-neutral input snapshot.
+`aster::Window` owns the native platform boundary. macOS and Linux have separate
+source files; all native handles stay inside those files. Engine and app code
+receive viewport sizes and `ControlSnapshot` values.
+
+`include/aster/render`
+
+Camera contracts, mesh data, renderer settings, software framebuffer capture,
+and `RenderDevice`. macOS uses an owned Metal backend for real-time scene
+rendering. The software renderer remains the deterministic fallback, capture
+path, preview path, and reference implementation. `SurfacePattern` is the shared
+procedural material contract across native and software rendering.
+
+`include/aster/scene`
+
+Renderable scene data. Scene objects carry transforms, materials, object flags,
+and optional generated meshes. Materials expose explicit alpha, depth, render
+queue, procedural surface, and camera-occlusion policy through `MaterialDesc`
+and related helpers. Scene data does not own platform resources.
+
+`include/aster/game`
+
+Reusable gameplay systems for Lumen Run: movement, interaction, inventory,
+items, lighting, particles, creature motion, camera behavior, and game state.
 
 `include/aster/ui`
 
-Editor and HUD surfaces. UI code reads and writes explicit engine data through the engine-owned `UiCanvas`; it does not compute render policy or own scene resources.
+Immediate UI canvas, HUD, inventory overlay, editor UI, and control legends. UI
+consumes explicit data models and input snapshots. Canvas clipping and panel
+scrolling are part of the UI contract, so editor controls can grow without
+requiring app-specific layout branches.
 
 `apps`
 
-Thin executables. `aster_studio` wires the editor together. `aster_lumen_run` wires the game together. `aster_preview` provides headless visual verification without requiring a GPU context.
+Executable wiring only. `aster_lumen_run`, `aster_studio`, `aster_preview`, and
+`aster_net_probe` compose engine systems but do not own engine internals.
 
-## Current Render Flow
+## Render Flow
 
 ```mermaid
 flowchart LR
-  Window["Window surface"] --> Device["RenderDevice"]
-  Window --> Input["Input snapshot"]
-  Input --> Actions["ControlState"]
-  Network["TCP node"] --> Router["NodeRouter"]
-  Router --> Game
-  Asset["Mesh preparation"] --> Meshes
-  Scene["Scene data"] --> Device
-  Coherence["Scene coherence report"] --> Game
-  Trace["Symbolic trace validator"] --> Game
-  Game --> Coherence
-  Game --> Trace
-  Camera["OrbitCamera"] --> Device
-  Device --> Pipeline["Render pipeline"]
-  Device --> Meshes["Native mesh buffers"]
-  Device --> Frame["FrameStats"]
-  Frame --> UI["EditorUi / UiCanvas"]
-  UI --> Scene
-  UI --> Camera
-  UI --> Settings["RendererSettings"]
-  Settings --> Device
-  Actions --> Camera
-  Actions --> Game["LumenRun"]
-  Game --> Scene
+  Platform["aster::Window"] --> Snapshot["ControlSnapshot"]
+  Snapshot --> Controls["ControlState"]
+  Controls --> Game["LumenRun"]
+  Controls --> Camera["OrbitCamera"]
+  Game --> Scene["Scene"]
+  Assets["Asset + Mesh Pipeline"] --> Scene
+  Scene --> Renderer["RenderDevice"]
+  Camera --> Renderer
+  Settings["RendererSettings"] --> Renderer
+  Renderer --> NativeScene["Native Scene Texture"]
+  Renderer --> Framebuffer["Software Framebuffer"]
+  NativeScene --> Platform
+  Framebuffer --> Platform
+  NativeScene --> Capture["PPM Capture"]
+  Framebuffer --> Capture
+  Game --> HudModel["HUD Models"]
+  HudModel --> UI["HudLayer / UiCanvas"]
+  Snapshot --> UI
+  UI --> Framebuffer
 ```
 
-## Backend Strategy
+## Platform Boundary
 
-The renderer is a backend behind the engine contract, not the engine architecture. Backends implement the same high-level responsibilities:
+Native platform code is isolated by operating system:
 
-- Resource creation and lifetime
-- Shader/pipeline ownership
-- Draw submission
-- Frame statistics
-- Capability reporting
+- `src/platform/window_macos.mm` owns the Cocoa window, event pump, cursor modes,
+  Metal layer presentation, and software framebuffer fallback presentation.
+- `src/platform/window_linux.cpp` owns the raw X11 socket protocol path,
+  including setup, window creation, input events, close protocol, cursor hiding,
+  pointer recentering, and framebuffer presentation.
 
-The scene layer should remain backend-neutral. Backend-specific capabilities should be exposed through explicit feature reports, not through scattered `#ifdef` branches in app code.
+No public header exposes native window handles. New platform work should extend
+the adapter behind `aster::Window` rather than adding product-level branches.
+
+## Renderer Policy
+
+`RenderDevice` owns renderer selection and mesh preparation. On macOS, the
+default backend is `Aster Native Metal Rasterizer`; it uploads prepared meshes
+to Metal buffers, builds a per-frame camera-visible workset, renders opaque
+objects with depth, sorts translucent objects, streams object uniforms through a
+frame-local buffer, evaluates procedural material shading, and composites the UI
+overlay from the software framebuffer. `ASTER_FORCE_SOFTWARE_RENDERER=1` selects
+the deterministic software renderer.
+
+The software renderer handles tiled rasterization, depth, alpha, procedural
+material evaluation, contact shadows, fog, grading, tonemapping, and capture.
+Native capture waits for the Metal scene command buffer, reads the scene texture,
+and composites the software UI overlay using the same top-left framebuffer
+origin as live presentation.
+
+Procedural material evaluation is pattern-driven rather than sample-specific.
+Terrain, water, cave rock, coal veins, foliage, fur, amber, wood, stone, scales,
+feathers, and fiber patterns are selected through `Material::surface_pattern`
+and parameterized by material fields. New patterns should extend that contract
+in both renderers rather than adding game-side shader branches.
+
+Renderer policy belongs in `src/render`. Scene description belongs in
+`src/scene` and `src/game`. App files should only select settings and pass them
+to the renderer.
+
+## Frame Pacing
+
+Interactive executables default to synchronized, 60 Hz frame pacing. `--unlocked`
+is the explicit opt-in for unbounded loops. Screenshot and sequence capture paths
+use deterministic fixed timing so generated media stays reproducible.
+
+## Build Policy
+
+CMake builds one static `aster` library plus small executables. Platform source
+selection is based on the host OS. Aster v1 does not carry Windows or Wayland
+compatibility code.
+
+The engine and sample should build without fetching source code or linking
+desktop client libraries. Direct OS interaction belongs only in platform
+adapters.
 
 ## Known Compromises
 
-- Windowing, profiling, and TCP transport support are built from engine-owned runtime sources, so a clean checkout can configure without fetching code.
-- The macOS build uses Aster's native Cocoa windowing bridge and Metal presentation internally. Most engine source is C/C++, while platform bridge files may compile through Objective-C where the OS requires it.
-- The current UI layer is intentionally compact: it covers panels, bitmap text, buttons, checkboxes, sliders, progress bars, and HUD drawings used by the sample game and studio. It is not a general retained-mode editor framework.
-- The preview renderer approximates non-uniformly scaled spheres with a representative radius. The interactive renderer handles full object matrices.
-- Native screenshots are captured from the engine framebuffer rather than a browser harness.
-- The first network transport is a compact TCP loopback implementation. Higher-level replication, login, proxy, and world services should be built as named router services rather than fixed server categories.
+- Linux presentation targets raw X11 first. Wayland can be added through the same
+  `aster::Window` contract without changing app, game, renderer, or UI code.
+- Linux currently presents software frames; GPU shader rendering is only
+  implemented for macOS Metal.
+- The scene importer supports the subset of JSON scene data exercised by
+  generated tests and engine-authored scenes. Expanding file-format coverage
+  should extend that importer without
+  changing renderer contracts.
+- The UI system is intentionally immediate and compact. It covers the controls
+  required by the game and studio, not a retained-mode application framework.
