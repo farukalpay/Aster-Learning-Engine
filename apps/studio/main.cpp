@@ -11,10 +11,12 @@
 #include "aster/scene/scene.hpp"
 #include "aster/ui/editor_ui.hpp"
 
+#include <chrono>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <string_view>
+#include <thread>
 
 namespace {
 
@@ -26,6 +28,9 @@ constexpr const char *kOrbitDown = "camera.orbit.down";
 constexpr const char *kOrbitPointer = "camera.orbit.pointer";
 constexpr const char *kZoomIn = "camera.zoom.in";
 constexpr const char *kZoomOut = "camera.zoom.out";
+constexpr double kDefaultInteractiveFrameCapSeconds = 1.0 / 60.0;
+constexpr double kFramePacingSchedulerGuardSeconds = 0.0012;
+constexpr double kFramePacingYieldThresholdSeconds = 0.00018;
 
 bool hasArgument(const int argc, char **argv, const std::string_view value) {
   for (int i = 1; i < argc; ++i) {
@@ -43,6 +48,31 @@ std::filesystem::path argumentPath(const int argc, char **argv, const std::strin
     }
   }
   return {};
+}
+
+int argumentInt(const int argc, char **argv, const std::string_view name, const int fallback) {
+  for (int i = 1; i + 1 < argc; ++i) {
+    if (std::string_view(argv[i]) == name) {
+      return std::stoi(argv[i + 1]);
+    }
+  }
+  return fallback;
+}
+
+void sleepForFrameCap(const aster::Clock &clock, const double frame_start_seconds,
+                      const double target_frame_seconds) {
+  if (target_frame_seconds <= 0.0) {
+    return;
+  }
+  const double remaining = target_frame_seconds - (clock.now() - frame_start_seconds);
+  if (remaining > kFramePacingSchedulerGuardSeconds + kFramePacingYieldThresholdSeconds) {
+    std::this_thread::sleep_for(
+        std::chrono::duration<double>(remaining - kFramePacingSchedulerGuardSeconds));
+  }
+  while (target_frame_seconds - (clock.now() - frame_start_seconds) >
+         kFramePacingYieldThresholdSeconds) {
+    std::this_thread::yield();
+  }
 }
 
 aster::ControlScheme makeStudioControls() {
@@ -105,9 +135,15 @@ void updateCameraFromInput(aster::Window &window, aster::EditorUi &ui, aster::Or
 int main(int argc, char **argv) {
   try {
     aster::EngineConfig config;
-    config.enable_vsync = !hasArgument(argc, argv, "--no-vsync");
     const bool smoke_test = hasArgument(argc, argv, "--smoke-test");
     const std::filesystem::path screenshot_path = argumentPath(argc, argv, "--screenshot");
+    const bool scripted_capture = !screenshot_path.empty();
+    const bool unlocked = hasArgument(argc, argv, "--unlocked");
+    config.enable_vsync = !scripted_capture && !unlocked && !hasArgument(argc, argv, "--no-vsync");
+    config.initial_width = argumentInt(argc, argv, "--window-width", config.initial_width);
+    config.initial_height = argumentInt(argc, argv, "--window-height", config.initial_height);
+    const double target_frame_seconds =
+        (!scripted_capture && !unlocked) ? kDefaultInteractiveFrameCapSeconds : 0.0;
 
     aster::Window window(config);
     aster::RenderDevice renderer;
@@ -144,7 +180,7 @@ int main(int argc, char **argv) {
     aster::ControlScheme control_scheme = makeStudioControls();
     aster::ControlState control_state;
     aster::EditorUi ui;
-    ui.initialize(window);
+    ui.initialize();
 
     aster::Clock clock;
     int rendered_frames = 0;
@@ -152,10 +188,13 @@ int main(int argc, char **argv) {
     while (window.isOpen()) {
       window.pollEvents();
       const double dt = clock.tick();
+      const double frame_start_seconds = clock.now();
       const double elapsed = clock.now();
       control_state.update(control_scheme, window.captureControls(control_scheme));
 
-      ui.beginFrame();
+      const auto [ui_width, ui_height] = window.windowSize();
+      ui.beginFrame({static_cast<float>(ui_width), static_cast<float>(ui_height)},
+                    control_state.snapshot());
       updateCameraFromInput(window, ui, camera, control_state);
 
       const auto [width, height] = window.framebufferSize();
@@ -178,6 +217,9 @@ int main(int argc, char **argv) {
 
       if (smoke_test && rendered_frames >= 3) {
         window.requestClose();
+      }
+      if (window.isOpen()) {
+        sleepForFrameCap(clock, frame_start_seconds, target_frame_seconds);
       }
     }
   } catch (const std::exception &error) {

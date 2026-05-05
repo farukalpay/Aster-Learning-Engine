@@ -13,8 +13,6 @@
 
 namespace aster {
 
-class Window;
-
 struct PointerCueModel {
   bool active = false;
   bool pressed = false;
@@ -103,8 +101,8 @@ public:
   HudLayer(const HudLayer &) = delete;
   HudLayer &operator=(const HudLayer &) = delete;
 
-  void initialize(Window &window);
-  void beginFrame();
+  void initialize();
+  void beginFrame(Vec2 viewport_size, const ControlSnapshot &input);
   [[nodiscard]] HudAction draw(const HudModel &model);
   void endFrame();
   void shutdown();

@@ -3,9 +3,8 @@
 
 #include "aster/ui/ui_canvas.hpp"
 
+#include "aster/input/input_codes.hpp"
 #include "aster/render/software_framebuffer.hpp"
-
-#include <DESKTOP_WINDOW/desktop_window3.h>
 
 #include <algorithm>
 #include <array>
@@ -120,6 +119,14 @@ float glyphAdvance(const float scale) {
   return 6.0f * scale;
 }
 
+aster::UiRect intersectRect(const aster::UiRect a, const aster::UiRect b) {
+  const float x0 = std::max(a.x, b.x);
+  const float y0 = std::max(a.y, b.y);
+  const float x1 = std::min(a.x + a.width, b.x + b.width);
+  const float y1 = std::min(a.y + a.height, b.y + b.height);
+  return {x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0)};
+}
+
 } // namespace
 
 namespace aster {
@@ -128,26 +135,20 @@ UiCanvas::~UiCanvas() {
   shutdown();
 }
 
-void UiCanvas::initialize(DESKTOP_WINDOWwindow *window) {
-  window_ = window;
+void UiCanvas::initialize() {
 }
 
-void UiCanvas::beginFrame() {
-  if (window_ == nullptr) {
-    return;
-  }
-
-  desktop_windowGetWindowSize(window_, &viewport_width_, &viewport_height_);
+void UiCanvas::beginFrame(const Vec2 viewport_size, const ControlSnapshot &input) {
+  viewport_width_ = static_cast<int>(std::round(viewport_size.x));
+  viewport_height_ = static_cast<int>(std::round(viewport_size.y));
   viewport_width_ = std::max(viewport_width_, 1);
   viewport_height_ = std::max(viewport_height_, 1);
 
-  double pointer_x = 0.0;
-  double pointer_y = 0.0;
-  desktop_windowGetCursorPos(window_, &pointer_x, &pointer_y);
-  pointer_ = {static_cast<float>(pointer_x), static_cast<float>(pointer_y)};
+  pointer_ = input.pointer;
 
-  const bool down = desktop_windowGetMouseButton(window_, DESKTOP_WINDOW_MOUSE_BUTTON_LEFT) ==
-                    DESKTOP_WINDOW_PRESS;
+  const bool down = std::find(input.pressed_mouse_buttons.begin(),
+                              input.pressed_mouse_buttons.end(),
+                              code(MouseButton::Left)) != input.pressed_mouse_buttons.end();
   mouse_pressed_ = down && !mouse_down_;
   mouse_released_ = !down && mouse_down_;
   mouse_down_ = down;
@@ -157,6 +158,7 @@ void UiCanvas::beginFrame() {
   wants_mouse_ = active_control_ != 0u || hovered_last_frame_;
   rects_.clear();
   vertices_.clear();
+  clip_stack_.clear();
 }
 
 void UiCanvas::endFrame() {
@@ -199,7 +201,8 @@ void UiCanvas::endFrame() {
 }
 
 void UiCanvas::shutdown() {
-  window_ = nullptr;
+  rects_.clear();
+  vertices_.clear();
 }
 
 Vec2 UiCanvas::viewportSize() const {
@@ -259,7 +262,11 @@ void UiCanvas::fillRect(const UiRect rect, const UiColor color) {
   if (rect.width <= 0.0f || rect.height <= 0.0f || color.a <= 0.0f) {
     return;
   }
-  rects_.push_back({rect, color});
+  const UiRect clipped = intersectRect(rect, currentClip());
+  if (clipped.width <= 0.0f || clipped.height <= 0.0f) {
+    return;
+  }
+  rects_.push_back({clipped, color});
 }
 
 void UiCanvas::fillRoundRect(const UiRect rect, const float radius, const UiColor color) {
@@ -297,6 +304,17 @@ void UiCanvas::strokeRect(const UiRect rect, const UiColor color, const float th
   fillRect({rect.x, rect.y + rect.height - t, rect.width, t}, color);
   fillRect({rect.x, rect.y, t, rect.height}, color);
   fillRect({rect.x + rect.width - t, rect.y, t, rect.height}, color);
+}
+
+void UiCanvas::pushClip(const UiRect rect) {
+  const UiRect clipped = intersectRect(rect, currentClip());
+  clip_stack_.push_back(clipped);
+}
+
+void UiCanvas::popClip() {
+  if (!clip_stack_.empty()) {
+    clip_stack_.pop_back();
+  }
 }
 
 void UiCanvas::line(const Vec2 from, const Vec2 to, const UiColor color, const float thickness) {
@@ -466,8 +484,31 @@ bool UiCanvas::checkbox(const UiRect rect, const std::string_view label, bool &v
 }
 
 bool UiCanvas::contains(const UiRect rect, const Vec2 point) const {
-  return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y &&
-         point.y <= rect.y + rect.height;
+  const UiRect clipped = intersectRect(rect, currentClip());
+  return point.x >= clipped.x && point.x <= clipped.x + clipped.width && point.y >= clipped.y &&
+         point.y <= clipped.y + clipped.height;
+}
+
+UiRect UiCanvas::currentClip() const {
+  if (!clip_stack_.empty()) {
+    return clip_stack_.back();
+  }
+  return {0.0f, 0.0f, static_cast<float>(viewport_width_), static_cast<float>(viewport_height_)};
+}
+
+bool UiCanvas::rectIntersectsClip(const UiRect rect) const {
+  const UiRect clipped = intersectRect(rect, currentClip());
+  return clipped.width > 0.0f && clipped.height > 0.0f;
+}
+
+bool UiCanvas::triangleInsideClip(const Vertex a, const Vertex b, const Vertex c) const {
+  const UiRect clip = currentClip();
+  const float min_x = std::min({a.x, b.x, c.x});
+  const float max_x = std::max({a.x, b.x, c.x});
+  const float min_y = std::min({a.y, b.y, c.y});
+  const float max_y = std::max({a.y, b.y, c.y});
+  return min_x >= clip.x && max_x <= clip.x + clip.width && min_y >= clip.y &&
+         max_y <= clip.y + clip.height;
 }
 
 unsigned int UiCanvas::controlId(const std::string_view label, const std::string_view id) const {
@@ -481,6 +522,9 @@ unsigned int UiCanvas::controlId(const std::string_view label, const std::string
 }
 
 void UiCanvas::appendTriangle(const Vertex a, const Vertex b, const Vertex c) {
+  if (!triangleInsideClip(a, b, c)) {
+    return;
+  }
   vertices_.push_back(a);
   vertices_.push_back(b);
   vertices_.push_back(c);

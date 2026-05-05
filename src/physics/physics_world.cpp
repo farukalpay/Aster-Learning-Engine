@@ -62,7 +62,7 @@ Vec3 rotateZ(const Vec3 value, const float radians) {
   return {value.x * c - value.y * s, value.x * s + value.y * c, value.z};
 }
 
-Vec3 transformPoint(const Transform &transform, const Vec3 point) {
+Vec3 transformPhysicsPoint(const Transform &transform, const Vec3 point) {
   Vec3 out = point * transform.scale;
   out = rotateX(out, transform.rotation.x);
   out = rotateY(out, transform.rotation.y);
@@ -151,9 +151,9 @@ std::vector<PhysicsMeshTriangle> prepareMeshTriangles(const CpuMesh &mesh,
     }
 
     PhysicsMeshTriangle triangle;
-    triangle.a = transformPoint(transform, mesh.vertices[ia].position);
-    triangle.b = transformPoint(transform, mesh.vertices[ib].position);
-    triangle.c = transformPoint(transform, mesh.vertices[ic].position);
+    triangle.a = transformPhysicsPoint(transform, mesh.vertices[ia].position);
+    triangle.b = transformPhysicsPoint(transform, mesh.vertices[ib].position);
+    triangle.c = transformPhysicsPoint(transform, mesh.vertices[ic].position);
     triangle.normal = normalize(cross(triangle.b - triangle.a, triangle.c - triangle.a));
     const float area_scale = length(cross(triangle.b - triangle.a, triangle.c - triangle.a));
     if (area_scale <= kEpsilon) {

@@ -5,6 +5,7 @@
 #include "aster/asset/scene_asset_importer.hpp"
 #include "aster/core/fixed_timestep.hpp"
 #include "aster/core/frame_time_stats.hpp"
+#include "aster/core/profiler.hpp"
 #include "aster/game/animation_system.hpp"
 #include "aster/game/creature_motion.hpp"
 #include "aster/game/equipment_system.hpp"
@@ -21,6 +22,7 @@
 #include "aster/geometry/cable_mesh.hpp"
 #include "aster/geometry/castle_course.hpp"
 #include "aster/geometry/cave_system.hpp"
+#include "aster/geometry/generated_scenery.hpp"
 #include "aster/geometry/mesh_projection.hpp"
 #include "aster/geometry/nature_mesh.hpp"
 #include "aster/geometry/stroke_mesh.hpp"
@@ -43,24 +45,117 @@
 #include "aster/physics/terrain_contact.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/mesh.hpp"
+#include "aster/render/software_framebuffer.hpp"
 #include "aster/scene/avatar.hpp"
 #include "aster/scene/scene.hpp"
 #include "aster/scene/scene_coherence.hpp"
 #include "aster/scene/scene_trace.hpp"
 
+#include <array>
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
 
 void expectNear(const float actual, const float expected, const float tolerance) {
   assert(std::abs(actual - expected) <= tolerance);
+}
+
+template <typename T>
+void appendBinaryScalar(std::vector<std::uint8_t> &bytes, const T value) {
+  const auto *data = reinterpret_cast<const std::uint8_t *>(&value);
+  bytes.insert(bytes.end(), data, data + sizeof(T));
+}
+
+template <typename T, std::size_t N>
+void appendBinaryArray(std::vector<std::uint8_t> &bytes, const std::array<T, N> &values) {
+  for (const T value : values) {
+    appendBinaryScalar(bytes, value);
+  }
+}
+
+void writeGeneratedNormalTangentBinary(const std::filesystem::path &path) {
+  std::vector<std::uint8_t> bytes;
+  appendBinaryArray(bytes, std::array<float, 12>{-0.5f, 0.0f, -0.5f, 0.5f, 0.0f, -0.5f,
+                                                 0.5f, 0.0f, 0.5f, -0.5f, 0.0f, 0.5f});
+  appendBinaryArray(bytes, std::array<float, 12>{0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+                                                 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f});
+  appendBinaryArray(bytes, std::array<float, 8>{0.0f, 0.0f, 1.0f, 0.0f,
+                                                1.0f, 1.0f, 0.0f, 1.0f});
+  appendBinaryArray(bytes, std::array<std::uint16_t, 6>{0u, 1u, 2u, 0u, 2u, 3u});
+
+  std::ofstream out(path, std::ios::binary);
+  out.write(reinterpret_cast<const char *>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
+  assert(out.good());
+}
+
+std::filesystem::path writeGeneratedNormalTangentFixture() {
+  const std::filesystem::path directory =
+      std::filesystem::temp_directory_path() / "aster_generated_normal_tangent_fixture";
+  std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory);
+  writeGeneratedNormalTangentBinary(directory / "normal_tangent_probe.bin");
+
+  const std::filesystem::path scene_path = directory / "normal_tangent_probe.scene";
+  std::ofstream scene(scene_path);
+  scene << R"json({
+    "asset": { "generator": "Aster generated scene fixture", "version": "2.0" },
+    "scene": 0,
+    "scenes": [{ "nodes": [0] }],
+    "nodes": [{ "mesh": 0, "translation": [0.0, 0.15, 0.0] }],
+    "meshes": [{
+      "name": "generated_normal_tangent_probe",
+      "primitives": [{
+        "attributes": { "POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2 },
+        "indices": 3,
+        "mode": 4,
+        "material": 0
+      }]
+    }],
+    "materials": [{
+      "name": "generated_check_material",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [0.8, 0.55, 0.36, 1.0],
+        "baseColorTexture": { "index": 0 },
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.62,
+        "metallicRoughnessTexture": { "index": 1 }
+      },
+      "normalTexture": { "index": 2 },
+      "occlusionTexture": { "index": 1 },
+      "doubleSided": true,
+      "alphaMode": "MASK",
+      "emissiveFactor": [0.0, 0.0, 0.0]
+    }],
+    "textures": [{ "source": 0 }, { "source": 1 }, { "source": 2 }],
+    "images": [{ "uri": "base.png" }, { "uri": "orm.png" }, { "uri": "normal.png" }],
+    "buffers": [{ "byteLength": 140, "uri": "normal_tangent_probe.bin" }],
+    "bufferViews": [
+      { "buffer": 0, "byteOffset": 0, "byteLength": 48, "target": 34962 },
+      { "buffer": 0, "byteOffset": 48, "byteLength": 48, "target": 34962 },
+      { "buffer": 0, "byteOffset": 96, "byteLength": 32, "target": 34962 },
+      { "buffer": 0, "byteOffset": 128, "byteLength": 12, "target": 34963 }
+    ],
+    "accessors": [
+      { "bufferView": 0, "byteOffset": 0, "componentType": 5126, "count": 4, "type": "VEC3" },
+      { "bufferView": 1, "byteOffset": 0, "componentType": 5126, "count": 4, "type": "VEC3" },
+      { "bufferView": 2, "byteOffset": 0, "componentType": 5126, "count": 4, "type": "VEC2" },
+      { "bufferView": 3, "byteOffset": 0, "componentType": 5123, "count": 6, "type": "SCALAR" }
+    ]
+  })json";
+  assert(scene.good());
+  return scene_path;
 }
 
 void testVectorMath() {
@@ -82,6 +177,26 @@ void testMatrixComposition() {
   expectNear(transform.m[12], 2.0f, 0.0001f);
   expectNear(transform.m[13], 3.0f, 0.0001f);
   expectNear(transform.m[14], 4.0f, 0.0001f);
+}
+
+void testMatrixInverseAndDeterminant() {
+  const aster::Mat4 transform =
+      aster::translation({3.0f, -2.0f, 5.0f}) * aster::rotation_y(aster::radians(28.0f)) *
+      aster::scale({1.5f, 2.0f, 0.75f});
+  expectNear(aster::determinant(transform), 2.25f, 0.0005f);
+
+  const aster::Mat4 round_trip = transform * aster::inverse(transform);
+  const aster::Mat4 identity = aster::identity();
+  for (std::size_t i = 0; i < round_trip.m.size(); ++i) {
+    expectNear(round_trip.m[i], identity.m[i], 0.001f);
+  }
+
+  const aster::Vec3 point{0.25f, 0.5f, -0.75f};
+  const aster::Vec3 restored = aster::transformPoint(aster::inverse(transform),
+                                                     aster::transformPoint(transform, point));
+  expectNear(restored.x, point.x, 0.001f);
+  expectNear(restored.y, point.y, 0.001f);
+  expectNear(restored.z, point.z, 0.001f);
 }
 
 void testTransformContract() {
@@ -136,6 +251,74 @@ void testFrameTimeStats() {
   expectNear(summary.max_seconds, 0.030, 0.000001);
   assert(summary.budget_seconds.has_value());
   assert(summary.over_budget == 2u);
+}
+
+void testProfilerCaptureExport() {
+  const std::filesystem::path path = std::filesystem::temp_directory_path() / "aster_profile_test.csv";
+  std::filesystem::remove(path);
+  assert(aster::profile::startCapture());
+  {
+    ASTER_PROFILE_SCOPE("profiler.test.scope");
+  }
+  assert(aster::profile::stopCapture());
+  assert(aster::profile::saveCapture(path.string().c_str()));
+  std::ifstream file(path);
+  std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+  assert(text.find("profiler.test.scope") != std::string::npos);
+  aster::profile::shutdown();
+  std::filesystem::remove(path);
+}
+
+bool startsWith(const std::string_view value, const std::string_view prefix) {
+  return value.size() >= prefix.size() && value.substr(0u, prefix.size()) == prefix;
+}
+
+void testSourceBoundaryContracts() {
+  const std::filesystem::path project_root =
+      std::filesystem::path(__FILE__).parent_path().parent_path();
+  assert(!std::filesystem::exists(project_root / "src/runtime"));
+  assert(!std::filesystem::exists(project_root / "assets/sample_scene"));
+
+  const std::filesystem::path public_root = project_root / "include/aster";
+  for (const std::filesystem::directory_entry &entry :
+       std::filesystem::recursive_directory_iterator(public_root)) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".hpp") {
+      continue;
+    }
+    std::ifstream file(entry.path());
+    std::string line;
+    while (std::getline(file, line)) {
+      const std::string_view include_prefix = "#include \"";
+      const std::size_t prefix = line.find(include_prefix);
+      if (prefix == std::string::npos) {
+        continue;
+      }
+      const std::size_t begin = prefix + include_prefix.size();
+      const std::size_t end = line.find('"', begin);
+      assert(end != std::string::npos);
+      const std::string include_path = line.substr(begin, end - begin);
+      assert(startsWith(include_path, "aster/"));
+    }
+  }
+}
+
+void testFramebufferOriginContract() {
+  aster::SoftwareFrameBuffer framebuffer;
+  framebuffer.resize(4, 4);
+  framebuffer.clearTransparent();
+  framebuffer.fillUiRect(0.0f, 0.0f, 2.0f, 2.0f, {255, 32, 16, 255});
+  framebuffer.fillUiRect(0.0f, 2.0f, 2.0f, 2.0f, {24, 64, 255, 255});
+
+  const auto pixels = framebuffer.rgba8();
+  const auto pixel = [&](const int x, const int y) -> const std::uint8_t * {
+    return pixels.data() + (static_cast<std::size_t>(y * framebuffer.width() + x) * 4u);
+  };
+  assert(pixel(0, 0)[0] == 255u);
+  assert(pixel(0, 0)[1] == 32u);
+  assert(pixel(0, 0)[2] == 16u);
+  assert(pixel(0, 2)[0] == 24u);
+  assert(pixel(0, 2)[1] == 64u);
+  assert(pixel(0, 2)[2] == 255u);
 }
 
 void testGameplayItemInteractionSystems() {
@@ -645,7 +828,10 @@ void testCaveInteriorVolume() {
   assert(!complex.tunnel_chunks.empty());
   assert(!complex.collision_mesh.vertices.empty());
   assert(!complex.collision_mesh.indices.empty());
+  assert(!complex.features.empty());
   assert(complex.portal_mesh.vertices.size() > 18u);
+  assert(!complex.portal_blend_mesh.vertices.empty());
+  assert(!complex.portal_blend_mesh.indices.empty());
   assert(!complex.portal_floor_mesh.vertices.empty());
   assert(!complex.portal_floor_mesh.indices.empty());
   aster::Vec3 portal_floor_center{};
@@ -728,6 +914,20 @@ void testCaveInteriorVolume() {
         aster::sampleCaveInteriorVolume(tunnel, ore.position);
     assert(ore_sample.tunnel_t >= tunnel.ore_start_t - 0.08f);
   }
+  bool saw_ceiling_feature = false;
+  bool saw_floor_feature = false;
+  for (const aster::CaveFeaturePlacement &feature : complex.features) {
+    const aster::CaveInteriorSample feature_sample =
+        aster::sampleCaveInteriorVolume(tunnel, feature.position);
+    assert(feature_sample.tunnel_t >= tunnel.visible_wall_start_t - 0.16f);
+    assert(aster::length(feature.normal) > 0.90f);
+    saw_ceiling_feature =
+        saw_ceiling_feature || feature.kind == aster::CaveFeatureKind::Stalactite;
+    saw_floor_feature = saw_floor_feature || feature.kind == aster::CaveFeatureKind::Stalagmite ||
+                        feature.kind == aster::CaveFeatureKind::Column;
+  }
+  assert(saw_ceiling_feature);
+  assert(saw_floor_feature);
 }
 
 void testMeshProcessingPipeline() {
@@ -820,10 +1020,7 @@ void testMeshDrapingRaisesEmbeddedVertices() {
 }
 
 void testSceneAssetNormalTangentImport() {
-  const std::filesystem::path project_root =
-      std::filesystem::path(__FILE__).parent_path().parent_path();
-  const std::filesystem::path sample =
-      project_root / "assets/sample_scene/normal_tangent_probe/normal_tangent_probe.scene";
+  const std::filesystem::path sample = writeGeneratedNormalTangentFixture();
   assert(std::filesystem::exists(sample));
 
   const aster::SceneAsset asset =
@@ -836,9 +1033,12 @@ void testSceneAssetNormalTangentImport() {
   assert(asset.material_slots[1].has_normal_texture);
   assert(asset.material_slots[1].has_occlusion_texture);
   assert(asset.material_slots[1].material.double_sided);
+  assert(asset.material_slots[1].material.alpha_mode == aster::MaterialAlphaMode::Masked);
+  assert(aster::classifyMaterialRenderQueue(asset.material_slots[1].material) ==
+         aster::MaterialRenderQueue::Masked);
   assert(!asset.mesh_chunks.front().mesh.vertices.empty());
-  assert(asset.mesh_chunks.front().mesh.indices.size() == 23322u);
-  assert(asset.mesh_chunks.front().diagnostics.generated_tangents == 23322u);
+  assert(asset.mesh_chunks.front().mesh.indices.size() == 6u);
+  assert(asset.mesh_chunks.front().diagnostics.generated_tangents == 6u);
 
   float min_y = std::numeric_limits<float>::max();
   float max_radius = 0.0f;
@@ -850,6 +1050,7 @@ void testSceneAssetNormalTangentImport() {
   }
   expectNear(min_y, 0.0f, 0.001f);
   assert(max_radius > 0.1f);
+  std::filesystem::remove_all(sample.parent_path());
 }
 
 void testBrushLevelMeshBuild() {
@@ -984,6 +1185,76 @@ void testSceneContract() {
   assert(scene.objects().front().primitive == aster::MeshPrimitive::Plane);
   assert(scene.objects().front().material.surface_pattern == aster::SurfacePattern::CourseCells);
   assert(scene.objects().front().material.pattern_depth > 0.0f);
+}
+
+void testMaterialRenderPolicies() {
+  aster::Material opaque = aster::makeMaterial({.base_color = {0.4f, 0.3f, 0.2f}});
+  assert(aster::classifyMaterialRenderQueue(opaque) == aster::MaterialRenderQueue::Opaque);
+  assert(aster::materialWritesDepth(opaque));
+  assert(aster::allowsCameraOcclusionFade(opaque));
+
+  aster::Material foliage =
+      aster::makeMaterial({.alpha_mode = aster::MaterialAlphaMode::Masked,
+                           .camera_occlusion = aster::CameraOcclusionPolicy::Solid});
+  assert(aster::classifyMaterialRenderQueue(foliage) == aster::MaterialRenderQueue::Masked);
+  assert(aster::materialWritesDepth(foliage));
+  assert(!aster::allowsCameraOcclusionFade(foliage));
+
+  aster::Material water =
+      aster::makeMaterial({.opacity = 0.72f,
+                           .alpha_mode = aster::MaterialAlphaMode::Blend,
+                           .depth_write = aster::MaterialDepthWrite::Disabled,
+                           .camera_occlusion = aster::CameraOcclusionPolicy::Solid});
+  assert(aster::isMaterialTranslucent(water));
+  assert(!aster::materialWritesDepth(water));
+  assert(!aster::allowsCameraOcclusionFade(water));
+
+  aster::Material support = aster::makeSupportSurfaceMaterial(water);
+  assert(support.render_role == aster::MaterialRenderRole::SupportSurface);
+  assert(aster::classifyMaterialRenderQueue(support) == aster::MaterialRenderQueue::Opaque);
+  assert(aster::materialWritesDepth(support));
+  assert(!aster::allowsCameraOcclusionFade(support));
+}
+
+void testGeneratedSceneryAssembly() {
+  auto mesh = std::make_shared<const aster::CpuMesh>(aster::makeBox());
+  const aster::Material material =
+      aster::makeMaterial({.base_color = {0.25f, 0.40f, 0.20f},
+                           .camera_occlusion = aster::CameraOcclusionPolicy::Solid});
+  const aster::GeneratedSceneryBundle bundle = aster::assembleGeneratedScenery(
+      {.name = "grove",
+       .root = {.position = {2.0f, 0.0f, 1.0f}, .scale = {2.0f, 1.0f, 2.0f}},
+       .primitives = {aster::GeneratedSceneryPrimitivePart{.name = "stone",
+                                                           .primitive = aster::MeshPrimitive::Rock,
+                                                           .transform = {.position = {1.0f, 0.0f, 0.0f},
+                                                                         .scale = {0.5f, 0.5f, 0.5f}},
+                                                           .material = material}},
+       .meshes = {aster::GeneratedSceneryMeshPart{.name = "trunk",
+                                                  .mesh = mesh,
+                                                  .transform = {.position = {0.0f, 1.0f, 0.0f}},
+                                                  .material = material}},
+       .collision_proxies = {{"bounds", {0.0f, 0.5f, 0.0f}, {0.5f, 0.5f, 0.5f}}},
+       .sockets = {aster::GeneratedScenerySocket{.name = "perch",
+                                                 .transform = {.position = {0.0f, 2.0f, 0.0f}},
+                                                 .radius = 0.25f}}});
+  assert(bundle.render_objects.size() == 2u);
+  assert(bundle.render_objects[0].name == "grove/stone");
+  expectNear(bundle.render_objects[0].transform.position.x, 4.0f, 0.0001f);
+  assert(!bundle.render_objects[0].camera_occlusion_fade);
+  assert(bundle.render_objects[1].custom_mesh == mesh);
+  assert(bundle.collision_proxies.size() == 1u);
+  expectNear(bundle.collision_proxies.front().half_extents.x, 1.0f, 0.0001f);
+  const aster::GeneratedScenerySocket *socket =
+      aster::findGeneratedScenerySocket(bundle, "grove/perch");
+  assert(socket != nullptr);
+  expectNear(socket->transform.position.y, 2.0f, 0.0001f);
+
+  aster::Scene scene;
+  std::vector<std::size_t> indices;
+  aster::appendGeneratedScenery(scene, bundle, &indices);
+  assert(scene.objects().size() == 2u);
+  assert(indices.size() == 2u);
+  assert(indices[0] == 0u && indices[1] == 1u);
 }
 
 const aster::SceneCoherenceContribution *findContribution(const aster::SceneCoherenceReport &report,
@@ -1205,7 +1476,11 @@ void testLumenSupportSurfacesRenderOpaque() {
       assert(object.material.opacity >= 0.999f);
       assert(object.material.double_sided);
       assert(object.material.render_role == aster::MaterialRenderRole::SupportSurface);
+      assert(object.material.alpha_mode == aster::MaterialAlphaMode::Opaque);
+      assert(object.material.depth_write == aster::MaterialDepthWrite::Enabled);
+      assert(object.material.camera_occlusion == aster::CameraOcclusionPolicy::Solid);
       assert(!aster::isMaterialTranslucent(object.material));
+      assert(aster::materialWritesDepth(object.material));
       assert(aster::isDoubleSidedMaterial(object.material));
       break;
     default:
@@ -1219,12 +1494,16 @@ void testLumenSupportSurfacesRenderOpaque() {
 void testLumenCaveVisualContracts() {
   const aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
   bool saw_cave_threshold = false;
+  bool saw_cave_overhang = false;
   bool saw_cave_floor = false;
   bool saw_cave_chunk = false;
   bool saw_coal_ore = false;
   bool saw_wall_light_lens = false;
 
   for (const aster::RenderObject &object : run.scene().objects()) {
+    if (startsWith(object.name, "Cave ")) {
+      assert(object.primitive != aster::MeshPrimitive::Crystal);
+    }
     if (object.name == "Walkable cave entrance threshold") {
       saw_cave_threshold = true;
       assert(object.custom_mesh != nullptr);
@@ -1243,6 +1522,14 @@ void testLumenCaveVisualContracts() {
                                    aster::SurfaceSupportQuery{{center.x, center.z}}, 0.36f);
       assert(support.valid);
     }
+    if (object.name == "Smooth terrain blended cave overhang") {
+      saw_cave_overhang = true;
+      assert(object.custom_mesh != nullptr);
+      assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
+      assert(object.transform.position.z < -40.0f);
+      assert(aster::length({object.transform.position.x, 0.0f, object.transform.position.z}) >
+             45.0f);
+    }
     if (object.name == "Walkable packed cave floor") {
       saw_cave_floor = true;
       assert(object.material.opacity >= 0.999f);
@@ -1257,6 +1544,14 @@ void testLumenCaveVisualContracts() {
       assert(object.viewer_cull_volume.enabled);
       assert(object.viewer_cull_volume.outside == aster::FaceCullMode::Back);
       assert(object.viewer_cull_volume.inside == aster::FaceCullMode::Back);
+      assert(object.custom_mesh != nullptr);
+      aster::Vec3 center{};
+      for (const aster::Vertex &vertex : object.custom_mesh->vertices) {
+        center = center + vertex.position;
+      }
+      center = center / static_cast<float>(object.custom_mesh->vertices.size());
+      assert(center.z < -40.0f);
+      assert(aster::length({center.x, 0.0f, center.z}) > 45.0f);
     }
     if (object.name == "Coal ore vein node") {
       saw_coal_ore = true;
@@ -1273,6 +1568,7 @@ void testLumenCaveVisualContracts() {
   }
 
   assert(saw_cave_threshold);
+  assert(saw_cave_overhang);
   assert(saw_cave_floor);
   assert(saw_cave_chunk);
   assert(saw_coal_ore);
@@ -2060,10 +2356,14 @@ void testPhysicsFluidVolumeDragAndBuoyancy() {
 int main() {
   testVectorMath();
   testMatrixComposition();
+  testMatrixInverseAndDeterminant();
   testTransformContract();
   testColorPipeline();
   testFixedTimestep();
   testFrameTimeStats();
+  testProfilerCaptureExport();
+  testSourceBoundaryContracts();
+  testFramebufferOriginContract();
   testGameplayItemInteractionSystems();
   testMeshGeneration();
   testTerrainSculpting();
@@ -2077,6 +2377,8 @@ int main() {
   testVoxelStructureBuild();
   testCastleCourseBuild();
   testSceneContract();
+  testMaterialRenderPolicies();
+  testGeneratedSceneryAssembly();
   testSceneCoherenceEnergy();
   testSceneTraceValidation();
   testLumenSceneCoherenceReport();

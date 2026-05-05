@@ -430,6 +430,55 @@ aster::CpuMesh makePortalMesh(const aster::CavePortalProfile &profile) {
   return mesh;
 }
 
+aster::CpuMesh makePortalBlendMesh(const aster::CavePortalProfile &profile) {
+  const int arch_segments = std::max(profile.arch_segments, 8);
+  constexpr int rings = 5;
+  const int columns = arch_segments + 1;
+
+  aster::CpuMesh mesh;
+  mesh.vertices.reserve(static_cast<std::size_t>((rings + 1) * columns));
+  mesh.indices.reserve(static_cast<std::size_t>(rings * arch_segments * 6));
+
+  for (int ring = 0; ring <= rings; ++ring) {
+    const float ring_fill = static_cast<float>(ring) / static_cast<float>(rings);
+    const float soften = ring_fill * ring_fill * (3.0f - 2.0f * ring_fill);
+    for (int column = 0; column <= arch_segments; ++column) {
+      const float fill = static_cast<float>(column) / static_cast<float>(arch_segments);
+      const float angle = kPi - fill * kPi;
+      const float shoulder =
+          0.5f + 0.5f * std::sin(fill * kPi * 2.0f + 0.35f) +
+          (fbm3({fill * 7.0f, ring_fill * 3.0f, 1.0f}, 919u, 3) - 0.5f) * 0.20f;
+      const float x_radius =
+          profile.outer_half_width * (1.0f + soften * (0.24f + shoulder * 0.08f));
+      const float y_radius = profile.outer_height * (1.0f + soften * (0.18f + shoulder * 0.05f));
+      const float x = std::cos(angle) * x_radius;
+      const float y = profile.ground_lip +
+                      std::sin(angle) * y_radius +
+                      smoothstep(0.0f, 1.0f, ring_fill) * 0.18f;
+      const float z = -profile.depth * (0.22f + soften * 0.34f);
+      const float breakup =
+          (fbm3({x * 0.82f, y * 0.64f, z * 0.78f}, 1237u, 4) - 0.5f) *
+          std::max(profile.lining_breakup, 0.0f) * (0.16f + soften * 0.42f);
+      mesh.vertices.push_back({{x * (1.0f + breakup), y * (1.0f + breakup * 0.20f), z},
+                               {},
+                               {fill, ring_fill}});
+    }
+  }
+
+  for (int ring = 0; ring < rings; ++ring) {
+    for (int column = 0; column < arch_segments; ++column) {
+      const std::uint32_t a = static_cast<std::uint32_t>(ring * columns + column);
+      const std::uint32_t b = static_cast<std::uint32_t>((ring + 1) * columns + column);
+      const std::uint32_t c = b + 1u;
+      const std::uint32_t d = a + 1u;
+      appendIndexedQuad(mesh, a, b, c, d);
+    }
+  }
+
+  finalizeNormals(mesh);
+  return mesh;
+}
+
 aster::CpuMesh makePortalFloorMesh(const aster::CaveTunnelProfile &tunnel,
                                    const aster::CavePortalProfile &portal) {
   constexpr int rows = 12;
@@ -572,6 +621,111 @@ std::vector<aster::CaveOreNodePlacement> makeOreNodes(const aster::CaveTunnelPro
     }
   }
   return nodes;
+}
+
+std::vector<aster::CaveFeaturePlacement>
+makeCaveFeatures(const aster::CaveTunnelProfile &tunnel,
+                 const aster::CaveFeatureProfile &profile) {
+  struct Candidate {
+    float score = 0.0f;
+    aster::CaveFeaturePlacement placement{};
+  };
+
+  const int count = std::max(profile.candidates, 0);
+  const float start_t = aster::clamp(std::min(profile.start_t, profile.end_t), 0.0f, 0.98f);
+  const float end_t = aster::clamp(std::max(profile.start_t, profile.end_t), start_t, 0.99f);
+  const float ceiling_fraction = aster::clamp(profile.ceiling_fraction, 0.0f, 1.0f);
+  const float column_fraction = aster::clamp(profile.column_fraction, 0.0f, 1.0f);
+  const float shelf_fraction = aster::clamp(profile.shelf_fraction, 0.0f, 1.0f);
+
+  std::vector<Candidate> candidates;
+  candidates.reserve(static_cast<std::size_t>(count));
+  for (int i = 0; i < count; ++i) {
+    const float fill = (static_cast<float>(i) + 0.5f) / static_cast<float>(std::max(count, 1));
+    const float jitter =
+        (hashGrid(i, 29, 7, profile.seed) - 0.5f) * 0.72f / static_cast<float>(std::max(count, 1));
+    const float t = aster::clamp(start_t + (fill + jitter) * (end_t - start_t), start_t, end_t);
+    const aster::Vec3 center = cubicPoint(tunnel, t);
+    aster::Vec3 side{};
+    aster::Vec3 up{};
+    tunnelBasis(tunnel, t, side, up);
+    const aster::Vec3 tangent = cubicTangent(tunnel, t);
+    const float side_sign = hashGrid(i, 5, 11, profile.seed + 17u) < 0.5f ? -1.0f : 1.0f;
+    const float width = tunnel.half_width * tunnelWidthScale(tunnel, t);
+    const float height = tunnel.wall_height * tunnelHeightScale(tunnel, t);
+    const float lateral = side_sign * width * (0.18f + hashGrid(i, 13, 3, profile.seed + 31u) * 0.62f);
+    const float mineral = hashGrid(i, 23, 19, profile.seed + 47u);
+    const float variant = hashGrid(i, 37, 41, profile.seed + 59u);
+
+    aster::CaveFeaturePlacement placement;
+    placement.tangent = tangent;
+    placement.t = t;
+    placement.mineral = mineral;
+    if (variant < ceiling_fraction) {
+      const float length_scale = 0.52f + hashGrid(i, 43, 17, profile.seed + 71u) * 0.72f;
+      placement.kind = aster::CaveFeatureKind::Stalactite;
+      placement.normal = up * -1.0f;
+      placement.position = center + side * lateral + up * (height * 1.12f);
+      placement.scale = {0.14f + length_scale * 0.075f, 0.48f + length_scale * 0.72f,
+                         0.14f + length_scale * 0.070f};
+      placement.radius = placement.scale.x;
+    } else if (variant < ceiling_fraction + column_fraction) {
+      const float column_height = 0.72f + hashGrid(i, 31, 53, profile.seed + 83u) * 0.64f;
+      placement.kind = aster::CaveFeatureKind::Column;
+      placement.normal = up;
+      placement.position = center + side * (lateral * 0.58f) + up * (height * 0.48f);
+      placement.scale = {0.20f + column_height * 0.055f, height * (0.55f + column_height * 0.20f),
+                         0.20f + column_height * 0.050f};
+      placement.radius = placement.scale.x;
+    } else if (variant < ceiling_fraction + column_fraction + shelf_fraction) {
+      const float shelf_scale = 0.65f + hashGrid(i, 61, 2, profile.seed + 97u) * 0.55f;
+      placement.kind = aster::CaveFeatureKind::WallShelf;
+      placement.normal = aster::normalize(side * -side_sign + up * 0.16f);
+      placement.position = center + side * (side_sign * (width - std::max(profile.wall_inset, 0.0f))) +
+                           up * (height * (0.30f + hashGrid(i, 71, 11, profile.seed + 101u) * 0.42f));
+      placement.scale = {0.36f * shelf_scale, 0.10f + shelf_scale * 0.045f,
+                         0.20f + shelf_scale * 0.18f};
+      placement.radius = placement.scale.x;
+    } else {
+      const float length_scale = 0.42f + hashGrid(i, 83, 67, profile.seed + 113u) * 0.68f;
+      placement.kind = aster::CaveFeatureKind::Stalagmite;
+      placement.normal = up;
+      placement.position = center + side * lateral + up * 0.06f;
+      placement.scale = {0.16f + length_scale * 0.085f, 0.42f + length_scale * 0.78f,
+                         0.16f + length_scale * 0.080f};
+      placement.radius = placement.scale.x;
+    }
+
+    const float chamber = chamberWeight(tunnel, t);
+    const float score =
+        fbm3(placement.position * 0.44f + aster::Vec3{5.0f, 11.0f, -3.0f}, profile.seed + 127u, 4) +
+        chamber * 0.34f + mineral * std::max(profile.mineral_fraction, 0.0f) * 0.22f;
+    candidates.push_back({score, placement});
+  }
+
+  std::sort(candidates.begin(), candidates.end(),
+            [](const Candidate &lhs, const Candidate &rhs) { return lhs.score > rhs.score; });
+
+  std::vector<aster::CaveFeaturePlacement> features;
+  features.reserve(static_cast<std::size_t>(std::max(profile.max_features, 0)));
+  for (const Candidate &candidate : candidates) {
+    bool spaced = true;
+    for (const aster::CaveFeaturePlacement &feature : features) {
+      if (aster::length(candidate.placement.position - feature.position) <
+          std::max(profile.min_spacing, 0.0f)) {
+        spaced = false;
+        break;
+      }
+    }
+    if (!spaced) {
+      continue;
+    }
+    features.push_back(candidate.placement);
+    if (static_cast<int>(features.size()) >= std::max(profile.max_features, 0)) {
+      break;
+    }
+  }
+  return features;
 }
 
 } // namespace
@@ -819,6 +973,7 @@ CaveComplex buildCaveComplex(const CaveComplexSpec &spec) {
 
   CaveComplex complex;
   complex.portal_mesh = makePortalMesh(spec.portal);
+  complex.portal_blend_mesh = makePortalBlendMesh(spec.portal);
   complex.portal_floor_mesh = makePortalFloorMesh(spec.tunnel, spec.portal);
   complex.floor_mesh = makeCaveFloorMesh(spec.tunnel);
   const int first_collision_segment =
@@ -845,6 +1000,7 @@ CaveComplex buildCaveComplex(const CaveComplexSpec &spec) {
   }
 
   complex.ore_nodes = makeOreNodes(spec.tunnel, spec.ore);
+  complex.features = makeCaveFeatures(spec.tunnel, spec.features);
 
   const float chest_t =
       clamp(spec.tunnel.chest_t, std::max(spec.tunnel.visible_wall_start_t + 0.12f, 0.0f), 0.92f);

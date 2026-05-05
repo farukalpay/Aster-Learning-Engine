@@ -3,8 +3,8 @@
 
 #include "aster/render/frame_capture.hpp"
 
-#include "../platform/frame_presenter.hpp"
 #include "aster/render/software_framebuffer.hpp"
+#include "native_render_backend.hpp"
 
 #include <stdexcept>
 
@@ -14,7 +14,7 @@ void writeFramebufferPpm(const std::filesystem::path &path, const int width, con
   if (width <= 0 || height <= 0) {
     throw std::invalid_argument("Framebuffer capture requires a positive size.");
   }
-  (void)resolveNativeFrameTexture(activeFrameBuffer());
+  (void)captureNativeFrameToActiveFramebuffer();
   activeFrameBuffer().writePpm(path, width, height);
 }
 

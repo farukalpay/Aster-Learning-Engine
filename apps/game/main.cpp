@@ -16,6 +16,7 @@
 #include "aster/ui/hud_layer.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <exception>
@@ -26,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -56,6 +58,9 @@ constexpr int kInteractiveWindowWidth = 1280;
 constexpr int kInteractiveWindowHeight = 720;
 constexpr double kSimulationStepSeconds = 1.0 / 60.0;
 constexpr double kMaxSimulatedFrameSeconds = 1.0 / 20.0;
+constexpr double kDefaultInteractiveFrameCapSeconds = 1.0 / 60.0;
+constexpr double kFramePacingSchedulerGuardSeconds = 0.0012;
+constexpr double kFramePacingYieldThresholdSeconds = 0.00018;
 constexpr std::size_t kMaxSimulationStepsPerFrame = 4;
 constexpr float kGameplayCameraYaw = 0.0f;
 const float kGameplayCameraPitch = aster::radians(22.0f);
@@ -109,6 +114,23 @@ float argumentFloat(const int argc, char **argv, const std::string_view name,
 
 double secondsToMilliseconds(const double seconds) {
   return seconds * 1000.0;
+}
+
+void sleepForFrameCap(const aster::Clock &clock, const double frame_start_seconds,
+                      const double target_frame_seconds) {
+  if (target_frame_seconds <= 0.0) {
+    return;
+  }
+  const double elapsed = clock.now() - frame_start_seconds;
+  const double remaining = target_frame_seconds - elapsed;
+  if (remaining > kFramePacingSchedulerGuardSeconds + kFramePacingYieldThresholdSeconds) {
+    std::this_thread::sleep_for(
+        std::chrono::duration<double>(remaining - kFramePacingSchedulerGuardSeconds));
+  }
+  while (target_frame_seconds - (clock.now() - frame_start_seconds) >
+         kFramePacingYieldThresholdSeconds) {
+    std::this_thread::yield();
+  }
 }
 
 aster::Vec3 mixVec(const aster::Vec3 a, const aster::Vec3 b, const float t) {
@@ -204,6 +226,16 @@ aster::Vec2 attractAxis(const float seconds) {
 
 bool scriptedRun(const float seconds) {
   return seconds > 3.40f && seconds < 4.20f;
+}
+
+aster::Vec2 caveEntryAxis(const float seconds) {
+  if (seconds < 2.85f) {
+    return aster::normalize(aster::Vec2{-0.16f, -1.0f});
+  }
+  if (seconds < 3.35f) {
+    return aster::normalize(aster::Vec2{-0.05f, -0.42f});
+  }
+  return {};
 }
 
 bool scriptedJump(const float seconds) {
@@ -331,12 +363,14 @@ int main(int argc, char **argv) {
         argumentPath(argc, argv, "--profile-capture");
     const int sequence_frames = argumentInt(argc, argv, "--capture-frames", 144);
     const int run_frames = argumentInt(argc, argv, "--run-frames", 0);
+    const int screenshot_frame = std::max(0, argumentInt(argc, argv, "--screenshot-frame", 80));
     const bool capture_hud = hasArgument(argc, argv, "--capture-hud");
     const bool smoke_test = hasArgument(argc, argv, "--smoke-test");
     const bool profile_enabled =
         hasArgument(argc, argv, "--profile") || !profile_capture_path.empty();
     const bool frame_report_enabled = hasArgument(argc, argv, "--frame-report");
     const bool startup_report_enabled = hasArgument(argc, argv, "--startup-report");
+    const bool cave_entry_capture = hasArgument(argc, argv, "--capture-cave-entry");
     const bool open_chest_for_capture = hasArgument(argc, argv, "--open-chest");
     const std::string take_chest_item_for_capture = argumentString(argc, argv, "--take-chest-item");
     const int select_hotbar_for_capture = argumentInt(argc, argv, "--select-hotbar", 0);
@@ -348,6 +382,10 @@ int main(int argc, char **argv) {
                              : std::nullopt;
     const bool sequence_capture = !sequence_path.empty();
     const bool scripted_capture = !screenshot_path.empty() || sequence_capture;
+    const bool unlocked = hasArgument(argc, argv, "--unlocked");
+    const bool no_vsync = hasArgument(argc, argv, "--no-vsync");
+    const double target_frame_seconds =
+        (!scripted_capture && !unlocked) ? kDefaultInteractiveFrameCapSeconds : 0.0;
     aster::Clock startup_clock;
     double startup_previous = startup_clock.now();
     std::vector<StartupSample> startup_samples;
@@ -367,8 +405,7 @@ int main(int argc, char **argv) {
     config.initial_height = argumentInt(argc, argv, "--window-height",
                                         scripted_capture ? 900 : kInteractiveWindowHeight);
     config.multisample_samples = argumentInt(argc, argv, "--msaa", scripted_capture ? 4 : 0);
-    config.enable_vsync =
-        !hasArgument(argc, argv, "--no-vsync") && screenshot_path.empty() && sequence_path.empty();
+    config.enable_vsync = !scripted_capture && !unlocked && !no_vsync;
 
     aster::Window window(config);
     mark_startup("window");
@@ -382,6 +419,9 @@ int main(int argc, char **argv) {
 
     aster::LumenRun game;
     mark_startup("game_reset");
+    if (cave_entry_capture) {
+      game.relocatePlayer({30.35f, 6.0f, -55.45f}, aster::radians(171.0f));
+    }
     if (open_chest_for_capture || !take_chest_item_for_capture.empty()) {
       game.openChest();
     }
@@ -399,14 +439,25 @@ int main(int argc, char **argv) {
     camera.pitch = kGameplayCameraPitch;
     camera.yaw = kGameplayCameraYaw;
     camera.radius = 7.2f;
-    aster::Vec3 scripted_camera_target{2.75f, 0.42f, -0.60f};
+    aster::Vec3 scripted_camera_target =
+        cave_entry_capture ? aster::Vec3{31.0f, 6.20f, -59.0f}
+                           : aster::Vec3{2.25f, 0.48f, -0.95f};
     if (scripted_capture) {
-      scripted_camera_target = {argumentFloat(argc, argv, "--camera-target-x", 2.75f),
-                                argumentFloat(argc, argv, "--camera-target-y", 0.42f),
-                                argumentFloat(argc, argv, "--camera-target-z", -0.60f)};
-      camera.pitch = aster::radians(argumentFloat(argc, argv, "--camera-pitch-deg", 32.0f));
-      camera.yaw = aster::radians(argumentFloat(argc, argv, "--camera-yaw-deg", -25.0f));
-      camera.radius = argumentFloat(argc, argv, "--camera-radius", 10.0f);
+      scripted_camera_target = {argumentFloat(argc, argv, "--camera-target-x", 2.25f),
+                                argumentFloat(argc, argv, "--camera-target-y", 0.48f),
+                                argumentFloat(argc, argv, "--camera-target-z", -0.95f)};
+      if (cave_entry_capture && !hasArgument(argc, argv, "--camera-target-x")) {
+        scripted_camera_target = {31.0f, 6.20f, -59.0f};
+      }
+      const float default_pitch = cave_entry_capture ? 24.0f : 28.0f;
+      const float default_yaw = cave_entry_capture ? 0.0f : -31.0f;
+      const float default_radius = cave_entry_capture ? 8.7f : 7.8f;
+      camera.pitch = aster::radians(argumentFloat(argc, argv, "--camera-pitch-deg", default_pitch));
+      camera.yaw = aster::radians(argumentFloat(argc, argv, "--camera-yaw-deg", default_yaw));
+      camera.radius = argumentFloat(argc, argv, "--camera-radius", default_radius);
+      camera.vertical_fov =
+          aster::radians(std::clamp(argumentFloat(argc, argv, "--camera-fov-deg", 54.0f), 18.0f,
+                                    72.0f));
     }
     float gameplay_camera_radius = camera.radius;
     float inventory_camera_radius = 2.25f;
@@ -414,46 +465,46 @@ int main(int argc, char **argv) {
     aster::RendererSettings settings;
     settings.procedural_surface_normals = !hasArgument(argc, argv, "--flat-surface-normals") ||
                                           hasArgument(argc, argv, "--surface-normal-detail");
-    settings.exposure = 1.30f;
+    settings.exposure = 1.34f;
     settings.ambient_strength = 0.36f;
-    settings.ambient_floor = 0.055f;
-    settings.sky_ambient_color = {0.30f, 0.36f, 0.45f};
-    settings.ground_ambient_color = {0.20f, 0.20f, 0.24f};
+    settings.ambient_floor = 0.072f;
+    settings.sky_ambient_color = {0.48f, 0.56f, 0.66f};
+    settings.ground_ambient_color = {0.25f, 0.24f, 0.19f};
     settings.sun_light.enabled = true;
-    settings.sun_light.direction_to_light = {-0.52f, 0.82f, 0.24f};
-    settings.sun_light.color = {1.00f, 0.80f, 0.52f};
-    settings.sun_light.intensity = 1.24f;
-    settings.light_rig = {{{{-4.6f, 3.2f, 2.8f}, {3.6f, 2.8f, 1.9f}, 0.22f, 3.0f},
-                           {{4.8f, 2.4f, -3.4f}, {0.9f, 1.1f, 1.8f}, 0.18f, 3.5f},
-                           {{0.0f, 2.8f, -5.8f}, {1.1f, 0.85f, 0.62f}, 0.12f, 4.0f},
-                           {{0.0f, 2.0f, 4.8f}, {0.62f, 0.72f, 1.0f}, 0.10f, 3.5f}}};
-    settings.pipeline.clear_color = {0.082f, 0.094f, 0.112f};
+    settings.sun_light.direction_to_light = {-0.46f, 0.86f, 0.30f};
+    settings.sun_light.color = {1.00f, 0.84f, 0.58f};
+    settings.sun_light.intensity = 1.72f;
+    settings.light_rig = {{{{-4.6f, 3.2f, 2.8f}, {4.4f, 3.25f, 2.05f}, 0.28f, 3.0f},
+                           {{4.8f, 2.4f, -3.4f}, {1.15f, 1.35f, 2.10f}, 0.22f, 3.5f},
+                           {{0.0f, 2.8f, -5.8f}, {1.35f, 1.02f, 0.72f}, 0.16f, 4.0f},
+                           {{0.0f, 2.0f, 4.8f}, {0.76f, 0.86f, 1.12f}, 0.13f, 3.5f}}};
+    settings.pipeline.clear_color = {0.092f, 0.122f, 0.158f};
     settings.pipeline.multisampling = config.multisample_samples > 0;
-    settings.pipeline.tone_mapper = aster::ToneMapper::Reinhard;
+    settings.pipeline.tone_mapper = aster::ToneMapper::PbrNeutral;
     settings.grounding.enabled = true;
     settings.grounding.contact_shadows = true;
     settings.grounding.auto_contact_shadows = true;
-    settings.grounding.surface_occlusion_strength = 0.44f;
+    settings.grounding.surface_occlusion_strength = 0.34f;
     settings.grounding.surface_occlusion_height = 1.05f;
-    settings.grounding.surface_occlusion_mix = 0.42f;
-    settings.grounding.surface_occlusion_min = 0.64f;
-    settings.grounding.contact_shadow_strength = 0.26f;
+    settings.grounding.surface_occlusion_mix = 0.28f;
+    settings.grounding.surface_occlusion_min = 0.78f;
+    settings.grounding.contact_shadow_strength = 0.24f;
     settings.grounding.contact_shadow_radius_scale = 1.12f;
     settings.grounding.contact_shadow_max_radius = 1.18f;
     settings.grounding.contact_shadow_receiver_height = 1.06f;
     settings.grounding.contact_shadow_receiver_bias = 0.020f;
     settings.grounding.contact_shadow_detail_scale = 10.0f;
     settings.atmosphere.enabled = true;
-    settings.atmosphere.fog_color = {0.150f, 0.170f, 0.205f};
-    settings.atmosphere.fog_start = 6.2f;
-    settings.atmosphere.fog_end = 20.0f;
-    settings.atmosphere.fog_strength = 0.20f;
-    settings.atmosphere.saturation = 1.02f;
-    settings.atmosphere.contrast = 1.06f;
-    settings.atmosphere.shadow_tint = {0.58f, 0.68f, 0.88f};
-    settings.atmosphere.shadow_tint_strength = 0.12f;
-    settings.atmosphere.highlight_tint = {1.12f, 1.00f, 0.78f};
-    settings.atmosphere.highlight_tint_strength = 0.08f;
+    settings.atmosphere.fog_color = {0.175f, 0.205f, 0.250f};
+    settings.atmosphere.fog_start = 8.0f;
+    settings.atmosphere.fog_end = 28.0f;
+    settings.atmosphere.fog_strength = 0.10f;
+    settings.atmosphere.saturation = 1.22f;
+    settings.atmosphere.contrast = 1.10f;
+    settings.atmosphere.shadow_tint = {0.52f, 0.64f, 0.86f};
+    settings.atmosphere.shadow_tint_strength = 0.16f;
+    settings.atmosphere.highlight_tint = {1.10f, 1.02f, 0.82f};
+    settings.atmosphere.highlight_tint_strength = 0.10f;
     const aster::LightRig base_light_rig = settings.light_rig;
     const aster::DirectionalLight base_sun_light = settings.sun_light;
     const float base_ambient_strength = settings.ambient_strength;
@@ -465,7 +516,7 @@ int main(int argc, char **argv) {
     const float base_exposure = settings.exposure;
 
     aster::HudLayer hud;
-    hud.initialize(window);
+    hud.initialize();
     mark_startup("hud_initialize");
 
     aster::Clock clock;
@@ -496,6 +547,7 @@ int main(int argc, char **argv) {
     while (window.isOpen()) {
       window.pollEvents();
       const double raw_frame_dt = clock.tick();
+      const double frame_start_seconds = clock.now();
       const bool collect_frame_sample =
           frame_report_enabled && rendered_frames > frame_report_warmup;
       if (collect_frame_sample) {
@@ -617,9 +669,10 @@ int main(int argc, char **argv) {
         jump = false;
         jump_buffered = false;
       } else if (scripted_capture) {
-        axis = attractAxis(static_cast<float>(elapsed));
-        run = scriptedRun(static_cast<float>(elapsed));
-        jump = scriptedJump(static_cast<float>(elapsed));
+        axis = cave_entry_capture ? caveEntryAxis(static_cast<float>(elapsed))
+                                  : attractAxis(static_cast<float>(elapsed));
+        run = cave_entry_capture ? elapsed < 2.85 : scriptedRun(static_cast<float>(elapsed));
+        jump = cave_entry_capture ? false : scriptedJump(static_cast<float>(elapsed));
         jump_buffered = false;
       }
 
@@ -658,7 +711,8 @@ int main(int argc, char **argv) {
                                      : 1.0f;
       game.updateRenderInterpolation(render_alpha);
       const aster::Vec3 player = game.playerRenderPosition();
-      const aster::CaveLightingState cave_light = game.caveLightingState();
+      const aster::CaveLightingState cave_light =
+          game.caveLightingStateAt(scripted_capture ? scripted_camera_target : player);
       camera_follow_pose = aster::updateThirdPersonFollow(
           camera_follow_state,
           {.yaw_sensitivity = 0.0038f, .pitch_sensitivity = 0.0032f, .target_response = 16.0f},
@@ -810,7 +864,9 @@ int main(int argc, char **argv) {
                                                             (!scripted_capture || capture_hud),
                                                  .pressed = control_state.pressed(kCameraOrbit),
                                                  .position = pointer};
-        hud.beginFrame();
+        const auto [hud_width, hud_height] = window.windowSize();
+        hud.beginFrame({static_cast<float>(hud_width), static_cast<float>(hud_height)},
+                       control_state.snapshot());
         const aster::HudAction hud_action = hud.draw(hudModel(
             game.status(), inventory_open, pause_open, pause_options_open, pointer_cue, game_cursor,
             game.focusPromptModel(), game.hotbarHudModel(), game.chestContentsHudModel()));
@@ -837,7 +893,7 @@ int main(int argc, char **argv) {
         if (rendered_frames + 1 >= sequence_frames) {
           window.requestClose();
         }
-      } else if (scripted_capture && !captured && rendered_frames >= 80) {
+      } else if (scripted_capture && !captured && rendered_frames >= screenshot_frame) {
         aster::writeFramebufferPpm(screenshot_path, width, height);
         captured = true;
         window.requestClose();
@@ -855,6 +911,9 @@ int main(int argc, char **argv) {
       }
       if (run_frames > 0 && rendered_frames >= run_frames) {
         window.requestClose();
+      }
+      if (window.isOpen()) {
+        sleepForFrameCap(clock, frame_start_seconds, target_frame_seconds);
       }
     }
 

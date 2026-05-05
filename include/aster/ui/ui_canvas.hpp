@@ -3,12 +3,11 @@
 
 #pragma once
 
+#include "aster/input/control_scheme.hpp"
 #include "aster/math/vec.hpp"
 
 #include <string_view>
 #include <vector>
-
-struct DESKTOP_WINDOWwindow;
 
 namespace aster {
 
@@ -34,8 +33,8 @@ public:
   UiCanvas(const UiCanvas &) = delete;
   UiCanvas &operator=(const UiCanvas &) = delete;
 
-  void initialize(DESKTOP_WINDOWwindow *window);
-  void beginFrame();
+  void initialize();
+  void beginFrame(Vec2 viewport_size, const ControlSnapshot &input);
   void endFrame();
   void shutdown();
 
@@ -52,6 +51,8 @@ public:
   void fillRect(UiRect rect, UiColor color);
   void fillRoundRect(UiRect rect, float radius, UiColor color);
   void strokeRect(UiRect rect, UiColor color, float thickness = 1.0f);
+  void pushClip(UiRect rect);
+  void popClip();
   void line(Vec2 from, Vec2 to, UiColor color, float thickness = 1.0f);
   void fillCircle(Vec2 center, float radius, UiColor color, int segments = 28);
   void strokeCircle(Vec2 center, float radius, UiColor color, float thickness = 1.0f,
@@ -79,11 +80,13 @@ private:
   };
 
   [[nodiscard]] bool contains(UiRect rect, Vec2 point) const;
+  [[nodiscard]] UiRect currentClip() const;
+  [[nodiscard]] bool rectIntersectsClip(UiRect rect) const;
+  [[nodiscard]] bool triangleInsideClip(Vertex a, Vertex b, Vertex c) const;
   [[nodiscard]] unsigned int controlId(std::string_view label, std::string_view id) const;
   void appendTriangle(Vertex a, Vertex b, Vertex c);
   void drawGlyph(char glyph, Vec2 position, UiColor color, float scale);
 
-  DESKTOP_WINDOWwindow *window_ = nullptr;
   int viewport_width_ = 1;
   int viewport_height_ = 1;
   Vec2 pointer_{};
@@ -96,6 +99,7 @@ private:
   unsigned int active_control_ = 0;
   std::vector<RectCommand> rects_{};
   std::vector<Vertex> vertices_{};
+  std::vector<UiRect> clip_stack_{};
 };
 
 } // namespace aster
