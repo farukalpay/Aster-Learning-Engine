@@ -4,7 +4,10 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace aster {
@@ -64,11 +67,54 @@ struct SceneTraceValidationReport {
   std::vector<SceneTraceRuleReport> rules;
 };
 
+struct SceneTraceIndistinguishablePair {
+  std::size_t accepted_index = 0u;
+  std::size_t rejected_index = 0u;
+};
+
 struct SceneTraceSeparatorProfile {
   bool separated = false;
+  bool vacuous = false;
+  bool complete_search = false;
   std::size_t horizon = 0u;
-  std::size_t rank_proxy = 0u;
-  std::vector<std::string> separating_rules;
+  std::size_t searched_quantifier_rank = 0u;
+  std::size_t quantifier_rank = 0u;
+  std::vector<SceneTraceIndistinguishablePair> indistinguishable_pairs;
+};
+
+struct SceneTraceFoSolverOptions {
+  std::size_t horizon = 0u;
+  std::optional<std::size_t> max_quantifier_rank{};
+};
+
+struct SceneTraceFoVariableBinding {
+  std::string variable;
+  std::size_t position = 0u;
+};
+
+using SceneTraceFoAssignment = std::vector<SceneTraceFoVariableBinding>;
+
+enum class SceneTraceFoFormulaKind {
+  True,
+  False,
+  Predicate,
+  Equal,
+  Less,
+  Not,
+  And,
+  Or,
+  Implies,
+  Exists,
+  Forall,
+};
+
+struct SceneTraceFoFormula {
+  SceneTraceFoFormulaKind kind = SceneTraceFoFormulaKind::True;
+  std::string predicate;
+  std::string left_variable;
+  std::string right_variable;
+  std::shared_ptr<const SceneTraceFoFormula> left;
+  std::shared_ptr<const SceneTraceFoFormula> right;
 };
 
 [[nodiscard]] bool traceFrameHasSymbol(const SceneTraceFrame &frame, const std::string &symbol);
@@ -85,11 +131,43 @@ void addTraceSymbol(SceneTraceFrame &frame, std::string symbol);
 [[nodiscard]] SceneTraceValidationReport
 validateSceneTrace(const SceneSymbolicTrace &trace, const std::vector<SceneTraceRule> &rules);
 
+[[nodiscard]] SceneTraceFoFormula sceneTraceFoTrue();
+[[nodiscard]] SceneTraceFoFormula sceneTraceFoFalse();
+[[nodiscard]] SceneTraceFoFormula sceneTraceFoPredicate(std::string predicate,
+                                                        std::string variable);
+[[nodiscard]] SceneTraceFoFormula sceneTraceFoEqual(std::string left_variable,
+                                                    std::string right_variable);
+[[nodiscard]] SceneTraceFoFormula sceneTraceFoLess(std::string left_variable,
+                                                   std::string right_variable);
+[[nodiscard]] SceneTraceFoFormula sceneTraceFoNot(SceneTraceFoFormula operand);
+[[nodiscard]] SceneTraceFoFormula sceneTraceFoAnd(SceneTraceFoFormula left,
+                                                  SceneTraceFoFormula right);
+[[nodiscard]] SceneTraceFoFormula sceneTraceFoOr(SceneTraceFoFormula left,
+                                                 SceneTraceFoFormula right);
+[[nodiscard]] SceneTraceFoFormula sceneTraceFoImplies(SceneTraceFoFormula left,
+                                                      SceneTraceFoFormula right);
+[[nodiscard]] SceneTraceFoFormula sceneTraceFoExists(std::string variable,
+                                                     SceneTraceFoFormula body);
+[[nodiscard]] SceneTraceFoFormula sceneTraceFoForall(std::string variable,
+                                                     SceneTraceFoFormula body);
+
+[[nodiscard]] SceneTraceFoFormula parseSceneTraceFoFormula(std::string_view source);
+[[nodiscard]] bool evaluateSceneTraceFoFormula(const SceneSymbolicTrace &trace,
+                                               const SceneTraceFoFormula &formula);
+[[nodiscard]] bool evaluateSceneTraceFoFormula(const SceneSymbolicTrace &trace,
+                                               const SceneTraceFoFormula &formula,
+                                               const SceneTraceFoAssignment &assignment);
+[[nodiscard]] std::size_t sceneTraceFoQuantifierRank(const SceneTraceFoFormula &formula);
+[[nodiscard]] std::vector<std::string> sceneTraceFoFreeVariables(
+    const SceneTraceFoFormula &formula);
+[[nodiscard]] bool sceneTraceFoEquivalentAtRank(const SceneSymbolicTrace &left,
+                                                const SceneSymbolicTrace &right,
+                                                std::size_t quantifier_rank);
+
 [[nodiscard]] SceneTraceSeparatorProfile
-estimateSceneTraceSeparatorProfile(const std::vector<SceneSymbolicTrace> &accepted,
-                                   const std::vector<SceneSymbolicTrace> &rejected,
-                                   const std::vector<SceneTraceRule> &candidate_rules,
-                                   std::size_t horizon);
+solveSceneTraceFoSeparatorProfile(const std::vector<SceneSymbolicTrace> &accepted,
+                                  const std::vector<SceneSymbolicTrace> &rejected,
+                                  SceneTraceFoSolverOptions options = {});
 
 [[nodiscard]] const char *sceneTraceDefectScaleName(SceneTraceDefectScale scale);
 

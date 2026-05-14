@@ -64,6 +64,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -1666,10 +1667,122 @@ void testSceneTraceValidation() {
   assert(broken_report.defect_scale != aster::SceneTraceDefectScale::None);
 
   const aster::SceneTraceSeparatorProfile profile =
-      aster::estimateSceneTraceSeparatorProfile({valid}, {broken}, rules, 8u);
+      aster::solveSceneTraceFoSeparatorProfile({valid}, {broken}, {.horizon = 8u});
   assert(profile.separated);
-  assert(profile.rank_proxy == 1u);
-  assert(!profile.separating_rules.empty());
+  assert(profile.quantifier_rank == 1u);
+  assert(profile.indistinguishable_pairs.empty());
+}
+
+void testSceneTraceFoModelChecking() {
+  aster::SceneSymbolicTrace trace;
+  trace.frames.push_back({0.0, {"P", "Q"}});
+  trace.frames.push_back({0.1, {"Q"}});
+  trace.frames.push_back({0.2, {"R", "arbitrary symbol"}});
+
+  const aster::SceneTraceFoFormula exists_p = aster::parseSceneTraceFoFormula("exists x. P(x)");
+  assert(aster::evaluateSceneTraceFoFormula(trace, exists_p));
+
+  const aster::SceneTraceFoFormula p_implies_q =
+      aster::parseSceneTraceFoFormula("forall x. (P(x) -> Q(x))");
+  assert(aster::evaluateSceneTraceFoFormula(trace, p_implies_q));
+
+  const aster::SceneTraceFoFormula ordered =
+      aster::parseSceneTraceFoFormula("exists x. exists y. (x < y && P(x) && R(y))");
+  assert(aster::evaluateSceneTraceFoFormula(trace, ordered));
+
+  const aster::SceneTraceFoFormula quoted =
+      aster::parseSceneTraceFoFormula("exists x. \"arbitrary symbol\"(x)");
+  assert(aster::evaluateSceneTraceFoFormula(trace, quoted));
+
+  const aster::SceneTraceFoFormula reflexive =
+      aster::sceneTraceFoForall("x", aster::sceneTraceFoEqual("x", "x"));
+  assert(aster::evaluateSceneTraceFoFormula(trace, reflexive));
+
+  const aster::SceneTraceFoFormula free_predicate = aster::sceneTraceFoPredicate("P", "x");
+  assert(aster::evaluateSceneTraceFoFormula(trace, free_predicate, {{"x", 0u}}));
+  assert(!aster::evaluateSceneTraceFoFormula(trace, free_predicate, {{"x", 1u}}));
+
+  aster::SceneSymbolicTrace empty;
+  assert(!aster::evaluateSceneTraceFoFormula(empty, aster::parseSceneTraceFoFormula("exists x. true")));
+  assert(aster::evaluateSceneTraceFoFormula(empty, aster::parseSceneTraceFoFormula("forall x. false")));
+
+  const aster::SceneTraceFoFormula free_variables =
+      aster::parseSceneTraceFoFormula("exists x. (P(x) && y < x)");
+  const std::vector<std::string> free = aster::sceneTraceFoFreeVariables(free_variables);
+  assert(free.size() == 1u && free.front() == "y");
+
+  bool parser_rejected_invalid_input = false;
+  try {
+    (void)aster::parseSceneTraceFoFormula("exists x P(x)");
+  } catch (const std::runtime_error &) {
+    parser_rejected_invalid_input = true;
+  }
+  assert(parser_rejected_invalid_input);
+}
+
+void testSceneTraceFoQuantifierRank() {
+  assert(aster::sceneTraceFoQuantifierRank(aster::sceneTraceFoPredicate("P", "x")) == 0u);
+  assert(aster::sceneTraceFoQuantifierRank(
+             aster::parseSceneTraceFoFormula("exists x. P(x)")) == 1u);
+  assert(aster::sceneTraceFoQuantifierRank(
+             aster::parseSceneTraceFoFormula("exists x. forall y. (x < y -> P(y))")) == 2u);
+
+  const aster::SceneTraceFoFormula rank_one =
+      aster::sceneTraceFoExists("x", aster::sceneTraceFoPredicate("P", "x"));
+  const aster::SceneTraceFoFormula rank_two = aster::sceneTraceFoForall(
+      "y", aster::sceneTraceFoExists("z", aster::sceneTraceFoLess("y", "z")));
+  assert(aster::sceneTraceFoQuantifierRank(
+             aster::sceneTraceFoAnd(rank_one, rank_two)) == 2u);
+}
+
+void testSceneTraceFoSeparatorSolving() {
+  aster::SceneSymbolicTrace empty;
+  aster::SceneSymbolicTrace singleton_a;
+  singleton_a.frames.push_back({0.0, {"A"}});
+
+  aster::SceneTraceSeparatorProfile profile =
+      aster::solveSceneTraceFoSeparatorProfile({empty}, {singleton_a});
+  assert(profile.separated);
+  assert(profile.complete_search);
+  assert(profile.quantifier_rank == 1u);
+
+  aster::SceneSymbolicTrace singleton_b;
+  singleton_b.frames.push_back({0.0, {"B"}});
+  profile = aster::solveSceneTraceFoSeparatorProfile({singleton_a}, {singleton_b});
+  assert(profile.separated);
+  assert(profile.quantifier_rank == 1u);
+
+  aster::SceneSymbolicTrace two_a;
+  two_a.frames.push_back({0.0, {"A"}});
+  two_a.frames.push_back({0.1, {"A"}});
+  profile = aster::solveSceneTraceFoSeparatorProfile({singleton_a}, {two_a});
+  assert(profile.separated);
+  assert(profile.quantifier_rank == 2u);
+  assert(aster::sceneTraceFoEquivalentAtRank(singleton_a, two_a, 1u));
+  assert(!aster::sceneTraceFoEquivalentAtRank(singleton_a, two_a, 2u));
+
+  aster::SceneSymbolicTrace ab;
+  ab.frames.push_back({0.0, {"A"}});
+  ab.frames.push_back({0.1, {"B"}});
+  aster::SceneSymbolicTrace ba;
+  ba.frames.push_back({0.0, {"B"}});
+  ba.frames.push_back({0.1, {"A"}});
+  profile = aster::solveSceneTraceFoSeparatorProfile({ab}, {ba});
+  assert(profile.separated);
+  assert(profile.quantifier_rank == 2u);
+
+  profile = aster::solveSceneTraceFoSeparatorProfile({singleton_a}, {singleton_a});
+  assert(!profile.separated);
+  assert(profile.complete_search);
+  assert(profile.searched_quantifier_rank == 1u);
+  assert(profile.indistinguishable_pairs.size() == 1u);
+  assert(profile.indistinguishable_pairs.front().accepted_index == 0u);
+  assert(profile.indistinguishable_pairs.front().rejected_index == 0u);
+
+  profile = aster::solveSceneTraceFoSeparatorProfile({}, {singleton_a});
+  assert(profile.separated);
+  assert(profile.vacuous);
+  assert(profile.quantifier_rank == 0u);
 }
 
 void testLumenSceneCoherenceReport() {
@@ -2826,6 +2939,9 @@ int main() {
   testGeneratedSceneryAssembly();
   testSceneCoherenceEnergy();
   testSceneTraceValidation();
+  testSceneTraceFoModelChecking();
+  testSceneTraceFoQuantifierRank();
+  testSceneTraceFoSeparatorSolving();
   testLumenSceneCoherenceReport();
   testLumenCameraCollisionCanBeatComfortRadius();
   testLumenInnerPondSeamHasSupport();

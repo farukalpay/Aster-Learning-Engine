@@ -55,6 +55,10 @@ This file records what influenced the current architecture and what is only a ro
 - Engine-owned immediate UI canvas with clipping and studio panel scrolling
 - Sampled scene coherence reports for visual/collision/navigation/material/fluid/visibility consistency
 - Symbolic scene trace validation for bounded-horizon camera, path, collision, water, and affordance defects
+- Exact FO([<]) model checking and quantifier-rank separation for finite symbolic
+  traces. The solver uses the finite Ehrenfeucht-Fraisse game, so its
+  exponential rank/trace-length cost is explicit theorem-prover behavior rather
+  than a low-cost QA heuristic.
 - Lumen Run gameplay loop
 - Native framebuffer screenshots and deterministic cave-entry sequence capture
 
@@ -66,8 +70,5 @@ This file records what influenced the current architecture and what is only a ro
 - GPU-driven culling
 - Linux GPU shader rendering
 - Volumetric clouds
-- Full FO([<]) quantifier-rank solving. The current trace validator exposes an
-  engine-facing rank proxy over its rule DSL; it is intended for QA
-  classification, not as a theorem prover.
 
 Those should enter behind explicit renderer capability contracts rather than being mixed directly into app or UI code.
