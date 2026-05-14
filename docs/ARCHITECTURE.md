@@ -21,12 +21,14 @@ bounded cache/fetch ordering before render code sees the mesh.
 `include/aster/geometry`
 
 Reusable geometry generation and queries: brush level mesh construction,
-terrain, cave tunnel/formation placement, castle, nature, generated scenery
-assembly, and procedural support-surface helpers. Public gameplay-facing APIs
-remain stable where practical, including `buildBrushLevelMesh(...)` and
-`assembleGeneratedScenery(...)`. Cave entrance fitting, portal blend geometry,
-walkable threshold meshes, collision meshes, ore nodes, and formation placement
-belong in this layer so games wire cave specs instead of rebuilding cave rules.
+terrain, cave tunnel/formation placement, voxel cave streaming, castle, nature,
+generated scenery assembly, and procedural support-surface helpers. Public
+gameplay-facing APIs remain stable where practical, including
+`buildBrushLevelMesh(...)`, `buildCaveComplex(...)`, `VoxelCaveState`, and
+`assembleGeneratedScenery(...)`. Cave entrance fitting, sealed portal/throat
+geometry, streaming cave chunks, fixture placement, collision meshes, ore nodes,
+and formation placement belong in this layer so games wire cave specs instead of
+rebuilding cave rules.
 
 `include/aster/net`
 

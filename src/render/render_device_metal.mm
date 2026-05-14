@@ -63,8 +63,8 @@ id<MTLCommandQueue> sharedMetalQueue() {
   return state.queue;
 }
 
-void publishSceneTexture(id<MTLTexture> texture, id<MTLCommandBuffer> command_buffer, const int width,
-                         const int height) {
+void publishSceneTexture(id<MTLTexture> texture, id<MTLCommandBuffer> command_buffer,
+                         const int width, const int height) {
   MetalFrameState &state = metalFrameState();
   [state.scene_texture release];
   [state.scene_command_buffer release];
@@ -110,6 +110,8 @@ struct MetalObjectUniforms {
   float material_params[4]{};
   float pattern_params[4]{};
   float pattern_params2[4]{};
+  float procedural_params[4]{};
+  float procedural_params2[4]{};
   float material_flags[4]{};
 };
 
@@ -165,8 +167,7 @@ bool isStructuredSurfacePattern(const aster::SurfacePattern pattern) {
          pattern == aster::SurfacePattern::FeatherVanes ||
          pattern == aster::SurfacePattern::TwigNest ||
          pattern == aster::SurfacePattern::ReptileScales ||
-         pattern == aster::SurfacePattern::CaveRock ||
-         pattern == aster::SurfacePattern::CoalVein;
+         pattern == aster::SurfacePattern::CaveRock || pattern == aster::SurfacePattern::CoalVein;
 }
 
 bool isContactShadowUtility(const aster::RenderObject &object) {
@@ -324,9 +325,9 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
   shadow.material.base_color = {0.0f, 0.0f, 0.0f};
   shadow.material.roughness = 1.0f;
   constexpr float kContactShadowOpacityCeiling = 0.42f;
-  shadow.material.opacity = std::clamp(grounding.contact_shadow_strength *
-                                           object.contact_shadow_strength * fade,
-                                       0.0f, kContactShadowOpacityCeiling);
+  shadow.material.opacity =
+      std::clamp(grounding.contact_shadow_strength * object.contact_shadow_strength * fade, 0.0f,
+                 kContactShadowOpacityCeiling);
   shadow.material.surface_pattern = aster::SurfacePattern::ContactShadow;
   shadow.material.alpha_mode = aster::MaterialAlphaMode::Blend;
   shadow.material.depth_write = aster::MaterialDepthWrite::Disabled;
@@ -460,7 +461,8 @@ bool ensurePresenterPipeline() {
        "fragment float4 present_fs(VSOut in [[stage_in]], texture2d<float> scene [[texture(0)]], "
        "texture2d<float> overlay [[texture(1)]], constant uint &mode [[buffer(0)]]) {\n"
        "  constexpr sampler s(address::clamp_to_edge, filter::linear);\n"
-       "  float4 base = ((mode & 1u) != 0u) ? scene.sample(s, in.uv) : float4(0.0, 0.0, 0.0, 1.0);\n"
+       "  float4 base = ((mode & 1u) != 0u) ? scene.sample(s, in.uv) : float4(0.0, 0.0, 0.0, "
+       "1.0);\n"
        "  float4 over = ((mode & 2u) != 0u) ? overlay.sample(s, in.uv) : float4(0.0);\n"
        "  return float4(base.rgb * (1.0 - over.a) + over.rgb * over.a, 1.0);\n"
        "}\n";
@@ -548,27 +550,39 @@ public:
            "using namespace metal;\n"
            "struct Vertex { float4 position; float4 normal; float4 uv_ao; };\n"
            "struct Light { float4 position_radius; float4 color_intensity; };\n"
-           "struct Scene { float4 camera_time; float4 sun_direction_enabled; float4 sun_color_intensity; "
-           "float4 sky_ambient; float4 ground_ambient; float4 exposure_ambient; float4 fog_color_strength; "
-           "float4 fog_params; float4 shadow_tint_strength; float4 highlight_tint_strength; Light lights[4]; };\n"
+           "struct Scene { float4 camera_time; float4 sun_direction_enabled; float4 "
+           "sun_color_intensity; "
+           "float4 sky_ambient; float4 ground_ambient; float4 exposure_ambient; float4 "
+           "fog_color_strength; "
+           "float4 fog_params; float4 shadow_tint_strength; float4 highlight_tint_strength; Light "
+           "lights[4]; };\n"
            "struct Object { float4x4 model; float4x4 mvp; float4 base_color_opacity; "
            "float4 emission_strength; float4 material_params; float4 pattern_params; "
-           "float4 pattern_params2; float4 material_flags; };\n"
-           "struct VSOut { float4 position [[position]]; float3 world; float3 normal; float2 uv; float ao; };\n"
+           "float4 pattern_params2; float4 procedural_params; float4 procedural_params2; "
+           "float4 material_flags; };\n"
+           "struct VSOut { float4 position [[position]]; float3 world; float3 normal; float2 uv; "
+           "float ao; };\n"
            "float saturate1(float v) { return clamp(v, 0.0, 1.0); }\n"
-           "float smooth1(float a, float b, float v) { float t = saturate1((v - a) / max(b - a, 0.0001)); return t * t * (3.0 - 2.0 * t); }\n"
+           "float smooth1(float a, float b, float v) { float t = saturate1((v - a) / max(b - a, "
+           "0.0001)); return t * t * (3.0 - 2.0 * t); }\n"
            "float fract1(float v) { return v - floor(v); }\n"
-           "float hash31(float3 p) { p = fract(p * float3(0.1031, 0.11369, 0.13787)); float d = dot(p, p.yzx + 19.19); p += d; return fract1((p.x + p.y) * p.z); }\n"
-           "float noise3(float3 p) { float3 i = floor(p); float3 f = fract(p); f = f * f * (3.0 - 2.0 * f); "
+           "float hash31(float3 p) { p = fract(p * float3(0.1031, 0.11369, 0.13787)); float d = "
+           "dot(p, p.yzx + 19.19); p += d; return fract1((p.x + p.y) * p.z); }\n"
+           "float noise3(float3 p) { float3 i = floor(p); float3 f = fract(p); f = f * f * (3.0 - "
+           "2.0 * f); "
            "float n000 = hash31(i + float3(0,0,0)); float n100 = hash31(i + float3(1,0,0)); "
            "float n010 = hash31(i + float3(0,1,0)); float n110 = hash31(i + float3(1,1,0)); "
            "float n001 = hash31(i + float3(0,0,1)); float n101 = hash31(i + float3(1,0,1)); "
            "float n011 = hash31(i + float3(0,1,1)); float n111 = hash31(i + float3(1,1,1)); "
-           "return mix(mix(mix(n000,n100,f.x), mix(n010,n110,f.x), f.y), mix(mix(n001,n101,f.x), mix(n011,n111,f.x), f.y), f.z); }\n"
+           "return mix(mix(mix(n000,n100,f.x), mix(n010,n110,f.x), f.y), mix(mix(n001,n101,f.x), "
+           "mix(n011,n111,f.x), f.y), f.z); }\n"
            "float3 gamma_encode(float3 c) { return pow(clamp(c, 0.0, 1.0), float3(1.0 / 2.2)); }\n"
            "float3 tonemap(float3 c) { return c / (float3(1.0) + max(c, float3(0.0))); }\n"
-           "float grid_line(float2 p, float mortar) { float2 f = fract(p); float2 edge = min(f, 1.0 - f); float d = min(edge.x, edge.y); return 1.0 - smooth1(mortar, mortar + 0.035, d); }\n"
-           "float is_pattern(float pattern, float id) { return abs(pattern - id) < 0.5 ? 1.0 : 0.0; }\n"
+           "float grid_line(float2 p, float mortar) { float2 f = fract(p); float2 edge = min(f, "
+           "1.0 - f); float d = min(edge.x, edge.y); return 1.0 - smooth1(mortar, mortar + 0.035, "
+           "d); }\n"
+           "float is_pattern(float pattern, float id) { return abs(pattern - id) < 0.5 ? 1.0 : "
+           "0.0; }\n"
            "float ridge1(float v) { return 1.0 - abs(v * 2.0 - 1.0); }\n"
            "float projected_noise(float3 world, float3 normal, float scale, float salt) { "
            "float3 n = normalize(normal); if (length(n) < 0.001) n = float3(0.0, 1.0, 0.0); "
@@ -579,104 +593,251 @@ public:
            "return xy * w.z + xz * w.y + zy * w.x; }\n"
            "float projected_fbm(float3 world, float3 normal, float scale, float salt) { "
            "float sum = 0.0; float amp = 0.56; float norm = 0.0; float f = max(scale, 0.0001); "
-           "for (int i = 0; i < 4; ++i) { sum += projected_noise(world, normal, f, salt + float(i) * 17.0) * amp; norm += amp; f *= 2.08; amp *= 0.52; } "
+           "for (int i = 0; i < 4; ++i) { sum += projected_noise(world, normal, f, salt + float(i) "
+           "* 17.0) * amp; norm += amp; f *= 2.08; amp *= 0.52; } "
            "return norm > 0.0 ? sum / norm : 0.0; }\n"
-           "float3 structured_stone(float3 base, constant Object &object, float3 world, float3 normal) { "
+           "float3 structured_stone(float3 base, constant Object &object, float3 world, float3 "
+           "normal) { "
            "float2 structural_uv = abs(normal.y) > 0.55 ? world.xz : world.xy; "
-           "float line = grid_line(structural_uv * max(object.pattern_params.yz, float2(0.001)) * 0.55, max(object.pattern_params2.y, 0.005)); "
+           "float line = grid_line(structural_uv * max(object.pattern_params.yz, float2(0.001)) * "
+           "0.55, max(object.pattern_params2.y, 0.005)); "
            "float broad = projected_fbm(world, normal, object.material_params.w * 0.11, 19.0); "
            "float fine = projected_fbm(world, normal, object.material_params.w * 0.84, 29.0); "
            "float3 block = base * (0.82 + broad * 0.22 + fine * 0.12); "
-           "block = mix(block, block * float3(1.10, 1.04, 0.92), object.material_params.z * ridge1(fine) * 0.18); "
+           "block = mix(block, block * float3(1.10, 1.04, 0.92), object.material_params.z * "
+           "ridge1(fine) * 0.18); "
            "return mix(block, base * 0.36, line * 0.70); }\n"
            "float3 cave_rock(float3 base, constant Object &object, float3 world, float3 normal) { "
-           "float strata = 0.5 + 0.5 * sin((world.y * object.pattern_params.z + world.z * 0.33 + world.x * 0.18) * 1.75); "
+           "float strata = 0.5 + 0.5 * sin((world.y * object.pattern_params.z + world.z * 0.33 + "
+           "world.x * 0.18) * 1.75); "
            "float broad = projected_fbm(world, normal, object.material_params.w * 0.10, 41.0); "
            "float fine = projected_fbm(world, normal, object.material_params.w * 0.88, 53.0); "
-           "float crack = ridge1(projected_fbm(world, normal, object.material_params.w * 0.42, 67.0)); "
-           "float3 damp = base * float3(0.72, 0.70, 0.62); float3 mineral = base * float3(1.24, 1.13, 0.92); "
+           "float crack = ridge1(projected_fbm(world, normal, object.material_params.w * 0.42, "
+           "67.0)); "
+           "float3 damp = base * float3(0.72, 0.70, 0.62); float3 mineral = base * float3(1.24, "
+           "1.13, 0.92); "
            "float3 albedo = mix(damp, base, broad * 0.74); "
-           "albedo = mix(albedo, mineral, saturate1(strata * 0.18 + ridge1(fine) * 0.12) * saturate1(object.pattern_params2.x)); "
-           "albedo = mix(albedo, albedo * 0.50, smooth1(0.68, 0.96, crack) * (0.35 + object.pattern_params.w * 1.8)); "
+           "albedo = mix(albedo, mineral, saturate1(strata * 0.18 + ridge1(fine) * 0.12) * "
+           "saturate1(object.pattern_params2.x)); "
+           "albedo = mix(albedo, albedo * 0.50, smooth1(0.68, 0.96, crack) * (0.35 + "
+           "object.pattern_params.w * 1.8)); "
            "return clamp(albedo * (0.82 + fine * 0.22), float3(0.0), float3(4.0)); }\n"
            "float3 coal_vein(float3 base, constant Object &object, float3 world, float3 normal) { "
-           "float vein_a = ridge1(projected_fbm(world, normal, object.material_params.w * 0.32, 71.0)); "
-           "float vein_b = ridge1(projected_fbm(world + normal * 0.17, normal, object.material_params.w * 0.76, 89.0)); "
+           "float vein_a = ridge1(projected_fbm(world, normal, object.material_params.w * 0.32, "
+           "71.0)); "
+           "float vein_b = ridge1(projected_fbm(world + normal * 0.17, normal, "
+           "object.material_params.w * 0.76, 89.0)); "
            "float vein = smooth1(0.72, 0.96, vein_a * vein_b + object.pattern_params.w * 0.52); "
-           "float sheen = smooth1(0.50, 0.95, projected_fbm(world, normal, object.material_params.w * 1.55, 97.0)); "
-           "float3 coal = base * (0.54 + sheen * 0.32); float3 warm = mix(float3(0.22, 0.15, 0.075), object.emission_strength.rgb + base, 0.35); "
+           "float sheen = smooth1(0.50, 0.95, projected_fbm(world, normal, "
+           "object.material_params.w * 1.55, 97.0)); "
+           "float3 coal = base * (0.54 + sheen * 0.32); float3 warm = mix(float3(0.22, 0.15, "
+           "0.075), object.emission_strength.rgb + base, 0.35); "
            "return mix(coal, warm, vein * 0.78); }\n"
-           "float3 organic_fiber(float3 base, constant Object &object, float3 world, float3 normal, float2 uv, float salt) { "
-           "float flow = world.y * object.pattern_params.z + (world.x + world.z * 0.38) * object.pattern_params.y * 0.18; "
+           "float3 organic_fiber(float3 base, constant Object &object, float3 world, float3 "
+           "normal, float2 uv, float salt) { "
+           "float flow = world.y * object.pattern_params.z + (world.x + world.z * 0.38) * "
+           "object.pattern_params.y * 0.18; "
            "float n = projected_fbm(world, normal, object.material_params.w * 0.70, salt); "
            "float strand = 0.5 + 0.5 * sin(flow * 0.46 + n * 5.3 + uv.x * 6.2831853); "
-           "float mask = smooth1(0.28, 0.92, strand); return mix(base * float3(0.64, 0.58, 0.50), base * float3(1.22, 1.14, 0.96), mask * (0.56 + object.pattern_params2.x * 0.28)); }\n"
-           "float3 foliage(float3 base, constant Object &object, float3 world, float3 normal, float2 uv) { "
-           "float vein = smooth1(0.0, 0.10, 0.10 - abs(fract(uv.x * object.pattern_params.y) - 0.5)); "
+           "float mask = smooth1(0.28, 0.92, strand); return mix(base * float3(0.64, 0.58, 0.50), "
+           "base * float3(1.22, 1.14, 0.96), mask * (0.56 + object.pattern_params2.x * 0.28)); }\n"
+           "float3 foliage(float3 base, constant Object &object, float3 world, float3 normal, "
+           "float2 uv) { "
+           "float blade_height = saturate1(uv.y); float root_weight = 1.0 - smooth1(0.04, "
+           "0.36, blade_height); "
+           "float tip_weight = smooth1(0.48, 1.0, blade_height); float vein = 1.0 - "
+           "smooth1(0.025, 0.22, abs(uv.x - 0.5)); "
+           "float strand = 0.5 + 0.5 * sin((uv.y * object.pattern_params.z + uv.x * 2.0) * "
+           "6.2831853); "
            "float mottling = projected_fbm(world, normal, object.material_params.w * 0.64, 109.0); "
-           "float3 blade = mix(base * float3(0.72, 0.92, 0.58), base * float3(1.10, 1.28, 0.76), mottling); "
-           "return mix(blade, blade * float3(1.30, 1.38, 0.90), vein * 0.24); }\n"
-           "float3 procedural_normal(float3 normal, float3 world, constant Object &object) { float detail = max(object.material_params.w, 0.001); "
-           "float strength = saturate1(object.material_params.z * (object.material_flags.y > 0.5 ? 0.44 : 0.28)); "
-           "float3 p = world * (0.55 * detail) + float3(object.pattern_params.x * 0.23, 0.0, object.pattern_params.x * 0.41); "
-           "float3 bump = float3(noise3(p + float3(11.1, 2.3, 0.7)) - 0.5, (noise3(p + float3(5.7, 13.1, 3.2)) - 0.5) * 0.35, noise3(p + float3(2.9, 7.4, 17.6)) - 0.5); "
+           "float fiber = ridge1(projected_fbm(world, normal, object.material_params.w * 1.22, "
+           "113.0)); "
+           "float3 root = base * float3(0.50, 0.66, 0.38); float3 mid = base * float3(0.82, "
+           "1.08, 0.58); float3 tip = base * float3(1.18, 1.30, 0.72); "
+           "float3 blade = mix(root, mid, smooth1(0.02, 0.72, blade_height)); "
+           "blade = mix(blade, tip, tip_weight * (0.42 + mottling * 0.28)); "
+           "blade *= 0.88 + mottling * 0.18 + fiber * 0.08 + strand * 0.05; "
+           "blade = mix(blade, blade * float3(1.26, 1.34, 0.88), vein * 0.18); "
+           "return clamp(mix(blade, blade * 0.72, root_weight * 0.34), float3(0.0), "
+           "float3(4.0)); }\n"
+           "float3 terrain_layered(float3 base, constant Object &object, float3 world, float3 "
+           "normal) { "
+           "float pattern = object.pattern_params.x; float detail = max(object.material_params.w, "
+           "0.001); "
+           "float macro_scale = 0.018 + sqrt(detail) * 0.011; float mid_scale = 0.055 + detail * "
+           "0.018; float fine_scale = 0.38 + detail * 0.055; "
+           "float macro = projected_fbm(world, normal, macro_scale, pattern * 3.7); "
+           "float mid = projected_fbm(world, normal, mid_scale, pattern * 5.1 + 9.0); "
+           "float fine = projected_fbm(world, normal, fine_scale, pattern * 7.9 + 2.0); "
+           "float ridge = ridge1(projected_fbm(world, normal, mid_scale * 1.85, pattern * 2.4 + "
+           "31.0)); "
+           "float up = saturate1(normalize(normal).y); float slope = 1.0 - smooth1(0.54, 0.92, "
+           "up); "
+           "float altitude = smooth1(-0.20, 2.80, world.y + (macro - 0.5) * 0.65); "
+           "float soil_weight = saturate1(slope * 0.46 + (0.54 - mid) * 0.46 + ridge * 0.10); "
+           "float rock_weight = saturate1(smooth1(0.70, 1.08, slope + ridge * 0.14 + altitude * "
+           "0.04)) * 0.52; "
+           "float grass_weight = saturate1(0.70 + (macro - 0.45) * 0.28 + (fine - 0.50) * 0.12 - "
+           "soil_weight * 0.36 - rock_weight * 0.58 + object.pattern_params2.x * 1.10); "
+           "float3 grass = mix(base * float3(0.78, 1.04, 0.58), float3(0.18, 0.28, 0.12), 0.24); "
+           "float3 dry_grass = mix(base * float3(0.98, 0.90, 0.62), float3(0.34, 0.30, 0.18), "
+           "0.26); "
+           "float3 soil = mix(base * float3(1.02, 0.76, 0.52), float3(0.30, 0.23, 0.16), 0.30); "
+           "float3 rock = mix(base * float3(0.94, 0.94, 0.86), float3(0.44, 0.42, 0.36), 0.32); "
+           "float3 albedo = mix(soil, dry_grass, saturate1(grass_weight * 0.30 + macro * 0.18)); "
+           "albedo = mix(albedo, grass, grass_weight); albedo = mix(albedo, rock, rock_weight); "
+           "float fiber = projected_noise(world + float3(fine * 1.7, 0.0, macro), normal, "
+           "fine_scale * 2.35, pattern + 43.0); "
+           "float pebble = projected_noise(world, normal, fine_scale * 3.8, pattern + 67.0); "
+           "albedo *= 0.92 + fine * 0.10 + fiber * grass_weight * 0.05; "
+           "albedo = mix(albedo, albedo * 0.82, saturate1(pebble * soil_weight * 0.08 + slope * "
+           "0.05)); "
+           "return clamp(albedo, float3(0.0), float3(4.0)); }\n"
+           "float3 procedural_normal(float3 normal, float3 world, constant Object &object) { float "
+           "detail = max(object.material_params.w, 0.001); "
+           "float inferred = object.material_params.z * (object.material_flags.y > 0.5 ? 0.44 : "
+           "0.28); "
+           "float strength = saturate1(max(inferred, object.procedural_params.y)); "
+           "float macro_gain = 1.0 + max(object.procedural_params.x, 0.0) * 0.34; "
+           "float3 p = world * (0.55 * detail * macro_gain) + float3(object.pattern_params.x * "
+           "0.23, 0.0, object.pattern_params.x * 0.41); "
+           "float3 bump = float3(noise3(p + float3(11.1, 2.3, 0.7)) - 0.5, (noise3(p + float3(5.7, "
+           "13.1, 3.2)) - 0.5) * 0.35, noise3(p + float3(2.9, 7.4, 17.6)) - 0.5); "
            "return normalize(normal + bump * strength); }\n"
-           "float3 material_albedo(constant Object &object, float3 world, float3 normal, float2 uv, float time) { "
-           "float pattern = object.pattern_params.x; float detail = max(object.material_params.w, 0.001); "
-           "float macro = noise3(world * (0.13 * detail) + float3(pattern * 0.7, 0.0, pattern * 0.31)); "
-           "float fine = noise3(world * (0.72 * detail) + normal * 0.23 + float3(0.0, pattern * 0.19, time * 0.01)); "
+           "float3 apply_procedural_layer(float3 color, constant Object &object, float3 world, "
+           "float3 normal) { "
+           "float macro_strength = max(object.procedural_params.x, 0.0); float wetness = "
+           "saturate1(object.procedural_params.w); float height_shading = "
+           "max(object.procedural_params2.x, 0.0); "
+           "if (macro_strength <= 0.0001 && wetness <= 0.0001 && height_shading <= 0.0001) return "
+           "color; "
+           "float detail = max(object.material_params.w, 0.001); float broad = noise3(world * "
+           "(0.10 + detail * 0.014) + float3(23.7, 0.0, -11.3)); "
+           "float fine = noise3(world * (0.48 + detail * 0.036) + normal * 0.31); float lift = "
+           "smooth1(0.18, 0.86, normal.y); "
+           "float variation = 1.0 + (broad - 0.5) * macro_strength * 0.28 + (fine - 0.5) * "
+           "macro_strength * 0.12 + lift * height_shading * 0.045; "
+           "float3 damp = mix(color * 0.70, color * float3(0.80, 0.86, 0.92), lift * 0.45); "
+           "return clamp(mix(color * variation, damp, wetness * (0.18 + fine * 0.18)), "
+           "float3(0.0), float3(4.0)); }\n"
+           "float3 material_albedo(constant Object &object, float3 world, float3 normal, float2 "
+           "uv, float time) { "
+           "float pattern = object.pattern_params.x; float detail = max(object.material_params.w, "
+           "0.001); "
+           "float macro = noise3(world * (0.13 * detail) + float3(pattern * 0.7, 0.0, pattern * "
+           "0.31)); "
+           "float fine = noise3(world * (0.72 * detail) + normal * 0.23 + float3(0.0, pattern * "
+           "0.19, time * 0.01)); "
            "float3 base = object.base_color_opacity.rgb; "
-           "if (object.material_flags.y > 0.5) { float slope = 1.0 - smooth1(0.50, 0.92, normalize(normal).y); "
-           "float green_bias = saturate1((base.g - max(base.r, base.b)) * 4.0); "
-           "float3 grass = base * mix(float3(1.04, 0.95, 0.82), float3(0.82, 1.20, 0.64), green_bias); "
-           "float3 soil = base * float3(1.16, 0.88, 0.62); float3 stone = base * float3(0.92, 0.92, 0.86); "
-           "float path_grain = smooth1(0.20, 0.72, noise3(float3(world.x * 1.2, world.y * 0.2, world.z * 2.1) + pattern)); "
-           "return mix(mix(grass, soil, saturate1(slope * 0.42 + (0.54 - macro) * 0.30 + path_grain * (1.0 - green_bias) * 0.22)), stone, saturate1(slope * 0.30 + fine * 0.10)); } "
-           "if (object.material_flags.z > 0.5) { float wave = 0.5 + 0.5 * sin((uv.x * object.pattern_params.y + uv.y * object.pattern_params.z) * 7.5 + time * 1.7); "
-           "return mix(base, float3(0.07, 0.58, 0.70), 0.28 + 0.18 * wave) + float3(0.02, 0.04, 0.05) * fine; } "
-           "if (is_pattern(pattern, 1.0) > 0.5 || is_pattern(pattern, 9.0) > 0.5) return structured_stone(base, object, world, normal); "
-           "if (is_pattern(pattern, 17.0) > 0.5) return cave_rock(base, object, world, normal); "
-           "if (is_pattern(pattern, 18.0) > 0.5) return coal_vein(base, object, world, normal); "
-           "if (is_pattern(pattern, 2.0) > 0.5 || is_pattern(pattern, 7.0) > 0.5) return organic_fiber(base, object, world, normal, uv, pattern + 151.0); "
-           "if (is_pattern(pattern, 11.0) > 0.5) return foliage(base, object, world, normal, uv); "
-           "if (is_pattern(pattern, 13.0) > 0.5) { float streak = ridge1(projected_fbm(world, normal, detail * 0.44, 127.0)); float cloud = projected_fbm(world, normal, detail * 1.10, 131.0); "
-           "return mix(base * float3(0.62, 0.42, 0.28), base * float3(1.30, 0.96, 0.56), smooth1(0.25, 0.92, cloud)) + object.emission_strength.rgb * (0.08 + smooth1(0.70, 0.98, streak) * 0.16); } "
-           "if (is_pattern(pattern, 10.0) > 0.5) { float grain = ridge1(projected_fbm(world, normal, detail * 0.52, 167.0)); float rings = 0.5 + 0.5 * sin((world.y * object.pattern_params.z + world.x * 0.28 + world.z * 0.19) * 2.2 + grain * 3.4); "
-           "return mix(base * float3(0.62, 0.48, 0.34), base * float3(1.18, 0.96, 0.68), smooth1(0.18, 0.92, rings)); } "
-           "if (is_pattern(pattern, 14.0) > 0.5) { float central = 1.0 - smooth1(0.025, 0.18, abs(uv.x - 0.5)); float barb = 0.5 + 0.5 * sin((uv.y * object.pattern_params.z + uv.x * 3.0) * 6.2831853); "
-           "float3 feather = mix(base * 0.72, base * 1.22, smooth1(0.26, 0.88, barb)); return mix(feather, feather * 1.35, central * 0.34); } "
-           "if (is_pattern(pattern, 12.0) > 0.5 || is_pattern(pattern, 16.0) > 0.5) { float2 cell = fract(uv * max(object.pattern_params.yz, float2(0.001))); float shell = smooth1(0.18, 0.50, 1.0 - length(cell - float2(0.5))); "
-           "float hue = projected_fbm(world, normal, detail * 1.10, 181.0); float3 scale_color = mix(base * float3(0.66, 0.82, 0.76), base * float3(1.22, 1.02, 0.68), hue); return mix(base * 0.62, scale_color, shell); } "
-           "if (is_pattern(pattern, 15.0) > 0.5) return organic_fiber(base, object, world, normal, uv, 193.0) * float3(0.90, 0.78, 0.58); "
-           "return base * (0.86 + (macro * 0.18 + fine * 0.08) * saturate1(object.material_params.z + object.pattern_params2.x * 0.35)); }\n"
-           "vertex VSOut vs_main(uint id [[vertex_id]], device const Vertex *vertices [[buffer(0)]], constant Scene &scene [[buffer(1)]], constant Object &object [[buffer(2)]]) {\n"
-           "  Vertex v = vertices[id]; float4 local = float4(v.position.xyz, 1.0); VSOut out; out.position = object.mvp * local; "
-           "  out.position.z = out.position.z * 0.5 + out.position.w * 0.5; out.world = (object.model * local).xyz; "
-           "  out.normal = normalize((object.model * float4(v.normal.xyz, 0.0)).xyz); out.uv = v.uv_ao.xy; out.ao = v.uv_ao.z; return out;\n"
+           "if (object.material_flags.y > 0.5) { if (is_pattern(pattern, 5.0) > 0.5) { "
+           "float slope = 1.0 - smooth1(0.50, 0.92, normalize(normal).y); "
+           "float path_grain = smooth1(0.20, 0.72, noise3(float3(world.x * 1.2, world.y * 0.2, "
+           "world.z * 2.1) + pattern)); "
+           "float3 soil = base * float3(1.16, 0.88, 0.62); float3 compacted = base * "
+           "float3(0.82, 0.70, 0.52); float3 stone = base * float3(0.90, 0.88, 0.78); "
+           "return apply_procedural_layer(mix(mix(compacted, soil, macro * 0.42 + path_grain * "
+           "0.24), stone, saturate1(slope * 0.24 + fine * 0.08)), object, world, normal); } "
+           "return apply_procedural_layer(terrain_layered(base, object, world, normal), object, "
+           "world, normal); } "
+           "if (object.material_flags.z > 0.5) { float wave = 0.5 + 0.5 * sin((uv.x * "
+           "object.pattern_params.y + uv.y * object.pattern_params.z) * 7.5 + time * 1.7); "
+           "return apply_procedural_layer(mix(base, float3(0.07, 0.58, 0.70), 0.28 + 0.18 * wave) "
+           "+ float3(0.02, 0.04, 0.05) * fine, object, world, normal); } "
+           "if (is_pattern(pattern, 1.0) > 0.5 || is_pattern(pattern, 9.0) > 0.5) return "
+           "apply_procedural_layer(structured_stone(base, object, world, normal), object, world, "
+           "normal); "
+           "if (is_pattern(pattern, 17.0) > 0.5) return apply_procedural_layer(cave_rock(base, "
+           "object, world, normal), object, world, normal); "
+           "if (is_pattern(pattern, 18.0) > 0.5) return apply_procedural_layer(coal_vein(base, "
+           "object, world, normal), object, world, normal); "
+           "if (is_pattern(pattern, 2.0) > 0.5 || is_pattern(pattern, 7.0) > 0.5) return "
+           "organic_fiber(base, object, world, normal, uv, pattern + 151.0); "
+           "if (is_pattern(pattern, 11.0) > 0.5) return apply_procedural_layer(foliage(base, "
+           "object, world, normal, uv), object, world, normal); "
+           "if (is_pattern(pattern, 13.0) > 0.5) { float streak = ridge1(projected_fbm(world, "
+           "normal, detail * 0.44, 127.0)); float cloud = projected_fbm(world, normal, detail * "
+           "1.10, 131.0); "
+           "return mix(base * float3(0.62, 0.42, 0.28), base * float3(1.30, 0.96, 0.56), "
+           "smooth1(0.25, 0.92, cloud)) + object.emission_strength.rgb * (0.08 + smooth1(0.70, "
+           "0.98, streak) * 0.16); } "
+           "if (is_pattern(pattern, 10.0) > 0.5) { float grain = ridge1(projected_fbm(world, "
+           "normal, detail * 0.52, 167.0)); float rings = 0.5 + 0.5 * sin((world.y * "
+           "object.pattern_params.z + world.x * 0.28 + world.z * 0.19) * 2.2 + grain * 3.4); "
+           "return mix(base * float3(0.62, 0.48, 0.34), base * float3(1.18, 0.96, 0.68), "
+           "smooth1(0.18, 0.92, rings)); } "
+           "if (is_pattern(pattern, 14.0) > 0.5) { float central = 1.0 - smooth1(0.025, 0.18, "
+           "abs(uv.x - 0.5)); float barb = 0.5 + 0.5 * sin((uv.y * object.pattern_params.z + uv.x "
+           "* 3.0) * 6.2831853); "
+           "float3 feather = mix(base * 0.72, base * 1.22, smooth1(0.26, 0.88, barb)); return "
+           "mix(feather, feather * 1.35, central * 0.34); } "
+           "if (is_pattern(pattern, 12.0) > 0.5 || is_pattern(pattern, 16.0) > 0.5) { float2 cell "
+           "= fract(uv * max(object.pattern_params.yz, float2(0.001))); float shell = "
+           "smooth1(0.18, 0.50, 1.0 - length(cell - float2(0.5))); "
+           "float hue = projected_fbm(world, normal, detail * 1.10, 181.0); float3 scale_color = "
+           "mix(base * float3(0.66, 0.82, 0.76), base * float3(1.22, 1.02, 0.68), hue); return "
+           "mix(base * 0.62, scale_color, shell); } "
+           "if (is_pattern(pattern, 15.0) > 0.5) return organic_fiber(base, object, world, normal, "
+           "uv, 193.0) * float3(0.90, 0.78, 0.58); "
+           "return apply_procedural_layer(base * (0.86 + (macro * 0.18 + fine * 0.08) * "
+           "saturate1(object.material_params.z + object.pattern_params2.x * 0.35 + "
+           "object.procedural_params.x * 0.24)), object, world, normal); }\n"
+           "vertex VSOut vs_main(uint id [[vertex_id]], device const Vertex *vertices "
+           "[[buffer(0)]], constant Scene &scene [[buffer(1)]], constant Object &object "
+           "[[buffer(2)]]) {\n"
+           "  Vertex v = vertices[id]; float4 local = float4(v.position.xyz, 1.0); VSOut out; "
+           "out.position = object.mvp * local; "
+           "  out.position.z = out.position.z * 0.5 + out.position.w * 0.5; out.world = "
+           "(object.model * local).xyz; "
+           "  out.normal = normalize((object.model * float4(v.normal.xyz, 0.0)).xyz); out.uv = "
+           "v.uv_ao.xy; out.ao = v.uv_ao.z; return out;\n"
            "}\n"
-           "fragment float4 fs_main(VSOut in [[stage_in]], constant Scene &scene [[buffer(1)]], constant Object &object [[buffer(2)]]) { "
+           "fragment float4 fs_main(VSOut in [[stage_in]], constant Scene &scene [[buffer(1)]], "
+           "constant Object &object [[buffer(2)]]) { "
            "float opacity = object.base_color_opacity.w; if (object.material_flags.x > 0.5) { "
-           "float2 centered = in.uv * 2.0 - 1.0; float soft = 1.0 - smooth1(0.12, 1.0, dot(centered, centered)); "
+           "float2 centered = in.uv * 2.0 - 1.0; float soft = 1.0 - smooth1(0.12, 1.0, "
+           "dot(centered, centered)); "
            "return float4(0.018, 0.015, 0.012, opacity * soft * soft * 0.70); } "
-           "float3 normal = normalize(in.normal); if (length(normal) < 0.001) normal = float3(0.0, 1.0, 0.0); "
-           "if (scene.exposure_ambient.w > 0.5 && object.material_flags.x < 0.5 && object.material_flags.z < 0.5) normal = procedural_normal(normal, in.world, object); "
+           "float3 normal = normalize(in.normal); if (length(normal) < 0.001) normal = float3(0.0, "
+           "1.0, 0.0); "
+           "if (scene.exposure_ambient.w > 0.5 && object.material_flags.x < 0.5 && "
+           "object.material_flags.z < 0.5) normal = procedural_normal(normal, in.world, object); "
            "float3 albedo = material_albedo(object, in.world, normal, in.uv, scene.camera_time.w); "
-           "float sky = saturate1(normal.y * 0.5 + 0.5); float ao = clamp(object.pattern_params2.z * in.ao, 0.0, 1.0); "
+           "float sky = saturate1(normal.y * 0.5 + 0.5); float ao = clamp(object.pattern_params2.z "
+           "* in.ao, 0.0, 1.0); "
            "float ambient = max(scene.exposure_ambient.y * ao, scene.exposure_ambient.z); "
-           "float3 color = mix(scene.ground_ambient.rgb, scene.sky_ambient.rgb, sky) * albedo * ambient + albedo * 0.10; "
+           "float3 color = mix(scene.ground_ambient.rgb, scene.sky_ambient.rgb, sky) * albedo * "
+           "ambient + albedo * 0.035; "
            "float3 view = normalize(scene.camera_time.xyz - in.world); "
-           "float rim = pow(1.0 - saturate1(dot(normal, view)), 2.0); color += albedo * scene.sky_ambient.rgb * rim * 0.10; "
-           "auto add_light = [&](float3 light_dir, float3 radiance) { float ndotl = max(dot(normal, light_dir), 0.0); float wrapped = ndotl * 0.86 + 0.14; float3 h = normalize(light_dir + view); "
-           "float spec_power = mix(64.0, 8.0, clamp(object.material_params.x, 0.0, 1.0)); float spec = pow(max(dot(normal, h), 0.0), spec_power) * (1.0 - clamp(object.material_params.x, 0.0, 1.0)) * 0.34; "
+           "float rim = pow(1.0 - saturate1(dot(normal, view)), 2.0); color += albedo * "
+           "scene.sky_ambient.rgb * rim * 0.10; "
+           "float layer_roughness = clamp(object.material_params.x + (noise3(in.world * 0.37 + "
+           "float3(3.1, 7.2, 1.9)) - 0.5) * object.procedural_params.z * 0.18, 0.0, 1.0); "
+           "auto add_light = [&](float3 light_dir, float3 radiance) { float ndotl = "
+           "max(dot(normal, light_dir), 0.0); float wrapped = ndotl * 0.86 + 0.14; float3 h = "
+           "normalize(light_dir + view); "
+           "float spec_power = mix(64.0, 8.0, layer_roughness); float spec = pow(max(dot(normal, "
+           "h), 0.0), spec_power) * (1.0 - layer_roughness) * 0.34; "
            "color += (albedo * 0.78 * wrapped + spec) * radiance; }; "
-           "if (scene.sun_direction_enabled.w > 0.5) add_light(normalize(scene.sun_direction_enabled.xyz), scene.sun_color_intensity.rgb * scene.sun_color_intensity.w); "
-           "for (uint i = 0; i < 4; ++i) { float3 lv = scene.lights[i].position_radius.xyz - in.world; float d2 = max(dot(lv, lv), 0.0001); "
-           "float soft = max(d2, scene.lights[i].position_radius.w * scene.lights[i].position_radius.w + 0.0001); add_light(normalize(lv), scene.lights[i].color_intensity.rgb * (scene.lights[i].color_intensity.w / soft)); } "
-           "float fog = smooth1(0.0, 1.0, (distance(scene.camera_time.xyz, in.world) - scene.fog_params.x) / max(scene.fog_params.y - scene.fog_params.x, 0.001)) * scene.fog_color_strength.w; "
-           "color = mix(color, scene.fog_color_strength.rgb, clamp(fog, 0.0, 1.0)); float luma = dot(color, float3(0.2126, 0.7152, 0.0722)); "
-           "color = mix(float3(luma), color, clamp(scene.fog_params.z, 0.0, 2.0)); color = (color - 0.5) * max(scene.fog_params.w, 0.0) + 0.5; "
-           "float floor_lift = 0.07 + 0.05 * max(object.material_flags.y, object.material_flags.w); color = max(color, albedo * floor_lift); "
-           "color += object.emission_strength.rgb * object.emission_strength.w; color = tonemap(color * scene.exposure_ambient.x); return float4(gamma_encode(color), opacity); }\n";
+           "if (scene.sun_direction_enabled.w > 0.5) "
+           "add_light(normalize(scene.sun_direction_enabled.xyz), scene.sun_color_intensity.rgb * "
+           "scene.sun_color_intensity.w); "
+           "for (uint i = 0; i < 4; ++i) { float3 lv = scene.lights[i].position_radius.xyz - "
+           "in.world; float d2 = max(dot(lv, lv), 0.0001); "
+           "float soft = max(d2, scene.lights[i].position_radius.w * "
+           "scene.lights[i].position_radius.w + 0.0001); add_light(normalize(lv), "
+           "scene.lights[i].color_intensity.rgb * (scene.lights[i].color_intensity.w / soft)); } "
+           "float fog = smooth1(0.0, 1.0, (distance(scene.camera_time.xyz, in.world) - "
+           "scene.fog_params.x) / max(scene.fog_params.y - scene.fog_params.x, 0.001)) * "
+           "scene.fog_color_strength.w; "
+           "color = mix(color, scene.fog_color_strength.rgb, clamp(fog, 0.0, 1.0)); float luma = "
+           "dot(color, float3(0.2126, 0.7152, 0.0722)); "
+           "color = mix(float3(luma), color, clamp(scene.fog_params.z, 0.0, 2.0)); color = (color "
+           "- 0.5) * max(scene.fog_params.w, 0.0) + 0.5; "
+           "float floor_lift = 0.030 + 0.018 * max(object.material_flags.y, "
+           "object.material_flags.w); color = max(color, albedo * floor_lift); "
+           "color += object.emission_strength.rgb * object.emission_strength.w; color = "
+           "tonemap(color * scene.exposure_ambient.x); return float4(gamma_encode(color), "
+           "opacity); }\n";
 
       NSError *error = nil;
       library_ = [device_ newLibraryWithSource:source options:nil error:&error];
@@ -702,8 +863,8 @@ public:
       transparent_desc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
       transparent_desc.colorAttachments[0].destinationAlphaBlendFactor =
           MTLBlendFactorOneMinusSourceAlpha;
-      transparent_pipeline_ =
-          [device_ newRenderPipelineStateWithDescriptor:transparent_desc error:&error];
+      transparent_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:transparent_desc
+                                                                      error:&error];
 
       MTLDepthStencilDescriptor *opaque_depth_desc = [[MTLDepthStencilDescriptor alloc] init];
       opaque_depth_desc.depthCompareFunction = MTLCompareFunctionLess;
@@ -734,9 +895,8 @@ public:
 
   aster::FrameStats render(const aster::Scene &scene, const aster::OrbitCamera &camera,
                            const aster::RendererSettings &settings,
-                           const aster::PreparedRenderMeshes &meshes,
-                           const int framebuffer_width, const int framebuffer_height,
-                           const double frame_seconds) override {
+                           const aster::PreparedRenderMeshes &meshes, const int framebuffer_width,
+                           const int framebuffer_height, const double frame_seconds) override {
     ASTER_PROFILE_SCOPE("MetalNativeRenderBackend::render");
     aster::FrameStats stats;
     stats.frame_seconds = frame_seconds;
@@ -798,8 +958,7 @@ public:
     pass.depthAttachment.storeAction = MTLStoreActionDontCare;
     pass.depthAttachment.clearDepth = 1.0;
 
-    id<MTLRenderCommandEncoder> encoder =
-        [command_buffer renderCommandEncoderWithDescriptor:pass];
+    id<MTLRenderCommandEncoder> encoder = [command_buffer renderCommandEncoderWithDescriptor:pass];
     const MetalSceneUniforms scene_uniforms = makeSceneUniforms(camera, settings, frame_seconds);
     [encoder setVertexBytes:&scene_uniforms length:sizeof(scene_uniforms) atIndex:1];
     [encoder setFragmentBytes:&scene_uniforms length:sizeof(scene_uniforms) atIndex:1];
@@ -823,9 +982,8 @@ public:
         return;
       }
       const bool transparent =
-          opacity < 0.999f ||
-          aster::classifyMaterialRenderQueue(object.material) ==
-              aster::MaterialRenderQueue::Translucent;
+          opacity < 0.999f || aster::classifyMaterialRenderQueue(object.material) ==
+                                  aster::MaterialRenderQueue::Translucent;
       const bool writes_depth = !transparent && aster::materialWritesDepth(object.material);
       if (object_uniform_cursor_ >= object_uniform_capacity_) {
         return;
@@ -839,16 +997,17 @@ public:
       const NSUInteger object_uniform_offset =
           static_cast<NSUInteger>(uniform_index * kObjectUniformStride);
       [encoder setRenderPipelineState:transparent ? transparent_pipeline_ : opaque_pipeline_];
-      [encoder setDepthStencilState:transparent ? transparent_depth_
-                                                 : (writes_depth ? opaque_depth_ : read_only_depth_)];
+      [encoder setDepthStencilState:transparent
+                                        ? transparent_depth_
+                                        : (writes_depth ? opaque_depth_ : read_only_depth_)];
       [encoder setVertexBuffer:buffers->vertices offset:0 atIndex:0];
       [encoder setVertexBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
       [encoder setFragmentBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
       [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-                           indexCount:buffers->index_count
-                            indexType:MTLIndexTypeUInt32
-                          indexBuffer:buffers->indices
-                    indexBufferOffset:0];
+                          indexCount:buffers->index_count
+                           indexType:MTLIndexTypeUInt32
+                         indexBuffer:buffers->indices
+                   indexBufferOffset:0];
       ++stats.draw_calls;
     };
 
@@ -949,7 +1108,8 @@ private:
     out.fog_color_strength[0] = settings.atmosphere.fog_color.x;
     out.fog_color_strength[1] = settings.atmosphere.fog_color.y;
     out.fog_color_strength[2] = settings.atmosphere.fog_color.z;
-    out.fog_color_strength[3] = settings.atmosphere.enabled ? settings.atmosphere.fog_strength : 0.0f;
+    out.fog_color_strength[3] =
+        settings.atmosphere.enabled ? settings.atmosphere.fog_strength : 0.0f;
     out.fog_params[0] = settings.atmosphere.fog_start;
     out.fog_params[1] = settings.atmosphere.fog_end;
     out.fog_params[2] = settings.atmosphere.saturation;
@@ -996,8 +1156,8 @@ private:
             ? object.transform.matrix() *
                   aster::rotation_y(static_cast<float>(frame_seconds) * object.spin_rate)
             : object.transform.matrix();
-    const float aspect_ratio = static_cast<float>(std::max(width_, 1)) /
-                               static_cast<float>(std::max(height_, 1));
+    const float aspect_ratio =
+        static_cast<float>(std::max(width_, 1)) / static_cast<float>(std::max(height_, 1));
     const aster::Mat4 mvp = camera.projectionMatrix(aspect_ratio) * camera.viewMatrix() * model;
     MetalObjectUniforms out;
     std::memcpy(out.model, model.m.data(), sizeof(out.model));
@@ -1022,6 +1182,11 @@ private:
     out.pattern_params2[1] = object.material.pattern_mortar;
     out.pattern_params2[2] = object.material.ambient_occlusion;
     out.pattern_params2[3] = object.material.double_sided ? 1.0f : 0.0f;
+    out.procedural_params[0] = object.material.procedural.macro_variation;
+    out.procedural_params[1] = object.material.procedural.micro_normal_strength;
+    out.procedural_params[2] = object.material.procedural.roughness_variation;
+    out.procedural_params[3] = object.material.procedural.wetness;
+    out.procedural_params2[0] = object.material.procedural.height_shading;
     out.material_flags[0] =
         object.material.surface_pattern == aster::SurfacePattern::ContactShadow ? 1.0f : 0.0f;
     out.material_flags[1] = isTerrainLayerPattern(object.material.surface_pattern) ? 1.0f : 0.0f;
@@ -1115,15 +1280,15 @@ bool captureNativeFrameToActiveFramebuffer() {
     const std::span<const std::uint8_t> rgba = overlay.rgba8();
     for (std::size_t i = 0; i + 3u < scene_pixels.size(); i += 4u) {
       const float alpha = static_cast<float>(rgba[i + 3u]) / 255.0f;
-      scene_pixels[i + 0u] = static_cast<std::uint8_t>(
-          static_cast<float>(scene_pixels[i + 0u]) * (1.0f - alpha) +
-          static_cast<float>(rgba[i + 0u]) * alpha + 0.5f);
-      scene_pixels[i + 1u] = static_cast<std::uint8_t>(
-          static_cast<float>(scene_pixels[i + 1u]) * (1.0f - alpha) +
-          static_cast<float>(rgba[i + 1u]) * alpha + 0.5f);
-      scene_pixels[i + 2u] = static_cast<std::uint8_t>(
-          static_cast<float>(scene_pixels[i + 2u]) * (1.0f - alpha) +
-          static_cast<float>(rgba[i + 2u]) * alpha + 0.5f);
+      scene_pixels[i + 0u] =
+          static_cast<std::uint8_t>(static_cast<float>(scene_pixels[i + 0u]) * (1.0f - alpha) +
+                                    static_cast<float>(rgba[i + 0u]) * alpha + 0.5f);
+      scene_pixels[i + 1u] =
+          static_cast<std::uint8_t>(static_cast<float>(scene_pixels[i + 1u]) * (1.0f - alpha) +
+                                    static_cast<float>(rgba[i + 1u]) * alpha + 0.5f);
+      scene_pixels[i + 2u] =
+          static_cast<std::uint8_t>(static_cast<float>(scene_pixels[i + 2u]) * (1.0f - alpha) +
+                                    static_cast<float>(rgba[i + 2u]) * alpha + 0.5f);
       scene_pixels[i + 3u] = 255u;
     }
   }
@@ -1181,7 +1346,8 @@ bool presentNativeFrameInView(void *view_pointer, const bool vsync) {
     [encoder setRenderPipelineState:state.present_pipeline];
     const std::uint32_t mode = 1u | (has_overlay ? 2u : 0u);
     [encoder setFragmentTexture:state.scene_texture atIndex:0];
-    [encoder setFragmentTexture:has_overlay ? state.overlay_texture : state.scene_texture atIndex:1];
+    [encoder setFragmentTexture:has_overlay ? state.overlay_texture : state.scene_texture
+                        atIndex:1];
     [encoder setFragmentBytes:&mode length:sizeof(mode) atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder endEncoding];

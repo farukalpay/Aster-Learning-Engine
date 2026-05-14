@@ -877,6 +877,21 @@ PhysicsFluidHandle PhysicsWorld::addFluidVolume(const PhysicsFluidVolumeDesc &de
   return {static_cast<std::uint32_t>(fluid_volumes_.size() - 1u), volume.generation};
 }
 
+bool PhysicsWorld::removeBody(const PhysicsBodyHandle handle) {
+  if (!valid(handle)) {
+    return false;
+  }
+  PhysicsBody &target = bodies_[handle.index];
+  target.active = false;
+  target.sleeping = true;
+  target.velocity = {};
+  target.force = {};
+  ++target.generation;
+  contacts_.clear();
+  broadphase_pairs_.clear();
+  return true;
+}
+
 bool PhysicsWorld::removeConstraint(const PhysicsConstraintHandle handle) {
   if (!valid(handle)) {
     return false;

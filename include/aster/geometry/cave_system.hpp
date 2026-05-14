@@ -59,6 +59,7 @@ struct CaveTunnelProfile {
   float chamber_falloff = 0.22f;
   float chamber_width_scale = 1.55f;
   float chamber_height_scale = 1.22f;
+  bool end_constraint_enabled = true;
 };
 
 struct CavePortalProfile {
@@ -109,6 +110,10 @@ struct CaveComplexSpec {
 struct CaveComplex {
   CpuMesh portal_mesh{};
   CpuMesh portal_blend_mesh{};
+  CpuMesh portal_shell_mesh{};
+  CpuMesh portal_formation_mesh{};
+  CpuMesh portal_seal_mesh{};
+  CpuMesh entrance_throat_mesh{};
   CpuMesh portal_floor_mesh{};
   CpuMesh floor_mesh{};
   CpuMesh collision_mesh{};
@@ -160,6 +165,17 @@ struct CaveInteriorSample {
   float height = 0.0f;
 };
 
+struct CaveTunnelFrame {
+  float t = 0.0f;
+  Vec3 floor_center{};
+  Vec3 tangent{0.0f, 0.0f, -1.0f};
+  Vec3 side{1.0f, 0.0f, 0.0f};
+  Vec3 up{0.0f, 1.0f, 0.0f};
+  float half_width = 0.0f;
+  float height = 0.0f;
+  float floor_half_width = 0.0f;
+};
+
 struct CaveTraversalConstraint {
   bool active = false;
   Vec3 corrected_position{};
@@ -190,10 +206,17 @@ struct CaveWallFixtureProfile {
   float wall_side = 1.0f;
   float mount_height = 1.08f;
   float wall_inset = 0.14f;
+  float normal_up_bias = -0.10f;
+  float lens_offset = 0.075f;
+  float light_offset = 0.18f;
 };
 
 struct CaveWallFixturePlacement {
   Vec3 position{};
+  Vec3 mount_position{};
+  Vec3 lens_position{};
+  Vec3 light_position{};
+  Vec3 light_color{1.0f, 0.16f, 0.08f};
   Vec3 normal{0.0f, 0.0f, 1.0f};
   Vec3 tangent{0.0f, 0.0f, -1.0f};
   Vec3 up{0.0f, 1.0f, 0.0f};
@@ -202,6 +225,7 @@ struct CaveWallFixturePlacement {
 
 [[nodiscard]] Vec3 evaluateCaveTunnelCenter(const CaveTunnelProfile &profile, float t);
 [[nodiscard]] Vec3 evaluateCaveTunnelTangent(const CaveTunnelProfile &profile, float t);
+[[nodiscard]] CaveTunnelFrame sampleCaveTunnelFrame(const CaveTunnelProfile &profile, float t);
 [[nodiscard]] CaveInteriorSample sampleCaveInteriorVolume(const CaveTunnelProfile &profile,
                                                           Vec3 position);
 [[nodiscard]] CaveTraversalConstraint

@@ -135,8 +135,7 @@ UiCanvas::~UiCanvas() {
   shutdown();
 }
 
-void UiCanvas::initialize() {
-}
+void UiCanvas::initialize() {}
 
 void UiCanvas::beginFrame(const Vec2 viewport_size, const ControlSnapshot &input) {
   viewport_width_ = static_cast<int>(std::round(viewport_size.x));
@@ -146,9 +145,9 @@ void UiCanvas::beginFrame(const Vec2 viewport_size, const ControlSnapshot &input
 
   pointer_ = input.pointer;
 
-  const bool down = std::find(input.pressed_mouse_buttons.begin(),
-                              input.pressed_mouse_buttons.end(),
-                              code(MouseButton::Left)) != input.pressed_mouse_buttons.end();
+  const bool down =
+      std::find(input.pressed_mouse_buttons.begin(), input.pressed_mouse_buttons.end(),
+                code(MouseButton::Left)) != input.pressed_mouse_buttons.end();
   mouse_pressed_ = down && !mouse_down_;
   mouse_released_ = !down && mouse_down_;
   mouse_down_ = down;
@@ -213,6 +212,18 @@ Vec2 UiCanvas::pointerPosition() const {
   return pointer_;
 }
 
+bool UiCanvas::mouseDown() const {
+  return mouse_down_;
+}
+
+bool UiCanvas::mousePressed() const {
+  return mouse_pressed_;
+}
+
+bool UiCanvas::mouseReleased() const {
+  return mouse_released_;
+}
+
 bool UiCanvas::wantsMouse() const {
   return wants_mouse_ || hovered_this_frame_ || active_control_ != 0u;
 }
@@ -227,6 +238,20 @@ float UiCanvas::textWidth(const std::string_view text, const float scale) const 
 
 float UiCanvas::textHeight(const float scale) const {
   return 7.0f * scale;
+}
+
+float UiCanvas::fittedTextScale(const std::string_view text_value, const float max_width,
+                                const float preferred_scale, const float minimum_scale) const {
+  const float preferred = std::max(preferred_scale, 0.05f);
+  const float minimum = std::clamp(minimum_scale, 0.05f, preferred);
+  if (text_value.empty() || max_width <= 0.0f) {
+    return minimum;
+  }
+  const float width = textWidth(text_value, preferred);
+  if (width <= max_width) {
+    return preferred;
+  }
+  return std::max(minimum, preferred * (max_width / std::max(width, 0.001f)));
 }
 
 float UiCanvas::wrappedTextHeight(const std::string_view text_value, const float width,
@@ -419,9 +444,12 @@ bool UiCanvas::button(const UiRect rect, const std::string_view label, const std
                                                   : UiColor{0.11f, 0.18f, 0.19f, 0.92f};
   fillRoundRect(rect, 6.0f, base);
   strokeRect(rect, {0.78f, 0.61f, 0.33f, hot ? 0.58f : 0.28f}, 1.0f);
-  const float label_width = textWidth(label, 2.0f);
+  const float label_scale = fittedTextScale(label, std::max(rect.width - 16.0f, 0.0f), 2.0f, 1.0f);
+  const float label_width = textWidth(label, label_scale);
+  pushClip({rect.x + 6.0f, rect.y, std::max(rect.width - 12.0f, 0.0f), rect.height});
   text(label, {rect.x + (rect.width - label_width) * 0.5f, rect.y + 10.0f},
-       {0.95f, 0.93f, 0.84f, 1.0f}, 2.0f);
+       {0.95f, 0.93f, 0.84f, 1.0f}, label_scale);
+  popClip();
   return clicked;
 }
 
@@ -444,7 +472,10 @@ bool UiCanvas::slider(const UiRect rect, const std::string_view label, float &va
   const float normalized =
       max_value == min_value ? 0.0f : (value - min_value) / (max_value - min_value);
   const float label_y = rect.y - 17.0f;
-  text(label, {rect.x, label_y}, {0.72f, 0.78f, 0.76f, 1.0f}, 1.5f);
+  const float label_scale = fittedTextScale(label, std::max(rect.width, 0.0f), 1.5f, 0.90f);
+  pushClip({rect.x, label_y - 2.0f, std::max(rect.width, 0.0f), textHeight(label_scale) + 4.0f});
+  text(label, {rect.x, label_y}, {0.72f, 0.78f, 0.76f, 1.0f}, label_scale);
+  popClip();
   fillRoundRect(rect, 4.0f, {0.06f, 0.09f, 0.10f, 0.94f});
   fillRoundRect({rect.x, rect.y, rect.width * clamp01(normalized), rect.height}, 4.0f,
                 {0.72f, 0.47f, 0.22f, 0.92f});
@@ -479,7 +510,12 @@ bool UiCanvas::checkbox(const UiRect rect, const std::string_view label, bool &v
     line({box.x + 8.0f, box.y + 14.0f}, {box.x + 15.0f, box.y + 4.0f}, {0.07f, 0.08f, 0.07f, 1.0f},
          2.0f);
   }
-  text(label, {rect.x + 28.0f, rect.y + 6.0f}, {0.88f, 0.91f, 0.88f, 1.0f}, 1.6f);
+  const float label_x = rect.x + 28.0f;
+  const float label_width = std::max(rect.width - 32.0f, 0.0f);
+  const float label_scale = fittedTextScale(label, label_width, 1.35f, 0.90f);
+  pushClip({label_x, rect.y, label_width, rect.height});
+  text(label, {label_x, rect.y + 6.0f}, {0.88f, 0.91f, 0.88f, 1.0f}, label_scale);
+  popClip();
   return clicked;
 }
 

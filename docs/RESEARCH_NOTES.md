@@ -11,6 +11,10 @@ This file records what influenced the current architecture and what is only a ro
   informs the direction for high-throughput software paths: batching,
   batch-level culling, and precision selection. Aster v1 has object-level camera
   culling; point-cloud batching and precision selection remain roadmap work.
+- [Infinite Photorealistic Worlds using Procedural Generation](https://arxiv.org/abs/2306.09310)
+  supports the engine direction for authored procedural worlds: geometry,
+  placement, and material variation should compose from deterministic generators
+  rather than fixed imported scene assets.
 - [Real-Time Neural Materials using Block-Compressed Features](https://arxiv.org/abs/2311.16121)
   is relevant to material contracts because it treats material appearance as a
   compact shader-decodable representation. Aster uses analytic procedural
@@ -43,9 +47,10 @@ This file records what influenced the current architecture and what is only a ro
 - Deterministic software renderer fallback and headless preview rendering
 - Reusable generated-scenery assembly for grouped scene objects, sockets, and
   collision proxies
-- Terrain-fitted cave entrance generation, portal blend geometry, procedural
-  cave formations, and mineral-accent placements driven by the cave tunnel
-  profile
+- Terrain-fitted cave entrance generation, continuous portal formation geometry,
+  sealed portal/throat geometry, procedural cave formations, engine-native
+  voxel cave streaming, fixture-driven cave lighting, and mineral-accent
+  placements driven by the cave tunnel profile
 - Aster-native control schemes
 - Engine-owned immediate UI canvas with clipping and studio panel scrolling
 - Sampled scene coherence reports for visual/collision/navigation/material/fluid/visibility consistency

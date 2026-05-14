@@ -3,8 +3,11 @@
 
 #pragma once
 
+#include "aster/geometry/terrain_mesh.hpp"
 #include "aster/render/mesh.hpp"
 
+#include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace aster {
@@ -80,6 +83,54 @@ struct GrassTuftMeshSpec {
   float min_width = 0.018f;
   float max_width = 0.034f;
   float bend = 0.060f;
+};
+
+using GrassSurfaceSampler = std::function<TerrainSurfaceSample(Vec2)>;
+using GrassPlacementPredicate = std::function<bool(Vec2)>;
+
+struct GrassBladeAnchor {
+  Vec3 root{};
+  Vec3 normal{0.0f, 1.0f, 0.0f};
+  float height = 0.28f;
+  float width = 0.024f;
+  float bend = 0.060f;
+  float lean = 0.0f;
+  float azimuth = 0.0f;
+  float phase = 0.0f;
+  float ambient_occlusion = 0.82f;
+};
+
+struct GrassFieldScatterSpec {
+  Vec2 min{-1.0f, -1.0f};
+  Vec2 max{1.0f, 1.0f};
+  std::uint32_t seed = 1u;
+  int target_blades = 0;
+  float blades_per_square_meter = 18.0f;
+  int candidate_multiplier = 4;
+  int max_blades = 0;
+  float min_spacing = 0.035f;
+  float surface_offset = 0.012f;
+  float min_height = 0.16f;
+  float max_height = 0.42f;
+  float min_width = 0.012f;
+  float max_width = 0.030f;
+  float max_bend = 0.105f;
+  float max_lean = 0.040f;
+  float density_noise_scale = 0.42f;
+  float density_noise_contrast = 0.26f;
+  float min_surface_normal_y = 0.58f;
+  float preferred_surface_normal_y = 0.86f;
+  GrassPlacementPredicate accepts_position{};
+};
+
+struct GrassFieldMeshSpec {
+  int blade_segments = 4;
+  bool double_sided = true;
+  float root_ao = 0.62f;
+  float mid_ao = 0.86f;
+  float tip_ao = 1.0f;
+  float width_taper = 1.18f;
+  float lateral_sway = 0.15f;
 };
 
 struct PathRibbonMeshSpec {
@@ -229,6 +280,10 @@ struct AmphibiousPredatorMeshSpec {
 [[nodiscard]] CpuMesh makeSubmergedBasinMesh(SubmergedBasinMeshSpec spec = {});
 [[nodiscard]] CpuMesh makeTerrainTransitionMesh(TerrainTransitionMeshSpec spec = {});
 [[nodiscard]] CpuMesh makeGrassTuftMesh(GrassTuftMeshSpec spec = {});
+[[nodiscard]] std::vector<GrassBladeAnchor>
+scatterGrassFieldAnchors(const GrassFieldScatterSpec &spec, const GrassSurfaceSampler &sampler);
+[[nodiscard]] CpuMesh makeGrassFieldMesh(const std::vector<GrassBladeAnchor> &anchors,
+                                         GrassFieldMeshSpec spec = {});
 [[nodiscard]] CpuMesh makeFishMesh(FishMeshSpec spec = {});
 [[nodiscard]] CpuMesh makeBroadLeafPlantMesh(BroadLeafPlantMeshSpec spec = {});
 [[nodiscard]] CpuMesh makeClimbableTreeTrunkMesh(ClimbableTreeTrunkMeshSpec spec = {});

@@ -223,6 +223,7 @@ public:
   [[nodiscard]] PhysicsConstraintHandle addDistanceConstraint(const DistanceConstraintDesc &desc);
   [[nodiscard]] PhysicsFluidHandle addFluidVolume(const PhysicsFluidVolumeDesc &desc);
 
+  bool removeBody(PhysicsBodyHandle handle);
   bool removeConstraint(PhysicsConstraintHandle handle);
 
   [[nodiscard]] bool valid(PhysicsBodyHandle handle) const;

@@ -232,6 +232,29 @@ bool scriptedJump(const float seconds) {
   return seconds > 1.04f && seconds < 1.10f;
 }
 
+aster::Vec2 caveEntryAxis(const float seconds) {
+  if (seconds < 1.05f) {
+    return aster::normalize(aster::Vec2{0.64f, -0.76f});
+  }
+  if (seconds < 3.80f) {
+    return aster::normalize(aster::Vec2{0.14f, -0.99f});
+  }
+  if (seconds < 5.60f) {
+    return {0.0f, -0.78f};
+  }
+  return {};
+}
+
+bool caveEntryRun(const float seconds) {
+  return seconds > 0.62f && seconds < 4.85f;
+}
+
+aster::Vec3 caveEntryCameraTarget(const aster::Vec3 player_position, const float seconds) {
+  (void)seconds;
+  return {player_position.x, player_position.y + 0.34f,
+          std::max(player_position.z - 0.22f, -90.0f)};
+}
+
 std::filesystem::path framePath(const std::filesystem::path &directory, const int frame) {
   std::ostringstream name;
   name << "frame_";
@@ -241,14 +264,18 @@ std::filesystem::path framePath(const std::filesystem::path &directory, const in
   return directory / name.str();
 }
 
-aster::InventorySlotModel inventorySlot(std::string label, std::string detail, std::string quantity,
-                                        const aster::Vec3 tint, const bool selected = false) {
-  return {.label = std::move(label),
+aster::InventorySlotModel
+inventorySlot(std::string label, std::string detail, std::string quantity, const aster::Vec3 tint,
+              const bool selected = false, std::string item_id = {},
+              const aster::InventorySlotRole role = aster::InventorySlotRole::None) {
+  return {.item_id = std::move(item_id),
+          .label = std::move(label),
           .detail = std::move(detail),
           .quantity = std::move(quantity),
           .tint = tint,
           .filled = true,
-          .selected = selected};
+          .selected = selected,
+          .role = role};
 }
 
 std::vector<aster::InventorySlotModel> paddedSlots(std::vector<aster::InventorySlotModel> slots,
@@ -257,7 +284,16 @@ std::vector<aster::InventorySlotModel> paddedSlots(std::vector<aster::InventoryS
   return slots;
 }
 
-aster::InventoryOverlayModel inventoryModel(const aster::LumenStatus &status, const bool open) {
+void markDropTargets(std::vector<aster::InventorySlotModel> &slots,
+                     const aster::InventorySlotRole role) {
+  for (aster::InventorySlotModel &slot : slots) {
+    slot.role = role;
+    slot.drop_target = true;
+  }
+}
+
+aster::InventoryOverlayModel inventoryModel(const aster::LumenStatus &status, const bool open,
+                                            const int torch_count, const bool supply_crate_nearby) {
   aster::InventoryOverlayModel inventory;
   inventory.open = open;
   inventory.world_character_preview = true;
@@ -275,21 +311,44 @@ aster::InventoryOverlayModel inventoryModel(const aster::LumenStatus &status, co
   };
   inventory.backpack.title = "Backpack";
   inventory.backpack.columns = 6;
-  inventory.backpack.slots =
-      paddedSlots({inventorySlot("Amber", "recovered shards", std::to_string(status.score),
-                                 {0.82f, 0.50f, 0.18f}, true),
-                   inventorySlot("Thread", "repair fiber", "3", {0.62f, 0.48f, 0.32f}),
-                   inventorySlot("Core", "signal relay", "1", {0.18f, 0.56f, 0.58f}),
-                   inventorySlot("Map", "station court", "1", {0.28f, 0.38f, 0.46f}),
-                   inventorySlot("Lamp", "warm light", "1", {0.78f, 0.55f, 0.24f}),
-                   inventorySlot("Snack", "focus", "2", {0.45f, 0.38f, 0.22f})},
-                  24u);
+  inventory.backpack.slots = paddedSlots(
+      {inventorySlot("Amber", "recovered shards", std::to_string(status.score),
+                     {0.82f, 0.50f, 0.18f}, true),
+       inventorySlot("Torch", "carried supply", std::to_string(torch_count), {0.98f, 0.52f, 0.16f},
+                     false, "torch", aster::InventorySlotRole::PlayerBackpack),
+       inventorySlot("Thread", "repair fiber", "3", {0.62f, 0.48f, 0.32f}),
+       inventorySlot("Core", "signal relay", "1", {0.18f, 0.56f, 0.58f}),
+       inventorySlot("Map", "station court", "1", {0.28f, 0.38f, 0.46f}),
+       inventorySlot("Lamp", "warm light", "1", {0.78f, 0.55f, 0.24f}),
+       inventorySlot("Snack", "focus", "2", {0.45f, 0.38f, 0.22f})},
+      24u);
+  markDropTargets(inventory.backpack.slots, aster::InventorySlotRole::PlayerBackpack);
   inventory.hotbar.title = "Hotbar";
   inventory.hotbar.columns = 6;
-  inventory.hotbar.slots = paddedSlots({inventorySlot("1", "lamp", "", {0.78f, 0.55f, 0.24f}, true),
-                                        inventorySlot("2", "map", "", {0.28f, 0.38f, 0.46f}),
-                                        inventorySlot("3", "thread", "", {0.62f, 0.48f, 0.32f})},
-                                       6u);
+  inventory.hotbar.slots = paddedSlots(
+      {inventorySlot(torch_count > 0 ? "TRC" : "Torch",
+                     torch_count > 0 ? "torch stack" : "drop here",
+                     torch_count > 1 ? std::to_string(torch_count) : "", {0.98f, 0.52f, 0.16f},
+                     true, "torch", aster::InventorySlotRole::PlayerHotbar),
+       inventorySlot("2", "map", "", {0.28f, 0.38f, 0.46f}),
+       inventorySlot("3", "thread", "", {0.62f, 0.48f, 0.32f})},
+      6u);
+  markDropTargets(inventory.hotbar.slots, aster::InventorySlotRole::PlayerHotbar);
+  if (torch_count <= 0 && !inventory.hotbar.slots.empty()) {
+    inventory.hotbar.slots[0].filled = false;
+  }
+  if (supply_crate_nearby) {
+    aster::InventorySlotModel torch_supply =
+        inventorySlot("Torch", "unlimited", "", {0.98f, 0.52f, 0.16f}, false, "torch",
+                      aster::InventorySlotRole::Supply);
+    torch_supply.infinite_quantity = true;
+    torch_supply.draggable = true;
+    inventory.secondary_inventory_visible = true;
+    inventory.secondary_tab = "Supply";
+    inventory.secondary_inventory_title = "Supply Crate";
+    inventory.secondary_inventory_status = "Drag torch into your pack or hotbar.";
+    inventory.secondary_inventory = {.title = "Crate", .columns = 1, .slots = {torch_supply}};
+  }
   inventory.recipes = {
       {"Signal flare", "2 Amber + 1 Thread", status.score >= 2},
       {"Soft patch", "1 Thread", true},
@@ -300,6 +359,7 @@ aster::InventoryOverlayModel inventoryModel(const aster::LumenStatus &status, co
 }
 
 aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_open,
+                         const int torch_count, const bool supply_crate_nearby,
                          const bool pause_open, const bool pause_options_open,
                          const aster::PointerCueModel pointer,
                          const aster::GameCursorModel game_cursor,
@@ -329,7 +389,7 @@ aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_
       {"Mouse Wheel", "Zoom", true}, {"Tab", "Inventory", false},
       {"R", "Restart", false},       {"Esc", "Menu", false},
   };
-  model.inventory = inventoryModel(status, inventory_open);
+  model.inventory = inventoryModel(status, inventory_open, torch_count, supply_crate_nearby);
   model.pointer = pointer;
   model.game_cursor = game_cursor;
   model.game_cursor.visible = model.game_cursor.visible && !inventory_open && !pause_open;
@@ -352,6 +412,8 @@ int main(int argc, char **argv) {
     const std::filesystem::path profile_capture_path =
         argumentPath(argc, argv, "--profile-capture");
     const int sequence_frames = argumentInt(argc, argv, "--capture-frames", 144);
+    const std::string capture_route = argumentString(argc, argv, "--capture-route", "attract");
+    const bool cave_entry_capture = capture_route == "cave-entry";
     const int run_frames = argumentInt(argc, argv, "--run-frames", 0);
     const int screenshot_frame = std::max(0, argumentInt(argc, argv, "--screenshot-frame", 80));
     const bool capture_hud = hasArgument(argc, argv, "--capture-hud");
@@ -361,6 +423,11 @@ int main(int argc, char **argv) {
     const bool frame_report_enabled = hasArgument(argc, argv, "--frame-report");
     const bool startup_report_enabled = hasArgument(argc, argv, "--startup-report");
     const bool open_chest_for_capture = hasArgument(argc, argv, "--open-chest");
+    const bool player_at_supply_crate_for_capture =
+        hasArgument(argc, argv, "--player-at-supply-crate");
+    const bool player_position_override = hasArgument(argc, argv, "--player-x") ||
+                                          hasArgument(argc, argv, "--player-y") ||
+                                          hasArgument(argc, argv, "--player-z");
     const std::string take_chest_item_for_capture = argumentString(argc, argv, "--take-chest-item");
     const int select_hotbar_for_capture = argumentInt(argc, argv, "--select-hotbar", 0);
     const int frame_report_warmup =
@@ -408,6 +475,20 @@ int main(int argc, char **argv) {
 
     aster::LumenRun game;
     mark_startup("game_reset");
+    if (cave_entry_capture && !player_position_override) {
+      const aster::Vec3 crate = game.supplyCratePosition();
+      game.relocatePlayer(crate + aster::Vec3{1.10f, 0.0f, 1.00f},
+                          aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", 180.0f)));
+    } else if (player_at_supply_crate_for_capture) {
+      game.relocatePlayer(game.supplyCratePosition(),
+                          aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", 0.0f)));
+    } else if (player_position_override) {
+      const aster::Vec3 player = game.playerPosition();
+      game.relocatePlayer({argumentFloat(argc, argv, "--player-x", player.x),
+                           argumentFloat(argc, argv, "--player-y", player.y),
+                           argumentFloat(argc, argv, "--player-z", player.z)},
+                          aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", 0.0f)));
+    }
     if (open_chest_for_capture || !take_chest_item_for_capture.empty()) {
       game.openChest();
     }
@@ -427,16 +508,21 @@ int main(int argc, char **argv) {
     camera.radius = 7.2f;
     aster::Vec3 scripted_camera_target = {2.25f, 0.48f, -0.95f};
     if (scripted_capture) {
-      scripted_camera_target = {argumentFloat(argc, argv, "--camera-target-x", 2.25f),
-                                argumentFloat(argc, argv, "--camera-target-y", 0.48f),
-                                argumentFloat(argc, argv, "--camera-target-z", -0.95f)};
-      camera.pitch =
-          aster::radians(argumentFloat(argc, argv, "--camera-pitch-deg", 28.0f));
-      camera.yaw = aster::radians(argumentFloat(argc, argv, "--camera-yaw-deg", -31.0f));
-      camera.radius = argumentFloat(argc, argv, "--camera-radius", 7.8f);
-      camera.vertical_fov =
-          aster::radians(std::clamp(argumentFloat(argc, argv, "--camera-fov-deg", 54.0f), 18.0f,
-                                    72.0f));
+      const aster::Vec3 player = game.playerPosition();
+      scripted_camera_target =
+          cave_entry_capture ? caveEntryCameraTarget(player, 0.0f)
+                             : aster::Vec3{argumentFloat(argc, argv, "--camera-target-x", 2.25f),
+                                           argumentFloat(argc, argv, "--camera-target-y", 0.48f),
+                                           argumentFloat(argc, argv, "--camera-target-z", -0.95f)};
+      camera.pitch = aster::radians(
+          argumentFloat(argc, argv, "--camera-pitch-deg", cave_entry_capture ? 12.0f : 28.0f));
+      camera.yaw = aster::radians(
+          argumentFloat(argc, argv, "--camera-yaw-deg", cave_entry_capture ? 0.0f : -31.0f));
+      camera.radius =
+          argumentFloat(argc, argv, "--camera-radius", cave_entry_capture ? 7.2f : 7.8f);
+      camera.vertical_fov = aster::radians(std::clamp(
+          argumentFloat(argc, argv, "--camera-fov-deg", cave_entry_capture ? 46.0f : 54.0f), 18.0f,
+          72.0f));
     }
     float gameplay_camera_radius = camera.radius;
     float inventory_camera_radius = 2.25f;
@@ -648,9 +734,15 @@ int main(int argc, char **argv) {
         jump = false;
         jump_buffered = false;
       } else if (scripted_capture) {
-        axis = attractAxis(static_cast<float>(elapsed));
-        run = scriptedRun(static_cast<float>(elapsed));
-        jump = scriptedJump(static_cast<float>(elapsed));
+        if (cave_entry_capture) {
+          axis = caveEntryAxis(static_cast<float>(elapsed));
+          run = caveEntryRun(static_cast<float>(elapsed));
+          jump = false;
+        } else {
+          axis = attractAxis(static_cast<float>(elapsed));
+          run = scriptedRun(static_cast<float>(elapsed));
+          jump = scriptedJump(static_cast<float>(elapsed));
+        }
         jump_buffered = false;
       }
 
@@ -689,6 +781,9 @@ int main(int argc, char **argv) {
                                      : 1.0f;
       game.updateRenderInterpolation(render_alpha);
       const aster::Vec3 player = game.playerRenderPosition();
+      if (cave_entry_capture) {
+        scripted_camera_target = caveEntryCameraTarget(player, static_cast<float>(elapsed));
+      }
       const aster::CaveLightingState cave_light =
           game.caveLightingStateAt(scripted_capture ? scripted_camera_target : player);
       camera_follow_pose = aster::updateThirdPersonFollow(
@@ -712,7 +807,12 @@ int main(int argc, char **argv) {
         game.clearAvatarPreviewYaw();
         camera.target = scripted_capture ? scripted_camera_target
                                          : aster::Vec3{player.x, player.y + 0.32f, player.z};
-        if (!scripted_capture) {
+        if (scripted_capture) {
+          if (!cave_entry_capture) {
+            camera.radius =
+                game.resolveCameraRadius(camera.target, camera.yaw, camera.pitch, camera.radius);
+          }
+        } else {
           camera.target = camera_follow_pose.camera_target;
           camera.pitch = camera_follow_pose.camera_pitch;
           camera.yaw = camera_follow_pose.camera_yaw;
@@ -770,50 +870,60 @@ int main(int argc, char **argv) {
       if (cave_light.interior > 0.001f) {
         const float cave_depth = std::clamp(cave_light.depth, 0.0f, 1.0f);
         const float chamber_fill = std::clamp(cave_light.chamber, 0.0f, 1.0f);
+        const float source_fill = std::clamp(cave_light.wall_light, 0.0f, 1.0f);
+        const aster::Vec3 cave_sky_tint = mixVec(
+            {0.016f, 0.013f, 0.011f}, cave_light.wall_light_color * 0.090f, source_fill);
+        const aster::Vec3 cave_ground_tint =
+            mixVec({0.013f, 0.011f, 0.009f}, cave_light.wall_light_color * 0.060f, source_fill);
         settings.ambient_strength =
-            std::lerp(base_ambient_strength, 0.155f + chamber_fill * 0.025f - cave_depth * 0.020f,
+            std::lerp(base_ambient_strength,
+                      0.018f + source_fill * 0.014f + chamber_fill * 0.006f -
+                          cave_depth * 0.006f,
                       cave_light.interior);
         settings.ambient_floor =
-            std::lerp(base_ambient_floor, 0.120f + chamber_fill * 0.030f, cave_light.interior);
-        settings.sky_ambient_color =
-            mixVec(base_sky_ambient, {0.095f, 0.082f, 0.066f}, cave_light.interior);
+            std::lerp(base_ambient_floor, 0.006f + source_fill * 0.006f + chamber_fill * 0.004f,
+                      cave_light.interior);
+        settings.sky_ambient_color = mixVec(base_sky_ambient, cave_sky_tint, cave_light.interior);
         settings.ground_ambient_color =
-            mixVec(base_ground_ambient, {0.070f, 0.052f, 0.036f}, cave_light.interior);
+            mixVec(base_ground_ambient, cave_ground_tint, cave_light.interior);
         settings.pipeline.clear_color =
-            mixVec(base_clear_color, {0.026f, 0.023f, 0.019f}, cave_light.interior);
-        settings.exposure =
-            std::lerp(base_exposure, 1.26f + chamber_fill * 0.06f, cave_light.interior);
+            mixVec(base_clear_color, {0.006f, 0.006f, 0.005f}, cave_light.interior);
+        settings.exposure = std::lerp(base_exposure,
+                                      0.90f + source_fill * 0.12f + chamber_fill * 0.030f,
+                                      cave_light.interior);
         settings.atmosphere.fog_color =
-            mixVec(base_atmosphere.fog_color, {0.070f, 0.054f, 0.040f}, cave_light.interior);
+            mixVec(base_atmosphere.fog_color, {0.030f, 0.025f, 0.020f}, cave_light.interior);
         settings.atmosphere.fog_start =
             std::lerp(base_atmosphere.fog_start, 2.4f, cave_light.interior);
         settings.atmosphere.fog_end =
-            std::lerp(base_atmosphere.fog_end, 15.8f + chamber_fill * 3.0f, cave_light.interior);
+            std::lerp(base_atmosphere.fog_end, 10.8f + source_fill * 3.0f + chamber_fill * 2.2f,
+                      cave_light.interior);
         settings.atmosphere.fog_strength = std::lerp(
-            base_atmosphere.fog_strength, 0.22f + cave_depth * 0.10f, cave_light.interior);
+            base_atmosphere.fog_strength, 0.38f + cave_depth * 0.20f, cave_light.interior);
         settings.atmosphere.saturation =
-            std::lerp(base_atmosphere.saturation, 0.92f, cave_light.interior);
+            std::lerp(base_atmosphere.saturation, 0.76f + source_fill * 0.08f, cave_light.interior);
         settings.atmosphere.contrast =
-            std::lerp(base_atmosphere.contrast, 1.05f, cave_light.interior);
+            std::lerp(base_atmosphere.contrast, 1.10f, cave_light.interior);
         settings.sun_light.intensity = std::lerp(
-            base_sun_light.intensity, base_sun_light.intensity * 0.08f, cave_light.interior);
-        for (std::size_t i = 0; i + 1 < settings.light_rig.size(); ++i) {
-          settings.light_rig[i].intensity *= std::lerp(1.0f, 0.14f, cave_light.interior);
+            base_sun_light.intensity, base_sun_light.intensity * 0.010f, cave_light.interior);
+        for (std::size_t i = 0; i < settings.light_rig.size(); ++i) {
+          settings.light_rig[i].intensity *= std::lerp(1.0f, 0.025f, cave_light.interior);
         }
-        settings.light_rig[1] = {player + aster::Vec3{0.0f, 0.82f, 0.0f},
-                                 {0.78f, 0.60f, 0.42f},
-                                 (0.12f + chamber_fill * 0.08f) * cave_light.interior,
-                                 4.2f + chamber_fill * 1.2f};
       }
-      if (cave_light.wall_light > 0.001f) {
-        settings.light_rig[0] = {cave_light.wall_light_position, cave_light.wall_light_color,
-                                 3.4f * cave_light.wall_light, 2.4f};
+      if (!cave_light.wall_lights.empty()) {
+        const std::size_t wall_light_count =
+            std::min<std::size_t>(cave_light.wall_lights.size(), settings.light_rig.size() - 1u);
+        for (std::size_t i = 0; i < wall_light_count; ++i) {
+          const aster::CaveWallLightSample &light = cave_light.wall_lights[i];
+          settings.light_rig[i] = {light.position, light.color, light.intensity,
+                                   light.source_radius};
+        }
       }
       if (cave_light.entrance_light > 0.001f) {
         settings.light_rig[2] = {cave_light.entrance_light_position,
-                                 {3.2f, 2.45f, 1.70f},
-                                 0.92f * cave_light.entrance_light,
-                                 6.4f};
+                                 {1.0f, 0.72f, 0.42f},
+                                 0.38f * cave_light.entrance_light,
+                                 3.2f};
       }
       if (const std::optional<aster::DynamicPointLight> light = game.equippedLight();
           light.has_value() && light->active) {
@@ -845,11 +955,14 @@ int main(int argc, char **argv) {
         const auto [hud_width, hud_height] = window.windowSize();
         hud.beginFrame({static_cast<float>(hud_width), static_cast<float>(hud_height)},
                        control_state.snapshot());
-        const aster::HudAction hud_action = hud.draw(hudModel(
-            game.status(), inventory_open, pause_open, pause_options_open, pointer_cue, game_cursor,
-            game.focusPromptModel(), game.hotbarHudModel(), game.chestContentsHudModel()));
+        const aster::HudAction hud_action = hud.draw(
+            hudModel(game.status(), inventory_open, game.torchCount(), game.supplyCrateNearby(),
+                     pause_open, pause_options_open, pointer_cue, game_cursor,
+                     game.focusPromptModel(), game.hotbarHudModel(), game.chestContentsHudModel()));
         if (hud_action == aster::HudAction::CloseChest) {
           game.closeChest();
+        } else if (hud_action == aster::HudAction::TransferSupplyTorch) {
+          (void)game.takeSupplyTorch();
         } else if (hud_action == aster::HudAction::Resume) {
           pause_open = false;
           pause_options_open = false;

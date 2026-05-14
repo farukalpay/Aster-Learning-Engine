@@ -1,6 +1,8 @@
 # Build trees and generated packages
 /build/
 /build-*/
+/build_*/
+/build.*/
 /cmake-build-*/
 /out/
 /dist/

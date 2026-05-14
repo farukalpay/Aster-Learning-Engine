@@ -100,6 +100,30 @@ void appendQuad(CpuMesh &mesh, const Vec3 a, const Vec3 b, const Vec3 c, const V
   mesh.indices.insert(mesh.indices.end(), {base, base + 1u, base + 2u, base, base + 2u, base + 3u});
 }
 
+void appendQuadAo(CpuMesh &mesh, const Vec3 a, const Vec3 b, const Vec3 c, const Vec3 d,
+                  const Vec2 uv_a, const Vec2 uv_b, const Vec2 uv_c, const Vec2 uv_d,
+                  const float ao_a, const float ao_b, const float ao_c, const float ao_d,
+                  const bool reverse = false) {
+  const Vec3 normal = faceNormal(a, b, c) * (reverse ? -1.0f : 1.0f);
+  const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
+  Vertex vertex_a{a, normal, uv_a};
+  Vertex vertex_b{b, normal, uv_b};
+  Vertex vertex_c{c, normal, uv_c};
+  Vertex vertex_d{d, normal, uv_d};
+  vertex_a.ambient_occlusion = ao_a;
+  vertex_b.ambient_occlusion = ao_b;
+  vertex_c.ambient_occlusion = ao_c;
+  vertex_d.ambient_occlusion = ao_d;
+  mesh.vertices.insert(mesh.vertices.end(), {vertex_a, vertex_b, vertex_c, vertex_d});
+  if (reverse) {
+    mesh.indices.insert(mesh.indices.end(),
+                        {base, base + 2u, base + 1u, base, base + 3u, base + 2u});
+  } else {
+    mesh.indices.insert(mesh.indices.end(),
+                        {base, base + 1u, base + 2u, base, base + 2u, base + 3u});
+  }
+}
+
 void appendDoubleSidedQuad(CpuMesh &mesh, const Vec3 a, const Vec3 b, const Vec3 c, const Vec3 d,
                            const Vec2 uv_a, const Vec2 uv_b, const Vec2 uv_c, const Vec2 uv_d) {
   appendQuad(mesh, a, b, c, d, uv_a, uv_b, uv_c, uv_d);
@@ -240,6 +264,46 @@ void appendMesh(CpuMesh &mesh, const CpuMesh &segment) {
   for (const std::uint32_t index : segment.indices) {
     mesh.indices.push_back(base + index);
   }
+}
+
+float random01(const std::uint32_t seed, const int index, const int channel) {
+  return hash01(hashGrid(index, channel, index * 17 + channel * 31, seed));
+}
+
+Vec3 safeUp(const Vec3 normal) {
+  Vec3 up = normalize(normal);
+  if (length(up) <= 0.0001f) {
+    up = {0.0f, 1.0f, 0.0f};
+  }
+  return up;
+}
+
+Vec3 tangentFromAzimuth(const Vec3 up, const float azimuth) {
+  Vec3 forward{std::cos(azimuth), 0.0f, std::sin(azimuth)};
+  forward = forward - up * dot(forward, up);
+  if (length(forward) <= 0.0001f) {
+    const Vec3 reference = std::abs(up.y) > 0.86f ? Vec3{1.0f, 0.0f, 0.0f}
+                                                  : Vec3{0.0f, 1.0f, 0.0f};
+    forward = cross(reference, up);
+  }
+  forward = normalize(forward);
+  return length(forward) > 0.0001f ? forward : Vec3{1.0f, 0.0f, 0.0f};
+}
+
+float grassBladeAo(const GrassFieldMeshSpec &spec, const GrassBladeAnchor &anchor, const float t) {
+  const float lower = smoothstep(0.0f, 0.55f, t);
+  const float upper = smoothstep(0.35f, 1.0f, t);
+  const float ao = spec.root_ao * (1.0f - lower) + spec.mid_ao * lower * (1.0f - upper) +
+                   spec.tip_ao * upper;
+  return clamp(ao * anchor.ambient_occlusion, 0.0f, 1.0f);
+}
+
+Vec2 orderedMin(const Vec2 a, const Vec2 b) {
+  return {std::min(a.x, b.x), std::min(a.y, b.y)};
+}
+
+Vec2 orderedMax(const Vec2 a, const Vec2 b) {
+  return {std::max(a.x, b.x), std::max(a.y, b.y)};
 }
 
 } // namespace
@@ -520,6 +584,178 @@ CpuMesh makeGrassTuftMesh(GrassTuftMeshSpec spec) {
     mesh.vertices.push_back({shoulder_left, upper_normal * -1.0f, {0.0f, 0.58f}});
     mesh.vertices.push_back({tip, upper_normal * -1.0f, {0.5f, 1.0f}});
     mesh.indices.insert(mesh.indices.end(), {back, back + 1u, back + 2u});
+  }
+
+  return mesh;
+}
+
+std::vector<GrassBladeAnchor> scatterGrassFieldAnchors(const GrassFieldScatterSpec &spec,
+                                                       const GrassSurfaceSampler &sampler) {
+  if (!sampler) {
+    throw std::invalid_argument("Grass field scatter requires a surface sampler.");
+  }
+  const Vec2 min_bounds = orderedMin(spec.min, spec.max);
+  const Vec2 max_bounds = orderedMax(spec.min, spec.max);
+  const Vec2 extent = max_bounds - min_bounds;
+  if (extent.x <= 0.0f || extent.y <= 0.0f || spec.blades_per_square_meter < 0.0f ||
+      spec.candidate_multiplier < 1 || spec.max_blades < 0 || spec.min_spacing < 0.0f ||
+      spec.surface_offset < 0.0f || spec.min_height <= 0.0f ||
+      spec.max_height < spec.min_height || spec.min_width <= 0.0f ||
+      spec.max_width < spec.min_width || spec.max_bend < 0.0f || spec.max_lean < 0.0f ||
+      spec.density_noise_scale < 0.0f || spec.density_noise_contrast < 0.0f) {
+    throw std::invalid_argument("Grass field scatter requires valid bounds and dimensions.");
+  }
+
+  const float area = extent.x * extent.y;
+  int target_blades = spec.target_blades > 0
+                          ? spec.target_blades
+                          : static_cast<int>(std::ceil(area * spec.blades_per_square_meter));
+  if (spec.max_blades > 0) {
+    target_blades = std::min(target_blades, spec.max_blades);
+  }
+  if (target_blades <= 0) {
+    return {};
+  }
+
+  const int candidate_count = std::max(target_blades * spec.candidate_multiplier, target_blades);
+  const float spacing_sq = spec.min_spacing * spec.min_spacing;
+  const float preferred_normal_y =
+      std::max(spec.preferred_surface_normal_y, spec.min_surface_normal_y + 0.001f);
+
+  std::vector<GrassBladeAnchor> anchors;
+  anchors.reserve(static_cast<std::size_t>(target_blades));
+
+  for (int candidate = 0; candidate < candidate_count &&
+                          static_cast<int>(anchors.size()) < target_blades;
+       ++candidate) {
+    const float ux = random01(spec.seed, candidate, 1);
+    const float uz = random01(spec.seed, candidate, 2);
+    const Vec2 position{min_bounds.x + ux * extent.x, min_bounds.y + uz * extent.y};
+    if (spec.accepts_position && !spec.accepts_position(position)) {
+      continue;
+    }
+
+    const TerrainSurfaceSample sample = sampler(position);
+    if (!sample.valid) {
+      continue;
+    }
+    const Vec3 up = safeUp(sample.normal);
+    const float slope_weight = smoothstep(spec.min_surface_normal_y, preferred_normal_y, up.y);
+    if (slope_weight <= 0.0f || random01(spec.seed, candidate, 3) > slope_weight) {
+      continue;
+    }
+
+    if (spacing_sq > 0.0f) {
+      bool too_close = false;
+      for (const GrassBladeAnchor &anchor : anchors) {
+        const float dx = anchor.root.x - position.x;
+        const float dz = anchor.root.z - position.y;
+        if (dx * dx + dz * dz < spacing_sq) {
+          too_close = true;
+          break;
+        }
+      }
+      if (too_close) {
+        continue;
+      }
+    }
+
+    const float density_noise =
+        spec.density_noise_scale > 0.0f
+            ? fractalNoise({position.x * spec.density_noise_scale, sample.height * 0.17f,
+                            position.y * spec.density_noise_scale},
+                           spec.seed + 97u, 3)
+            : 0.5f;
+    const float density_weight =
+        clamp(1.0f + (density_noise - 0.5f) * spec.density_noise_contrast * 2.0f, 0.0f, 2.0f);
+    if (random01(spec.seed, candidate, 4) > std::min(density_weight, 1.0f)) {
+      continue;
+    }
+
+    const float height_mix = clamp(random01(spec.seed, candidate, 5) * 0.72f +
+                                       density_noise * 0.20f + slope_weight * 0.08f,
+                                   0.0f, 1.0f);
+    const float width_mix = random01(spec.seed, candidate, 6);
+    const float bend_mix = random01(spec.seed, candidate, 7);
+    const float lean_sign = random01(spec.seed, candidate, 8) < 0.5f ? -1.0f : 1.0f;
+    GrassBladeAnchor anchor;
+    anchor.root = {position.x, sample.height + spec.surface_offset, position.y};
+    anchor.normal = up;
+    anchor.height = spec.min_height + (spec.max_height - spec.min_height) * height_mix;
+    anchor.width = spec.min_width + (spec.max_width - spec.min_width) * width_mix;
+    anchor.bend = spec.max_bend * (0.24f + bend_mix * 0.76f) * density_weight;
+    anchor.lean = spec.max_lean * lean_sign * random01(spec.seed, candidate, 9);
+    anchor.azimuth = random01(spec.seed, candidate, 10) * kPi * 2.0f;
+    anchor.phase = random01(spec.seed, candidate, 11) * kPi * 2.0f;
+    anchor.ambient_occlusion = clamp(0.74f + density_noise * 0.20f + slope_weight * 0.06f, 0.0f,
+                                     1.0f);
+    anchors.push_back(anchor);
+  }
+
+  return anchors;
+}
+
+CpuMesh makeGrassFieldMesh(const std::vector<GrassBladeAnchor> &anchors,
+                           GrassFieldMeshSpec spec) {
+  if (spec.blade_segments < 1 || spec.root_ao < 0.0f || spec.mid_ao < 0.0f ||
+      spec.tip_ao < 0.0f || spec.width_taper <= 0.0f || spec.lateral_sway < 0.0f) {
+    throw std::invalid_argument("Grass field mesh requires valid blade segment and shading specs.");
+  }
+
+  CpuMesh mesh;
+  const int sides = spec.double_sided ? 2 : 1;
+  mesh.vertices.reserve(static_cast<std::size_t>(anchors.size() * spec.blade_segments * 4 * sides));
+  mesh.indices.reserve(static_cast<std::size_t>(anchors.size() * spec.blade_segments * 6 * sides));
+
+  for (const GrassBladeAnchor &anchor : anchors) {
+    if (anchor.height <= 0.0f || anchor.width <= 0.0f) {
+      continue;
+    }
+    const Vec3 up = safeUp(anchor.normal);
+    const Vec3 forward = tangentFromAzimuth(up, anchor.azimuth);
+    Vec3 side = normalize(cross(forward, up));
+    if (length(side) <= 0.0001f) {
+      side = {1.0f, 0.0f, 0.0f};
+    }
+
+    std::vector<Vec3> centers(static_cast<std::size_t>(spec.blade_segments + 1));
+    std::vector<Vec3> sides_at(static_cast<std::size_t>(spec.blade_segments + 1));
+    std::vector<float> widths(static_cast<std::size_t>(spec.blade_segments + 1));
+    for (int segment = 0; segment <= spec.blade_segments; ++segment) {
+      const float t = static_cast<float>(segment) / static_cast<float>(spec.blade_segments);
+      const float curve = std::pow(t, 1.55f);
+      const float sway = std::sin(t * kPi + anchor.phase) * spec.lateral_sway * anchor.width *
+                         (1.0f - t) * t;
+      centers[static_cast<std::size_t>(segment)] =
+          anchor.root + up * (anchor.height * t) +
+          forward * (anchor.bend * curve + anchor.lean * t) + side * sway;
+      sides_at[static_cast<std::size_t>(segment)] =
+          normalize(side + forward * (std::sin(anchor.phase + t * kPi) * 0.10f * (1.0f - t)));
+      if (length(sides_at[static_cast<std::size_t>(segment)]) <= 0.0001f) {
+        sides_at[static_cast<std::size_t>(segment)] = side;
+      }
+      widths[static_cast<std::size_t>(segment)] =
+          anchor.width * std::pow(std::max(1.0f - t, 0.0f), spec.width_taper);
+    }
+
+    for (int segment = 0; segment < spec.blade_segments; ++segment) {
+      const float t0 = static_cast<float>(segment) / static_cast<float>(spec.blade_segments);
+      const float t1 = static_cast<float>(segment + 1) / static_cast<float>(spec.blade_segments);
+      const std::size_t lower = static_cast<std::size_t>(segment);
+      const std::size_t upper = static_cast<std::size_t>(segment + 1);
+      const Vec3 a = centers[lower] - sides_at[lower] * widths[lower];
+      const Vec3 b = centers[lower] + sides_at[lower] * widths[lower];
+      const Vec3 c = centers[upper] + sides_at[upper] * widths[upper];
+      const Vec3 d = centers[upper] - sides_at[upper] * widths[upper];
+      const float ao0 = grassBladeAo(spec, anchor, t0);
+      const float ao1 = grassBladeAo(spec, anchor, t1);
+      appendQuadAo(mesh, a, b, c, d, {0.0f, t0}, {1.0f, t0}, {1.0f, t1}, {0.0f, t1}, ao0,
+                   ao0, ao1, ao1);
+      if (spec.double_sided) {
+        appendQuadAo(mesh, a, b, c, d, {0.0f, t0}, {1.0f, t0}, {1.0f, t1}, {0.0f, t1}, ao0,
+                     ao0, ao1, ao1, true);
+      }
+    }
   }
 
   return mesh;

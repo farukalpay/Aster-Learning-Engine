@@ -25,6 +25,17 @@ aster::UiColor color(const aster::Vec3 value, const float alpha) {
   return {value.x, value.y, value.z, alpha};
 }
 
+bool pointInRect(const aster::UiRect rect, const aster::Vec2 point) {
+  return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y &&
+         point.y <= rect.y + rect.height;
+}
+
+struct InventoryDragRuntime {
+  bool &dragging;
+  aster::InventorySlotModel &dragged_slot;
+  aster::InventoryOverlayAction &action;
+};
+
 void drawPanelTexture(aster::UiCanvas &canvas, const aster::UiRect rect) {
   canvas.fillRoundRect(rect, 8.0f, kPanel);
   canvas.strokeRect(rect, kEdge, 1.0f);
@@ -47,13 +58,39 @@ std::string fitTextToWidth(aster::UiCanvas &canvas, const std::string &text, con
   return fitted + ".";
 }
 
+void drawInfinityQuantity(aster::UiCanvas &canvas, const aster::UiRect rect) {
+  const aster::UiColor color{0.98f, 0.83f, 0.50f, 1.0f};
+  const aster::Vec2 left{rect.x + rect.width - 19.0f, rect.y + rect.height - 10.0f};
+  const aster::Vec2 right{rect.x + rect.width - 10.0f, rect.y + rect.height - 10.0f};
+  canvas.strokeCircle(left, 4.4f, color, 1.4f, 18);
+  canvas.strokeCircle(right, 4.4f, color, 1.4f, 18);
+  canvas.line({left.x + 3.2f, left.y - 3.1f}, {right.x - 3.2f, right.y + 3.1f}, color, 1.3f);
+  canvas.line({left.x + 3.2f, left.y + 3.1f}, {right.x - 3.2f, right.y - 3.1f}, color, 1.3f);
+}
+
 void drawSlot(aster::UiCanvas &canvas, const aster::InventorySlotModel &slot,
-              const aster::UiRect rect) {
+              const aster::UiRect rect, InventoryDragRuntime *drag = nullptr) {
+  const bool hot = pointInRect(rect, canvas.pointerPosition());
+  if (drag != nullptr && slot.filled && slot.draggable && hot && canvas.mousePressed()) {
+    drag->dragging = true;
+    drag->dragged_slot = slot;
+  }
+  const bool drop_hot =
+      drag != nullptr && drag->dragging && slot.drop_target && hot &&
+      drag->dragged_slot.role == aster::InventorySlotRole::Supply &&
+      !drag->dragged_slot.item_id.empty();
+  if (drop_hot && canvas.mouseReleased()) {
+    drag->action = {aster::InventoryOverlayAction::Type::TransferSupplyToPlayer,
+                    drag->dragged_slot.item_id};
+  }
+
   const aster::UiColor base = slot.filled ? color(slot.tint, 0.88f) : kPanelSoft;
-  const aster::UiColor border = slot.selected ? aster::UiColor{0.94f, 0.71f, 0.34f, 0.95f}
-                                              : aster::UiColor{0.47f, 0.54f, 0.54f, 0.34f};
+  const aster::UiColor border =
+      drop_hot ? aster::UiColor{0.38f, 0.94f, 0.75f, 0.98f}
+      : slot.selected ? aster::UiColor{0.94f, 0.71f, 0.34f, 0.95f}
+                      : aster::UiColor{0.47f, 0.54f, 0.54f, 0.34f};
   canvas.fillRoundRect(rect, 4.0f, base);
-  canvas.strokeRect(rect, border, slot.selected ? 2.0f : 1.0f);
+  canvas.strokeRect(rect, border, drop_hot || slot.selected ? 2.0f : 1.0f);
   canvas.line({rect.x + 5.0f, rect.y + 6.0f}, {rect.x + rect.width - 6.0f, rect.y + 6.0f},
               {1.0f, 1.0f, 1.0f, slot.filled ? 0.10f : 0.035f}, 1.0f);
 
@@ -64,7 +101,9 @@ void drawSlot(aster::UiCanvas &canvas, const aster::InventorySlotModel &slot,
     canvas.text(label, {rect.x + (rect.width - label_width) * 0.5f, rect.y + 10.0f}, kText, 1.35f);
   }
 
-  if (!slot.quantity.empty()) {
+  if (slot.infinite_quantity) {
+    drawInfinityQuantity(canvas, rect);
+  } else if (!slot.quantity.empty()) {
     const float quantity_width = canvas.textWidth(slot.quantity, 1.25f);
     canvas.text(slot.quantity,
                 {rect.x + rect.width - quantity_width - 5.0f, rect.y + rect.height - 15.0f},
@@ -92,7 +131,7 @@ void drawSearchField(aster::UiCanvas &canvas, const aster::UiRect rect,
 }
 
 float drawGrid(aster::UiCanvas &canvas, const aster::InventoryGridModel &grid, const float x,
-               float y, const float width) {
+               float y, const float width, InventoryDragRuntime *drag = nullptr) {
   const int columns = std::max(grid.columns, 1);
   const int rows = static_cast<int>(
       std::ceil(static_cast<float>(grid.slots.size()) / static_cast<float>(columns)));
@@ -109,7 +148,7 @@ float drawGrid(aster::UiCanvas &canvas, const aster::InventoryGridModel &grid, c
     const aster::UiRect slot{x + static_cast<float>(column) * (slot_size + kSlotGap),
                              y + static_cast<float>(row) * (slot_size + kSlotGap), slot_size,
                              slot_size};
-    drawSlot(canvas, grid.slots[i], slot);
+    drawSlot(canvas, grid.slots[i], slot, drag);
   }
   if (grid.slots.empty()) {
     canvas.fillRoundRect({x, y, actual_width, slot_size}, 4.0f, kPanelSoft);
@@ -159,7 +198,16 @@ void drawRecipeList(aster::UiCanvas &canvas,
   }
 }
 
-void drawWorldPreviewLayout(aster::UiCanvas &canvas, const aster::InventoryOverlayModel &model) {
+void drawDragGhost(aster::UiCanvas &canvas, const aster::InventorySlotModel &slot) {
+  if (!slot.filled) {
+    return;
+  }
+  const aster::Vec2 pointer = canvas.pointerPosition();
+  drawSlot(canvas, slot, {pointer.x - 30.0f, pointer.y - 30.0f, 60.0f, 60.0f});
+}
+
+void drawWorldPreviewLayout(aster::UiCanvas &canvas, const aster::InventoryOverlayModel &model,
+                            InventoryDragRuntime *drag) {
   const aster::Vec2 viewport = canvas.viewportSize();
   const float margin = 18.0f;
   const float top_height = 72.0f;
@@ -193,39 +241,63 @@ void drawWorldPreviewLayout(aster::UiCanvas &canvas, const aster::InventoryOverl
   canvas.text("Equipment", {x, y}, kText, 1.5f);
   y += 24.0f;
   for (const aster::InventorySlotModel &slot : model.equipment_slots) {
-    drawSlot(canvas, slot, {x, y, left.width - kPanelPadding * 2.0f, 36.0f});
+    drawSlot(canvas, slot, {x, y, left.width - kPanelPadding * 2.0f, 36.0f}, drag);
     y += 42.0f;
   }
   y += 8.0f;
-  drawGrid(canvas, model.backpack, x, y, left.width - kPanelPadding * 2.0f);
+  y += drawGrid(canvas, model.backpack, x, y, left.width - kPanelPadding * 2.0f, drag);
+  y += 10.0f;
+  drawGrid(canvas, model.hotbar, x, y, left.width - kPanelPadding * 2.0f, drag);
 
   const aster::UiRect right{viewport.x - margin - right_width, side_top, right_width, side_height};
   drawPanelTexture(canvas, right);
   y = right.y + kPanelPadding;
   const float rx = right.x + kPanelPadding;
-  y += drawGrid(canvas, model.hotbar, rx, y, right.width - kPanelPadding * 2.0f);
-  y += 14.0f;
-  canvas.line({rx, y}, {right.x + right.width - kPanelPadding, y}, {0.80f, 0.62f, 0.36f, 0.18f},
-              1.0f);
-  y += 16.0f;
-  canvas.text("Crafting", {rx, y}, kText, 1.6f);
-  y += 21.0f;
-  canvas.text("Known recipes", {rx, y}, kDim, 1.25f);
-  y += 22.0f;
-  drawRecipeList(canvas, model.recipes, rx, y, right.width - kPanelPadding * 2.0f);
+  if (model.secondary_inventory_visible) {
+    canvas.text(model.secondary_inventory_title.empty() ? "Supply Crate"
+                                                        : model.secondary_inventory_title,
+                {rx, y}, kText, 1.7f);
+    y += 24.0f;
+    if (!model.secondary_inventory_status.empty()) {
+      canvas.text(model.secondary_inventory_status, {rx, y}, kDim, 1.25f);
+      y += 24.0f;
+    }
+    drawGrid(canvas, model.secondary_inventory, rx, y, right.width - kPanelPadding * 2.0f, drag);
+  } else {
+    y += drawGrid(canvas, model.hotbar, rx, y, right.width - kPanelPadding * 2.0f, drag);
+    y += 14.0f;
+    canvas.line({rx, y}, {right.x + right.width - kPanelPadding, y},
+                {0.80f, 0.62f, 0.36f, 0.18f}, 1.0f);
+    y += 16.0f;
+    canvas.text("Crafting", {rx, y}, kText, 1.6f);
+    y += 21.0f;
+    canvas.text("Known recipes", {rx, y}, kDim, 1.25f);
+    y += 22.0f;
+    drawRecipeList(canvas, model.recipes, rx, y, right.width - kPanelPadding * 2.0f);
+  }
 }
 
 } // namespace
 
 namespace aster {
 
-void InventoryOverlayWidget::draw(UiCanvas &canvas, const InventoryOverlayModel &model) {
+InventoryOverlayAction InventoryOverlayWidget::draw(UiCanvas &canvas,
+                                                    const InventoryOverlayModel &model) {
+  InventoryOverlayAction action;
   if (!model.open) {
-    return;
+    dragging_ = false;
+    return action;
   }
+  InventoryDragRuntime drag{dragging_, dragged_slot_, action};
   if (model.world_character_preview) {
-    drawWorldPreviewLayout(canvas, model);
-    return;
+    drawWorldPreviewLayout(canvas, model, &drag);
+    if (dragging_) {
+      drawDragGhost(canvas, dragged_slot_);
+    }
+    if (canvas.mouseReleased()) {
+      dragging_ = false;
+    }
+    return action;
   }
 
   const Vec2 viewport = canvas.viewportSize();
@@ -274,15 +346,15 @@ void InventoryOverlayWidget::draw(UiCanvas &canvas, const InventoryOverlayModel 
   canvas.text("Equipment", {x + 12.0f, cy}, kText, 1.45f);
   cy += 24.0f;
   for (const InventorySlotModel &slot : model.equipment_slots) {
-    drawSlot(canvas, slot, {x + 12.0f, cy, character_width - 24.0f, 34.0f});
+    drawSlot(canvas, slot, {x + 12.0f, cy, character_width - 24.0f, 34.0f}, &drag);
     cy += 40.0f;
   }
 
   const float grid_x = x + character_width + kGap;
   float grid_y = y + 14.0f;
-  grid_y += drawGrid(canvas, model.backpack, grid_x, grid_y, grid_width);
+  grid_y += drawGrid(canvas, model.backpack, grid_x, grid_y, grid_width, &drag);
   grid_y += 12.0f;
-  drawGrid(canvas, model.hotbar, grid_x, grid_y, grid_width);
+  drawGrid(canvas, model.hotbar, grid_x, grid_y, grid_width, &drag);
 
   const float craft_x = grid_x + grid_width + kGap;
   float craft_y = y + 14.0f;
@@ -291,6 +363,13 @@ void InventoryOverlayWidget::draw(UiCanvas &canvas, const InventoryOverlayModel 
   canvas.text("Known recipes", {craft_x, craft_y}, kDim, 1.25f);
   craft_y += 22.0f;
   drawRecipeList(canvas, model.recipes, craft_x, craft_y, craft_width);
+  if (dragging_) {
+    drawDragGhost(canvas, dragged_slot_);
+  }
+  if (canvas.mouseReleased()) {
+    dragging_ = false;
+  }
+  return action;
 }
 
 } // namespace aster

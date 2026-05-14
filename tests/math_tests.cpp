@@ -28,6 +28,7 @@
 #include "aster/geometry/stroke_mesh.hpp"
 #include "aster/geometry/terrain_mesh.hpp"
 #include "aster/geometry/terrain_sculpt.hpp"
+#include "aster/geometry/voxel_cave.hpp"
 #include "aster/geometry/voxel_structure.hpp"
 #include "aster/geometry/water_mesh.hpp"
 #include "aster/input/control_scheme.hpp"
@@ -50,7 +51,9 @@
 #include "aster/scene/scene.hpp"
 #include "aster/scene/scene_coherence.hpp"
 #include "aster/scene/scene_trace.hpp"
+#include "aster/ui/ui_canvas.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -63,6 +66,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -71,8 +75,7 @@ void expectNear(const float actual, const float expected, const float tolerance)
   assert(std::abs(actual - expected) <= tolerance);
 }
 
-template <typename T>
-void appendBinaryScalar(std::vector<std::uint8_t> &bytes, const T value) {
+template <typename T> void appendBinaryScalar(std::vector<std::uint8_t> &bytes, const T value) {
   const auto *data = reinterpret_cast<const std::uint8_t *>(&value);
   bytes.insert(bytes.end(), data, data + sizeof(T));
 }
@@ -86,12 +89,11 @@ void appendBinaryArray(std::vector<std::uint8_t> &bytes, const std::array<T, N> 
 
 void writeGeneratedNormalTangentBinary(const std::filesystem::path &path) {
   std::vector<std::uint8_t> bytes;
-  appendBinaryArray(bytes, std::array<float, 12>{-0.5f, 0.0f, -0.5f, 0.5f, 0.0f, -0.5f,
-                                                 0.5f, 0.0f, 0.5f, -0.5f, 0.0f, 0.5f});
-  appendBinaryArray(bytes, std::array<float, 12>{0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f,
-                                                 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f});
-  appendBinaryArray(bytes, std::array<float, 8>{0.0f, 0.0f, 1.0f, 0.0f,
-                                                1.0f, 1.0f, 0.0f, 1.0f});
+  appendBinaryArray(bytes, std::array<float, 12>{-0.5f, 0.0f, -0.5f, 0.5f, 0.0f, -0.5f, 0.5f, 0.0f,
+                                                 0.5f, -0.5f, 0.0f, 0.5f});
+  appendBinaryArray(bytes, std::array<float, 12>{0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+                                                 0.0f, 0.0f, 1.0f, 0.0f});
+  appendBinaryArray(bytes, std::array<float, 8>{0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f});
   appendBinaryArray(bytes, std::array<std::uint16_t, 6>{0u, 1u, 2u, 0u, 2u, 3u});
 
   std::ofstream out(path, std::ios::binary);
@@ -180,9 +182,9 @@ void testMatrixComposition() {
 }
 
 void testMatrixInverseAndDeterminant() {
-  const aster::Mat4 transform =
-      aster::translation({3.0f, -2.0f, 5.0f}) * aster::rotation_y(aster::radians(28.0f)) *
-      aster::scale({1.5f, 2.0f, 0.75f});
+  const aster::Mat4 transform = aster::translation({3.0f, -2.0f, 5.0f}) *
+                                aster::rotation_y(aster::radians(28.0f)) *
+                                aster::scale({1.5f, 2.0f, 0.75f});
   expectNear(aster::determinant(transform), 2.25f, 0.0005f);
 
   const aster::Mat4 round_trip = transform * aster::inverse(transform);
@@ -192,8 +194,8 @@ void testMatrixInverseAndDeterminant() {
   }
 
   const aster::Vec3 point{0.25f, 0.5f, -0.75f};
-  const aster::Vec3 restored = aster::transformPoint(aster::inverse(transform),
-                                                     aster::transformPoint(transform, point));
+  const aster::Vec3 restored =
+      aster::transformPoint(aster::inverse(transform), aster::transformPoint(transform, point));
   expectNear(restored.x, point.x, 0.001f);
   expectNear(restored.y, point.y, 0.001f);
   expectNear(restored.z, point.z, 0.001f);
@@ -254,7 +256,8 @@ void testFrameTimeStats() {
 }
 
 void testProfilerCaptureExport() {
-  const std::filesystem::path path = std::filesystem::temp_directory_path() / "aster_profile_test.csv";
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "aster_profile_test.csv";
   std::filesystem::remove(path);
   assert(aster::profile::startCapture());
   {
@@ -271,6 +274,65 @@ void testProfilerCaptureExport() {
 
 bool startsWith(const std::string_view value, const std::string_view prefix) {
   return value.size() >= prefix.size() && value.substr(0u, prefix.size()) == prefix;
+}
+
+std::size_t countOpenIndexedEdges(const aster::CpuMesh &mesh) {
+  std::vector<std::pair<std::uint32_t, std::uint32_t>> edges;
+  edges.reserve(mesh.indices.size());
+  const auto append_edge = [&](std::uint32_t a, std::uint32_t b) {
+    if (a > b) {
+      std::swap(a, b);
+    }
+    edges.push_back({a, b});
+  };
+  for (std::size_t i = 0; i + 2u < mesh.indices.size(); i += 3u) {
+    const std::uint32_t a = mesh.indices[i + 0u];
+    const std::uint32_t b = mesh.indices[i + 1u];
+    const std::uint32_t c = mesh.indices[i + 2u];
+    if (a >= mesh.vertices.size() || b >= mesh.vertices.size() || c >= mesh.vertices.size()) {
+      continue;
+    }
+    append_edge(a, b);
+    append_edge(b, c);
+    append_edge(c, a);
+  }
+  std::sort(edges.begin(), edges.end());
+
+  std::size_t open = 0u;
+  for (std::size_t i = 0; i < edges.size();) {
+    std::size_t j = i + 1u;
+    while (j < edges.size() && edges[j] == edges[i]) {
+      ++j;
+    }
+    if (j - i == 1u) {
+      ++open;
+    }
+    i = j;
+  }
+  return open;
+}
+
+std::size_t countFacesOpposingVertexNormals(const aster::CpuMesh &mesh) {
+  std::size_t opposing = 0u;
+  for (std::size_t i = 0; i + 2u < mesh.indices.size(); i += 3u) {
+    const std::uint32_t ia = mesh.indices[i + 0u];
+    const std::uint32_t ib = mesh.indices[i + 1u];
+    const std::uint32_t ic = mesh.indices[i + 2u];
+    if (ia >= mesh.vertices.size() || ib >= mesh.vertices.size() || ic >= mesh.vertices.size()) {
+      continue;
+    }
+    const aster::Vertex &a = mesh.vertices[ia];
+    const aster::Vertex &b = mesh.vertices[ib];
+    const aster::Vertex &c = mesh.vertices[ic];
+    const aster::Vec3 face =
+        aster::normalize(aster::cross(b.position - a.position, c.position - a.position));
+    const aster::Vec3 averaged_normal = aster::normalize(a.normal + b.normal + c.normal);
+    if (aster::length(face) > 0.0001f && aster::length(averaged_normal) > 0.0001f &&
+        aster::dot(face, averaged_normal) < -0.25f) {
+      ++opposing;
+    }
+  }
+  return opposing;
 }
 
 void testSourceBoundaryContracts() {
@@ -319,6 +381,41 @@ void testFramebufferOriginContract() {
   assert(pixel(0, 2)[0] == 24u);
   assert(pixel(0, 2)[1] == 64u);
   assert(pixel(0, 2)[2] == 255u);
+
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "aster_framebuffer_origin.ppm";
+  framebuffer.writePpm(path, 4, 4);
+  std::ifstream file(path, std::ios::binary);
+  std::string magic;
+  std::string dimensions;
+  std::string max_value;
+  std::getline(file, magic);
+  std::getline(file, dimensions);
+  std::getline(file, max_value);
+  assert(magic == "P6");
+  assert(dimensions == "4 4");
+  assert(max_value == "255");
+  std::vector<std::uint8_t> rgb(4u * 4u * 3u);
+  file.read(reinterpret_cast<char *>(rgb.data()), static_cast<std::streamsize>(rgb.size()));
+  assert(rgb[0] == 255u);
+  assert(rgb[1] == 32u);
+  assert(rgb[2] == 16u);
+  const std::size_t third_row = 2u * 4u * 3u;
+  assert(rgb[third_row + 0u] == 24u);
+  assert(rgb[third_row + 1u] == 64u);
+  assert(rgb[third_row + 2u] == 255u);
+  std::filesystem::remove(path);
+}
+
+void testUiTextFittingContract() {
+  aster::UiCanvas canvas;
+  const float preferred = 1.6f;
+  const float narrow_width = 104.0f;
+  const float fitted = canvas.fittedTextScale("Back-face culling", narrow_width, preferred, 0.85f);
+  assert(fitted < preferred);
+  assert(fitted >= 0.85f);
+  assert(canvas.textWidth("Back-face culling", fitted) <= narrow_width + 0.001f);
+  assert(canvas.fittedTextScale("Back-face culling", 400.0f, preferred, 0.85f) == preferred);
 }
 
 void testGameplayItemInteractionSystems() {
@@ -540,6 +637,86 @@ void testMeshGeneration() {
   const aster::CpuMesh grass = aster::makeGrassTuftMesh();
   assert(!grass.vertices.empty());
   assert(!grass.indices.empty());
+  const auto flat_grass_sampler = [](const aster::Vec2 position) {
+    return aster::TerrainSurfaceSample{.valid = true,
+                                       .height = 0.25f + position.x * 0.02f - position.y * 0.01f,
+                                       .normal = {0.0f, 1.0f, 0.0f}};
+  };
+  aster::GrassFieldScatterSpec grass_field_spec{.min = {-1.0f, -0.75f},
+                                                .max = {1.0f, 0.75f},
+                                                .seed = 77u,
+                                                .target_blades = 32,
+                                                .candidate_multiplier = 1,
+                                                .min_spacing = 0.0f,
+                                                .surface_offset = 0.015f,
+                                                .min_height = 0.20f,
+                                                .max_height = 0.48f,
+                                                .min_width = 0.012f,
+                                                .max_width = 0.026f,
+                                                .max_bend = 0.10f,
+                                                .max_lean = 0.035f,
+                                                .density_noise_contrast = 0.0f,
+                                                .min_surface_normal_y = 0.0f,
+                                                .preferred_surface_normal_y = 0.10f};
+  const std::vector<aster::GrassBladeAnchor> anchors_a =
+      aster::scatterGrassFieldAnchors(grass_field_spec, flat_grass_sampler);
+  const std::vector<aster::GrassBladeAnchor> anchors_b =
+      aster::scatterGrassFieldAnchors(grass_field_spec, flat_grass_sampler);
+  assert(anchors_a.size() == 32u);
+  assert(anchors_a.size() == anchors_b.size());
+  for (std::size_t i = 0; i < anchors_a.size(); ++i) {
+    expectNear(anchors_a[i].root.x, anchors_b[i].root.x, 0.000001f);
+    expectNear(anchors_a[i].root.y, anchors_b[i].root.y, 0.000001f);
+    expectNear(anchors_a[i].root.z, anchors_b[i].root.z, 0.000001f);
+  }
+  grass_field_spec.seed = 78u;
+  const std::vector<aster::GrassBladeAnchor> anchors_c =
+      aster::scatterGrassFieldAnchors(grass_field_spec, flat_grass_sampler);
+  assert(anchors_c.size() == anchors_a.size());
+  bool saw_seed_variation = false;
+  for (std::size_t i = 0; i < anchors_a.size(); ++i) {
+    saw_seed_variation =
+        saw_seed_variation || std::abs(anchors_a[i].root.x - anchors_c[i].root.x) > 0.0001f ||
+        std::abs(anchors_a[i].root.z - anchors_c[i].root.z) > 0.0001f;
+  }
+  assert(saw_seed_variation);
+  const aster::CpuMesh grass_field =
+      aster::makeGrassFieldMesh(anchors_a, {.blade_segments = 3, .double_sided = true});
+  assert(!grass_field.vertices.empty());
+  assert(!grass_field.indices.empty());
+  bool saw_root_ao = false;
+  bool saw_tip_ao = false;
+  for (const aster::Vertex &vertex : grass_field.vertices) {
+    assert(std::isfinite(vertex.position.x));
+    assert(std::isfinite(vertex.position.y));
+    assert(std::isfinite(vertex.position.z));
+    assert(std::isfinite(vertex.normal.x));
+    assert(std::isfinite(vertex.normal.y));
+    assert(std::isfinite(vertex.normal.z));
+    assert(aster::length(vertex.normal) > 0.50f);
+    saw_root_ao = saw_root_ao || (vertex.uv.y <= 0.001f && vertex.ambient_occlusion < 0.82f);
+    saw_tip_ao = saw_tip_ao || (vertex.uv.y >= 0.999f && vertex.ambient_occlusion > 0.88f);
+  }
+  assert(saw_root_ao);
+  assert(saw_tip_ao);
+  grass_field_spec.seed = 77u;
+  grass_field_spec.target_blades = 12;
+  grass_field_spec.candidate_multiplier = 4;
+  grass_field_spec.accepts_position = [](const aster::Vec2 position) { return position.x < 0.0f; };
+  const std::vector<aster::GrassBladeAnchor> accepted_side =
+      aster::scatterGrassFieldAnchors(grass_field_spec, flat_grass_sampler);
+  assert(!accepted_side.empty());
+  for (const aster::GrassBladeAnchor &anchor : accepted_side) {
+    assert(anchor.root.x < 0.0f);
+  }
+  grass_field_spec.accepts_position = {};
+  grass_field_spec.min_surface_normal_y = 0.80f;
+  grass_field_spec.preferred_surface_normal_y = 0.90f;
+  const auto steep_sampler = [](const aster::Vec2 position) {
+    (void)position;
+    return aster::TerrainSurfaceSample{.valid = true, .height = 0.0f, .normal = {0.86f, 0.22f, 0.0f}};
+  };
+  assert(aster::scatterGrassFieldAnchors(grass_field_spec, steep_sampler).empty());
   const aster::CpuMesh fish = aster::makeFishMesh();
   assert(!fish.vertices.empty());
   assert(!fish.indices.empty());
@@ -830,8 +1007,25 @@ void testCaveInteriorVolume() {
   assert(!complex.collision_mesh.indices.empty());
   assert(!complex.features.empty());
   assert(complex.portal_mesh.vertices.size() > 18u);
+  assert(countOpenIndexedEdges(complex.portal_mesh) == 0u);
+  assert(countFacesOpposingVertexNormals(complex.portal_mesh) == 0u);
   assert(!complex.portal_blend_mesh.vertices.empty());
   assert(!complex.portal_blend_mesh.indices.empty());
+  assert(!complex.portal_formation_mesh.vertices.empty());
+  assert(!complex.portal_formation_mesh.indices.empty());
+  assert(complex.portal_formation_mesh.vertices.size() > complex.portal_mesh.vertices.size());
+  assert(!complex.portal_seal_mesh.vertices.empty());
+  assert(!complex.portal_seal_mesh.indices.empty());
+  assert(countFacesOpposingVertexNormals(complex.portal_seal_mesh) == 0u);
+  assert(!complex.entrance_throat_mesh.vertices.empty());
+  assert(!complex.entrance_throat_mesh.indices.empty());
+  assert(countFacesOpposingVertexNormals(complex.entrance_throat_mesh) == 0u);
+  for (const aster::CpuMesh &chunk : complex.tunnel_chunks) {
+    assert(!chunk.vertices.empty());
+    assert(!chunk.indices.empty());
+    assert(countFacesOpposingVertexNormals(chunk) == 0u);
+  }
+  assert(countFacesOpposingVertexNormals(complex.collision_mesh) == 0u);
   assert(!complex.portal_floor_mesh.vertices.empty());
   assert(!complex.portal_floor_mesh.indices.empty());
   aster::Vec3 portal_floor_center{};
@@ -860,6 +1054,12 @@ void testCaveInteriorVolume() {
       tunnel, end + end_tangent * 0.45f + aster::Vec3{0.0f, 0.55f, 0.0f}, 0.28f);
   assert(end_constraint.active);
   assert(aster::dot(end_constraint.corrected_position - end, end_tangent) < 0.0f);
+  aster::CaveTunnelProfile streaming_tunnel = tunnel;
+  streaming_tunnel.end_constraint_enabled = false;
+  const aster::CaveTraversalConstraint streaming_end_constraint =
+      aster::constrainCaveTraversalPosition(
+          streaming_tunnel, end + end_tangent * 0.45f + aster::Vec3{0.0f, 0.55f, 0.0f}, 0.28f);
+  assert(!streaming_end_constraint.active);
   const aster::CaveViewConstraint view_constraint =
       aster::constrainCaveViewSegment(tunnel, inside_floor + aster::Vec3{0.0f, 0.55f, 0.0f},
                                       tunnel.start + aster::Vec3{0.0f, 1.0f, 1.2f},
@@ -883,6 +1083,13 @@ void testCaveInteriorVolume() {
         aster::sampleCaveInteriorVolume(tunnel, fixture.position);
     assert(fixture_sample.tunnel_t >= 0.24f);
     assert(aster::length(fixture.normal) > 0.90f);
+    const float lens_gap =
+        aster::dot(fixture.lens_position - fixture.mount_position, fixture.normal);
+    const float light_gap =
+        aster::dot(fixture.light_position - fixture.lens_position, fixture.normal);
+    assert(lens_gap > 0.050f);
+    assert(light_gap > 0.120f);
+    assert(aster::dot(fixture.light_position - fixture.mount_position, fixture.normal) > lens_gap);
   }
   const aster::CaveTerrainPortalCut portal_cut =
       aster::makeCaveTerrainPortalCut(tunnel, {.arch_segments = 8});
@@ -921,13 +1128,130 @@ void testCaveInteriorVolume() {
         aster::sampleCaveInteriorVolume(tunnel, feature.position);
     assert(feature_sample.tunnel_t >= tunnel.visible_wall_start_t - 0.16f);
     assert(aster::length(feature.normal) > 0.90f);
-    saw_ceiling_feature =
-        saw_ceiling_feature || feature.kind == aster::CaveFeatureKind::Stalactite;
+    saw_ceiling_feature = saw_ceiling_feature || feature.kind == aster::CaveFeatureKind::Stalactite;
     saw_floor_feature = saw_floor_feature || feature.kind == aster::CaveFeatureKind::Stalagmite ||
                         feature.kind == aster::CaveFeatureKind::Column;
   }
   assert(saw_ceiling_feature);
   assert(saw_floor_feature);
+}
+
+void testVoxelCaveStreamingAndFixtureContracts() {
+  aster::VoxelCaveSpec spec;
+  spec.seed = 77u;
+  spec.origin = {-8.0f, -8.0f, -48.0f};
+  spec.cell_size = 0.40f;
+  spec.chunk_cells = 8;
+  spec.stream_radius = 1;
+  spec.unload_radius = 2;
+  spec.max_chunk_rebuilds_per_update = 0;
+  spec.forced_rebuild_radius = 0;
+  spec.structural_surface_mode = aster::VoxelCaveStructuralSurfaceMode::RenderAndCollide;
+  spec.authored_fixture_light_color = {1.0f, 0.14f, 0.06f};
+  spec.procedural_fixture_light_color = {1.0f, 0.10f, 0.04f};
+  spec.tunnels.push_back({{0.0f, 0.0f, -48.0f}, {0.0f, 0.0f, -58.0f}, 1.42f});
+  spec.chambers.push_back({{0.0f, 0.1f, -54.0f}, {2.2f, 1.35f, 2.4f}});
+  spec.procedural_fields.push_back({.enabled = true,
+                                    .seed = 91u,
+                                    .start = {0.0f, 0.0f, -58.0f},
+                                    .forward = {0.0f, 0.0f, -1.0f},
+                                    .up = {0.0f, 1.0f, 0.0f},
+                                    .backtrack_distance = 1.5f,
+                                    .tunnel_radius = 1.35f,
+                                    .vertical_radius = 1.06f,
+                                    .radius_variation = 0.08f,
+                                    .wander_frequency = 0.05f,
+                                    .side_wander = 0.55f,
+                                    .vertical_wander = 0.18f,
+                                    .chamber_spacing = 14.0f,
+                                    .chamber_radius = 2.2f,
+                                    .chamber_vertical_radius = 1.35f,
+                                    .chamber_radius_variation = 0.18f,
+                                    .chamber_jitter = 0.18f});
+  spec.material_profiles = {{.material = aster::VoxelCaveMaterial::Rock,
+                             .seed = 93u,
+                             .display_name = "Rock",
+                             .visual_material_id = "rock"}};
+
+  aster::VoxelCaveState state;
+  state.configure(spec);
+  state.updateStreaming({0.0f, 0.0f, -52.0f}, 0.0f);
+  const aster::VoxelChunkCoord first_center = state.chunkCoordFor({0.0f, 0.0f, -52.0f});
+  bool saw_first_chunk = false;
+  bool saw_collision_mesh = false;
+  for (const aster::VoxelChunkSnapshot &chunk : state.activeChunks()) {
+    saw_first_chunk = saw_first_chunk || chunk.coord == first_center;
+    saw_collision_mesh =
+        saw_collision_mesh ||
+        (chunk.collision_mesh != nullptr && !chunk.collision_mesh->vertices.empty() &&
+         !chunk.collision_mesh->indices.empty() &&
+         countFacesOpposingVertexNormals(*chunk.collision_mesh) == 0u);
+  }
+  assert(saw_first_chunk);
+  assert(saw_collision_mesh);
+
+  const aster::VoxelCaveInteriorSample authored = state.sampleInterior({0.0f, 0.0f, -54.0f});
+  assert(authored.valid);
+  assert(authored.inside);
+  assert(authored.interior > 0.65f);
+  const aster::VoxelCaveProceduralFrame procedural_frame =
+      aster::sampleVoxelCaveProceduralFrameAt(spec.procedural_fields.front(), 8.0f);
+  assert(procedural_frame.valid);
+  const aster::Vec3 procedural_probe = procedural_frame.center;
+  const aster::VoxelCaveInteriorSample procedural = state.sampleInterior(procedural_probe);
+  assert(procedural.valid);
+  assert(procedural.procedural);
+
+  const std::vector<aster::VoxelCaveFixturePlacement> path_fixtures =
+      aster::placeVoxelCavePathFixtures(
+          spec, {.start_distance = 2.0f,
+                 .target_spacing = 3.0f,
+                 .max_count = 4,
+                 .side_mode = aster::VoxelCaveFixtureSideMode::FixedNegative,
+                 .wall_inset = 0.12f,
+                 .mount_height = 0.08f,
+                 .normal_up_bias = -0.10f,
+                 .lens_offset = 0.075f,
+                 .light_offset = 0.18f});
+  assert(!path_fixtures.empty());
+  for (const aster::VoxelCaveFixturePlacement &fixture : path_fixtures) {
+    assert(aster::dot(fixture.lens_position - fixture.mount_position, fixture.normal) > 0.050f);
+    assert(aster::dot(fixture.light_position - fixture.lens_position, fixture.normal) > 0.120f);
+  }
+
+  const std::vector<aster::VoxelCaveFixturePlacement> procedural_fixtures =
+      aster::placeVoxelCaveProceduralFixturesNear(
+          spec, procedural_probe,
+          {.target_spacing = 5.8f,
+           .max_count = 4,
+           .procedural_behind = 1,
+           .procedural_ahead = 2,
+           .side_mode = aster::VoxelCaveFixtureSideMode::Alternating,
+           .wall_inset = 0.12f,
+           .mount_height = 0.08f,
+           .normal_up_bias = -0.10f,
+           .lens_offset = 0.075f,
+           .light_offset = 0.18f});
+  assert(procedural_fixtures.size() >= 2u);
+  const std::vector<aster::VoxelCaveFixtureLightSample> ranked =
+      aster::rankVoxelCaveFixtureLights(procedural_probe, procedural, procedural_fixtures,
+                                        {.progress_window = 5.8f,
+                                         .minimum_progress_gain = 0.70f,
+                                         .distance_score_weight = 0.55f,
+                                         .progress_score_weight = 1.30f});
+  assert(!ranked.empty());
+  assert(ranked.front().weight > 0.0f);
+  assert(aster::length(ranked.front().placement.light_position -
+                       ranked.front().placement.lens_position) > 0.12f);
+
+  state.updateStreaming({0.0f, 0.0f, -76.0f}, 0.1f);
+  const aster::VoxelChunkCoord advanced_center = state.chunkCoordFor({0.0f, 0.0f, -76.0f});
+  bool saw_advanced_chunk = false;
+  for (const aster::VoxelChunkSnapshot &chunk : state.activeChunks()) {
+    saw_advanced_chunk = saw_advanced_chunk || chunk.coord == advanced_center;
+  }
+  assert(!(advanced_center == first_center));
+  assert(saw_advanced_chunk);
 }
 
 void testMeshProcessingPipeline() {
@@ -1224,19 +1548,18 @@ void testGeneratedSceneryAssembly() {
   const aster::GeneratedSceneryBundle bundle = aster::assembleGeneratedScenery(
       {.name = "grove",
        .root = {.position = {2.0f, 0.0f, 1.0f}, .scale = {2.0f, 1.0f, 2.0f}},
-       .primitives = {aster::GeneratedSceneryPrimitivePart{.name = "stone",
-                                                           .primitive = aster::MeshPrimitive::Rock,
-                                                           .transform = {.position = {1.0f, 0.0f, 0.0f},
-                                                                         .scale = {0.5f, 0.5f, 0.5f}},
-                                                           .material = material}},
+       .primitives = {aster::GeneratedSceneryPrimitivePart{
+           .name = "stone",
+           .primitive = aster::MeshPrimitive::Rock,
+           .transform = {.position = {1.0f, 0.0f, 0.0f}, .scale = {0.5f, 0.5f, 0.5f}},
+           .material = material}},
        .meshes = {aster::GeneratedSceneryMeshPart{.name = "trunk",
                                                   .mesh = mesh,
                                                   .transform = {.position = {0.0f, 1.0f, 0.0f}},
                                                   .material = material}},
        .collision_proxies = {{"bounds", {0.0f, 0.5f, 0.0f}, {0.5f, 0.5f, 0.5f}}},
-       .sockets = {aster::GeneratedScenerySocket{.name = "perch",
-                                                 .transform = {.position = {0.0f, 2.0f, 0.0f}},
-                                                 .radius = 0.25f}}});
+       .sockets = {aster::GeneratedScenerySocket{
+           .name = "perch", .transform = {.position = {0.0f, 2.0f, 0.0f}}, .radius = 0.25f}}});
   assert(bundle.render_objects.size() == 2u);
   assert(bundle.render_objects[0].name == "grove/stone");
   expectNear(bundle.render_objects[0].transform.position.x, 4.0f, 0.0001f);
@@ -1491,18 +1814,68 @@ void testLumenSupportSurfacesRenderOpaque() {
   assert(saw_support_surface);
 }
 
+void testLumenSupplyCrateInventoryContract() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  assert(run.torchCount() == 0);
+  assert(!run.supplyCrateNearby());
+  assert(!run.takeSupplyTorch());
+
+  const aster::Vec3 crate_position = run.supplyCratePosition();
+  assert(crate_position.z < -40.0f);
+  assert(aster::length({crate_position.x, 0.0f, crate_position.z}) > 45.0f);
+
+  run.relocatePlayer(crate_position, 0.0f);
+  assert(run.supplyCrateNearby());
+  assert(run.takeSupplyTorch());
+  assert(run.torchCount() == 1);
+  assert(run.takeSupplyTorch());
+  assert(run.torchCount() == 2);
+}
+
 void testLumenCaveVisualContracts() {
-  const aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  run.relocatePlayer(run.supplyCratePosition(), 0.0f);
+  for (int i = 0; i < 4; ++i) {
+    run.update(1.0f / 60.0f, {}, false, false);
+  }
   bool saw_cave_threshold = false;
   bool saw_cave_overhang = false;
+  bool saw_cave_formation = false;
+  bool saw_cave_liner = false;
+  bool saw_cave_seal = false;
+  bool saw_cave_throat = false;
   bool saw_cave_floor = false;
   bool saw_cave_chunk = false;
+  bool saw_streaming_voxel_surface = false;
+  bool saw_central_grass_field = false;
+  bool saw_cave_mouth_grass_field = false;
   bool saw_coal_ore = false;
+  bool saw_supply_crate = false;
   bool saw_wall_light_lens = false;
+  int coal_ore_count = 0;
 
   for (const aster::RenderObject &object : run.scene().objects()) {
     if (startsWith(object.name, "Cave ")) {
       assert(object.primitive != aster::MeshPrimitive::Crystal);
+    }
+    if (object.name == "Engine central terrain grass field") {
+      saw_central_grass_field = true;
+      assert(object.custom_mesh != nullptr);
+      assert(object.custom_mesh->vertices.size() > 12000u);
+      assert(object.material.surface_pattern == aster::SurfacePattern::Foliage);
+    }
+    if (object.name == "Engine cave mouth grass field") {
+      saw_cave_mouth_grass_field = true;
+      assert(object.custom_mesh != nullptr);
+      assert(object.custom_mesh->vertices.size() > 10000u);
+      assert(object.material.surface_pattern == aster::SurfacePattern::Foliage);
+    }
+    if (startsWith(object.name, "Cave torch supply crate")) {
+      saw_supply_crate = true;
+      assert(object.transform.position.z < -40.0f);
+      assert(aster::length({object.transform.position.x, 0.0f, object.transform.position.z}) >
+             45.0f);
+      assert(!object.camera_occlusion_fade);
     }
     if (object.name == "Walkable cave entrance threshold") {
       saw_cave_threshold = true;
@@ -1530,6 +1903,39 @@ void testLumenCaveVisualContracts() {
       assert(aster::length({object.transform.position.x, 0.0f, object.transform.position.z}) >
              45.0f);
     }
+    if (object.name == "Continuous procedural cave mouth formation") {
+      saw_cave_formation = true;
+      assert(object.custom_mesh != nullptr);
+      assert(object.custom_mesh->vertices.size() > 120u);
+      assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
+      assert(object.material.procedural.micro_normal_strength > 0.0f);
+      assert(object.transform.position.z < -40.0f);
+      assert(aster::length({object.transform.position.x, 0.0f, object.transform.position.z}) >
+             45.0f);
+    }
+    if (object.name == "Opaque recessed cave mouth liner") {
+      saw_cave_liner = true;
+      assert(object.custom_mesh != nullptr);
+      assert(object.material.opacity >= 0.999f);
+      assert(object.material.double_sided);
+      assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
+      assert(object.transform.position.z < -40.0f);
+    }
+    if (object.name == "Opaque cave portal terrain seal") {
+      saw_cave_seal = true;
+      assert(object.custom_mesh != nullptr);
+      assert(object.material.opacity >= 0.999f);
+      assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
+      assert(countFacesOpposingVertexNormals(*object.custom_mesh) == 0u);
+    }
+    if (object.name == "Sealed cave entrance throat") {
+      saw_cave_throat = true;
+      assert(object.custom_mesh != nullptr);
+      assert(object.material.opacity >= 0.999f);
+      assert(object.material.cull_mode == aster::FaceCullMode::Back);
+      assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
+      assert(countFacesOpposingVertexNormals(*object.custom_mesh) == 0u);
+    }
     if (object.name == "Walkable packed cave floor") {
       saw_cave_floor = true;
       assert(object.material.opacity >= 0.999f);
@@ -1553,13 +1959,29 @@ void testLumenCaveVisualContracts() {
       assert(center.z < -40.0f);
       assert(aster::length({center.x, 0.0f, center.z}) > 45.0f);
     }
-    if (object.name == "Coal ore vein node") {
-      saw_coal_ore = true;
+    if (object.name == "Rock voxel cave surface" && object.custom_mesh != nullptr &&
+        !object.custom_mesh->vertices.empty()) {
+      saw_streaming_voxel_surface = true;
+      assert(object.custom_mesh != nullptr);
       assert(object.material.opacity >= 0.999f);
-      assert(object.material.surface_pattern == aster::SurfacePattern::CoalVein);
+      assert(object.material.cull_mode == aster::FaceCullMode::Back);
+      assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
       assert(!object.camera_occlusion_fade);
     }
-    if (object.name == "Industrial caged wall sconce frosted glass") {
+    if (object.name == "Coal ore vein node") {
+      saw_coal_ore = true;
+      ++coal_ore_count;
+      assert(object.material.opacity >= 0.999f);
+      assert(object.material.surface_pattern == aster::SurfacePattern::CoalVein);
+      assert(object.material.emission_strength >= 0.10f);
+      assert(object.primitive == aster::MeshPrimitive::Rock);
+      assert(!object.viewer_cull_volume.enabled);
+      assert(!object.camera_occlusion_fade);
+      assert(object.transform.position.z < -40.0f);
+      assert(aster::length({object.transform.scale.x, object.transform.scale.y,
+                            object.transform.scale.z}) > 0.30f);
+    }
+    if (object.name == "Industrial red cave wall light glowing lens") {
       saw_wall_light_lens = true;
       assert(object.material.surface_pattern == aster::SurfacePattern::AmberResin);
       assert(object.material.emission_strength > 0.5f);
@@ -1569,10 +1991,31 @@ void testLumenCaveVisualContracts() {
 
   assert(saw_cave_threshold);
   assert(saw_cave_overhang);
+  assert(saw_cave_formation);
+  assert(saw_cave_liner);
+  assert(saw_cave_seal);
+  assert(saw_cave_throat);
   assert(saw_cave_floor);
   assert(saw_cave_chunk);
+  assert(saw_streaming_voxel_surface);
+  assert(saw_central_grass_field);
+  assert(saw_cave_mouth_grass_field);
   assert(saw_coal_ore);
+  assert(coal_ore_count >= 4);
+  assert(saw_supply_crate);
   assert(saw_wall_light_lens);
+  const aster::CaveLightingState spawn_cave_light = run.caveLightingStateAt({0.0f, 0.32f, 0.0f});
+  assert(spawn_cave_light.interior < 0.001f);
+  assert(spawn_cave_light.entrance_light < 0.001f);
+  for (const aster::CaveWallLightSample &light : spawn_cave_light.wall_lights) {
+    assert(light.intensity <= 0.001f);
+  }
+  const aster::CaveLightingState cave_light = run.caveLightingState();
+  assert(cave_light.interior > 0.20f);
+  assert(!cave_light.wall_lights.empty());
+  assert(cave_light.wall_lights.front().intensity > 12.0f);
+  assert(cave_light.wall_lights.front().source_radius <= 1.40f);
+  assert(cave_light.wall_light >= 0.0f && cave_light.wall_light <= 1.0f);
 }
 
 void testLumenPondWallLightIsMountedOutsideWater() {
@@ -1600,7 +2043,7 @@ void testLumenPondWallLightIsMountedOutsideWater() {
                                  inner_water->transform.position.z};
   bool saw_wall_fixture = false;
   for (const aster::RenderObject &object : run.scene().objects()) {
-    if (object.name != "Industrial caged wall sconce frosted glass") {
+    if (object.name != "Industrial red cave wall light glowing lens") {
       continue;
     }
     const aster::Vec2 delta{object.transform.position.x - water_center.x,
@@ -2364,10 +2807,12 @@ int main() {
   testProfilerCaptureExport();
   testSourceBoundaryContracts();
   testFramebufferOriginContract();
+  testUiTextFittingContract();
   testGameplayItemInteractionSystems();
   testMeshGeneration();
   testTerrainSculpting();
   testCaveInteriorVolume();
+  testVoxelCaveStreamingAndFixtureContracts();
   testMeshProcessingPipeline();
   testMeshProcessingRejectsInvalidIndices();
   testMeshDrapingRaisesEmbeddedVertices();
@@ -2385,6 +2830,7 @@ int main() {
   testLumenCameraCollisionCanBeatComfortRadius();
   testLumenInnerPondSeamHasSupport();
   testLumenSupportSurfacesRenderOpaque();
+  testLumenSupplyCrateInventoryContract();
   testLumenCaveVisualContracts();
   testLumenPondWallLightIsMountedOutsideWater();
   testControlScheme();

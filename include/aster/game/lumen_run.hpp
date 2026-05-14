@@ -13,6 +13,7 @@
 #include "aster/game/particle_system.hpp"
 #include "aster/geometry/cave_system.hpp"
 #include "aster/geometry/terrain_mesh.hpp"
+#include "aster/geometry/voxel_cave.hpp"
 #include "aster/math/vec.hpp"
 #include "aster/physics/climb_locomotion.hpp"
 #include "aster/physics/physics_world.hpp"
@@ -23,6 +24,7 @@
 #include "aster/scene/scene_trace.hpp"
 #include "aster/ui/hud_layer.hpp"
 
+#include <array>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -59,6 +61,14 @@ struct LumenStatus {
   bool defeated = false;
 };
 
+struct CaveWallLightSample {
+  Vec3 position{};
+  Vec3 color{1.0f, 0.16f, 0.08f};
+  float intensity = 0.0f;
+  float source_radius = 1.0f;
+  float tunnel_t = 0.0f;
+};
+
 struct CaveLightingState {
   float interior = 0.0f;
   float entrance_light = 0.0f;
@@ -68,6 +78,7 @@ struct CaveLightingState {
   float wall_light = 0.0f;
   Vec3 wall_light_position{};
   Vec3 wall_light_color{1.0f, 0.16f, 0.08f};
+  std::vector<CaveWallLightSample> wall_lights;
 };
 
 class LumenRun {
@@ -99,8 +110,12 @@ public:
   void closeChest();
   [[nodiscard]] bool takeChestItem(std::string_view item_id);
   [[nodiscard]] bool takeChestSlot(std::size_t slot_index);
+  [[nodiscard]] bool takeSupplyTorch();
   void selectHotbarSlot(std::size_t index);
   [[nodiscard]] bool chestInterfaceOpen() const;
+  [[nodiscard]] bool supplyCrateNearby() const;
+  [[nodiscard]] int torchCount() const;
+  [[nodiscard]] Vec3 supplyCratePosition() const;
   [[nodiscard]] FocusPromptModel focusPromptModel() const;
   [[nodiscard]] HotbarHudModel hotbarHudModel() const;
   [[nodiscard]] ChestContentsHudModel chestContentsHudModel() const;
@@ -184,6 +199,26 @@ private:
     std::size_t object_index = 0;
   };
 
+  struct CaveWallFixtureVisual {
+    std::size_t backplate = 0;
+    std::size_t lens = 0;
+    std::array<std::size_t, 5> vertical_guards{};
+    std::array<std::size_t, 3> horizontal_guards{};
+  };
+
+  struct VoxelChunkVisual {
+    VoxelChunkCoord coord{};
+    VoxelChunkRenderBatchKind kind = VoxelChunkRenderBatchKind::StructuralSurface;
+    VoxelCaveMaterial material = VoxelCaveMaterial::Rock;
+    std::size_t object_index = 0;
+    bool assigned = false;
+  };
+
+  struct VoxelChunkCollider {
+    VoxelChunkCoord coord{};
+    PhysicsBodyHandle body{};
+  };
+
   struct CoalOreNode {
     Vec3 position{};
     Vec3 normal{0.0f, 0.0f, 1.0f};
@@ -219,6 +254,14 @@ private:
   void updateChestVisuals(float dt);
   void updateEquipmentVisuals(float dt);
   void updateCaveVisuals(float dt);
+  [[nodiscard]] std::vector<CaveWallFixturePlacement>
+  proceduralCaveWallFixturePlacements(Vec3 viewer) const;
+  void applyCaveWallFixtureVisual(const CaveWallFixtureVisual &visual,
+                                  const CaveWallFixturePlacement &placement, bool visible);
+  void updateProceduralCaveWallFixtureVisuals();
+  void updateVoxelCave(float dt);
+  void syncVoxelChunkVisuals();
+  void syncVoxelChunkPhysics();
   void updateDeathSequence(float dt);
   void updateDeathVisuals();
   void restorePlayerEyeObjects();
@@ -226,6 +269,9 @@ private:
   void respawnPlayer();
   void enforceWorldBounds();
   [[nodiscard]] bool isSwimmableWater(Vec3 support_position) const;
+  [[nodiscard]] TerrainSurfaceSample sampleVoxelCaveSupport(const SurfaceSupportQuery &query,
+                                                            float min_normal_y) const;
+  [[nodiscard]] TerrainSurfaceSample sampleWorldSupport(const SurfaceSupportQuery &query) const;
   [[nodiscard]] bool mineFocusedOre(std::string_view target_id);
   void collectOverlaps();
   void resolveSentinelImpacts();
@@ -270,6 +316,8 @@ private:
   ParticleEmitter torch_flame_{8u};
   Vec3 chest_base_{};
   float chest_yaw_ = 0.0f;
+  Vec3 supply_crate_base_{};
+  float supply_crate_yaw_ = 0.0f;
   bool chest_open_ = false;
   bool chest_distance_close_armed_ = false;
   std::size_t chest_selected_slot_ = 0;
@@ -280,8 +328,17 @@ private:
   std::vector<EquippedItemPart> equipped_item_parts_;
   std::vector<TorchParticleVisual> torch_particle_visuals_;
   std::vector<CoalOreNode> coal_ores_;
+  CaveTunnelProfile cave_tunnel_{};
+  std::vector<CaveWallFixturePlacement> cave_wall_fixtures_;
+  std::vector<CaveWallFixturePlacement> cave_secondary_wall_fixtures_;
+  Vec3 cave_entrance_light_position_{};
+  bool cave_tunnel_valid_ = false;
   std::shared_ptr<const CpuMesh> cave_collision_mesh_{};
   ViewerCullVolume cave_viewer_cull_volume_{};
+  VoxelCaveState voxel_cave_;
+  std::vector<VoxelChunkVisual> voxel_chunk_visuals_;
+  std::vector<VoxelChunkCollider> voxel_chunk_colliders_;
+  std::vector<CaveWallFixtureVisual> procedural_cave_wall_fixture_visuals_;
   PhysicsWorld physics_;
   mutable SceneCoherenceReport scene_coherence_;
   mutable SceneTraceValidationReport scene_trace_;

@@ -411,7 +411,11 @@ HudAction HudLayer::draw(const HudModel &model) {
     canvas_.text(buffer, {x, y}, kText, 1.55f);
   }
 
-  inventory_overlay_.draw(canvas_, model.inventory);
+  const InventoryOverlayAction inventory_action = inventory_overlay_.draw(canvas_, model.inventory);
+  if (inventory_action.type == InventoryOverlayAction::Type::TransferSupplyToPlayer &&
+      inventory_action.item_id == "torch") {
+    action = HudAction::TransferSupplyTorch;
+  }
   if (drawChestContents(canvas_, model.chest_contents)) {
     action = HudAction::CloseChest;
   }

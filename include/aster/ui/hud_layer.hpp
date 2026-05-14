@@ -88,6 +88,7 @@ struct HudModel {
 enum class HudAction {
   None,
   CloseChest,
+  TransferSupplyTorch,
   Resume,
   ToggleOptions,
   Quit,

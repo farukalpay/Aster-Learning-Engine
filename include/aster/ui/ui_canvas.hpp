@@ -40,11 +40,17 @@ public:
 
   [[nodiscard]] Vec2 viewportSize() const;
   [[nodiscard]] Vec2 pointerPosition() const;
+  [[nodiscard]] bool mouseDown() const;
+  [[nodiscard]] bool mousePressed() const;
+  [[nodiscard]] bool mouseReleased() const;
   [[nodiscard]] bool wantsMouse() const;
   [[nodiscard]] bool wantsKeyboard() const;
 
   [[nodiscard]] float textWidth(std::string_view text, float scale = 2.0f) const;
   [[nodiscard]] float textHeight(float scale = 2.0f) const;
+  [[nodiscard]] float fittedTextScale(std::string_view text, float max_width,
+                                      float preferred_scale = 2.0f,
+                                      float minimum_scale = 1.0f) const;
   [[nodiscard]] float wrappedTextHeight(std::string_view text, float width,
                                         float scale = 2.0f) const;
 
