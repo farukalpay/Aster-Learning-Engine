@@ -46,6 +46,8 @@
 #include "aster/physics/terrain_contact.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/mesh.hpp"
+#include "aster/render/render_device.hpp"
+#include "aster/render/render_scene.hpp"
 #include "aster/render/software_framebuffer.hpp"
 #include "aster/scene/avatar.hpp"
 #include "aster/scene/scene.hpp"
@@ -1541,6 +1543,78 @@ void testMaterialRenderPolicies() {
   assert(!aster::allowsCameraOcclusionFade(support));
 }
 
+void testRustRenderFramePlanContracts() {
+  aster::Scene scene;
+  const aster::Material opaque = aster::makeMaterial({.base_color = {0.4f, 0.3f, 0.2f}});
+  const aster::Material translucent =
+      aster::makeMaterial({.base_color = {0.2f, 0.4f, 0.6f},
+                           .opacity = 0.55f,
+                           .alpha_mode = aster::MaterialAlphaMode::Blend,
+                           .depth_write = aster::MaterialDepthWrite::Disabled});
+
+  auto add_object = [&](const char *name, const aster::Vec3 position,
+                        const aster::Material &material) {
+    aster::RenderObject object;
+    object.name = name;
+    object.primitive = aster::MeshPrimitive::Box;
+    object.transform.position = position;
+    object.material = material;
+    scene.objects().push_back(object);
+  };
+
+  add_object("opaque near a", {-0.35f, 0.0f, 0.0f}, opaque);
+  add_object("opaque near b", {0.35f, 0.0f, 0.0f}, opaque);
+  add_object("culled far side", {200.0f, 0.0f, 0.0f}, opaque);
+  add_object("transparent near", {0.0f, 0.0f, 1.0f}, translucent);
+  add_object("transparent far", {0.0f, 0.0f, -4.0f}, translucent);
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.0f, 0.0f};
+  camera.yaw = 0.0f;
+  camera.pitch = 0.0f;
+  camera.radius = 6.0f;
+  camera.vertical_fov = aster::radians(90.0f);
+  camera.far_plane = 40.0f;
+
+  aster::RenderScene render_scene;
+  render_scene.rebuild(scene);
+  const aster::FrameRenderPlan plan =
+      aster::buildFrameRenderPlan(render_scene, camera, {}, 800, 600);
+  const aster::FrameRenderPlan repeated_plan =
+      aster::buildFrameRenderPlan(render_scene, camera, {}, 800, 600);
+
+  assert(plan.diagnostics.object_count == 5u);
+  assert(plan.diagnostics.visible_objects == 4u);
+  assert(plan.diagnostics.culled_objects == 1u);
+  assert(plan.diagnostics.opaque_groups == 1u);
+  assert(plan.diagnostics.transparent_groups == 1u);
+  assert(plan.diagnostics.planned_instances == 4u);
+
+  const auto transparent_group =
+      std::find_if(plan.groups.begin(), plan.groups.end(), [](const aster::FrameRenderDrawGroup &group) {
+        return group.pass == aster::FrameRenderPass::Transparent;
+      });
+  assert(transparent_group != plan.groups.end());
+  assert(transparent_group->instance_count == 2u);
+  const std::size_t first = transparent_group->first_instance;
+  assert(plan.instances[first].object_index == 4u);
+  assert(plan.instances[first + 1u].object_index == 3u);
+
+  assert(repeated_plan.instances.size() == plan.instances.size());
+  assert(repeated_plan.groups.size() == plan.groups.size());
+  for (std::size_t i = 0; i < plan.instances.size(); ++i) {
+    assert(repeated_plan.instances[i].object_index == plan.instances[i].object_index);
+    expectNear(repeated_plan.instances[i].opacity, plan.instances[i].opacity, 0.0001f);
+  }
+  for (std::size_t i = 0; i < plan.groups.size(); ++i) {
+    assert(repeated_plan.groups[i].mesh.value == plan.groups[i].mesh.value);
+    assert(repeated_plan.groups[i].material.value == plan.groups[i].material.value);
+    assert(repeated_plan.groups[i].pass == plan.groups[i].pass);
+    assert(repeated_plan.groups[i].first_instance == plan.groups[i].first_instance);
+    assert(repeated_plan.groups[i].instance_count == plan.groups[i].instance_count);
+  }
+}
+
 void testGeneratedSceneryAssembly() {
   auto mesh = std::make_shared<const aster::CpuMesh>(aster::makeBox());
   const aster::Material material =
@@ -2936,6 +3010,7 @@ int main() {
   testCastleCourseBuild();
   testSceneContract();
   testMaterialRenderPolicies();
+  testRustRenderFramePlanContracts();
   testGeneratedSceneryAssembly();
   testSceneCoherenceEnergy();
   testSceneTraceValidation();

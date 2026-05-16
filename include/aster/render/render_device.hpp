@@ -6,6 +6,7 @@
 #include "aster/math/vec.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/mesh.hpp"
+#include "aster/render/render_scene.hpp"
 
 #include <array>
 #include <cstddef>
@@ -124,6 +125,11 @@ struct FrameStats {
   int framebuffer_width = 0;
   int framebuffer_height = 0;
   std::size_t draw_calls = 0;
+  std::size_t visible_objects = 0;
+  std::size_t culled_objects = 0;
+  std::size_t instance_groups = 0;
+  double rust_plan_seconds = 0.0;
+  double render_encode_seconds = 0.0;
 };
 
 class RenderDevice {
@@ -155,6 +161,7 @@ private:
   CpuMesh ruin_block_;
   CpuMesh pillar_;
   std::unordered_map<const CpuMesh *, CpuMesh> custom_mesh_cache_;
+  RenderScene render_scene_;
 };
 
 } // namespace aster

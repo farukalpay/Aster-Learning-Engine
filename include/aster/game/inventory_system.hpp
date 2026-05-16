@@ -35,6 +35,7 @@ public:
   [[nodiscard]] std::optional<std::size_t> addItem(const ItemDefinition &definition,
                                                    int quantity = 1);
   [[nodiscard]] bool removeItem(std::string_view item_id, int quantity = 1);
+  [[nodiscard]] bool removeFromSlot(std::size_t index, int quantity = 1);
   [[nodiscard]] std::optional<ItemStack> takeSlot(std::size_t index);
 
 private:
@@ -53,6 +54,7 @@ public:
   [[nodiscard]] const ItemStack *selectedStack() const;
   [[nodiscard]] std::optional<std::size_t> addItem(const ItemDefinition &definition,
                                                    int quantity = 1);
+  [[nodiscard]] bool removeSelectedItem(int quantity = 1);
 
 private:
   InventoryContainer container_;

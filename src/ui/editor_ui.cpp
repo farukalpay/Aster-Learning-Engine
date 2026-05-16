@@ -77,6 +77,14 @@ void drawFramePanel(aster::UiCanvas &canvas, const aster::UiRect panel,
   y += 22.0f;
   std::snprintf(buffer, sizeof(buffer), "Draw calls %zu", stats.draw_calls);
   canvas.text(buffer, {x, y}, kText, 1.45f);
+  y += 22.0f;
+  std::snprintf(buffer, sizeof(buffer), "Visible %zu culled %zu", stats.visible_objects,
+                stats.culled_objects);
+  canvas.text(buffer, {x, y}, kText, 1.45f);
+  y += 22.0f;
+  std::snprintf(buffer, sizeof(buffer), "Groups %zu Rust %.3f ms", stats.instance_groups,
+                stats.rust_plan_seconds * 1000.0);
+  canvas.text(buffer, {x, y}, kText, 1.45f);
 }
 
 void drawCameraPanel(aster::UiCanvas &canvas, const aster::UiRect panel,

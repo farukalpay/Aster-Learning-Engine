@@ -40,6 +40,9 @@ The images below are generated from the current build.
 - Engine-owned math, mesh preparation, brush level mesh generation, procedural
   noise, scene import, scenery assembly, TCP loopback transport, and lightweight
   CPU profiling.
+- A required Rust runtime planner for renderer-facing scene packets, frustum
+  culling, draw-key grouping, translucent ordering, and shared asset-tool
+  validation.
 - Native platform adapters behind `aster::Window`; product code consumes only
   window size and input snapshots.
 
@@ -71,6 +74,7 @@ Prerequisites:
 
 - CMake 3.24+
 - A C++20 compiler
+- Rust 1.88+ with Cargo
 - macOS with Cocoa and Metal, or Linux with a local X server
 
 ```bash

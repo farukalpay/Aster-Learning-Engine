@@ -1,0 +1,11 @@
+[workspace]
+members = [
+  "crates/aster_runtime",
+  "crates/aster_assetc",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "SEE LICENSE IN LICENSE"
+authors = ["Faruk Alpay"]

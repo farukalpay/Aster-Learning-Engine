@@ -13,10 +13,12 @@
 #import <QuartzCore/CAMetalLayer.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -128,12 +130,6 @@ struct LocalBounds {
   aster::Vec3 max{};
 };
 
-struct TransparentDrawItem {
-  std::size_t object_index = 0;
-  bool occlusion_fade = false;
-  float distance_sq = 0.0f;
-};
-
 float saturate(const float value) {
   return std::clamp(value, 0.0f, 1.0f);
 }
@@ -142,10 +138,6 @@ float smoothstep(const float edge0, const float edge1, const float value) {
   const float range = std::max(edge1 - edge0, 0.0001f);
   const float t = saturate((value - edge0) / range);
   return t * t * (3.0f - 2.0f * t);
-}
-
-float maxComponent(const aster::Vec3 value) {
-  return std::max(value.x, std::max(value.y, value.z));
 }
 
 bool isTerrainLayerPattern(const aster::SurfacePattern pattern) {
@@ -172,24 +164,6 @@ bool isStructuredSurfacePattern(const aster::SurfacePattern pattern) {
 
 bool isContactShadowUtility(const aster::RenderObject &object) {
   return object.material.surface_pattern == aster::SurfacePattern::ContactShadow;
-}
-
-float primitiveLocalRadius(const aster::MeshPrimitive primitive) {
-  switch (primitive) {
-  case aster::MeshPrimitive::Box:
-    return 0.8661f;
-  case aster::MeshPrimitive::Sphere:
-  case aster::MeshPrimitive::Rock:
-  case aster::MeshPrimitive::Pillar:
-    return 1.0f;
-  case aster::MeshPrimitive::Crystal:
-    return 1.8f;
-  case aster::MeshPrimitive::RuinBlock:
-    return 0.95f;
-  case aster::MeshPrimitive::Plane:
-    return 8.5f;
-  }
-  return 1.0f;
 }
 
 LocalBounds primitiveLocalBounds(const aster::MeshPrimitive primitive) {
@@ -234,26 +208,6 @@ LocalBounds objectLocalBounds(const aster::RenderObject &object) {
 
 float localMaxAbs(const float min_value, const float max_value) {
   return std::max(std::abs(min_value), std::abs(max_value));
-}
-
-float customMeshLocalRadius(const aster::CpuMesh &mesh) {
-  float radius = 0.0f;
-  for (const aster::Vertex &vertex : mesh.vertices) {
-    radius = std::max(radius, aster::length(vertex.position));
-  }
-  return radius;
-}
-
-float objectBoundingRadius(const aster::RenderObject &object) {
-  const float local_radius = object.custom_mesh != nullptr
-                                 ? customMeshLocalRadius(*object.custom_mesh)
-                                 : primitiveLocalRadius(object.primitive);
-  return local_radius * std::max(maxComponent(object.transform.scale), 0.001f);
-}
-
-float objectSortDistanceSq(const aster::RenderObject &object, const aster::Vec3 camera_position) {
-  const aster::Vec3 delta = object.transform.position - camera_position;
-  return aster::dot(delta, delta);
 }
 
 float objectFootY(const aster::RenderObject &object, const LocalBounds &bounds) {
@@ -336,76 +290,6 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
   shadow.casts_contact_shadow = false;
   shadow.camera_occlusion_fade = false;
   return shadow;
-}
-
-float distancePointSegment(const aster::Vec3 point, const aster::Vec3 a, const aster::Vec3 b,
-                           float &along) {
-  const aster::Vec3 segment = b - a;
-  const float length_sq = aster::dot(segment, segment);
-  if (length_sq <= 0.000001f) {
-    along = 0.0f;
-    return aster::length(point - a);
-  }
-  const float t = std::clamp(aster::dot(point - a, segment) / length_sq, 0.0f, 1.0f);
-  along = std::sqrt(length_sq) * t;
-  return aster::length(point - (a + segment * t));
-}
-
-bool intersectsLineOfSightFade(const aster::RenderObject &object,
-                               const aster::LineOfSightFadeSettings &fade) {
-  if (!fade.enabled || !object.camera_occlusion_fade ||
-      !aster::allowsCameraOcclusionFade(object.material) ||
-      (object.custom_mesh == nullptr && object.primitive == aster::MeshPrimitive::Plane)) {
-    return false;
-  }
-  const float object_radius = objectBoundingRadius(object);
-  if (fade.max_object_radius > 0.0f && object_radius > fade.max_object_radius) {
-    return false;
-  }
-  const aster::Vec3 segment = fade.target_position - fade.camera_position;
-  const float segment_length = aster::length(segment);
-  if (segment_length <= 0.001f) {
-    return false;
-  }
-  float along = 0.0f;
-  const float distance = distancePointSegment(object.transform.position, fade.camera_position,
-                                              fade.target_position, along);
-  if (along <= std::max(fade.camera_clearance, 0.0f) ||
-      along >= segment_length - std::max(fade.target_clearance, 0.0f)) {
-    return false;
-  }
-  return distance <= object_radius + std::max(fade.radius, 0.0f);
-}
-
-bool objectVisibleToCamera(const aster::RenderObject &object, const aster::OrbitCamera &camera,
-                           const float aspect_ratio) {
-  const aster::Vec3 camera_position = camera.position();
-  const float radius = objectBoundingRadius(object);
-  const aster::Vec3 camera_to_object = object.transform.position - camera_position;
-  const float distance = aster::length(camera_to_object);
-  if (distance > camera.far_plane + radius) {
-    return false;
-  }
-
-  aster::Vec3 forward = aster::normalize(camera.target - camera_position);
-  if (aster::length(forward) <= 0.0001f) {
-    forward = {0.0f, 0.0f, -1.0f};
-  }
-  const float forward_distance = aster::dot(camera_to_object, forward);
-  if (forward_distance < -radius || forward_distance > camera.far_plane + radius) {
-    return false;
-  }
-
-  aster::Vec3 right = aster::normalize(aster::cross(forward, {0.0f, 1.0f, 0.0f}));
-  if (aster::length(right) <= 0.0001f) {
-    right = {1.0f, 0.0f, 0.0f};
-  }
-  const aster::Vec3 up = aster::normalize(aster::cross(right, forward));
-  const float plane_distance = std::max(forward_distance, camera.near_plane);
-  const float vertical_limit = std::tan(camera.vertical_fov * 0.5f) * plane_distance + radius;
-  const float horizontal_limit = vertical_limit * std::max(aspect_ratio, 0.001f) + radius;
-  return std::abs(aster::dot(camera_to_object, right)) <= horizontal_limit &&
-         std::abs(aster::dot(camera_to_object, up)) <= vertical_limit;
 }
 
 const aster::CpuMesh *meshForObject(const aster::RenderObject &object,
@@ -561,7 +445,7 @@ public:
            "float4 pattern_params2; float4 procedural_params; float4 procedural_params2; "
            "float4 material_flags; };\n"
            "struct VSOut { float4 position [[position]]; float3 world; float3 normal; float2 uv; "
-           "float ao; };\n"
+           "float ao; uint object_index; };\n"
            "float saturate1(float v) { return clamp(v, 0.0, 1.0); }\n"
            "float smooth1(float a, float b, float v) { float t = saturate1((v - a) / max(b - a, "
            "0.0001)); return t * t * (3.0 - 2.0 * t); }\n"
@@ -781,18 +665,20 @@ public:
            "return apply_procedural_layer(base * (0.86 + (macro * 0.18 + fine * 0.08) * "
            "saturate1(object.material_params.z + object.pattern_params2.x * 0.35 + "
            "object.procedural_params.x * 0.24)), object, world, normal); }\n"
-           "vertex VSOut vs_main(uint id [[vertex_id]], device const Vertex *vertices "
-           "[[buffer(0)]], constant Scene &scene [[buffer(1)]], constant Object &object "
-           "[[buffer(2)]]) {\n"
-           "  Vertex v = vertices[id]; float4 local = float4(v.position.xyz, 1.0); VSOut out; "
+           "vertex VSOut vs_main(uint id [[vertex_id]], uint instance_id [[instance_id]], "
+           "device const Vertex *vertices [[buffer(0)]], constant Scene &scene [[buffer(1)]], "
+           "constant Object *objects [[buffer(2)]]) {\n"
+           "  constant Object &object = objects[instance_id]; Vertex v = vertices[id]; "
+           "float4 local = float4(v.position.xyz, 1.0); VSOut out; "
            "out.position = object.mvp * local; "
            "  out.position.z = out.position.z * 0.5 + out.position.w * 0.5; out.world = "
            "(object.model * local).xyz; "
            "  out.normal = normalize((object.model * float4(v.normal.xyz, 0.0)).xyz); out.uv = "
-           "v.uv_ao.xy; out.ao = v.uv_ao.z; return out;\n"
+           "v.uv_ao.xy; out.ao = v.uv_ao.z; out.object_index = instance_id; return out;\n"
            "}\n"
            "fragment float4 fs_main(VSOut in [[stage_in]], constant Scene &scene [[buffer(1)]], "
-           "constant Object &object [[buffer(2)]]) { "
+           "constant Object *objects [[buffer(2)]]) { constant Object &object = "
+           "objects[in.object_index]; "
            "float opacity = object.base_color_opacity.w; if (object.material_flags.x > 0.5) { "
            "float2 centered = in.uv * 2.0 - 1.0; float soft = 1.0 - smooth1(0.12, 1.0, "
            "dot(centered, centered)); "
@@ -893,7 +779,8 @@ public:
     }
   }
 
-  aster::FrameStats render(const aster::Scene &scene, const aster::OrbitCamera &camera,
+  aster::FrameStats render(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
+                           const aster::OrbitCamera &camera,
                            const aster::RendererSettings &settings,
                            const aster::PreparedRenderMeshes &meshes, const int framebuffer_width,
                            const int framebuffer_height, const double frame_seconds) override {
@@ -913,38 +800,7 @@ public:
     metalFrameState().scene_width = framebuffer_width;
     metalFrameState().scene_height = framebuffer_height;
 
-    const aster::Vec3 camera_position = camera.position();
-    const float aspect_ratio = static_cast<float>(std::max(framebuffer_width, 1)) /
-                               static_cast<float>(std::max(framebuffer_height, 1));
-    std::vector<bool> visible_objects;
-    visible_objects.reserve(scene.objects().size());
-    std::vector<bool> occlusion_fade_candidates;
-    occlusion_fade_candidates.reserve(scene.objects().size());
-    std::vector<TransparentDrawItem> transparent_draw_items;
-    transparent_draw_items.reserve(scene.objects().size());
-
-    for (std::size_t i = 0; i < scene.objects().size(); ++i) {
-      const aster::RenderObject &object = scene.objects()[i];
-      const bool visible = objectVisibleToCamera(object, camera, aspect_ratio);
-      visible_objects.push_back(visible);
-      const bool fade_candidate =
-          visible && intersectsLineOfSightFade(object, settings.line_of_sight_fade);
-      occlusion_fade_candidates.push_back(fade_candidate);
-      if (!visible) {
-        continue;
-      }
-      if (aster::classifyMaterialRenderQueue(object.material) ==
-              aster::MaterialRenderQueue::Translucent ||
-          fade_candidate) {
-        transparent_draw_items.push_back(
-            {i, fade_candidate, objectSortDistanceSq(object, camera_position)});
-      }
-    }
-    std::sort(transparent_draw_items.begin(), transparent_draw_items.end(),
-              [](const TransparentDrawItem lhs, const TransparentDrawItem rhs) {
-                return lhs.distance_sq > rhs.distance_sq;
-              });
-
+    const auto encode_start = std::chrono::steady_clock::now();
     id<MTLCommandBuffer> command_buffer = [queue_ commandBuffer];
     MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = scene_texture_;
@@ -962,7 +818,8 @@ public:
     const MetalSceneUniforms scene_uniforms = makeSceneUniforms(camera, settings, frame_seconds);
     [encoder setVertexBytes:&scene_uniforms length:sizeof(scene_uniforms) atIndex:1];
     [encoder setFragmentBytes:&scene_uniforms length:sizeof(scene_uniforms) atIndex:1];
-    const std::size_t uniform_capacity = std::max<std::size_t>(scene.objects().size() * 2u, 1u);
+    const std::size_t uniform_capacity =
+        std::max<std::size_t>(plan.instances.size() + scene.objects().size(), 1u);
     if (!ensureObjectUniformCapacity(uniform_capacity)) {
       [encoder endEncoding];
       [command_buffer commit];
@@ -970,6 +827,19 @@ public:
       return stats;
     }
     object_uniform_cursor_ = 0;
+
+    const auto write_object_uniform = [&](const aster::RenderObject &object, const float opacity) {
+      if (object_uniform_cursor_ >= object_uniform_capacity_) {
+        return std::optional<std::size_t>{};
+      }
+      const std::size_t uniform_index = object_uniform_cursor_++;
+      auto *uniform_bytes = static_cast<std::uint8_t *>([object_uniform_buffer_ contents]);
+      const MetalObjectUniforms object_uniforms =
+          makeObjectUniforms(object, camera, settings, frame_seconds, opacity);
+      std::memcpy(uniform_bytes + uniform_index * kObjectUniformStride, &object_uniforms,
+                  sizeof(object_uniforms));
+      return std::optional<std::size_t>{uniform_index};
+    };
 
     const auto encode_object = [&](const aster::RenderObject &object, const float opacity) {
       const aster::CpuMesh *mesh = meshForObject(object, meshes);
@@ -985,17 +855,12 @@ public:
           opacity < 0.999f || aster::classifyMaterialRenderQueue(object.material) ==
                                   aster::MaterialRenderQueue::Translucent;
       const bool writes_depth = !transparent && aster::materialWritesDepth(object.material);
-      if (object_uniform_cursor_ >= object_uniform_capacity_) {
+      const std::optional<std::size_t> uniform_index = write_object_uniform(object, opacity);
+      if (!uniform_index.has_value()) {
         return;
       }
-      const std::size_t uniform_index = object_uniform_cursor_++;
-      auto *uniform_bytes = static_cast<std::uint8_t *>([object_uniform_buffer_ contents]);
-      const MetalObjectUniforms object_uniforms =
-          makeObjectUniforms(object, camera, settings, frame_seconds, opacity);
-      std::memcpy(uniform_bytes + uniform_index * kObjectUniformStride, &object_uniforms,
-                  sizeof(object_uniforms));
       const NSUInteger object_uniform_offset =
-          static_cast<NSUInteger>(uniform_index * kObjectUniformStride);
+          static_cast<NSUInteger>(*uniform_index * kObjectUniformStride);
       [encoder setRenderPipelineState:transparent ? transparent_pipeline_ : opaque_pipeline_];
       [encoder setDepthStencilState:transparent
                                         ? transparent_depth_
@@ -1011,33 +876,88 @@ public:
       ++stats.draw_calls;
     };
 
-    for (std::size_t i = 0; i < scene.objects().size(); ++i) {
-      const aster::RenderObject &object = scene.objects()[i];
-      if (visible_objects[i] &&
-          aster::classifyMaterialRenderQueue(object.material) !=
-              aster::MaterialRenderQueue::Translucent &&
-          !occlusion_fade_candidates[i]) {
-        encode_object(object, object.material.opacity);
+    const auto encode_group = [&](const aster::FrameRenderDrawGroup &group) {
+      if (group.instance_count == 0 || group.first_instance >= plan.instances.size()) {
+        return;
+      }
+      const aster::FrameRenderInstance &first_instance = plan.instances[group.first_instance];
+      if (first_instance.object_index >= scene.objects().size()) {
+        return;
+      }
+      const aster::RenderObject &first_object = scene.objects()[first_instance.object_index];
+      const aster::CpuMesh *mesh = meshForObject(first_object, meshes);
+      if (mesh == nullptr || mesh->indices.empty()) {
+        return;
+      }
+      MetalMeshBuffers *buffers = buffersForMesh(*mesh);
+      if (buffers == nullptr || buffers->vertices == nil || buffers->indices == nil ||
+          buffers->index_count == 0) {
+        return;
+      }
+      const std::size_t first_uniform = object_uniform_cursor_;
+      std::size_t written = 0;
+      for (std::size_t i = 0; i < group.instance_count; ++i) {
+        const std::size_t plan_index = group.first_instance + i;
+        if (plan_index >= plan.instances.size()) {
+          break;
+        }
+        const aster::FrameRenderInstance &instance = plan.instances[plan_index];
+        if (instance.object_index >= scene.objects().size()) {
+          break;
+        }
+        if (!write_object_uniform(scene.objects()[instance.object_index], instance.opacity)
+                 .has_value()) {
+          break;
+        }
+        ++written;
+      }
+      if (written == 0) {
+        return;
+      }
+      const bool transparent = group.pass == aster::FrameRenderPass::Transparent;
+      const bool writes_depth = !transparent && aster::materialWritesDepth(first_object.material);
+      const NSUInteger object_uniform_offset =
+          static_cast<NSUInteger>(first_uniform * kObjectUniformStride);
+      [encoder setRenderPipelineState:transparent ? transparent_pipeline_ : opaque_pipeline_];
+      [encoder setDepthStencilState:transparent
+                                        ? transparent_depth_
+                                        : (writes_depth ? opaque_depth_ : read_only_depth_)];
+      [encoder setVertexBuffer:buffers->vertices offset:0 atIndex:0];
+      [encoder setVertexBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
+      [encoder setFragmentBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
+      [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                          indexCount:buffers->index_count
+                           indexType:MTLIndexTypeUInt32
+                         indexBuffer:buffers->indices
+                   indexBufferOffset:0
+                       instanceCount:static_cast<NSUInteger>(written)];
+      ++stats.draw_calls;
+    };
+
+    for (const aster::FrameRenderDrawGroup &group : plan.groups) {
+      if (group.pass == aster::FrameRenderPass::Opaque) {
+        encode_group(group);
       }
     }
-    for (std::size_t i = 0; i < scene.objects().size(); ++i) {
-      const aster::RenderObject &object = scene.objects()[i];
-      if (!visible_objects[i]) {
+    for (const aster::FrameRenderInstance &instance : plan.instances) {
+      if (instance.object_index >= scene.objects().size()) {
         continue;
       }
+      const aster::RenderObject &object = scene.objects()[instance.object_index];
       if (canCastContactShadow(object, settings.grounding)) {
         const aster::RenderObject shadow = contactShadowObjectFor(object, settings.grounding);
         encode_object(shadow, shadow.material.opacity);
       }
     }
-    for (const TransparentDrawItem item : transparent_draw_items) {
-      const aster::RenderObject &object = scene.objects()[item.object_index];
-      const float opacity = item.occlusion_fade ? std::min(object.material.opacity,
-                                                           settings.line_of_sight_fade.min_opacity)
-                                                : object.material.opacity;
-      encode_object(object, opacity);
+    for (const aster::FrameRenderDrawGroup &group : plan.groups) {
+      if (group.pass == aster::FrameRenderPass::Transparent) {
+        encode_group(group);
+      }
     }
     [encoder endEncoding];
+    const auto encode_end = std::chrono::steady_clock::now();
+    stats.render_encode_seconds =
+        std::chrono::duration<double>(encode_end - encode_start).count();
     [command_buffer commit];
 
     publishSceneTexture(scene_texture_, command_buffer, framebuffer_width, framebuffer_height);

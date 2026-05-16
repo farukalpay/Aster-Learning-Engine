@@ -292,8 +292,29 @@ void markDropTargets(std::vector<aster::InventorySlotModel> &slots,
   }
 }
 
+std::vector<aster::InventorySlotModel>
+inventoryHotbarSlots(const aster::HotbarHudModel &hotbar) {
+  std::vector<aster::InventorySlotModel> slots;
+  slots.reserve(hotbar.slots.size());
+  for (const aster::HotbarSlotModel &hotbar_slot : hotbar.slots) {
+    aster::InventorySlotModel slot =
+        hotbar_slot.filled
+            ? inventorySlot(hotbar_slot.label, hotbar_slot.key, hotbar_slot.quantity,
+                            hotbar_slot.tint, hotbar_slot.selected, {},
+                            aster::InventorySlotRole::PlayerHotbar)
+            : inventorySlot(hotbar_slot.key, "empty", "", hotbar_slot.tint, hotbar_slot.selected,
+                            {}, aster::InventorySlotRole::PlayerHotbar);
+    slot.filled = hotbar_slot.filled;
+    slot.drop_target = true;
+    slots.push_back(std::move(slot));
+  }
+  return slots;
+}
+
 aster::InventoryOverlayModel inventoryModel(const aster::LumenStatus &status, const bool open,
-                                            const int torch_count, const bool supply_crate_nearby) {
+                                            const int torch_count,
+                                            const bool supply_crate_nearby,
+                                            const aster::HotbarHudModel &hotbar) {
   aster::InventoryOverlayModel inventory;
   inventory.open = open;
   inventory.world_character_preview = true;
@@ -325,18 +346,8 @@ aster::InventoryOverlayModel inventoryModel(const aster::LumenStatus &status, co
   markDropTargets(inventory.backpack.slots, aster::InventorySlotRole::PlayerBackpack);
   inventory.hotbar.title = "Hotbar";
   inventory.hotbar.columns = 6;
-  inventory.hotbar.slots = paddedSlots(
-      {inventorySlot(torch_count > 0 ? "TRC" : "Torch",
-                     torch_count > 0 ? "torch stack" : "drop here",
-                     torch_count > 1 ? std::to_string(torch_count) : "", {0.98f, 0.52f, 0.16f},
-                     true, "torch", aster::InventorySlotRole::PlayerHotbar),
-       inventorySlot("2", "map", "", {0.28f, 0.38f, 0.46f}),
-       inventorySlot("3", "thread", "", {0.62f, 0.48f, 0.32f})},
-      6u);
+  inventory.hotbar.slots = paddedSlots(inventoryHotbarSlots(hotbar), 6u);
   markDropTargets(inventory.hotbar.slots, aster::InventorySlotRole::PlayerHotbar);
-  if (torch_count <= 0 && !inventory.hotbar.slots.empty()) {
-    inventory.hotbar.slots[0].filled = false;
-  }
   if (supply_crate_nearby) {
     aster::InventorySlotModel torch_supply =
         inventorySlot("Torch", "unlimited", "", {0.98f, 0.52f, 0.16f}, false, "torch",
@@ -389,7 +400,8 @@ aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_
       {"Mouse Wheel", "Zoom", true}, {"Tab", "Inventory", false},
       {"R", "Restart", false},       {"Esc", "Menu", false},
   };
-  model.inventory = inventoryModel(status, inventory_open, torch_count, supply_crate_nearby);
+  model.inventory =
+      inventoryModel(status, inventory_open, torch_count, supply_crate_nearby, hotbar);
   model.pointer = pointer;
   model.game_cursor = game_cursor;
   model.game_cursor.visible = model.game_cursor.visible && !inventory_open && !pause_open;
@@ -590,6 +602,13 @@ int main(int argc, char **argv) {
     aster::FrameTimeStats render_times;
     aster::FrameTimeStats hud_times;
     aster::FrameTimeStats swap_times;
+    std::size_t render_counter_samples = 0;
+    double visible_object_sum = 0.0;
+    double culled_object_sum = 0.0;
+    double draw_call_sum = 0.0;
+    double instance_group_sum = 0.0;
+    double rust_plan_seconds_sum = 0.0;
+    double render_encode_seconds_sum = 0.0;
     aster::FixedTimestep simulation_clock(
         {kSimulationStepSeconds, kMaxSimulatedFrameSeconds, kMaxSimulationStepsPerFrame});
     int rendered_frames = 0;
@@ -847,7 +866,7 @@ int main(int argc, char **argv) {
           game.interactFocused();
         }
         if (control_state.justPressed(kSecondaryInteract)) {
-          game.secondaryInteractFocused();
+          game.secondaryInteractFocused(focus_ray.origin, focus_ray.direction);
         }
       } else {
         game.updateInteractionFocus(camera.position(), {0.0f, -1.0f, 0.0f},
@@ -937,9 +956,17 @@ int main(int argc, char **argv) {
 
       const auto [width, height] = window.framebufferSize();
       const double render_start = clock.now();
-      renderer.render(game.scene(), camera, settings, width, height, elapsed);
+      const aster::FrameStats render_stats =
+          renderer.render(game.scene(), camera, settings, width, height, elapsed);
       if (collect_frame_sample) {
         render_times.addSample(clock.now() - render_start);
+        ++render_counter_samples;
+        visible_object_sum += static_cast<double>(render_stats.visible_objects);
+        culled_object_sum += static_cast<double>(render_stats.culled_objects);
+        draw_call_sum += static_cast<double>(render_stats.draw_calls);
+        instance_group_sum += static_cast<double>(render_stats.instance_groups);
+        rust_plan_seconds_sum += render_stats.rust_plan_seconds;
+        render_encode_seconds_sum += render_stats.render_encode_seconds;
       }
       if (!scripted_capture || capture_hud) {
         const double hud_start = clock.now();
@@ -1026,6 +1053,18 @@ int main(int argc, char **argv) {
       printFrameSummary("Render report", render_times.summarize());
       printFrameSummary("HUD report", hud_times.summarize());
       printFrameSummary("Swap report", swap_times.summarize());
+      if (render_counter_samples > 0u) {
+        const double samples = static_cast<double>(render_counter_samples);
+        std::cout << "Render counters: samples=" << render_counter_samples
+                  << " visible_objects_mean=" << visible_object_sum / samples
+                  << " culled_objects_mean=" << culled_object_sum / samples
+                  << " draw_calls_mean=" << draw_call_sum / samples
+                  << " instance_groups_mean=" << instance_group_sum / samples
+                  << " rust_plan_ms_mean="
+                  << secondsToMilliseconds(rust_plan_seconds_sum / samples)
+                  << " render_encode_ms_mean="
+                  << secondsToMilliseconds(render_encode_seconds_sum / samples) << '\n';
+      }
     }
     if (startup_report_enabled) {
       printStartupSummary(startup_samples);

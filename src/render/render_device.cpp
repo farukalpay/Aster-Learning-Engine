@@ -11,6 +11,7 @@
 #include "native_render_backend.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <limits>
@@ -53,12 +54,6 @@ struct ProjectedVertex {
   float depth = 1.0f;
 };
 
-struct TransparentDrawItem {
-  std::size_t object_index = 0;
-  bool occlusion_fade = false;
-  float distance_sq = 0.0f;
-};
-
 float saturate(const float value) {
   return std::clamp(value, 0.0f, 1.0f);
 }
@@ -72,10 +67,6 @@ float smoothstep(const float edge0, const float edge1, const float value) {
 aster::Vec3 mixVec(const aster::Vec3 a, const aster::Vec3 b, const float t) {
   const float amount = saturate(t);
   return a * (1.0f - amount) + b * amount;
-}
-
-float maxComponent(const aster::Vec3 value) {
-  return std::max(value.x, std::max(value.y, value.z));
 }
 
 aster::MeshProcessOptions renderMeshOptions() {
@@ -705,24 +696,6 @@ bool isContactShadowUtility(const aster::RenderObject &object) {
   return object.material.surface_pattern == aster::SurfacePattern::ContactShadow;
 }
 
-float primitiveLocalRadius(const aster::MeshPrimitive primitive) {
-  switch (primitive) {
-  case aster::MeshPrimitive::Box:
-    return 0.8661f;
-  case aster::MeshPrimitive::Sphere:
-  case aster::MeshPrimitive::Rock:
-  case aster::MeshPrimitive::Pillar:
-    return 1.0f;
-  case aster::MeshPrimitive::Crystal:
-    return 1.8f;
-  case aster::MeshPrimitive::RuinBlock:
-    return 0.95f;
-  case aster::MeshPrimitive::Plane:
-    return 8.5f;
-  }
-  return 1.0f;
-}
-
 LocalBounds primitiveLocalBounds(const aster::MeshPrimitive primitive) {
   switch (primitive) {
   case aster::MeshPrimitive::Box:
@@ -774,69 +747,6 @@ float objectFootY(const aster::RenderObject &object, const LocalBounds &bounds) 
 aster::Vec2 objectContactHalfExtents(const aster::RenderObject &object, const LocalBounds &bounds) {
   return {localMaxAbs(bounds.min.x, bounds.max.x) * std::abs(object.transform.scale.x),
           localMaxAbs(bounds.min.z, bounds.max.z) * std::abs(object.transform.scale.z)};
-}
-
-float customMeshLocalRadius(const aster::CpuMesh &mesh) {
-  float radius = 0.0f;
-  for (const aster::Vertex &vertex : mesh.vertices) {
-    radius = std::max(radius, aster::length(vertex.position));
-  }
-  return radius;
-}
-
-float objectBoundingRadius(const aster::RenderObject &object) {
-  const float local_radius = object.custom_mesh != nullptr
-                                 ? customMeshLocalRadius(*object.custom_mesh)
-                                 : primitiveLocalRadius(object.primitive);
-  return local_radius * std::max(maxComponent(object.transform.scale), 0.001f);
-}
-
-float objectSortDistanceSq(const aster::RenderObject &object, const aster::Vec3 camera_position) {
-  const aster::Vec3 delta = object.transform.position - camera_position;
-  return aster::dot(delta, delta);
-}
-
-float distancePointSegment(const aster::Vec3 point, const aster::Vec3 a, const aster::Vec3 b,
-                           float &along) {
-  const aster::Vec3 segment = b - a;
-  const float length_sq = aster::dot(segment, segment);
-  if (length_sq <= 0.000001f) {
-    along = 0.0f;
-    return aster::length(point - a);
-  }
-  const float t = std::clamp(aster::dot(point - a, segment) / length_sq, 0.0f, 1.0f);
-  along = std::sqrt(length_sq) * t;
-  return aster::length(point - (a + segment * t));
-}
-
-bool intersectsLineOfSightFade(const aster::RenderObject &object,
-                               const aster::LineOfSightFadeSettings &fade) {
-  if (!fade.enabled || !object.camera_occlusion_fade ||
-      !aster::allowsCameraOcclusionFade(object.material)) {
-    return false;
-  }
-  if (object.custom_mesh == nullptr && object.primitive == aster::MeshPrimitive::Plane) {
-    return false;
-  }
-  const float object_radius = objectBoundingRadius(object);
-  if (fade.max_object_radius > 0.0f && object_radius > fade.max_object_radius) {
-    return false;
-  }
-
-  const aster::Vec3 segment = fade.target_position - fade.camera_position;
-  const float segment_length = aster::length(segment);
-  if (segment_length <= 0.001f) {
-    return false;
-  }
-
-  float along = 0.0f;
-  const float distance = distancePointSegment(object.transform.position, fade.camera_position,
-                                              fade.target_position, along);
-  if (along <= std::max(fade.camera_clearance, 0.0f) ||
-      along >= segment_length - std::max(fade.target_clearance, 0.0f)) {
-    return false;
-  }
-  return distance <= object_radius + std::max(fade.radius, 0.0f);
 }
 
 bool canCastContactShadow(const aster::RenderObject &object,
@@ -913,37 +823,6 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
   shadow.casts_contact_shadow = false;
   shadow.camera_occlusion_fade = false;
   return shadow;
-}
-
-bool objectVisibleToCamera(const aster::RenderObject &object, const aster::OrbitCamera &camera,
-                           const float aspect_ratio) {
-  const aster::Vec3 camera_position = camera.position();
-  const float radius = objectBoundingRadius(object);
-  const aster::Vec3 camera_to_object = object.transform.position - camera_position;
-  const float distance = aster::length(camera_to_object);
-  if (distance > camera.far_plane + radius) {
-    return false;
-  }
-
-  aster::Vec3 forward = aster::normalize(camera.target - camera_position);
-  if (aster::length(forward) <= 0.0001f) {
-    forward = {0.0f, 0.0f, -1.0f};
-  }
-  const float forward_distance = aster::dot(camera_to_object, forward);
-  if (forward_distance < -radius || forward_distance > camera.far_plane + radius) {
-    return false;
-  }
-
-  aster::Vec3 right = aster::normalize(aster::cross(forward, {0.0f, 1.0f, 0.0f}));
-  if (aster::length(right) <= 0.0001f) {
-    right = {1.0f, 0.0f, 0.0f};
-  }
-  const aster::Vec3 up = aster::normalize(aster::cross(right, forward));
-  const float plane_distance = std::max(forward_distance, camera.near_plane);
-  const float vertical_limit = std::tan(camera.vertical_fov * 0.5f) * plane_distance + radius;
-  const float horizontal_limit = vertical_limit * std::max(aspect_ratio, 0.001f) + radius;
-  return std::abs(aster::dot(camera_to_object, right)) <= horizontal_limit &&
-         std::abs(aster::dot(camera_to_object, up)) <= vertical_limit;
 }
 
 ProjectedVertex projectVertex(const aster::Vertex &vertex, const aster::Mat4 &model,
@@ -1123,6 +1002,7 @@ void RenderDevice::initialize() {
 
 void RenderDevice::prepareScene(const Scene &scene) {
   ASTER_PROFILE_SCOPE("RenderDevice::prepareScene");
+  render_scene_.rebuild(scene);
   std::unordered_set<const CpuMesh *> live_meshes;
   live_meshes.reserve(scene.objects().size());
   for (const RenderObject &object : scene.objects()) {
@@ -1159,6 +1039,15 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     return stats;
   }
 
+  render_scene_.rebuild(scene);
+  const FrameRenderPlan plan =
+      buildFrameRenderPlan(render_scene_, camera, settings.line_of_sight_fade, framebuffer_width,
+                           framebuffer_height);
+  stats.visible_objects = plan.diagnostics.visible_objects;
+  stats.culled_objects = plan.diagnostics.culled_objects;
+  stats.instance_groups = plan.diagnostics.instance_groups;
+  stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
+
   SoftwareFrameBuffer &framebuffer = activeFrameBuffer();
   if (native_backend_ != nullptr) {
     PreparedRenderMeshes meshes{
@@ -1174,44 +1063,20 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     };
     framebuffer.resize(framebuffer_width, framebuffer_height);
     framebuffer.clearTransparent();
-    return native_backend_->render(scene, camera, settings, meshes, framebuffer_width,
+    FrameStats native_stats = native_backend_->render(scene, plan, camera, settings, meshes, framebuffer_width,
                                    framebuffer_height, frame_seconds);
+    native_stats.visible_objects = plan.diagnostics.visible_objects;
+    native_stats.culled_objects = plan.diagnostics.culled_objects;
+    native_stats.instance_groups = plan.diagnostics.instance_groups;
+    native_stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
+    return native_stats;
   }
 
   clearNativeFrame();
   framebuffer.resize(framebuffer_width, framebuffer_height);
   framebuffer.clear(settings.pipeline.clear_color);
 
-  const Vec3 camera_position = camera.position();
-  const float aspect_ratio = static_cast<float>(std::max(framebuffer_width, 1)) /
-                             static_cast<float>(std::max(framebuffer_height, 1));
-  std::vector<bool> visible_objects;
-  visible_objects.reserve(scene.objects().size());
-  std::vector<bool> occlusion_fade_candidates;
-  occlusion_fade_candidates.reserve(scene.objects().size());
-  std::vector<TransparentDrawItem> transparent_draw_items;
-  transparent_draw_items.reserve(scene.objects().size());
-
-  for (std::size_t i = 0; i < scene.objects().size(); ++i) {
-    const RenderObject &object = scene.objects()[i];
-    const bool visible = objectVisibleToCamera(object, camera, aspect_ratio);
-    visible_objects.push_back(visible);
-    const bool fade_candidate =
-        visible && intersectsLineOfSightFade(object, settings.line_of_sight_fade);
-    occlusion_fade_candidates.push_back(fade_candidate);
-    if (!visible) {
-      continue;
-    }
-    if (aster::classifyMaterialRenderQueue(object.material) == MaterialRenderQueue::Translucent ||
-        fade_candidate) {
-      transparent_draw_items.push_back(
-          {i, fade_candidate, objectSortDistanceSq(object, camera_position)});
-    }
-  }
-  std::sort(transparent_draw_items.begin(), transparent_draw_items.end(),
-            [](const TransparentDrawItem lhs, const TransparentDrawItem rhs) {
-              return lhs.distance_sq > rhs.distance_sq;
-            });
+  const auto encode_start = std::chrono::steady_clock::now();
 
   const auto draw_object = [&](const RenderObject &object, const float opacity) {
     const CpuMesh &mesh = isContactShadowUtility(object) && object.custom_mesh == nullptr
@@ -1220,33 +1085,42 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     drawMesh(framebuffer, mesh, object, camera, settings, frame_seconds, opacity, stats.draw_calls);
   };
 
-  for (std::size_t i = 0; i < scene.objects().size(); ++i) {
-    const RenderObject &object = scene.objects()[i];
-    if (visible_objects[i] &&
-        aster::classifyMaterialRenderQueue(object.material) != MaterialRenderQueue::Translucent &&
-        !occlusion_fade_candidates[i]) {
-      draw_object(object, object.material.opacity);
+  for (const FrameRenderDrawGroup &group : plan.groups) {
+    if (group.pass != FrameRenderPass::Opaque) {
+      continue;
+    }
+    for (std::size_t i = 0; i < group.instance_count; ++i) {
+      const FrameRenderInstance &instance = plan.instances[group.first_instance + i];
+      if (instance.object_index < scene.objects().size()) {
+        draw_object(scene.objects()[instance.object_index], instance.opacity);
+      }
     }
   }
 
-  for (std::size_t i = 0; i < scene.objects().size(); ++i) {
-    const RenderObject &object = scene.objects()[i];
-    if (!visible_objects[i]) {
+  for (const FrameRenderInstance &instance : plan.instances) {
+    if (instance.object_index >= scene.objects().size()) {
       continue;
     }
+    const RenderObject &object = scene.objects()[instance.object_index];
     if (canCastContactShadow(object, settings.grounding)) {
       const RenderObject shadow = contactShadowObjectFor(object, settings.grounding);
       draw_object(shadow, shadow.material.opacity);
     }
   }
 
-  for (const TransparentDrawItem item : transparent_draw_items) {
-    const RenderObject &object = scene.objects()[item.object_index];
-    const float opacity = item.occlusion_fade ? std::min(object.material.opacity,
-                                                         settings.line_of_sight_fade.min_opacity)
-                                              : object.material.opacity;
-    draw_object(object, opacity);
+  for (const FrameRenderDrawGroup &group : plan.groups) {
+    if (group.pass != FrameRenderPass::Transparent) {
+      continue;
+    }
+    for (std::size_t i = 0; i < group.instance_count; ++i) {
+      const FrameRenderInstance &instance = plan.instances[group.first_instance + i];
+      if (instance.object_index < scene.objects().size()) {
+        draw_object(scene.objects()[instance.object_index], instance.opacity);
+      }
+    }
   }
+  const auto encode_end = std::chrono::steady_clock::now();
+  stats.render_encode_seconds = std::chrono::duration<double>(encode_end - encode_start).count();
 
   return stats;
 }

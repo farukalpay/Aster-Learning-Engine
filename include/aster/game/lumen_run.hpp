@@ -10,6 +10,7 @@
 #include "aster/game/inventory_system.hpp"
 #include "aster/game/item_system.hpp"
 #include "aster/game/light_system.hpp"
+#include "aster/game/mining_system.hpp"
 #include "aster/game/particle_system.hpp"
 #include "aster/geometry/cave_system.hpp"
 #include "aster/geometry/terrain_mesh.hpp"
@@ -26,6 +27,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -105,7 +107,7 @@ public:
   void clearAvatarPointTarget();
   void updateInteractionFocus(Vec3 ray_origin, Vec3 ray_direction, float dt);
   void interactFocused();
-  void secondaryInteractFocused();
+  void secondaryInteractFocused(Vec3 ray_origin, Vec3 ray_direction);
   void openChest();
   void closeChest();
   [[nodiscard]] bool takeChestItem(std::string_view item_id);
@@ -195,6 +197,24 @@ private:
     Vec3 scale{1.0f, 1.0f, 1.0f};
   };
 
+  struct PlacedResourceRock {
+    std::string id;
+    std::string item_id = "stone";
+    ItemPlacementShape placement_shape = ItemPlacementShape::Rock;
+    Vec3 position{};
+    Vec3 normal{0.0f, 1.0f, 0.0f};
+    Vec3 rotation{};
+    Vec3 scale{0.20f, 0.16f, 0.20f};
+    Vec3 collision_half_extents{0.16f, 0.12f, 0.16f};
+    std::size_t object_index = 0;
+    PhysicsBodyHandle body{};
+  };
+
+  struct StaticSceneryBox {
+    Vec3 center{};
+    Vec3 half_extents{};
+  };
+
   struct TorchParticleVisual {
     std::size_t object_index = 0;
   };
@@ -273,6 +293,11 @@ private:
                                                             float min_normal_y) const;
   [[nodiscard]] TerrainSurfaceSample sampleWorldSupport(const SurfaceSupportQuery &query) const;
   [[nodiscard]] bool mineFocusedOre(std::string_view target_id);
+  [[nodiscard]] bool mineFocusedVoxel(std::string_view target_id);
+  [[nodiscard]] bool placeEquippedResource(Vec3 ray_origin, Vec3 ray_direction);
+  [[nodiscard]] bool storeMinedResource(const ItemDefinition &definition, int quantity);
+  [[nodiscard]] PhysicsBodyHandle addPlacedRockPhysics(const PlacedResourceRock &rock);
+  [[nodiscard]] MiningToolStats activePickaxeStats() const;
   void collectOverlaps();
   void resolveSentinelImpacts();
   [[nodiscard]] float playerSupportExtent() const;
@@ -326,6 +351,8 @@ private:
   std::size_t chest_lock_object_ = 0;
   std::vector<ChestItemVisual> chest_items_;
   std::vector<EquippedItemPart> equipped_item_parts_;
+  std::vector<PlacedResourceRock> placed_rocks_;
+  std::vector<StaticSceneryBox> scenery_collision_boxes_;
   std::vector<TorchParticleVisual> torch_particle_visuals_;
   std::vector<CoalOreNode> coal_ores_;
   CaveTunnelProfile cave_tunnel_{};
@@ -338,6 +365,10 @@ private:
   VoxelCaveState voxel_cave_;
   std::vector<VoxelChunkVisual> voxel_chunk_visuals_;
   std::vector<VoxelChunkCollider> voxel_chunk_colliders_;
+  VoxelCaveHit focused_voxel_hit_{};
+  bool focused_voxel_hit_valid_ = false;
+  MiningState mining_;
+  std::uint64_t placed_resource_serial_ = 1u;
   std::vector<CaveWallFixtureVisual> procedural_cave_wall_fixture_visuals_;
   PhysicsWorld physics_;
   mutable SceneCoherenceReport scene_coherence_;

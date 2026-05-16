@@ -50,11 +50,27 @@ receive viewport sizes and `ControlSnapshot` values.
 
 `include/aster/render`
 
-Camera contracts, mesh data, renderer settings, software framebuffer capture,
-and `RenderDevice`. macOS uses an owned Metal backend for real-time scene
-rendering. The software renderer remains the deterministic fallback, capture
-path, preview path, and reference implementation. `SurfacePattern` is the shared
-procedural material contract across native and software rendering.
+Camera contracts, render-scene packets, mesh data, renderer settings, software
+framebuffer capture, and `RenderDevice`. macOS uses an owned Metal backend for
+real-time scene rendering. The software renderer remains the deterministic
+fallback, capture path, preview path, and reference implementation.
+`SurfacePattern` is the shared procedural material contract across native and
+software rendering.
+
+`crates/aster_runtime`
+
+Required Rust runtime code behind a stable C ABI. The runtime owns frame render
+planning over renderer-facing packets: frustum culling, draw-key grouping,
+instance ordering, translucent back-to-front ordering, and render diagnostics.
+C++ owns scene extraction, platform resources, software rasterization, and Metal
+command submission; Rust owns reusable data planning that should not live in
+game or app code.
+
+`crates/aster_assetc`
+
+Rust asset/tooling entrypoint. It reuses `aster_runtime` planner logic for
+offline validation and is the home for future asset-pack compilation instead of
+duplicating renderer planning in product executables.
 
 `include/aster/scene`
 
@@ -90,7 +106,9 @@ flowchart LR
   Controls --> Camera["OrbitCamera"]
   Game --> Scene["Scene"]
   Assets["Asset + Mesh Pipeline"] --> Scene
-  Scene --> Renderer["RenderDevice"]
+  Scene --> RenderScene["RenderScene Packets"]
+  RenderScene --> RustPlan["Rust FrameRenderPlan"]
+  RustPlan --> Renderer["RenderDevice"]
   Camera --> Renderer
   Settings["RendererSettings"] --> Renderer
   Renderer --> NativeScene["Native Scene Texture"]
@@ -122,11 +140,12 @@ the adapter behind `aster::Window` rather than adding product-level branches.
 
 `RenderDevice` owns renderer selection and mesh preparation. On macOS, the
 default backend is `Aster Native Metal Rasterizer`; it uploads prepared meshes
-to Metal buffers, builds a per-frame camera-visible workset, renders opaque
-objects with depth, sorts translucent objects, streams object uniforms through a
-frame-local buffer, evaluates procedural material shading, and composites the UI
-overlay from the software framebuffer. `ASTER_FORCE_SOFTWARE_RENDERER=1` selects
-the deterministic software renderer.
+to Metal buffers, consumes a Rust-built frame plan, renders opaque planned
+groups with instanced draws, renders contact shadows, renders translucent
+groups in sorted order, streams object uniforms through a frame-local buffer,
+evaluates procedural material shading, and composites the UI overlay from the
+software framebuffer. `ASTER_FORCE_SOFTWARE_RENDERER=1` selects the
+deterministic software renderer.
 
 The software renderer handles tiled rasterization, depth, alpha, procedural
 material evaluation, contact shadows, fog, grading, tonemapping, and capture.
@@ -140,9 +159,16 @@ feathers, and fiber patterns are selected through `Material::surface_pattern`
 and parameterized by material fields. New patterns should extend that contract
 in both renderers rather than adding game-side shader branches.
 
-Renderer policy belongs in `src/render`. Scene description belongs in
-`src/scene` and `src/game`. App files should only select settings and pass them
-to the renderer.
+Renderer policy belongs in `src/render` and `crates/aster_runtime`. Scene
+description belongs in `src/scene` and `src/game`. App files should only select
+settings and pass them to the renderer.
+
+`RenderDevice::prepareScene` updates the C++ render-scene cache and mesh
+preparation cache. Every frame, `RenderDevice::render` extracts current
+renderer-facing packets, calls the Rust planner, and sends the resulting
+`FrameRenderPlan` to the native or software backend. Native Metal batches
+compatible planned instances into instanced draw calls; the software renderer
+consumes the same plan for deterministic ordering and diagnostics.
 
 ## Frame Pacing
 
@@ -153,8 +179,9 @@ use deterministic fixed timing so generated media stays reproducible.
 ## Build Policy
 
 CMake builds one static `aster` library plus small executables. Platform source
-selection is based on the host OS. Aster v1 does not carry Windows or Wayland
-compatibility code.
+selection is based on the host OS. Cargo is a required build dependency and
+builds the Rust `aster_runtime` static library before linking `aster`. Aster v1
+does not carry Windows or Wayland compatibility code.
 
 The engine and sample should build without fetching source code or linking
 desktop client libraries. Direct OS interaction belongs only in platform

@@ -101,6 +101,17 @@ bool InventoryContainer::removeItem(const std::string_view item_id, int quantity
   return true;
 }
 
+bool InventoryContainer::removeFromSlot(const std::size_t index, const int quantity) {
+  if (index >= slots_.size() || quantity <= 0 || slots_[index].quantity < quantity) {
+    return false;
+  }
+  slots_[index].quantity -= quantity;
+  if (slots_[index].quantity <= 0) {
+    slots_[index] = {};
+  }
+  return true;
+}
+
 std::optional<ItemStack> InventoryContainer::takeSlot(const std::size_t index) {
   if (index >= slots_.size() || slots_[index].empty()) {
     return std::nullopt;
@@ -148,6 +159,10 @@ const ItemStack *Hotbar::selectedStack() const {
 
 std::optional<std::size_t> Hotbar::addItem(const ItemDefinition &definition, const int quantity) {
   return container_.addItem(definition, quantity);
+}
+
+bool Hotbar::removeSelectedItem(const int quantity) {
+  return container_.removeFromSlot(selected_index_, quantity);
 }
 
 } // namespace aster

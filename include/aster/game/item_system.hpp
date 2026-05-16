@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "aster/game/mining_system.hpp"
 #include "aster/math/vec.hpp"
 
 #include <cstddef>
@@ -20,6 +21,10 @@ enum class ItemType {
   Weapon,
 };
 
+enum class ItemPlacementShape {
+  Rock,
+};
+
 struct ItemDefinition {
   std::string id;
   std::string display_name;
@@ -30,8 +35,16 @@ struct ItemDefinition {
   Vec3 hand_scale{1.0f, 1.0f, 1.0f};
   bool stackable = false;
   int max_stack = 1;
+  bool placeable = false;
+  int placement_cost = 1;
+  float placement_reach = 4.2f;
+  Vec3 placement_scale{0.20f, 0.16f, 0.20f};
+  Vec3 placement_collision_half_extents{0.16f, 0.12f, 0.16f};
+  ItemPlacementShape placement_shape = ItemPlacementShape::Rock;
   bool creates_light = false;
   bool creates_fire_particles = false;
+  bool has_mining_tool = false;
+  MiningToolStats mining_tool{};
 };
 
 class ItemRegistry {

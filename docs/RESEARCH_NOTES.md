@@ -41,6 +41,9 @@ This file records what influenced the current architecture and what is only a ro
   renderer and native Metal backend
 - Object-level camera culling, sorted translucent worksets, and frame-local
   object-uniform streaming in the native renderer
+- Required Rust frame planning for renderer-facing packets, including frustum
+  culling, draw-key grouping, instance grouping, translucent ordering, and
+  renderer diagnostics
 - Default interactive frame pacing with explicit unlocked runs
 - macOS native Metal backend with depth, translucent sorting, procedural
   material shading, fog, contact shadows, and UI overlay composition

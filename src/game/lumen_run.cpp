@@ -22,6 +22,7 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <cstdint>
 #include <initializer_list>
 #include <limits>
 #include <memory>
@@ -205,6 +206,15 @@ void applyIndustrialLensColor(aster::Material &lens_material, const aster::Vec3 
   lens_material.emission_strength = std::max(lens_material.emission_strength, 0.82f);
 }
 
+std::string placedResourceId(const std::uint64_t serial) {
+  return "placed_resource:" + std::to_string(serial);
+}
+
+aster::MeshPrimitive placementPrimitiveFor(const aster::ItemPlacementShape shape) {
+  (void)shape;
+  return aster::MeshPrimitive::Rock;
+}
+
 aster::Material material(const aster::Vec3 base, const aster::Vec3 emission, const float roughness,
                          const float metallic, const float glow, const float detail = 0.0f,
                          const float detail_scale = 1.0f, const float wear = 0.0f,
@@ -229,6 +239,23 @@ aster::Material material(const aster::Vec3 base, const aster::Vec3 emission, con
                               .pattern_contrast = pattern_contrast,
                               .pattern_mortar = pattern_mortar,
                               .procedural = procedural});
+}
+
+aster::Material lumenPlacedResourceMaterial(const aster::ItemDefinition *definition) {
+  aster::Material placed_stone =
+      material({0.245f, 0.255f, 0.235f}, {0.0f, 0.0f, 0.0f}, 0.96f, 0.0f, 0.0f, 0.86f,
+               8.8f, 0.28f, 0.72f, aster::SurfacePattern::CaveRock, {3.2f, 5.0f},
+               0.096f, 0.86f, 0.060f,
+               {.macro_variation = 0.28f,
+                .micro_normal_strength = 0.46f,
+                .roughness_variation = 0.26f,
+                .height_shading = 0.28f});
+  if (definition != nullptr) {
+    placed_stone.base_color = mixColor(placed_stone.base_color, definition->tint, 0.26f);
+  }
+  placed_stone.camera_occlusion = aster::CameraOcclusionPolicy::Solid;
+  placed_stone.cull_mode = aster::FaceCullMode::Back;
+  return placed_stone;
 }
 
 std::shared_ptr<const aster::CpuMesh> makeSharedMesh(aster::CpuMesh mesh) {
@@ -271,7 +298,9 @@ aster::ItemRegistry makeLumenRunItemRegistry() {
                 .type = aster::ItemType::Tool,
                 .tint = {0.50f, 0.48f, 0.42f},
                 .world_scale = {1.0f, 1.0f, 1.0f},
-                .hand_scale = {1.0f, 1.0f, 1.0f}});
+                .hand_scale = {1.0f, 1.0f, 1.0f},
+                .has_mining_tool = true,
+                .mining_tool = aster::starterPickaxeStats()});
   registry.add({.id = "torch",
                 .display_name = "Torch",
                 .short_label = "TRC",
@@ -299,6 +328,20 @@ aster::ItemRegistry makeLumenRunItemRegistry() {
                 .hand_scale = {1.0f, 1.0f, 1.0f},
                 .stackable = true,
                 .max_stack = 24});
+  registry.add({.id = "stone",
+                .display_name = "Rock",
+                .short_label = "RCK",
+                .type = aster::ItemType::Resource,
+                .tint = {0.32f, 0.31f, 0.29f},
+                .world_scale = {0.30f, 0.24f, 0.30f},
+                .hand_scale = {0.82f, 0.82f, 0.82f},
+                .stackable = true,
+                .max_stack = 48,
+                .placeable = true,
+                .placement_cost = 1,
+                .placement_reach = 4.4f,
+                .placement_scale = {0.22f, 0.16f, 0.20f},
+                .placement_collision_half_extents = {0.16f, 0.12f, 0.15f}});
   return registry;
 }
 
@@ -1154,6 +1197,23 @@ std::vector<aster::PathRibbonMeshSpec> caveApproachPathSpecs() {
                               cave_lip)};
 }
 
+std::vector<aster::PathRibbonMeshSpec> abandonedGothicHousePathSpecs() {
+  const std::vector<aster::PathRibbonMeshSpec> cave_path = caveApproachPathSpecs();
+  const aster::Vec3 branch =
+      cave_path.size() > 1u ? aster::evaluatePathRibbonCenter(cave_path[1], 0.38f)
+                            : aster::Vec3{18.5f, 0.09f, 13.8f};
+  const aster::Vec3 hedge_turn{24.8f, 0.104f, 22.6f};
+  const aster::Vec3 rise{34.2f, 0.116f, 28.8f};
+  const aster::Vec3 doorstep{43.6f, 0.128f, 31.4f};
+
+  return {caveApproachPathSegment(18, branch, {18.9f, 0.096f, 18.4f},
+                                  {21.6f, 0.102f, 21.8f}, hedge_turn),
+          caveApproachPathSegment(22, hedge_turn, {28.0f, 0.108f, 25.9f},
+                                  {31.5f, 0.114f, 29.2f}, rise),
+          caveApproachPathSegment(22, rise, {38.0f, 0.122f, 31.2f},
+                                  {41.1f, 0.126f, 31.7f}, doorstep)};
+}
+
 aster::TerrainMountainBrushSpec lumenCaveMountainBrushSpec() {
   const aster::Vec3 entrance = caveEntrancePlanar();
   const aster::Vec3 inward = caveInwardDirection();
@@ -1832,10 +1892,19 @@ void LumenRun::reset() {
   blood_particles_.clear();
   chest_items_.clear();
   equipped_item_parts_.clear();
+  placed_rocks_.clear();
+  scenery_collision_boxes_.clear();
   torch_particle_visuals_.clear();
   coal_ores_.clear();
   cave_collision_mesh_.reset();
   cave_viewer_cull_volume_ = {};
+  voxel_cave_.clear();
+  voxel_chunk_visuals_.clear();
+  voxel_chunk_colliders_.clear();
+  focused_voxel_hit_ = {};
+  focused_voxel_hit_valid_ = false;
+  mining_.reset();
+  placed_resource_serial_ = 1u;
   x_eye_objects_.clear();
   eye_objects_valid_ = false;
   const Vec2 climbable_tree_planar{-22.0f, 15.8f};
@@ -2174,7 +2243,7 @@ void LumenRun::clearAvatarPointTarget() {
 void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_direction,
                                       const float dt) {
   std::vector<InteractionTarget> targets;
-  targets.reserve(1u + coal_ores_.size());
+  targets.reserve(2u + coal_ores_.size());
   const Vec3 chest_focus = chest_base_ + Vec3{0.0f, 0.46f, 0.0f};
   const bool player_near_chest = length(player_position_ - chest_focus) < kChestInteractionDistance;
   std::string action = "Open";
@@ -2198,7 +2267,27 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                      .max_distance = 14.0f,
                      .enabled = player_near_chest});
 
-  const bool pickaxe_equipped = equipment_.isEquipped("pickaxe");
+  focused_voxel_hit_ = {};
+  const float ray_length = length(ray_direction);
+  const VoxelCaveInteriorProbe cave_probe = lumenVoxelCaveInteriorProbe();
+  const VoxelCaveInteriorSample player_cave_sample =
+      voxel_cave_.sampleInterior(player_position_, cave_probe);
+  const Vec3 cave_entrance = caveEntrancePlanar();
+  const float cave_entrance_distance =
+      length(Vec2{player_position_.x - cave_entrance.x, player_position_.z - cave_entrance.z});
+  const bool voxel_interaction_relevant =
+      player_cave_sample.interior > 0.001f ||
+      cave_entrance_distance <= std::max(cave_probe.entrance_light_distance, 0.1f) * 3.0f;
+  if (ray_length > 0.0001f && voxel_interaction_relevant) {
+    focused_voxel_hit_ = voxel_cave_.raycast(ray_origin, ray_direction / ray_length, 4.4f);
+  }
+  focused_voxel_hit_valid_ =
+      focused_voxel_hit_.hit && length(player_position_ - focused_voxel_hit_.point) <= 3.45f;
+
+  const ItemStack &equipped = equipment_.equipped();
+  const ItemDefinition *equipped_definition = item_registry_.find(equipped.item_id);
+  const bool pickaxe_equipped =
+      equipped_definition != nullptr && equipped_definition->has_mining_tool;
   for (std::size_t i = 0; i < coal_ores_.size(); ++i) {
     const CoalOreNode &ore = coal_ores_[i];
     if (ore.collected) {
@@ -2213,6 +2302,24 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                        .radius = std::max(ore.radius, 0.28f),
                        .max_distance = 14.0f,
                        .enabled = distance <= kOreInteractionDistance});
+  }
+
+  const MiningToolStats tool = activePickaxeStats();
+  if (focused_voxel_hit_valid_) {
+    const VoxelMaterialProfile *profile = voxel_cave_.profileFor(focused_voxel_hit_.material);
+    const std::string subject =
+        profile != nullptr && !profile->display_name.empty() ? profile->display_name : "Cave Surface";
+    const bool tier_allowed = profile != nullptr && tool.tier >= profile->min_tool_tier;
+    targets.push_back({.id = "voxel:mine",
+                       .kind = InteractionTargetKind::Item,
+                       .action_label = pickaxe_equipped && tier_allowed ? "Strike" : "Need",
+                       .subject_label = pickaxe_equipped
+                                            ? (tier_allowed ? subject : "Better Pickaxe")
+                                            : "Pickaxe",
+                       .position = focused_voxel_hit_.point,
+                       .radius = 0.46f,
+                       .max_distance = 14.0f,
+                       .enabled = true});
   }
 
   interaction_.update(targets, ray_origin, ray_direction, dt);
@@ -2237,19 +2344,31 @@ void LumenRun::interactFocused() {
   }
   if (focus.kind == InteractionTargetKind::Item && focus.target_id.rfind("ore:", 0u) == 0u) {
     (void)mineFocusedOre(focus.target_id);
+    return;
+  }
+  if (focus.kind == InteractionTargetKind::Item && focus.target_id == "voxel:mine") {
+    (void)mineFocusedVoxel(focus.target_id);
   }
 }
 
-void LumenRun::secondaryInteractFocused() {
+void LumenRun::secondaryInteractFocused(const Vec3 ray_origin, const Vec3 ray_direction) {
   const InteractionFocus &focus = interaction_.focus();
   if (focus.visible && focus.kind == InteractionTargetKind::Container &&
       focus.target_id == "chest:parkour") {
     interactFocused();
     return;
   }
+  if (placeEquippedResource(ray_origin, ray_direction)) {
+    return;
+  }
   if (focus.visible && focus.kind == InteractionTargetKind::Item &&
       focus.target_id.rfind("ore:", 0u) == 0u) {
     (void)mineFocusedOre(focus.target_id);
+    return;
+  }
+  if (focus.visible && focus.kind == InteractionTargetKind::Item &&
+      focus.target_id == "voxel:mine") {
+    (void)mineFocusedVoxel(focus.target_id);
   }
 }
 
@@ -2541,6 +2660,7 @@ void LumenRun::rebuildScene() {
   voxel_cave_.clear();
   voxel_chunk_visuals_.clear();
   voxel_chunk_colliders_.clear();
+  scenery_collision_boxes_.clear();
   procedural_cave_wall_fixture_visuals_.clear();
   const CastleCourse &course = castleCourse();
   const Vec3 castle_origin = castleOrigin();
@@ -2904,6 +3024,30 @@ void LumenRun::rebuildScene() {
     return appendScenery(name, MeshPrimitive::Box, (from + to) * 0.5f,
                          {radius, beam_length, radius}, segmentRotation(from, to), beam_material);
   };
+
+  for (PlacedResourceRock &rock : placed_rocks_) {
+    const ItemDefinition *definition = item_registry_.find(rock.item_id);
+    if (rock.id.empty()) {
+      rock.id = placedResourceId(placed_resource_serial_++);
+    }
+    if (definition != nullptr) {
+      rock.placement_shape = definition->placement_shape;
+    }
+    const std::size_t index =
+        keepCameraSolid(appendScenery("Placed cave resource rock",
+                                      placementPrimitiveFor(rock.placement_shape), rock.position,
+                                      rock.scale, rock.rotation,
+                                      lumenPlacedResourceMaterial(definition)));
+    rock.object_index = index;
+    rock.body = {};
+    if (index < scene_.objects().size()) {
+      RenderObject &object = scene_.objects()[index];
+      object.casts_contact_shadow = true;
+      object.contact_shadow_strength = 0.18f;
+      object.contact_shadow_radius_scale = 0.78f;
+    }
+    support_surfaces_.addBox({rock.position, rock.collision_half_extents});
+  }
 
   const auto appendIndustrialWallLight = [&](const CaveWallFixturePlacement &placement,
                                              const Material &metal,
@@ -3354,12 +3498,22 @@ void LumenRun::rebuildScene() {
   };
 
   const std::vector<PathRibbonMeshSpec> cave_path_specs = caveApproachPathSpecs();
+  const std::vector<PathRibbonMeshSpec> abandoned_house_path_specs =
+      abandonedGothicHousePathSpecs();
   appendPathRouteShouldersOn("Mounded exterior verge to cave", cave_path_specs, 0.56f, 0.088f,
                              terrainOnlyDrapeSurface, 0.034f);
   appendSoilPathOn("Curving exterior soil path to cave",
                    makePathRouteRibbonMesh({.segments = cave_path_specs}), terrainOnlyDrapeSurface,
                    0.074f);
+  appendPathRouteShouldersOn("Mounded exterior verge to gothic stone house",
+                             abandoned_house_path_specs, 0.46f, 0.076f, terrainOnlyDrapeSurface,
+                             0.030f);
+  appendSoilPathOn("Right branch soil path to gothic stone house",
+                   makePathRouteRibbonMesh({.segments = abandoned_house_path_specs}),
+                   terrainOnlyDrapeSurface, 0.072f);
   std::vector<PathRibbonMeshSpec> central_grass_paths = cave_path_specs;
+  central_grass_paths.insert(central_grass_paths.end(), abandoned_house_path_specs.begin(),
+                             abandoned_house_path_specs.end());
   central_grass_paths.push_back(castleUnderpassPathSpec());
   central_grass_paths.push_back(castleNestPathSpec());
   central_grass_paths.push_back(naturePathSpec(wetland_clips.front()));
@@ -3393,6 +3547,182 @@ void LumenRun::rebuildScene() {
                     distanceToPathRoute(central_grass_paths, position) > 0.62f;
            }},
       grass_blades, terrainGrassSurface);
+
+  const auto appendGothicStoneHouse = [&]() {
+    if (abandoned_house_path_specs.empty()) {
+      return;
+    }
+
+    const PathRibbonMeshSpec &approach = abandoned_house_path_specs.back();
+    Vec3 forward = evaluatePathRibbonTangent(approach, 1.0f);
+    forward.y = 0.0f;
+    if (length(forward) <= 0.0001f) {
+      forward = {0.0f, 0.0f, 1.0f};
+    }
+    forward = normalize(forward);
+    Vec3 side = normalize(cross({0.0f, 1.0f, 0.0f}, forward));
+    if (length(side) <= 0.0001f) {
+      side = {1.0f, 0.0f, 0.0f};
+    }
+    const Vec3 doorstep = evaluatePathRibbonCenter(approach, 1.0f);
+    Vec3 base = doorstep + forward * 3.05f;
+    const TerrainSurfaceSample ground = terrainOnlyDrapeSurface({base.x, base.z});
+    base.y = (ground.valid ? ground.height : doorstep.y) + 0.035f;
+    const float yaw = std::atan2(forward.x, forward.z);
+    const Vec3 house_rotation{0.0f, yaw, 0.0f};
+
+    Material gothic_stone = cave_mouth_stone;
+    gothic_stone.base_color = mixColor(gothic_stone.base_color, {0.22f, 0.23f, 0.21f}, 0.46f);
+    gothic_stone.edge_wear = 0.34f;
+    gothic_stone.ambient_occlusion = 0.86f;
+    gothic_stone.camera_occlusion = CameraOcclusionPolicy::Solid;
+    Material gothic_dark_stone = gothic_stone;
+    gothic_dark_stone.base_color = mixColor(gothic_dark_stone.base_color, {0.10f, 0.105f, 0.10f},
+                                            0.36f);
+    gothic_dark_stone.pattern_depth = 0.12f;
+    Material gothic_timber = sign_wood;
+    gothic_timber.base_color = mixColor(gothic_timber.base_color, {0.18f, 0.10f, 0.055f}, 0.42f);
+    gothic_timber.surface_pattern = SurfacePattern::PaintedWood;
+    gothic_timber.pattern_scale = {5.4f, 13.0f};
+    gothic_timber.pattern_depth = 0.050f;
+    gothic_timber.detail_strength = 0.58f;
+    gothic_timber.ambient_occlusion = 0.84f;
+    gothic_timber.camera_occlusion = CameraOcclusionPolicy::Solid;
+    Material warm_glass = warm_window;
+    warm_glass.emission_strength = 0.42f;
+    warm_glass.opacity = 0.72f;
+    warm_glass.alpha_mode = MaterialAlphaMode::Blend;
+    warm_glass.depth_write = MaterialDepthWrite::Disabled;
+    warm_glass.camera_occlusion = CameraOcclusionPolicy::Solid;
+
+    const auto local = [&](const float x, const float y, const float z) {
+      return base + side * x + Vec3{0.0f, y, 0.0f} + forward * z;
+    };
+    const auto worldHalfExtents = [&](const Vec3 scale) {
+      const Vec3 half = scale * 0.5f;
+      return Vec3{std::abs(side.x) * half.x + std::abs(forward.x) * half.z,
+                  half.y,
+                  std::abs(side.z) * half.x + std::abs(forward.z) * half.z};
+    };
+    const auto addBoxSupport = [&](const Vec3 center, const Vec3 scale) {
+      support_surfaces_.addBox({center, worldHalfExtents(scale)});
+    };
+    const auto addBoxCollision = [&](const Vec3 center, const Vec3 scale) {
+      scenery_collision_boxes_.push_back({center, worldHalfExtents(scale)});
+    };
+    const auto appendHouseBox = [&](const char *name, const Vec3 center, const Vec3 scale,
+                                    const Vec3 rotation, const Material &house_material,
+                                    const bool support, const bool collision) {
+      const std::size_t index =
+          enableContactShadow(appendStructuralScenery(name, MeshPrimitive::Box, center, scale,
+                                                      rotation, house_material),
+                              0.22f, 0.86f);
+      if (support) {
+        addBoxSupport(center, scale);
+      }
+      if (collision) {
+        addBoxCollision(center, scale);
+      }
+      return index;
+    };
+    const auto appendHouseStone = [&](const char *name, const MeshPrimitive primitive,
+                                      const Vec3 center, const Vec3 scale, const Vec3 rotation,
+                                      const bool collision) {
+      const std::size_t index =
+          enableContactShadow(appendStructuralScenery(name, primitive, center, scale, rotation,
+                                                      gothic_stone),
+                              0.20f, 0.82f);
+      if (collision) {
+        addBoxCollision(center, scale);
+      }
+      return index;
+    };
+    const auto appendHouseBeam = [&](const char *name, const Vec3 from, const Vec3 to,
+                                     const float radius) {
+      const std::size_t index = enableContactShadow(appendBeam(name, from, to, radius, gothic_timber),
+                                                    0.18f, 0.74f);
+      return index;
+    };
+
+    appendHouseBox("Gothic stone house ground floor slabs", local(0.0f, 0.06f, 0.0f),
+                   {5.30f, 0.12f, 5.80f}, house_rotation, gothic_dark_stone, true, true);
+    appendHouseBox("Gothic stone house second floor slabs", local(0.0f, 1.48f, 0.18f),
+                   {4.86f, 0.12f, 5.12f}, house_rotation, gothic_dark_stone, true, true);
+
+    appendHouseBox("Gothic house rear wall lower", local(0.0f, 0.82f, 2.74f),
+                   {5.34f, 1.52f, 0.28f}, house_rotation, gothic_stone, false, true);
+    appendHouseBox("Gothic house left wall lower", local(-2.66f, 0.78f, 0.10f),
+                   {0.28f, 1.46f, 5.20f}, house_rotation, gothic_stone, false, true);
+    appendHouseBox("Gothic house right wall lower", local(2.66f, 0.78f, 0.10f),
+                   {0.28f, 1.46f, 5.20f}, house_rotation, gothic_stone, false, true);
+    appendHouseBox("Gothic house front wall lower left", local(-1.82f, 0.86f, -2.76f),
+                   {1.42f, 1.56f, 0.28f}, house_rotation, gothic_stone, false, true);
+    appendHouseBox("Gothic house front wall lower right", local(1.82f, 0.86f, -2.76f),
+                   {1.42f, 1.56f, 0.28f}, house_rotation, gothic_stone, false, true);
+    appendHouseStone("Gothic pointed doorway left jamb", MeshPrimitive::Pillar,
+                     local(-0.66f, 0.86f, -2.86f), {0.22f, 1.55f, 0.22f}, house_rotation, true);
+    appendHouseStone("Gothic pointed doorway right jamb", MeshPrimitive::Pillar,
+                     local(0.66f, 0.86f, -2.86f), {0.22f, 1.55f, 0.22f}, house_rotation, true);
+    appendHouseStone("Gothic pointed doorway keystone", MeshPrimitive::RuinBlock,
+                     local(0.0f, 1.64f, -2.86f), {0.84f, 0.30f, 0.28f},
+                     {0.0f, yaw, radians(45.0f)}, false);
+
+    appendHouseBox("Gothic house rear wall upper", local(0.0f, 2.14f, 2.62f),
+                   {5.04f, 1.20f, 0.24f}, house_rotation, gothic_stone, false, true);
+    appendHouseBox("Gothic house left wall upper", local(-2.48f, 2.12f, 0.12f),
+                   {0.24f, 1.16f, 4.82f}, house_rotation, gothic_stone, false, true);
+    appendHouseBox("Gothic house right wall upper", local(2.48f, 2.12f, 0.12f),
+                   {0.24f, 1.16f, 4.82f}, house_rotation, gothic_stone, false, true);
+    appendHouseBox("Gothic house upper front left", local(-1.54f, 2.14f, -2.56f),
+                   {1.38f, 1.18f, 0.24f}, house_rotation, gothic_stone, false, true);
+    appendHouseBox("Gothic house upper front right", local(1.54f, 2.14f, -2.56f),
+                   {1.38f, 1.18f, 0.24f}, house_rotation, gothic_stone, false, true);
+    appendHouseStone("Gothic upper pointed window stone peak", MeshPrimitive::RuinBlock,
+                     local(0.0f, 2.48f, -2.66f), {0.72f, 0.24f, 0.20f},
+                     {0.0f, yaw, radians(45.0f)}, false);
+
+    for (const float x : {-1.95f, 1.95f}) {
+      appendHouseStone("Gothic stone side buttress", MeshPrimitive::RuinBlock,
+                       local(x, 0.78f, -2.18f), {0.34f, 1.35f, 0.40f}, house_rotation, true);
+      appendHouseStone("Gothic stone rear buttress", MeshPrimitive::RuinBlock,
+                       local(x, 0.82f, 2.96f), {0.36f, 1.42f, 0.38f}, house_rotation, true);
+      appendHouseBeam("Gothic vertical timber brace", local(x, 0.30f, -2.58f),
+                      local(x, 2.68f, -2.58f), 0.060f);
+    }
+
+    appendHouseBeam("Gothic interior stair rail", local(1.86f, 0.42f, -1.82f),
+                    local(0.76f, 1.68f, 0.80f), 0.044f);
+    for (int i = 0; i < 7; ++i) {
+      const float t = static_cast<float>(i) / 6.0f;
+      const Vec3 step_center =
+          local(1.88f - t * 1.12f, 0.22f + t * 1.08f, -1.82f + t * 2.62f);
+      const Vec3 step_scale{0.78f, 0.12f, 0.42f};
+      appendHouseBox("Gothic stone stair tread", step_center, step_scale, house_rotation,
+                     gothic_dark_stone, true, true);
+    }
+
+    appendHouseBox("Gothic left slate roof plane", local(-1.12f, 3.02f, 0.0f),
+                   {3.16f, 0.16f, 5.94f}, {0.0f, yaw, radians(-24.0f)}, gothic_dark_stone,
+                   false, false);
+    appendHouseBox("Gothic right slate roof plane", local(1.12f, 3.02f, 0.0f),
+                   {3.16f, 0.16f, 5.94f}, {0.0f, yaw, radians(24.0f)}, gothic_dark_stone,
+                   false, false);
+    appendHouseBeam("Gothic roof ridge beam", local(0.0f, 3.38f, -2.82f),
+                    local(0.0f, 3.30f, 2.88f), 0.070f);
+    for (const float z : {-2.10f, -0.70f, 0.70f, 2.10f}) {
+      appendHouseBeam("Gothic left roof spar", local(-2.50f, 2.58f, z),
+                      local(0.0f, 3.36f, z), 0.052f);
+      appendHouseBeam("Gothic right roof spar", local(2.50f, 2.58f, z),
+                      local(0.0f, 3.36f, z), 0.052f);
+    }
+
+    for (const Vec3 window : {Vec3{-2.72f, 1.05f, -0.92f}, Vec3{2.72f, 1.02f, 1.02f},
+                             Vec3{0.0f, 2.16f, -2.72f}, Vec3{0.0f, 2.20f, 2.76f}}) {
+      appendHouseBox("Gothic narrow amber window", local(window.x, window.y, window.z),
+                     {0.08f, 0.62f, 0.42f}, house_rotation, warm_glass, false, false);
+    }
+  };
+  appendGothicStoneHouse();
 
   const Vec3 cave_inward = caveInwardDirection();
   const float cave_yaw = std::atan2(-cave_inward.x, -cave_inward.z);
@@ -4273,6 +4603,12 @@ void LumenRun::rebuildPhysicsWorld() {
   addStaticBox(climbable_tree_.base + Vec3{0.0f, climbable_tree_.height * 0.5f, 0.0f},
                {climbable_tree_.radius * 0.82f, climbable_tree_.height * 0.5f,
                 climbable_tree_.radius * 0.82f});
+  for (const StaticSceneryBox &box : scenery_collision_boxes_) {
+    addStaticBox(box.center, box.half_extents);
+  }
+  for (PlacedResourceRock &rock : placed_rocks_) {
+    rock.body = addPlacedRockPhysics(rock);
+  }
   if (cave_collision_mesh_ != nullptr) {
     PhysicsBodyDesc cave_body;
     cave_body.type = PhysicsBodyType::Static;
@@ -5727,9 +6063,236 @@ bool LumenRun::isSwimmableWater(const Vec3 support_position) const {
          in_water(inner_pond_center_, inner_pond_radius_, kInnerPondSurfaceY);
 }
 
+PhysicsBodyHandle LumenRun::addPlacedRockPhysics(const PlacedResourceRock &rock) {
+  if (rock.collision_half_extents.x <= 0.0f || rock.collision_half_extents.y <= 0.0f ||
+      rock.collision_half_extents.z <= 0.0f) {
+    return {};
+  }
+  PhysicsBodyDesc body;
+  body.type = PhysicsBodyType::Static;
+  body.shape = PhysicsShapeType::Box;
+  body.position = rock.position;
+  body.half_extents = rock.collision_half_extents;
+  body.material = {0.76f, 0.0f};
+  body.filter = {kPhysicsLayerWorld, kPhysicsLayerPlayer};
+  return physics_.addBody(body);
+}
+
+bool LumenRun::storeMinedResource(const ItemDefinition &definition, const int quantity) {
+  if (quantity <= 0) {
+    return true;
+  }
+  return hotbar_.addItem(definition, quantity).has_value();
+}
+
+MiningToolStats LumenRun::activePickaxeStats() const {
+  const ItemStack &equipped = equipment_.equipped();
+  const ItemDefinition *definition = item_registry_.find(equipped.item_id);
+  if (definition != nullptr && definition->has_mining_tool) {
+    return definition->mining_tool;
+  }
+  return starterPickaxeStats();
+}
+
+bool LumenRun::placeEquippedResource(const Vec3 ray_origin, Vec3 ray_direction) {
+  const ItemStack *selected = hotbar_.selectedStack();
+  if (selected == nullptr || selected->empty()) {
+    return false;
+  }
+  const ItemDefinition *definition = item_registry_.find(selected->item_id);
+  if (definition == nullptr || !definition->placeable ||
+      selected->quantity < std::max(definition->placement_cost, 1)) {
+    return false;
+  }
+
+  ray_direction = normalize(ray_direction);
+  if (length(ray_direction) <= 0.0001f) {
+    return false;
+  }
+
+  const float reach = std::max(definition->placement_reach, 0.1f);
+  Vec3 hit_point{};
+  Vec3 hit_normal{0.0f, 1.0f, 0.0f};
+  float hit_distance = std::numeric_limits<float>::infinity();
+  bool hit = false;
+  const auto considerHit = [&](const Vec3 point, Vec3 normal, const float distance) {
+    if (distance < 0.0f || distance > reach || (hit && distance >= hit_distance - 0.025f)) {
+      return;
+    }
+    if (length(normal) <= 0.0001f) {
+      normal = {0.0f, 1.0f, 0.0f};
+    }
+    hit_point = point;
+    hit_normal = normalize(normal);
+    hit_distance = distance;
+    hit = true;
+  };
+
+  if (focused_voxel_hit_valid_ && focused_voxel_hit_.distance <= reach + 0.10f) {
+    considerHit(focused_voxel_hit_.point, focused_voxel_hit_.normal, focused_voxel_hit_.distance);
+  }
+
+  PhysicsRayHit physics_hit;
+  PhysicsRay ray;
+  ray.origin = ray_origin;
+  ray.direction = ray_direction;
+  ray.max_distance = reach;
+  ray.filter.collides_with = kPhysicsLayerWorld;
+  ray.filter.ignore_body = player_body_;
+  if (physics_.raycast(ray, physics_hit)) {
+    considerHit(physics_hit.point, physics_hit.normal, physics_hit.distance);
+  }
+
+  constexpr int kSurfaceRaySteps = 48;
+  bool previous_valid = false;
+  float previous_signed_height = 0.0f;
+  float previous_t = 0.0f;
+  TerrainSurfaceSample previous_sample;
+  for (int i = 1; i <= kSurfaceRaySteps; ++i) {
+    const float t = reach * static_cast<float>(i) / static_cast<float>(kSurfaceRaySteps);
+    const Vec3 probe = ray_origin + ray_direction * t;
+    const TerrainSurfaceSample sample =
+        sampleWorldSupport({{probe.x, probe.z}, probe.y, 0.34f, 2.0f});
+    if (!sample.valid) {
+      previous_valid = false;
+      continue;
+    }
+    const float signed_height = probe.y - sample.height;
+    if (previous_valid && previous_signed_height >= 0.0f && signed_height <= 0.0f) {
+      float lo = previous_t;
+      float hi = t;
+      TerrainSurfaceSample hit_sample = sample;
+      for (int step = 0; step < 8; ++step) {
+        const float mid = (lo + hi) * 0.5f;
+        const Vec3 mid_probe = ray_origin + ray_direction * mid;
+        const TerrainSurfaceSample mid_sample =
+            sampleWorldSupport({{mid_probe.x, mid_probe.z}, mid_probe.y, 0.34f, 2.0f});
+        if (!mid_sample.valid) {
+          lo = mid;
+          continue;
+        }
+        const float mid_signed_height = mid_probe.y - mid_sample.height;
+        if (mid_signed_height > 0.0f) {
+          lo = mid;
+        } else {
+          hi = mid;
+          hit_sample = mid_sample;
+        }
+      }
+      const Vec3 surface_probe = ray_origin + ray_direction * hi;
+      considerHit({surface_probe.x, hit_sample.height, surface_probe.z}, hit_sample.normal, hi);
+      break;
+    }
+    previous_valid = true;
+    previous_signed_height = signed_height;
+    previous_t = t;
+    previous_sample = sample;
+  }
+  (void)previous_sample;
+
+  if (!hit) {
+    return false;
+  }
+
+  const Vec3 half_extents = {std::max(definition->placement_collision_half_extents.x, 0.04f),
+                             std::max(definition->placement_collision_half_extents.y, 0.04f),
+                             std::max(definition->placement_collision_half_extents.z, 0.04f)};
+  const float normal_clearance = std::max({half_extents.x, half_extents.y, half_extents.z});
+  const Vec3 center = hit_point + hit_normal * (normal_clearance + 0.018f);
+  const float player_clearance =
+      tuning_.player_radius + std::max({half_extents.x, half_extents.z}) + 0.10f;
+  if (length(center - player_position_) < player_clearance) {
+    return false;
+  }
+
+  const float yaw_seed =
+      std::sin(center.x * 12.9898f + center.y * 37.719f + center.z * 78.233f) * 43758.5453f;
+  const float yaw = (yaw_seed - std::floor(yaw_seed)) * kPi * 2.0f;
+  PlacedResourceRock rock;
+  rock.id = placedResourceId(placed_resource_serial_++);
+  rock.item_id = definition->id;
+  rock.placement_shape = definition->placement_shape;
+  rock.position = center;
+  rock.normal = hit_normal;
+  rock.rotation = {0.0f, yaw, 0.0f};
+  rock.scale = definition->placement_scale;
+  rock.collision_half_extents = half_extents;
+
+  RenderObject object;
+  object.name = "Placed cave resource rock";
+  object.primitive = placementPrimitiveFor(definition->placement_shape);
+  object.transform.position = rock.position;
+  object.transform.rotation = rock.rotation;
+  object.transform.scale = rock.scale;
+  object.material = lumenPlacedResourceMaterial(definition);
+  object.camera_occlusion_fade = false;
+  object.casts_contact_shadow = true;
+  object.contact_shadow_strength = 0.18f;
+  object.contact_shadow_radius_scale = 0.78f;
+  rock.object_index = appendObject(object);
+  scenery_objects_.push_back(rock.object_index);
+  support_surfaces_.addBox({rock.position, rock.collision_half_extents});
+  rock.body = addPlacedRockPhysics(rock);
+  placed_rocks_.push_back(rock);
+
+  (void)hotbar_.removeSelectedItem(std::max(definition->placement_cost, 1));
+  equipment_.equipFromHotbar(hotbar_);
+  setAvatarPointTarget(hit_point);
+  invalidateSceneReports();
+  return true;
+}
+
+bool LumenRun::mineFocusedVoxel(const std::string_view target_id) {
+  if (target_id != "voxel:mine" || !focused_voxel_hit_valid_) {
+    return false;
+  }
+  const ItemStack &equipped = equipment_.equipped();
+  const ItemDefinition *equipped_definition = item_registry_.find(equipped.item_id);
+  if (equipped_definition == nullptr || !equipped_definition->has_mining_tool) {
+    return false;
+  }
+  const MiningToolStats tool = activePickaxeStats();
+  if (focused_voxel_hit_.distance > tool.reach) {
+    return false;
+  }
+  const VoxelMaterialProfile *profile = voxel_cave_.profileFor(focused_voxel_hit_.material);
+  if (profile == nullptr || tool.tier < profile->min_tool_tier) {
+    return false;
+  }
+
+  MiningFeedback feedback = mining_.tryMine({.now_seconds = status_.elapsed_seconds,
+                                             .hit = focused_voxel_hit_,
+                                             .tool = tool,
+                                             .material_hardness = profile->hardness,
+                                             .resource_item_id = profile->resource_item_id,
+                                             .resource_quantity = profile->resource_quantity});
+  if (!feedback.accepted) {
+    return false;
+  }
+
+  setAvatarPointTarget(feedback.impact_point);
+  if (!feedback.carved) {
+    return true;
+  }
+
+  if (!feedback.resource_item_id.empty() && feedback.resource_quantity > 0) {
+    const ItemDefinition *resource = item_registry_.find(feedback.resource_item_id);
+    if (resource != nullptr && !storeMinedResource(*resource, feedback.resource_quantity)) {
+      return false;
+    }
+  }
+  voxel_cave_.applyEdit(feedback.edit);
+  updateVoxelCave(0.0f);
+  invalidateSceneReports();
+  return true;
+}
+
 bool LumenRun::mineFocusedOre(const std::string_view target_id) {
   constexpr std::string_view prefix = "ore:";
-  if (target_id.substr(0u, prefix.size()) != prefix || !equipment_.isEquipped("pickaxe")) {
+  const ItemStack &equipped = equipment_.equipped();
+  const ItemDefinition *equipped_definition = item_registry_.find(equipped.item_id);
+  if (target_id.substr(0u, prefix.size()) != prefix || equipped_definition == nullptr ||
+      !equipped_definition->has_mining_tool) {
     return false;
   }
   std::size_t ore_index = 0u;
@@ -5754,7 +6317,7 @@ bool LumenRun::mineFocusedOre(const std::string_view target_id) {
   }
 
   const ItemDefinition *coal = item_registry_.find("coal");
-  if (coal == nullptr || !hotbar_.addItem(*coal, ore.yield_quantity).has_value()) {
+  if (coal == nullptr || !storeMinedResource(*coal, ore.yield_quantity)) {
     ore.health = 1;
     return false;
   }

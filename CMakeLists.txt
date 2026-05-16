@@ -34,6 +34,32 @@ if(APPLE)
 endif()
 
 find_package(Threads REQUIRED)
+find_program(CARGO_EXECUTABLE cargo REQUIRED)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(ASTER_CARGO_FLAGS "")
+  set(ASTER_RUST_LIBRARY "${PROJECT_SOURCE_DIR}/target/debug/libaster_runtime.a")
+else()
+  set(ASTER_CARGO_FLAGS "--release")
+  set(ASTER_RUST_LIBRARY "${PROJECT_SOURCE_DIR}/target/release/libaster_runtime.a")
+endif()
+
+add_custom_command(
+  OUTPUT "${ASTER_RUST_LIBRARY}"
+  COMMAND "${CARGO_EXECUTABLE}" build --workspace ${ASTER_CARGO_FLAGS}
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  DEPENDS
+    "${PROJECT_SOURCE_DIR}/Cargo.toml"
+    "${PROJECT_SOURCE_DIR}/crates/aster_runtime/Cargo.toml"
+    "${PROJECT_SOURCE_DIR}/crates/aster_runtime/src/lib.rs"
+    "${PROJECT_SOURCE_DIR}/crates/aster_assetc/Cargo.toml"
+    "${PROJECT_SOURCE_DIR}/crates/aster_assetc/src/main.rs"
+  VERBATIM
+)
+add_custom_target(aster_rust_runtime DEPENDS "${ASTER_RUST_LIBRARY}")
+add_library(aster_runtime STATIC IMPORTED GLOBAL)
+set_target_properties(aster_runtime PROPERTIES IMPORTED_LOCATION "${ASTER_RUST_LIBRARY}")
+add_dependencies(aster_runtime aster_rust_runtime)
 
 file(GLOB_RECURSE ASTER_SOURCES CONFIGURE_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/*.cpp"
@@ -48,12 +74,13 @@ else()
 endif()
 
 add_library(aster STATIC ${ASTER_SOURCES})
+add_dependencies(aster aster_rust_runtime)
 
 target_include_directories(aster PUBLIC
   ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(aster PUBLIC Threads::Threads)
+target_link_libraries(aster PUBLIC Threads::Threads aster_runtime)
 
 if(APPLE)
   target_link_libraries(aster PUBLIC
