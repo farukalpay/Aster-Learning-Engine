@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <type_traits>
 #include <unordered_set>
 
 namespace aster {
@@ -114,6 +115,40 @@ struct RuntimeFramePlanBuffers {
   std::size_t group_count = 0;
   RuntimeDiagnostics *diagnostics = nullptr;
 };
+
+static_assert(std::is_standard_layout_v<RuntimeVec3>);
+static_assert(std::is_standard_layout_v<RuntimeRenderObject>);
+static_assert(std::is_standard_layout_v<RuntimeCamera>);
+static_assert(std::is_standard_layout_v<RuntimeLineOfSightFade>);
+static_assert(std::is_standard_layout_v<RuntimePlanOptions>);
+static_assert(std::is_standard_layout_v<RuntimeDrawInstance>);
+static_assert(std::is_standard_layout_v<RuntimeDrawGroup>);
+static_assert(std::is_standard_layout_v<RuntimeDiagnostics>);
+static_assert(std::is_standard_layout_v<RuntimeFramePlanBuffers>);
+
+static_assert(sizeof(RuntimeVec3) == 12u);
+static_assert(alignof(RuntimeVec3) == 4u);
+static_assert(sizeof(RuntimeCamera) == 64u);
+static_assert(sizeof(RuntimeLineOfSightFade) == 48u);
+static_assert(sizeof(RuntimePlanOptions) == 48u);
+static_assert(sizeof(RuntimeDrawInstance) == 16u);
+
+static_assert(offsetof(RuntimeRenderObject, entity_id) == 0u);
+static_assert(offsetof(RuntimeRenderObject, object_index) == 8u);
+static_assert(offsetof(RuntimeRenderObject, mesh_key) == 16u);
+static_assert(offsetof(RuntimeRenderObject, material_key) == 24u);
+static_assert(offsetof(RuntimeRenderObject, render_queue) == 32u);
+static_assert(offsetof(RuntimeRenderObject, position) == 44u);
+static_assert(offsetof(RuntimeRenderObject, bounds_center) == 68u);
+static_assert(offsetof(RuntimeRenderObject, dynamic_mesh_generation) == 104u);
+static_assert(sizeof(RuntimeRenderObject) == 112u);
+
+static_assert(sizeof(std::size_t) == 8u,
+              "The Rust render planner ABI currently uses usize and is validated for 64-bit "
+              "desktop targets.");
+static_assert(sizeof(RuntimeDrawGroup) == 40u);
+static_assert(sizeof(RuntimeDiagnostics) == 88u);
+static_assert(sizeof(RuntimeFramePlanBuffers) == 56u);
 
 extern "C" std::uint32_t
 aster_runtime_build_frame_plan_v3(const RuntimeRenderObject *objects, std::size_t object_count,

@@ -34,3 +34,6 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build -C ${{ env.CMAKE_BUILD_CONFIG }} --output-on-failure
+
+      - name: Rust tests
+        run: cargo test --workspace

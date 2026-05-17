@@ -4,12 +4,36 @@ Aster keeps product code thin and reusable behavior in engine modules. The core
 rule is that app files wire systems together; they do not own platform handles,
 protocol parsing, geometry processing, renderer policy, or research logic.
 
+## Engine Kernel Boundary
+
+The stable public surface is `include/aster/kernel`, backed by the
+`aster_kernel` target. Its ABI is plain C: versioned structs, fixed-width status
+codes, spans/string views, and opaque handles. The public C++ layer is a
+header-only convenience wrapper compiled by the consumer; it is not exported as
+binary C++ class ABI.
+
+All other headers under `include/aster` are internal engine source contracts for
+repository targets. They are intentionally not installed by `aster_kernel`.
+Changing them is a source-level engine refactor, not an ABI break. Promoting a
+subsystem to the public kernel requires a versioned handle contract, explicit
+ownership rules, status-returning failure behavior, and tests that include only
+`aster/kernel`.
+
 ## Module Boundaries
+
+`include/aster/kernel`
+
+Stable public ABI and C++ wrappers. Kernel headers must not include broad engine
+headers, STL containers in ABI structs, native platform types, renderer backend
+types, or sample-owned state. Public resources cross this boundary only as
+opaque handles with matching destroy functions.
 
 `include/aster/math`
 
 Vector, matrix, transform, color, and procedural noise utilities. This layer is
 standard C++ only and does not depend on platform, renderer, game, or UI code.
+These headers are internal source contracts unless re-exposed through the kernel
+ABI.
 
 `include/aster/asset`
 
@@ -89,15 +113,15 @@ content assumptions.
 
 `include/aster/samples`
 
-Sample-owned contracts and authored scene builders. Lumen Run and showcase
-scenes consume engine, geometry, renderer, UI, physics, and systems modules from
-the outside. Sample code can be content-specific; engine and systems code cannot.
-The public Lumen Run contract remains in `include/aster/samples/lumen_run.hpp`;
-its implementation is split across focused `src/samples/lumen_run_*.cpp`
-translation units for lifecycle, scene/physics rebuilds, validation,
-simulation, interaction, and mining. Source-only helpers live beside those files
-so Lumen-specific placement, material, and route data do not become engine
-defaults by accident.
+Sample-owned contracts and authored scene builders for repository builds. Lumen
+Run and showcase scenes consume engine, geometry, renderer, UI, physics, and
+systems modules from the outside. Sample code can be content-specific; engine
+and systems code cannot. Lumen Run is not part of the stable engine kernel; if a
+sample needs external binary access, it must be exposed through an opaque
+`AsterSampleAppHandle` facade rather than a public header containing sample
+state. Source-only helpers live beside `src/samples/lumen_run_*.cpp` so
+Lumen-specific placement, material, and route data do not become engine defaults
+by accident.
 
 `include/aster/ui`
 
@@ -205,11 +229,12 @@ use deterministic fixed timing so generated media stays reproducible.
 
 ## Build Policy
 
-CMake builds one static `aster` library plus small executables. Platform source
-selection is based on the host OS. Cargo is a required build dependency and
-builds the Rust `aster_runtime` static library before linking `aster`. Windows
-support starts as a core-build skeleton behind `aster::Window`; Wayland remains
-outside the current platform set.
+CMake builds `aster_engine_internal` for repository apps/tests and
+`aster_kernel` as the exported ABI facade. Platform source selection is based on
+the host OS. Cargo is a required build dependency and builds the Rust
+`aster_runtime` static library before linking the internal engine target.
+Windows support starts as a core-build skeleton behind the platform adapter;
+Wayland remains outside the current platform set.
 
 The engine and sample should build without fetching source code or linking
 desktop client libraries. Direct OS interaction belongs only in platform
@@ -218,6 +243,7 @@ adapters.
 ## Test Policy
 
 CTest exposes subsystem targets instead of a single catch-all executable:
+`aster_kernel_public_consumer`, `aster_kernel_contract_tests`,
 `aster_core_tests`, `aster_geometry_tests`, `aster_render_scene_tests`,
 `aster_systems_tests`, `aster_physics_tests`, `aster_sample_tests`, and
 `aster_network_tests` when networking is enabled. Shared test helpers are local

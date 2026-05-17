@@ -946,6 +946,22 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn abi_layout_matches_cxx_runtime_contract() {
+        assert_eq!(std::mem::size_of::<AsterRuntimeVec3>(), 12);
+        assert_eq!(std::mem::align_of::<AsterRuntimeVec3>(), 4);
+        assert_eq!(std::mem::size_of::<AsterRuntimeRenderObject>(), 112);
+        assert_eq!(std::mem::align_of::<AsterRuntimeRenderObject>(), 8);
+        assert_eq!(std::mem::size_of::<AsterRuntimeCamera>(), 64);
+        assert_eq!(std::mem::size_of::<AsterRuntimeLineOfSightFade>(), 48);
+        assert_eq!(std::mem::size_of::<AsterRuntimeRenderPlanOptions>(), 48);
+        assert_eq!(std::mem::size_of::<AsterRuntimeDrawInstance>(), 16);
+        assert_eq!(std::mem::size_of::<AsterRuntimeDrawGroup>(), 40);
+        assert_eq!(std::mem::size_of::<AsterRuntimeRenderDiagnostics>(), 88);
+        assert_eq!(std::mem::size_of::<AsterRuntimeFramePlanBuffers>(), 56);
+    }
+
+    #[test]
     fn groups_opaque_objects_by_draw_key() {
         let objects = [
             object(0, 0.0, 2, 7, 0),

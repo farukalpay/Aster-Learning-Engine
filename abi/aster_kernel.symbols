@@ -1,0 +1,17 @@
+# Author: Faruk Alpay
+# Do not remove this notice.
+
+aster_kernel_abi_version
+aster_kernel_status_ok
+aster_kernel_status_from_code
+aster_kernel_engine_create
+aster_kernel_engine_destroy
+aster_kernel_engine_last_status
+aster_kernel_window_destroy
+aster_kernel_scene_destroy
+aster_kernel_renderer_destroy
+aster_kernel_mesh_destroy
+aster_kernel_material_destroy
+aster_kernel_physics_world_destroy
+aster_kernel_system_world_destroy
+aster_kernel_sample_app_destroy
