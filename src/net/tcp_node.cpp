@@ -25,6 +25,9 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
@@ -116,7 +119,7 @@ int pollSockets(std::vector<PollDescriptor> &poll_fds) {
 }
 
 int connectSocket(const SocketHandle fd, const sockaddr *address, const std::size_t address_size) {
-  if (address_size > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+  if (address_size > static_cast<std::size_t>((std::numeric_limits<int>::max)())) {
     WSASetLastError(WSAEFAULT);
     return SOCKET_ERROR;
   }
