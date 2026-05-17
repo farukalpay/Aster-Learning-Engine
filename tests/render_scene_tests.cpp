@@ -28,25 +28,27 @@ void testFramebufferOriginContract() {
   const std::filesystem::path path =
       std::filesystem::temp_directory_path() / "aster_framebuffer_origin.ppm";
   framebuffer.writePpm(path, 4, 4);
-  std::ifstream file(path, std::ios::binary);
-  std::string magic;
-  std::string dimensions;
-  std::string max_value;
-  std::getline(file, magic);
-  std::getline(file, dimensions);
-  std::getline(file, max_value);
-  assert(magic == "P6");
-  assert(dimensions == "4 4");
-  assert(max_value == "255");
-  std::vector<std::uint8_t> rgb(4u * 4u * 3u);
-  file.read(reinterpret_cast<char *>(rgb.data()), static_cast<std::streamsize>(rgb.size()));
-  assert(rgb[0] == 255u);
-  assert(rgb[1] == 32u);
-  assert(rgb[2] == 16u);
-  const std::size_t third_row = 2u * 4u * 3u;
-  assert(rgb[third_row + 0u] == 24u);
-  assert(rgb[third_row + 1u] == 64u);
-  assert(rgb[third_row + 2u] == 255u);
+  {
+    std::ifstream file(path, std::ios::binary);
+    std::string magic;
+    std::string dimensions;
+    std::string max_value;
+    std::getline(file, magic);
+    std::getline(file, dimensions);
+    std::getline(file, max_value);
+    assert(magic == "P6");
+    assert(dimensions == "4 4");
+    assert(max_value == "255");
+    std::vector<std::uint8_t> rgb(4u * 4u * 3u);
+    file.read(reinterpret_cast<char *>(rgb.data()), static_cast<std::streamsize>(rgb.size()));
+    assert(rgb[0] == 255u);
+    assert(rgb[1] == 32u);
+    assert(rgb[2] == 16u);
+    const std::size_t third_row = 2u * 4u * 3u;
+    assert(rgb[third_row + 0u] == 24u);
+    assert(rgb[third_row + 1u] == 64u);
+    assert(rgb[third_row + 2u] == 255u);
+  }
   std::filesystem::remove(path);
 }
 
