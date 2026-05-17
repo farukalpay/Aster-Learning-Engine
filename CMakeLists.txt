@@ -25,10 +25,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-if(WIN32)
-  message(FATAL_ERROR "Aster v1 targets macOS and Unix-like desktops. Windows support is intentionally not built in this configuration.")
-endif()
-
 if(APPLE)
   enable_language(OBJCXX)
 endif()
@@ -67,10 +63,15 @@ file(GLOB_RECURSE ASTER_SOURCES CONFIGURE_DEPENDS
 
 if(APPLE)
   list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_linux.cpp")
+  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_windows.cpp")
   list(APPEND ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_macos.mm")
   list(APPEND ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/render/render_device_metal.mm")
+elseif(WIN32)
+  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_linux.cpp")
+  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_macos.mm")
 else()
   list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_macos.mm")
+  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_windows.cpp")
 endif()
 
 add_library(aster STATIC ${ASTER_SOURCES})
@@ -89,6 +90,8 @@ if(APPLE)
     "-framework Metal"
     "-framework QuartzCore"
   )
+elseif(WIN32)
+  target_link_libraries(aster PUBLIC User32 Gdi32)
 endif()
 
 target_compile_definitions(aster PUBLIC

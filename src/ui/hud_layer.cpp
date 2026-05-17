@@ -210,6 +210,59 @@ void drawHotbar(aster::UiCanvas &canvas, const aster::HotbarHudModel &hotbar) {
   }
 }
 
+void drawHeartIcon(aster::UiCanvas &canvas, const aster::Vec2 center, const float size,
+                   const float fill_fraction) {
+  const float fill = std::clamp(fill_fraction, 0.0f, 1.0f);
+  const aster::UiColor shadow{0.0f, 0.0f, 0.0f, 0.30f};
+  const aster::UiColor edge{0.18f, 0.028f, 0.030f, 0.96f};
+  const aster::UiColor empty{0.12f, 0.035f, 0.040f, 0.82f};
+  const aster::UiColor red{0.86f, 0.060f, 0.075f, 1.0f};
+  const aster::UiColor hot{1.0f, 0.30f, 0.22f, 0.95f};
+
+  const auto drawShape = [&](const aster::UiColor color, const aster::Vec2 offset = {}) {
+    const aster::Vec2 c{center.x + offset.x, center.y + offset.y};
+    canvas.fillCircle({c.x - size * 0.22f, c.y - size * 0.16f}, size * 0.24f, color, 18);
+    canvas.fillCircle({c.x + size * 0.22f, c.y - size * 0.16f}, size * 0.24f, color, 18);
+    canvas.fillRoundRect({c.x - size * 0.31f, c.y - size * 0.10f, size * 0.62f, size * 0.33f},
+                         size * 0.10f, color);
+    canvas.line({c.x - size * 0.42f, c.y + size * 0.04f}, {c.x, c.y + size * 0.43f}, color,
+                size * 0.28f);
+    canvas.line({c.x + size * 0.42f, c.y + size * 0.04f}, {c.x, c.y + size * 0.43f}, color,
+                size * 0.28f);
+  };
+
+  drawShape(shadow, {1.5f, 2.0f});
+  drawShape(edge);
+  drawShape(empty);
+  if (fill <= 0.001f) {
+    return;
+  }
+  canvas.pushClip({center.x - size * 0.52f, center.y - size * 0.52f, size * fill, size * 1.08f});
+  drawShape(red);
+  drawShape(hot, {-size * 0.035f, -size * 0.030f});
+  canvas.popClip();
+}
+
+void drawHeartBar(aster::UiCanvas &canvas, const int health, const int max_health) {
+  if (max_health <= 0) {
+    return;
+  }
+  const aster::Vec2 viewport = canvas.viewportSize();
+  const int heart_count = std::max(1, (max_health + 1) / 2);
+  const float size = std::clamp(viewport.x / 42.0f, 17.0f, 24.0f);
+  const float gap = size * 0.18f;
+  const float width = static_cast<float>(heart_count) * size +
+                      static_cast<float>(heart_count - 1) * gap;
+  const float x0 = std::max(18.0f, viewport.x * 0.5f - width * 0.5f);
+  const float y = viewport.y - std::clamp(viewport.x / 16.0f, 46.0f, 58.0f) - size - 26.0f;
+  for (int i = 0; i < heart_count; ++i) {
+    const int remaining = std::clamp(health - i * 2, 0, 2);
+    drawHeartIcon(canvas, {x0 + static_cast<float>(i) * (size + gap) + size * 0.5f,
+                           y + size * 0.5f},
+                  size, static_cast<float>(remaining) * 0.5f);
+  }
+}
+
 bool drawChestContents(aster::UiCanvas &canvas, const aster::ChestContentsHudModel &contents) {
   if (!contents.visible || contents.slots.empty()) {
     return false;
@@ -373,6 +426,19 @@ aster::HudAction drawPauseMenu(aster::UiCanvas &canvas, const aster::HudModel &m
 
 namespace aster {
 
+HudVisibilityPolicy hudVisibilityForState(const HudModalState state) {
+  if (state.debug_capture) {
+    return {};
+  }
+  const bool gameplay_visible = !state.inventory_open && !state.pause_open && !state.defeated;
+  return {.status_panel = gameplay_visible,
+          .health = gameplay_visible,
+          .hotbar = gameplay_visible,
+          .focus_prompt = gameplay_visible,
+          .pointer = !state.pause_open && !state.defeated,
+          .game_cursor = gameplay_visible};
+}
+
 HudLayer::~HudLayer() {
   shutdown();
 }
@@ -390,7 +456,7 @@ HudAction HudLayer::draw(const HudModel &model) {
   const Vec2 viewport = canvas_.viewportSize();
   HudAction action = HudAction::None;
 
-  if (!model.inventory.open) {
+  if (model.visibility.status_panel && !model.inventory.open) {
     const UiRect panel{18.0f, 18.0f, 520.0f, 154.0f};
     drawPanelTexture(canvas_, panel);
     float y = panel.y + 16.0f;
@@ -419,14 +485,25 @@ HudAction HudLayer::draw(const HudModel &model) {
   if (drawChestContents(canvas_, model.chest_contents)) {
     action = HudAction::CloseChest;
   }
-  drawHotbar(canvas_, model.hotbar);
-  drawFocusPrompt(canvas_, model.focus_prompt);
-  drawPointerCue(canvas_, model.pointer);
+  HotbarHudModel hotbar = model.hotbar;
+  hotbar.visible = hotbar.visible && model.visibility.hotbar;
+  drawHotbar(canvas_, hotbar);
+  if (model.visibility.health) {
+    drawHeartBar(canvas_, model.health, model.max_health);
+  }
+  if (model.visibility.focus_prompt) {
+    drawFocusPrompt(canvas_, model.focus_prompt);
+  }
+  if (model.visibility.pointer) {
+    drawPointerCue(canvas_, model.pointer);
+  }
   const HudAction pause_action = drawPauseMenu(canvas_, model);
   if (pause_action != HudAction::None) {
     action = pause_action;
   }
-  drawGameCursor(canvas_, model.game_cursor);
+  if (model.visibility.game_cursor) {
+    drawGameCursor(canvas_, model.game_cursor);
+  }
 
   if (model.victory || model.defeated) {
     const UiRect result{viewport.x * 0.5f - 180.0f, viewport.y * 0.5f - 58.0f, 360.0f, 116.0f};

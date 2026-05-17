@@ -6,6 +6,7 @@
 #include "aster/core/fixed_timestep.hpp"
 #include "aster/core/frame_time_stats.hpp"
 #include "aster/core/profiler.hpp"
+#include "aster/core/work_budget.hpp"
 #include "aster/game/animation_system.hpp"
 #include "aster/game/creature_motion.hpp"
 #include "aster/game/equipment_system.hpp"
@@ -22,8 +23,12 @@
 #include "aster/geometry/cable_mesh.hpp"
 #include "aster/geometry/castle_course.hpp"
 #include "aster/geometry/cave_system.hpp"
+#include "aster/geometry/cave_web_mesh.hpp"
+#include "aster/geometry/energy_conduit_mesh.hpp"
+#include "aster/geometry/fracture_mesh.hpp"
 #include "aster/geometry/generated_scenery.hpp"
 #include "aster/geometry/mesh_projection.hpp"
+#include "aster/geometry/mesh_cut.hpp"
 #include "aster/geometry/nature_mesh.hpp"
 #include "aster/geometry/stroke_mesh.hpp"
 #include "aster/geometry/terrain_mesh.hpp"
@@ -275,6 +280,68 @@ void testProfilerCaptureExport() {
   std::filesystem::remove(path);
 }
 
+void testBudgetedWorkQueueContracts() {
+  aster::BudgetedWorkQueue queue;
+  queue.enqueue({.id = 30u, .class_id = 2u, .priority = 4.0, .sequence = 0u});
+  queue.enqueue({.id = 10u, .class_id = 2u, .priority = 4.0, .sequence = 1u});
+  queue.enqueue({.id = 20u, .class_id = 1u, .priority = 2.0, .sequence = 2u});
+
+  const aster::BudgetedWorkSelection deterministic = queue.select({});
+  assert(deterministic.selected.size() == 3u);
+  assert(deterministic.selected[0].id == 10u);
+  assert(deterministic.selected[1].id == 30u);
+  assert(deterministic.selected[2].id == 20u);
+  assert(deterministic.diagnostics.queued_items == 3u);
+  assert(deterministic.diagnostics.deferred_items == 0u);
+
+  aster::FrameWorkBudget class_limited;
+  class_limited.max_items = 3u;
+  class_limited.class_budgets.push_back({.class_id = 2u, .max_items = 1u});
+  const aster::BudgetedWorkSelection limited = queue.select(class_limited);
+  assert(limited.selected.size() == 2u);
+  assert(limited.deferred.size() == 1u);
+  assert(limited.diagnostics.budget_exhausted_items == 1u);
+
+  aster::BudgetedWorkQueue starvation_queue;
+  starvation_queue.enqueue({.id = 1u, .class_id = 1u, .priority = 100.0, .sequence = 0u});
+  starvation_queue.enqueue({.id = 2u,
+                            .class_id = 1u,
+                            .priority = 0.0,
+                            .virtual_backlog_frames = 5u,
+                            .sequence = 1u});
+  aster::FrameWorkBudget no_starvation;
+  no_starvation.max_items = 1u;
+  assert(starvation_queue.select(no_starvation).selected.front().id == 1u);
+
+  aster::FrameWorkBudget starvation_bound = no_starvation;
+  starvation_bound.starvation_frame_limit = 4u;
+  assert(starvation_queue.select(starvation_bound).selected.front().id == 2u);
+
+  aster::WorkCostModel costs;
+  costs.observe({.class_id = 7u, .seconds = 0.004});
+  costs.observe({.class_id = 7u, .seconds = 0.002});
+  const std::optional<aster::WorkCostEstimate> estimate = costs.estimateFor(7u);
+  assert(estimate.has_value());
+  assert(estimate->sample_count == 2u);
+  assert(costs.estimate(7u, 0.001) >= 0.001);
+
+  aster::FrameBudgetController controller({.target_frame_seconds = 1.0 / 60.0,
+                                           .min_work_seconds = 0.001,
+                                           .max_work_seconds = 0.006,
+                                           .min_items = 1u,
+                                           .max_items = 5u});
+  aster::FrameWorkBudget base_budget;
+  base_budget.class_budgets.push_back({.class_id = 7u});
+  const aster::FrameWorkBudget spare_budget =
+      controller.nextBudget({.frame_seconds = 0.010, .backlog_items = 18u}, base_budget);
+  assert(spare_budget.max_items >= 1u);
+  assert(spare_budget.max_seconds >= 0.001);
+  const aster::FrameWorkBudget pressured_budget =
+      controller.nextBudget({.frame_seconds = 0.026, .backlog_items = 18u}, base_budget);
+  assert(pressured_budget.max_seconds <= spare_budget.max_seconds);
+  assert(controller.telemetry().pressure > 0.0);
+}
+
 bool startsWith(const std::string_view value, const std::string_view prefix) {
   return value.size() >= prefix.size() && value.substr(0u, prefix.size()) == prefix;
 }
@@ -421,6 +488,40 @@ void testUiTextFittingContract() {
   assert(canvas.fittedTextScale("Back-face culling", 400.0f, preferred, 0.85f) == preferred);
 }
 
+void testHudVisibilityPolicy() {
+  const aster::HudVisibilityPolicy gameplay = aster::hudVisibilityForState({});
+  assert(gameplay.health);
+  assert(gameplay.hotbar);
+  assert(gameplay.focus_prompt);
+
+  const aster::HudVisibilityPolicy pause =
+      aster::hudVisibilityForState({.pause_open = true});
+  assert(!pause.health);
+  assert(!pause.hotbar);
+  assert(!pause.focus_prompt);
+  assert(!pause.status_panel);
+  assert(!pause.game_cursor);
+
+  const aster::HudVisibilityPolicy inventory =
+      aster::hudVisibilityForState({.inventory_open = true});
+  assert(!inventory.health);
+  assert(!inventory.hotbar);
+  assert(!inventory.focus_prompt);
+  assert(!inventory.status_panel);
+
+  const aster::HudVisibilityPolicy defeat =
+      aster::hudVisibilityForState({.defeated = true});
+  assert(!defeat.health);
+  assert(!defeat.hotbar);
+  assert(!defeat.pointer);
+
+  const aster::HudVisibilityPolicy debug =
+      aster::hudVisibilityForState({.pause_open = true, .defeated = true, .debug_capture = true});
+  assert(debug.health);
+  assert(debug.hotbar);
+  assert(debug.status_panel);
+}
+
 void testGameplayItemInteractionSystems() {
   aster::ItemRegistry registry;
   registry.add({.id = "torch",
@@ -463,6 +564,68 @@ void testGameplayItemInteractionSystems() {
                       {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 1.0f / 60.0f);
   assert(interactions.focus().visible);
   assert(interactions.focus().target_id == "item:torch");
+  interactions.clear();
+  interactions.update({{.id = "item:nearby",
+                        .kind = aster::InteractionTargetKind::Item,
+                        .action_label = "Use",
+                        .subject_label = "Nearby",
+                        .position = {2.0f, 0.0f, 0.0f},
+                        .radius = 0.10f,
+                        .max_distance = 6.0f,
+                        .proximity_distance = 2.25f,
+                        .enabled = true}},
+                      {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {2.0f, 0.0f, 0.0f},
+                      1.0f / 60.0f);
+  assert(interactions.focus().visible);
+  assert(interactions.focus().target_id == "item:nearby");
+  interactions.clear();
+  interactions.update({{.id = "item:occluded",
+                        .kind = aster::InteractionTargetKind::Item,
+                        .shape = aster::InteractionTargetShape::ExplicitHit,
+                        .action_label = "Use",
+                        .subject_label = "Occluded",
+                        .position = {0.0f, 0.0f, 1.0f},
+                        .max_distance = 6.0f,
+                        .hit_distance = 1.0f,
+                        .evidence_strength = 4.0f,
+                        .occluded = true,
+                        .enabled = true},
+                       {.id = "item:visible",
+                        .kind = aster::InteractionTargetKind::Item,
+                        .shape = aster::InteractionTargetShape::ExplicitHit,
+                        .action_label = "Use",
+                        .subject_label = "Visible",
+                        .position = {0.0f, 0.0f, 1.2f},
+                        .max_distance = 6.0f,
+                        .hit_distance = 1.2f,
+                        .evidence_strength = 1.0f,
+                        .enabled = true}},
+                      {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 1.0f / 60.0f);
+  assert(interactions.focus().visible);
+  assert(interactions.focus().target_id == "item:visible");
+  interactions.update({{.id = "item:weak",
+                        .kind = aster::InteractionTargetKind::Item,
+                        .shape = aster::InteractionTargetShape::ExplicitHit,
+                        .action_label = "Use",
+                        .subject_label = "Weak",
+                        .position = {0.0f, 0.0f, 1.0f},
+                        .max_distance = 6.0f,
+                        .hit_distance = 1.0f,
+                        .evidence_strength = 1.0f,
+                        .enabled = true},
+                       {.id = "item:strong",
+                        .kind = aster::InteractionTargetKind::Item,
+                        .shape = aster::InteractionTargetShape::ExplicitHit,
+                        .action_label = "Use",
+                        .subject_label = "Strong",
+                        .position = {0.0f, 0.0f, 1.01f},
+                        .max_distance = 6.0f,
+                        .hit_distance = 1.01f,
+                        .evidence_strength = 3.0f,
+                        .enabled = true}},
+                      {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 1.0f / 60.0f);
+  assert(interactions.focus().visible);
+  assert(interactions.focus().target_id == "item:strong");
 
   aster::ScalarAnimation animation;
   animation.setTarget(1.0f);
@@ -492,6 +655,105 @@ void testGameplayItemInteractionSystems() {
   assert(socket.has_value());
   assert(aster::length(socket->position - pose.position) > 0.10f);
   assert(!aster::resolveAvatarAttachmentSocket(rig, pose, {.part_name = "missing"}).has_value());
+}
+
+void testMiningDamageAccumulatesAcrossOneCutFootprint() {
+  aster::MiningState mining;
+  aster::MiningToolStats tool = aster::starterPickaxeStats();
+  tool.cooldown_seconds = 0.0f;
+  const float hardness = 3.25f;
+
+  aster::VoxelCaveHit hit;
+  hit.hit = true;
+  hit.material = aster::VoxelCaveMaterial::Rock;
+  hit.normal = {0.0f, 0.0f, 1.0f};
+  hit.point = {0.0f, 0.0f, 0.0f};
+  hit.cell = {10, 0, 0};
+
+  aster::MiningFeedback feedback;
+  for (int strike = 0; strike < 4; ++strike) {
+    hit.point = {static_cast<float>(strike) * tool.carve_radius * 0.18f, 0.0f, 0.0f};
+    hit.cell = {10 + strike, 0, 0};
+    feedback = mining.tryMine({.now_seconds = static_cast<float>(strike),
+                               .hit = hit,
+                               .tool = tool,
+                               .material_hardness = hardness});
+    assert(feedback.accepted);
+    assert(feedback.crack_fraction > 0.0f);
+    assert(feedback.carved == (strike == 3));
+  }
+}
+
+void testGenericMineableBreaksWithoutVoxelCarve() {
+  aster::MiningState mining;
+  aster::MiningToolStats tool = aster::starterPickaxeStats();
+  tool.cooldown_seconds = 0.0f;
+  tool.power = 1.0f;
+
+  const aster::MineableHit web_hit{.hit = true,
+                                   .target_key = "web:test",
+                                   .point = {0.0f, 1.0f, -2.0f},
+                                   .normal = {0.0f, 0.0f, 1.0f},
+                                   .material = aster::VoxelCaveMaterial::Rock,
+                                   .cell = {3, 4, 5}};
+  aster::MiningFeedback feedback;
+  for (int strike = 0; strike < 2; ++strike) {
+    const aster::MineableAttempt attempt{.now_seconds = static_cast<float>(strike),
+                                         .hit = web_hit,
+                                         .tool = tool,
+                                         .material_hardness = 2.0f,
+                                         .resource_item_id = {},
+                                         .resource_quantity = 0,
+                                         .carve_surface = false};
+    feedback = mining.tryMine(attempt);
+    assert(feedback.accepted);
+    assert(feedback.crack_fraction > 0.0f);
+    assert(feedback.carved == (strike == 1));
+  }
+  assert(feedback.edit.radius == 0.55f);
+  bool saw_carve_event = false;
+  for (const aster::VoxelImpactEvent &event : feedback.impact_events) {
+    saw_carve_event = saw_carve_event || event.kind == aster::VoxelImpactEventKind::Carve;
+  }
+  assert(!saw_carve_event);
+}
+
+void testCaveWebMeshFitsOvalWithoutRectFrame() {
+  const aster::Vec3 center{2.0f, 3.0f, -4.0f};
+  const aster::Vec3 side{1.0f, 0.0f, 0.0f};
+  const aster::Vec3 up{0.0f, 1.0f, 0.0f};
+  constexpr float radius_x = 1.35f;
+  constexpr float radius_y = 0.92f;
+  const aster::CpuMesh mesh =
+      aster::makeCaveWebMesh({.center = center,
+                              .normal = {0.0f, 0.0f, -1.0f},
+                              .side = side,
+                              .up = up,
+                              .radius_x = radius_x,
+                              .radius_y = radius_y,
+                              .radial_strands = 20,
+                              .ring_strands = 6,
+                              .ring_segments = 96,
+                              .strand_width = 0.012f,
+                              .sag = 0.08f,
+                              .irregularity = 0.05f,
+                              .seed = 117u,
+                              .double_sided = true});
+  assert(!mesh.vertices.empty());
+  assert(!mesh.indices.empty());
+  assert(mesh.indices.size() % 3u == 0u);
+
+  bool saw_corner_like_vertex = false;
+  for (const aster::Vertex &vertex : mesh.vertices) {
+    const aster::Vec3 offset = vertex.position - center;
+    const float x = aster::dot(offset, side) / radius_x;
+    const float y = aster::dot(offset, up) / radius_y;
+    assert(x * x + y * y <= 1.10f);
+    saw_corner_like_vertex =
+        saw_corner_like_vertex || (std::abs(x) > 0.88f && std::abs(y) > 0.88f);
+    assert(aster::length(vertex.normal) > 0.50f);
+  }
+  assert(!saw_corner_like_vertex);
 }
 
 void testMeshGeneration() {
@@ -528,6 +790,111 @@ void testMeshGeneration() {
   const aster::CpuMesh cable = aster::makeCableMesh();
   assert(!cable.vertices.empty());
   assert(!cable.indices.empty());
+
+  const aster::CpuMesh conduit =
+      aster::makeEnergyConduitRibbonMesh({.points = {{0.0f, 0.0f, 0.0f},
+                                                     {1.0f, 0.35f, 0.30f},
+                                                     {2.0f, 0.0f, 0.0f}},
+                                          .width = 0.12f,
+                                          .crest_height = 0.20f,
+                                          .subdivisions_per_segment = 4});
+  assert(!conduit.vertices.empty());
+  assert(!conduit.indices.empty());
+  assert(conduit.indices.size() % 3u == 0u);
+  for (const aster::Vertex &vertex : conduit.vertices) {
+    assert(std::isfinite(vertex.position.x));
+    assert(std::isfinite(vertex.normal.y));
+    assert(aster::length(vertex.normal) > 0.50f);
+  }
+  const aster::CpuMesh conduit_ring =
+      aster::makeEnergyConduitRingMesh({.radius = 0.8f, .band_width = 0.06f, .segments = 24});
+  assert(!conduit_ring.vertices.empty());
+  assert(!conduit_ring.indices.empty());
+  assert(conduit_ring.indices.size() % 3u == 0u);
+  const aster::CpuMesh conduit_network = aster::makeEnergyConduitRibbonNetworkMesh(
+      {{.points = {{0.0f, 0.0f, 0.0f}, {0.8f, 0.4f, 0.2f}, {1.2f, 0.0f, 0.0f}},
+        .width = 0.08f,
+        .subdivisions_per_segment = 3},
+       {.points = {{0.0f, 0.0f, 0.0f}, {-0.6f, 0.3f, 0.4f}, {-1.0f, 0.0f, 0.7f}},
+        .width = 0.10f,
+        .subdivisions_per_segment = 3}});
+  assert(conduit_network.vertices.size() > conduit.vertices.size());
+  assert(conduit_network.indices.size() > conduit.indices.size());
+
+  const aster::VoronoiFractureSpec fracture_spec{
+      .volume = {.center = {0.0f, 0.0f, 0.0f},
+                 .half_extents = {0.80f, 0.42f, 0.56f},
+                 .axis_x = {1.0f, 0.0f, 0.0f},
+                 .axis_y = {0.0f, 1.0f, 0.0f},
+                 .axis_z = {0.0f, 0.0f, 1.0f}},
+      .impact_point = {0.18f, 0.06f, 0.52f},
+      .impact_normal = {0.0f, 0.0f, 1.0f},
+      .seed = 19u,
+      .shard_count = 8};
+  const std::vector<aster::VoronoiFractureShard> fracture_shards =
+      aster::buildImpactVoronoiFracture(fracture_spec);
+  assert(fracture_shards.size() >= 4u);
+  float relative_volume = 0.0f;
+  for (const aster::VoronoiFractureShard &shard : fracture_shards) {
+    assert(!shard.mesh.vertices.empty());
+    assert(!shard.mesh.indices.empty());
+    assert(shard.mesh.indices.size() % 3u == 0u);
+    assert(aster::length(shard.impulse_direction) > 0.90f);
+    assert(std::abs(shard.centroid.x) <= 0.82f);
+    assert(std::abs(shard.centroid.y) <= 0.44f);
+    assert(std::abs(shard.centroid.z) <= 0.58f);
+    relative_volume += shard.relative_volume;
+  }
+  expectNear(relative_volume, 1.0f, 0.001f);
+
+  const aster::ConvexCutVolume cut_volume{.center = {0.0f, 0.0f, 0.0f},
+                                          .half_extents = {0.8f, 0.5f, 0.6f},
+                                          .axis_x = {1.0f, 0.0f, 0.0f},
+                                          .axis_y = {0.0f, 1.0f, 0.0f},
+                                          .axis_z = {0.0f, 0.0f, 1.0f}};
+  const aster::CpuMesh cut_box = aster::makeConvexCutBox(cut_volume);
+  aster::MeshCutSpec cut_spec;
+  cut_spec.planes.push_back(aster::makeMeshCutPlane({0.0f, 0.0f, 0.0f},
+                                                    {1.0f, 0.0f, 0.0f}));
+  const aster::MeshCutResult cut_result = aster::partitionMeshByCutPlanes(cut_box, cut_spec);
+  assert(cut_result.fragments.size() == 2u);
+  assert(!cut_result.seam_points.empty());
+  bool has_negative_cut = false;
+  bool has_positive_cut = false;
+  for (const aster::MeshCutFragment &fragment : cut_result.fragments) {
+    assert(!fragment.mesh.vertices.empty());
+    assert(!fragment.mesh.indices.empty());
+    assert(fragment.mesh.indices.size() % 3u == 0u);
+    assert(fragment.surface_area > 0.0f);
+    assert(fragment.cut_plane_mask == 1u);
+    has_negative_cut =
+        has_negative_cut || fragment.side == aster::MeshCutFragmentSide::Negative;
+    has_positive_cut =
+        has_positive_cut || fragment.side == aster::MeshCutFragmentSide::Positive;
+    assert(fragment.bounds_min.x >= -0.81f);
+    assert(fragment.bounds_max.x <= 0.81f);
+  }
+  assert(has_negative_cut);
+  assert(has_positive_cut);
+
+  const aster::MeshCutImpactSpec impact_cut_spec{.volume = cut_volume,
+                                                 .impact_point = {0.14f, 0.04f, 0.58f},
+                                                 .impact_normal = {0.0f, 0.0f, 1.0f},
+                                                 .seed = 23u,
+                                                 .plane_count = 4};
+  const aster::MeshCutResult impact_cut = aster::buildImpactMeshCut(impact_cut_spec);
+  assert(impact_cut.fragments.size() >= 3u);
+  assert(!impact_cut.seam_points.empty());
+  for (const aster::MeshCutFragment &fragment : impact_cut.fragments) {
+    assert(!fragment.mesh.vertices.empty());
+    assert(!fragment.mesh.indices.empty());
+    assert(fragment.mesh.indices.size() % 3u == 0u);
+    assert(fragment.surface_area > 0.0f);
+    assert(aster::length(fragment.impulse_direction) > 0.90f);
+    assert(fragment.centroid.x >= -0.82f && fragment.centroid.x <= 0.82f);
+    assert(fragment.centroid.y >= -0.52f && fragment.centroid.y <= 0.52f);
+    assert(fragment.centroid.z >= -0.62f && fragment.centroid.z <= 0.62f);
+  }
 
   const aster::CpuMesh mound = aster::makeMoundMesh();
   assert(!mound.vertices.empty());
@@ -720,12 +1087,77 @@ void testMeshGeneration() {
     return aster::TerrainSurfaceSample{.valid = true, .height = 0.0f, .normal = {0.86f, 0.22f, 0.0f}};
   };
   assert(aster::scatterGrassFieldAnchors(grass_field_spec, steep_sampler).empty());
+  const aster::GroundDetailScatterSpec detail_spec{.min = {-1.0f, -1.0f},
+                                                   .max = {1.0f, 1.0f},
+                                                   .seed = 91u,
+                                                   .target_details = 24,
+                                                   .candidate_multiplier = 2,
+                                                   .min_spacing = 0.0f,
+                                                   .surface_offset = 0.018f,
+                                                   .min_radius = 0.035f,
+                                                   .max_radius = 0.11f,
+                                                   .twig_fraction = 0.26f,
+                                                   .leaf_fraction = 0.34f,
+                                                   .density_noise_contrast = 0.0f,
+                                                   .min_surface_normal_y = 0.0f,
+                                                   .preferred_surface_normal_y = 0.10f};
+  const std::vector<aster::GroundDetailAnchor> details_a =
+      aster::scatterGroundDetailAnchors(detail_spec, flat_grass_sampler);
+  const std::vector<aster::GroundDetailAnchor> details_b =
+      aster::scatterGroundDetailAnchors(detail_spec, flat_grass_sampler);
+  assert(details_a.size() == 24u);
+  assert(details_a.size() == details_b.size());
+  bool saw_pebble = false;
+  bool saw_litter = false;
+  for (std::size_t i = 0; i < details_a.size(); ++i) {
+    expectNear(details_a[i].position.x, details_b[i].position.x, 0.000001f);
+    expectNear(details_a[i].position.y, details_b[i].position.y, 0.000001f);
+    expectNear(details_a[i].position.z, details_b[i].position.z, 0.000001f);
+    assert(details_a[i].radius >= detail_spec.min_radius);
+    assert(details_a[i].radius <= detail_spec.max_radius);
+    saw_pebble = saw_pebble || details_a[i].kind == aster::GroundDetailKind::Pebble;
+    saw_litter = saw_litter || details_a[i].kind != aster::GroundDetailKind::Pebble;
+  }
+  assert(saw_pebble);
+  assert(saw_litter);
+  const aster::CpuMesh ground_detail_mesh = aster::makeGroundDetailMesh(details_a);
+  assert(!ground_detail_mesh.vertices.empty());
+  assert(!ground_detail_mesh.indices.empty());
+  for (const aster::Vertex &vertex : ground_detail_mesh.vertices) {
+    assert(std::isfinite(vertex.position.x));
+    assert(std::isfinite(vertex.position.y));
+    assert(std::isfinite(vertex.position.z));
+    assert(aster::length(vertex.normal) > 0.50f);
+  }
   const aster::CpuMesh fish = aster::makeFishMesh();
   assert(!fish.vertices.empty());
   assert(!fish.indices.empty());
   const aster::CpuMesh predator = aster::makeAmphibiousPredatorMesh();
   assert(!predator.vertices.empty());
   assert(!predator.indices.empty());
+  const aster::CpuMesh skitter = aster::makeCaveSkitterMesh();
+  assert(!skitter.vertices.empty());
+  assert(!skitter.indices.empty());
+  assert(skitter.indices.size() % 3u == 0u);
+  bool saw_eye_uv = false;
+  float min_x = std::numeric_limits<float>::infinity();
+  float max_x = -std::numeric_limits<float>::infinity();
+  float min_z = std::numeric_limits<float>::infinity();
+  float max_z = -std::numeric_limits<float>::infinity();
+  for (const aster::Vertex &vertex : skitter.vertices) {
+    assert(std::isfinite(vertex.position.x));
+    assert(std::isfinite(vertex.position.y));
+    assert(std::isfinite(vertex.position.z));
+    assert(aster::length(vertex.normal) > 0.50f);
+    saw_eye_uv = saw_eye_uv || (vertex.uv.x > 0.90f && vertex.uv.y < 0.28f);
+    min_x = std::min(min_x, vertex.position.x);
+    max_x = std::max(max_x, vertex.position.x);
+    min_z = std::min(min_z, vertex.position.z);
+    max_z = std::max(max_z, vertex.position.z);
+  }
+  assert(saw_eye_uv);
+  assert(max_x - min_x > 0.9f);
+  assert(max_z - min_z > 0.5f);
   const aster::CpuMesh broad_leaf = aster::makeBroadLeafPlantMesh();
   assert(!broad_leaf.vertices.empty());
   assert(!broad_leaf.indices.empty());
@@ -1189,9 +1621,45 @@ void testVoxelCaveStreamingAndFixtureContracts() {
         (chunk.collision_mesh != nullptr && !chunk.collision_mesh->vertices.empty() &&
          !chunk.collision_mesh->indices.empty() &&
          countFacesOpposingVertexNormals(*chunk.collision_mesh) == 0u);
+    const float chunk_world_size = spec.cell_size * static_cast<float>(spec.chunk_cells);
+    for (const aster::VoxelChunkRenderBatch &batch : chunk.batches) {
+      if (batch.mesh == nullptr || batch.mesh->vertices.empty()) {
+        continue;
+      }
+      aster::Vec3 min = batch.mesh->vertices.front().position;
+      aster::Vec3 max = min;
+      for (const aster::Vertex &vertex : batch.mesh->vertices) {
+        min.x = std::min(min.x, vertex.position.x);
+        min.y = std::min(min.y, vertex.position.y);
+        min.z = std::min(min.z, vertex.position.z);
+        max.x = std::max(max.x, vertex.position.x);
+        max.y = std::max(max.y, vertex.position.y);
+        max.z = std::max(max.z, vertex.position.z);
+      }
+      const aster::Vec3 mesh_center = (min + max) * 0.5f;
+      assert(aster::length(mesh_center - chunk.center) <= chunk_world_size * 1.85f);
+      assert(aster::length(mesh_center) > 8.0f);
+    }
   }
   assert(saw_first_chunk);
   assert(saw_collision_mesh);
+
+  const aster::VoxelEditResult immediate_edit =
+      state.applyEdit({.center = {0.0f, 0.0f, -54.0f}, .radius = 0.72f},
+                      aster::VoxelEditRebuildMode::ImmediateAffected);
+  assert(immediate_edit.accepted);
+  assert(!immediate_edit.affected_chunks.empty());
+  assert(immediate_edit.rebuilt_chunks == static_cast<int>(immediate_edit.affected_chunks.size()));
+  state.updateStreaming({0.0f, 0.0f, -52.0f}, 0.0f);
+  bool edited_chunk_pending = false;
+  for (const aster::VoxelChunkSnapshot &chunk : state.activeChunks()) {
+    for (const aster::VoxelChunkCoord affected : immediate_edit.affected_chunks) {
+      if (chunk.coord == affected) {
+        edited_chunk_pending = edited_chunk_pending || chunk.rebuild_pending;
+      }
+    }
+  }
+  assert(!edited_chunk_pending);
 
   const aster::VoxelCaveInteriorSample authored = state.sampleInterior({0.0f, 0.0f, -54.0f});
   assert(authored.valid);
@@ -1220,6 +1688,8 @@ void testVoxelCaveStreamingAndFixtureContracts() {
   for (const aster::VoxelCaveFixturePlacement &fixture : path_fixtures) {
     assert(aster::dot(fixture.lens_position - fixture.mount_position, fixture.normal) > 0.050f);
     assert(aster::dot(fixture.light_position - fixture.lens_position, fixture.normal) > 0.120f);
+    assert(state.densityAt(fixture.mount_position) <= 0.0f);
+    assert(state.densityAt(fixture.lens_position) <= 0.0f);
   }
 
   const std::vector<aster::VoxelCaveFixturePlacement> procedural_fixtures =
@@ -1246,6 +1716,8 @@ void testVoxelCaveStreamingAndFixtureContracts() {
   assert(ranked.front().weight > 0.0f);
   assert(aster::length(ranked.front().placement.light_position -
                        ranked.front().placement.lens_position) > 0.12f);
+  assert(state.densityAt(ranked.front().placement.mount_position) <= 0.0f);
+  assert(state.densityAt(ranked.front().placement.lens_position) <= 0.0f);
 
   state.updateStreaming({0.0f, 0.0f, -76.0f}, 0.1f);
   const aster::VoxelChunkCoord advanced_center = state.chunkCoordFor({0.0f, 0.0f, -76.0f});
@@ -1255,6 +1727,254 @@ void testVoxelCaveStreamingAndFixtureContracts() {
   }
   assert(!(advanced_center == first_center));
   assert(saw_advanced_chunk);
+
+  aster::VoxelCaveSpec plug_spec;
+  plug_spec.seed = 171u;
+  plug_spec.origin = {-4.0f, -4.0f, -18.0f};
+  plug_spec.cell_size = 0.40f;
+  plug_spec.chunk_cells = 8;
+  plug_spec.stream_radius = 1;
+  plug_spec.unload_radius = 2;
+  plug_spec.max_chunk_rebuilds_per_update = 0;
+  plug_spec.structural_surface_mode =
+      aster::VoxelCaveStructuralSurfaceMode::RenderAndCollide;
+  plug_spec.tunnels.push_back({{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -12.0f}, 1.10f});
+  plug_spec.procedural_fields.push_back({.enabled = true,
+                                         .seed = 173u,
+                                         .start = {0.0f, 0.0f, -12.0f},
+                                         .forward = {0.0f, 0.0f, -1.0f},
+                                         .up = {0.0f, 1.0f, 0.0f},
+                                         .tunnel_radius = 1.08f,
+                                         .vertical_radius = 0.92f,
+                                         .radius_variation = 0.0f,
+                                         .side_wander = 0.0f,
+                                         .vertical_wander = 0.0f,
+                                         .chamber_spacing = 12.0f,
+                                         .chamber_radius = 1.8f,
+                                         .chamber_vertical_radius = 1.2f,
+                                         .chamber_radius_variation = 0.0f,
+                                         .chamber_jitter = 0.0f});
+  plug_spec.solid_plugs.push_back({.enabled = true,
+                                   .seed = 179u,
+                                   .center = {0.0f, 0.0f, -5.0f},
+                                   .forward = {0.0f, 0.0f, -1.0f},
+                                   .up = {0.0f, 1.0f, 0.0f},
+                                   .material = aster::VoxelCaveMaterial::Iron,
+                                   .radius = 1.22f,
+                                   .vertical_radius = 1.04f,
+                                   .half_length = 1.35f,
+                                   .edge_feather = 0.14f,
+                                   .surface_noise = 0.0f});
+  plug_spec.procedural_solid_plug_fields.push_back(
+      {.enabled = true,
+       .seed = 181u,
+       .path_field_index = 0,
+       .start = {0.0f, 0.0f, -12.0f},
+       .forward = {0.0f, 0.0f, -1.0f},
+       .up = {0.0f, 1.0f, 0.0f},
+       .material = aster::VoxelCaveMaterial::Iron,
+       .first_distance = 4.0f,
+       .spacing = 8.0f,
+       .radius_scale = 1.16f,
+       .vertical_radius_scale = 1.10f,
+       .half_length = 1.20f,
+       .edge_feather = 0.12f,
+       .surface_noise = 0.0f,
+       .radius_variation = 0.0f,
+       .length_variation = 0.0f,
+       .lateral_jitter = 0.0f,
+       .vertical_jitter = 0.0f});
+  plug_spec.material_profiles = {{.material = aster::VoxelCaveMaterial::Rock,
+                                  .seed = 183u,
+                                  .display_name = "Rock",
+                                  .visual_material_id = "rock",
+                                  .resource_item_id = "stone"},
+                                 {.material = aster::VoxelCaveMaterial::Iron,
+                                  .seed = 191u,
+                                  .display_name = "Ironstone",
+                                  .visual_material_id = "ironstone",
+                                  .hardness = 6.0f,
+                                  .resource_item_id = "iron_ore",
+                                  .vein_frequency = 0.0f,
+                                  .vein_radius = 0.0f,
+                                  .surface_relief = 0.20f,
+                                  .surface_coverage = 0.84f}};
+  aster::VoxelCaveState plug_state;
+  plug_state.configure(plug_spec);
+  assert(plug_state.densityAt({0.0f, 0.0f, -5.0f}) > 0.0f);
+  assert(plug_state.materialAt({0.0f, 0.0f, -5.0f}) == aster::VoxelCaveMaterial::Iron);
+  const aster::VoxelCaveHit plug_hit =
+      plug_state.raycast({0.0f, 0.0f, -2.0f}, {0.0f, 0.0f, -1.0f}, 6.0f);
+  assert(plug_hit.hit);
+  assert(plug_hit.material == aster::VoxelCaveMaterial::Iron);
+  const aster::VoxelCaveProceduralFrame plug_frame =
+      aster::sampleVoxelCaveProceduralFrameAt(plug_spec.procedural_fields.front(), 4.0f);
+  assert(plug_frame.valid);
+  assert(plug_state.densityAt(plug_frame.center) > 0.0f);
+  assert(plug_state.materialAt(plug_frame.center) == aster::VoxelCaveMaterial::Iron);
+  plug_state.updateStreaming({0.0f, 0.0f, -5.0f}, 0.0f);
+  bool saw_ironstone_batch = false;
+  for (const aster::VoxelChunkSnapshot &chunk : plug_state.activeChunks()) {
+    for (const aster::VoxelMaterialSurfaceStats &material : chunk.surface_stats.materials) {
+      saw_ironstone_batch =
+          saw_ironstone_batch || material.material == aster::VoxelCaveMaterial::Iron;
+    }
+  }
+  assert(saw_ironstone_batch);
+  const aster::VoxelEditResult plug_edit =
+      plug_state.applyEdit({.center = {0.0f, 0.0f, -5.0f}, .radius = 1.45f},
+                           aster::VoxelEditRebuildMode::ImmediateAffected);
+  assert(plug_edit.accepted);
+  assert(plug_state.densityAt({0.0f, 0.0f, -5.0f}) <= 0.0f);
+}
+
+void testVoxelCaveStreamingPublishesReadySnapshotsOnly() {
+  aster::VoxelCaveSpec spec;
+  spec.seed = 251u;
+  spec.origin = {-4.0f, -4.0f, -12.0f};
+  spec.cell_size = 0.40f;
+  spec.chunk_cells = 8;
+  spec.stream_radius = 1;
+  spec.unload_radius = 2;
+  spec.max_chunk_rebuilds_per_update = 1;
+  spec.forced_rebuild_radius = 0;
+  spec.structural_surface_mode = aster::VoxelCaveStructuralSurfaceMode::RenderAndCollide;
+  spec.tunnels.push_back({{0.0f, 0.0f, -2.0f}, {0.0f, 0.0f, -14.0f}, 1.08f});
+  spec.procedural_fields.push_back({.enabled = true,
+                                    .seed = 257u,
+                                    .start = {0.0f, 0.0f, -14.0f},
+                                    .forward = {0.0f, 0.0f, -1.0f},
+                                    .up = {0.0f, 1.0f, 0.0f},
+                                    .tunnel_radius = 1.04f,
+                                    .vertical_radius = 0.90f,
+                                    .radius_variation = 0.0f,
+                                    .side_wander = 0.0f,
+                                    .vertical_wander = 0.0f,
+                                    .chamber_spacing = 12.0f,
+                                    .chamber_radius = 1.8f,
+                                    .chamber_vertical_radius = 1.2f,
+                                    .chamber_radius_variation = 0.0f,
+                                    .chamber_jitter = 0.0f});
+  spec.material_profiles = {{.material = aster::VoxelCaveMaterial::Rock,
+                             .seed = 263u,
+                             .display_name = "Rock",
+                             .visual_material_id = "rock"}};
+
+  aster::VoxelCaveState state;
+  state.configure(spec);
+  state.updateStreaming({0.0f, 0.0f, -6.0f}, 0.0f);
+  assert(!state.activeChunks().empty());
+  assert(state.activeChunks().size() < 27u);
+  bool saw_coarse_proxy = false;
+  bool saw_full_chunk = false;
+  for (const aster::VoxelChunkSnapshot &chunk : state.activeChunks()) {
+    assert(chunk.mesh_generation > 0u);
+    if (chunk.coarse_proxy) {
+      saw_coarse_proxy = true;
+      assert(chunk.lifecycle == aster::VoxelChunkLifecycle::CoarseVisible);
+      assert(chunk.rebuild_pending);
+      assert(chunk.collision_mesh == nullptr);
+    } else {
+      saw_full_chunk = true;
+      assert(chunk.lifecycle == aster::VoxelChunkLifecycle::FullPublished);
+      assert(!chunk.rebuild_pending);
+    }
+  }
+  assert(saw_coarse_proxy);
+  assert(saw_full_chunk);
+
+  const aster::Vec3 probe_position{7.4f, 0.0f, -6.0f};
+  const aster::VoxelChunkCoord probe_coord = state.chunkCoordFor(probe_position);
+  aster::VoxelCaveUpdateOptions probe_options;
+  probe_options.visibility_probes.push_back(probe_position);
+  probe_options.viewer_velocity = {5.0f, 0.0f, 0.0f};
+  state.updateStreaming({0.0f, 0.0f, -6.0f}, 1.0f / 60.0f, probe_options);
+  bool saw_probe_chunk = false;
+  for (const aster::VoxelChunkSnapshot &chunk : state.activeChunks()) {
+    saw_probe_chunk = saw_probe_chunk || chunk.coord == probe_coord;
+  }
+  assert(saw_probe_chunk);
+  assert(state.lastUpdateStats().visibility_probe_chunks > 0u);
+}
+
+void testVoxelCaveDeferredEditRetainsPublishedCollision() {
+  aster::VoxelCaveSpec spec;
+  spec.seed = 271u;
+  spec.origin = {-4.0f, -4.0f, -12.0f};
+  spec.cell_size = 0.40f;
+  spec.chunk_cells = 8;
+  spec.stream_radius = 1;
+  spec.unload_radius = 2;
+  spec.max_chunk_rebuilds_per_update = 0;
+  spec.forced_rebuild_radius = 0;
+  spec.structural_surface_mode = aster::VoxelCaveStructuralSurfaceMode::RenderAndCollide;
+  spec.tunnels.push_back({{0.0f, 0.0f, -2.0f}, {0.0f, 0.0f, -14.0f}, 1.08f});
+  spec.material_profiles = {{.material = aster::VoxelCaveMaterial::Rock,
+                             .seed = 277u,
+                             .display_name = "Rock",
+                             .visual_material_id = "rock"}};
+
+  aster::VoxelCaveState state;
+  state.configure(spec);
+  const aster::Vec3 viewer{0.0f, 0.0f, -6.0f};
+  state.updateStreaming(viewer, 0.0f);
+  aster::VoxelCaveUpdateOptions warmup;
+  warmup.override_rebuild_budget = true;
+  warmup.rebuild_budget = aster::voxelCaveRebuildItemBudget(8u);
+  for (int i = 0; i < 3; ++i) {
+    state.updateStreaming(viewer, 0.0f, warmup);
+  }
+  const aster::VoxelChunkCoord viewer_coord = state.chunkCoordFor(viewer);
+  const aster::VoxelChunkSnapshot *target = nullptr;
+  for (const aster::VoxelChunkSnapshot &chunk : state.activeChunks()) {
+    if (!(chunk.coord == viewer_coord) && !chunk.coarse_proxy && !chunk.rebuild_pending &&
+        chunk.collision_mesh != nullptr &&
+        !chunk.collision_mesh->vertices.empty() && !chunk.collision_mesh->indices.empty()) {
+      target = &chunk;
+      break;
+    }
+  }
+  if (target == nullptr) {
+    throw std::runtime_error("Voxel cave test requires a full published neighbor chunk.");
+  }
+  const aster::VoxelChunkCoord target_coord = target->coord;
+  const std::uint64_t before_generation = target->mesh_generation;
+  const std::shared_ptr<const aster::CpuMesh> before_collision = target->collision_mesh;
+
+  const aster::VoxelEditResult deferred =
+      state.applyEdit({.center = target->center, .radius = 0.72f},
+                      aster::VoxelEditRebuildMode::Deferred);
+  assert(deferred.accepted);
+  assert(deferred.rebuilt_chunks == 0);
+
+  aster::VoxelCaveUpdateOptions no_work;
+  no_work.override_rebuild_budget = true;
+  no_work.rebuild_budget.max_seconds = 0.5;
+  state.updateStreaming(viewer, 1.0f / 60.0f, no_work);
+  assert(state.lastUpdateStats().rebuilt_chunks == 0u);
+  bool retained_dirty_snapshot = false;
+  for (const aster::VoxelChunkSnapshot &chunk : state.activeChunks()) {
+    if (chunk.coord == target_coord) {
+      retained_dirty_snapshot = chunk.rebuild_pending && !chunk.collision_dirty &&
+                                chunk.mesh_generation == before_generation &&
+                                chunk.collision_mesh == before_collision;
+    }
+  }
+  assert(retained_dirty_snapshot);
+
+  aster::VoxelCaveUpdateOptions rebuild_one;
+  rebuild_one.override_rebuild_budget = true;
+  rebuild_one.rebuild_budget = aster::defaultVoxelCaveInteractiveRebuildBudget();
+  state.updateStreaming(viewer, 1.0f / 60.0f, rebuild_one);
+  assert(state.lastUpdateStats().rebuilt_chunks >= 1u);
+  bool published_replacement = false;
+  for (const aster::VoxelChunkSnapshot &chunk : state.changedChunks()) {
+    published_replacement =
+        published_replacement || (chunk.coord == target_coord && !chunk.rebuild_pending &&
+                                  chunk.mesh_generation > before_generation &&
+                                  chunk.collision_dirty);
+  }
+  assert(published_replacement);
 }
 
 void testMeshProcessingPipeline() {
@@ -1613,6 +2333,44 @@ void testRustRenderFramePlanContracts() {
     assert(repeated_plan.groups[i].first_instance == plan.groups[i].first_instance);
     assert(repeated_plan.groups[i].instance_count == plan.groups[i].instance_count);
   }
+
+  aster::Scene diagnostic_scene;
+  auto dynamic_mesh = std::make_shared<const aster::CpuMesh>(aster::makeBox());
+  aster::RenderObject dynamic;
+  dynamic.name = "dynamic cave cell";
+  dynamic.custom_mesh = dynamic_mesh;
+  dynamic.material = opaque;
+  dynamic.dynamic_mesh = {.id = 42u, .generation = 7u};
+  dynamic.visibility_hint = {.visibility_class = aster::RenderVisibilityClass::DynamicVoxel,
+                             .cell = {1.0f, 2.0f, 3.0f},
+                             .portal_depth = 4.0f};
+  diagnostic_scene.objects().push_back(dynamic);
+
+  aster::RenderObject dynamic_clone = dynamic;
+  dynamic_clone.custom_mesh = std::make_shared<const aster::CpuMesh>(aster::makeBox());
+  assert(aster::renderMeshIdForObject(dynamic_clone).value ==
+         aster::renderMeshIdForObject(dynamic).value);
+  dynamic_clone.dynamic_mesh.generation = 8u;
+  assert(aster::renderMeshIdForObject(dynamic_clone).value !=
+         aster::renderMeshIdForObject(dynamic).value);
+
+  aster::RenderObject lod_culled;
+  lod_culled.name = "lod culled";
+  lod_culled.primitive = aster::MeshPrimitive::Box;
+  lod_culled.transform.position = {0.0f, 0.0f, 0.0f};
+  lod_culled.material = opaque;
+  lod_culled.lod.max_distance = 1.0f;
+  diagnostic_scene.objects().push_back(lod_culled);
+
+  aster::RenderScene diagnostic_render_scene;
+  diagnostic_render_scene.rebuild(diagnostic_scene);
+  const aster::FrameRenderPlan diagnostic_plan =
+      aster::buildFrameRenderPlan(diagnostic_render_scene, camera, {}, 800, 600);
+  assert(diagnostic_plan.diagnostics.object_count == 2u);
+  assert(diagnostic_plan.diagnostics.visible_objects == 1u);
+  assert(diagnostic_plan.diagnostics.lod_culled_objects == 1u);
+  assert(diagnostic_plan.diagnostics.visibility_hint_objects == 1u);
+  assert(diagnostic_plan.diagnostics.dynamic_mesh_objects == 1u);
 }
 
 void testGeneratedSceneryAssembly() {
@@ -2019,6 +2777,26 @@ void testLumenSupplyCrateInventoryContract() {
   assert(run.torchCount() == 2);
 }
 
+void testLumenPrismRelayProximityInteraction() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  const std::optional<aster::DynamicPointLight> idle_light = run.prismRelayLight();
+  assert(idle_light.has_value());
+
+  const aster::Vec3 base = run.prismRelayBasePosition();
+  run.relocatePlayer(base + aster::Vec3{1.35f, 0.0f, 0.95f}, 0.0f);
+  run.updateInteractionFocus({base.x, base.y + 8.0f, base.z}, {0.0f, 0.0f, 1.0f},
+                             1.0f / 240.0f);
+  const aster::FocusPromptModel prompt = run.focusPromptModel();
+  assert(prompt.visible);
+  assert(prompt.action == "Ignite");
+  assert(prompt.subject == "Prism Relay");
+
+  run.interactFocused();
+  const std::optional<aster::DynamicPointLight> active_light = run.prismRelayLight();
+  assert(active_light.has_value());
+  assert(active_light->intensity > idle_light->intensity * 2.0f);
+}
+
 void testLumenCaveVisualContracts() {
   aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
   run.relocatePlayer(run.supplyCratePosition(), 0.0f);
@@ -2032,12 +2810,17 @@ void testLumenCaveVisualContracts() {
   bool saw_cave_seal = false;
   bool saw_cave_throat = false;
   bool saw_cave_floor = false;
+  bool saw_transition_shell = false;
+  bool saw_transition_floor = false;
   bool saw_cave_chunk = false;
   bool saw_streaming_voxel_surface = false;
   bool saw_central_grass_field = false;
   bool saw_cave_mouth_grass_field = false;
+  bool saw_cave_web = false;
+  aster::Vec3 cave_web_center{};
+  int cave_skitter_count = 0;
+  bool saw_ironstone_blocker = false;
   bool saw_coal_ore = false;
-  bool saw_supply_crate = false;
   bool saw_wall_light_lens = false;
   int coal_ore_count = 0;
 
@@ -2058,11 +2841,7 @@ void testLumenCaveVisualContracts() {
       assert(object.material.surface_pattern == aster::SurfacePattern::Foliage);
     }
     if (startsWith(object.name, "Cave torch supply crate")) {
-      saw_supply_crate = true;
-      assert(object.transform.position.z < -40.0f);
-      assert(aster::length({object.transform.position.x, 0.0f, object.transform.position.z}) >
-             45.0f);
-      assert(!object.camera_occlusion_fade);
+      assert(false);
     }
     if (object.name == "Walkable cave entrance threshold") {
       saw_cave_threshold = true;
@@ -2129,6 +2908,22 @@ void testLumenCaveVisualContracts() {
       assert(object.material.cull_mode == aster::FaceCullMode::Back);
       assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
     }
+    if (object.name == "Continuous streaming cave connector shell") {
+      saw_transition_shell = true;
+      assert(object.custom_mesh != nullptr);
+      assert(!object.custom_mesh->vertices.empty());
+      assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
+      assert(object.material.cull_mode == aster::FaceCullMode::None);
+      assert(!object.viewer_cull_volume.enabled);
+      assert(!object.camera_occlusion_fade);
+    }
+    if (object.name == "Walkable streaming cave connector floor") {
+      saw_transition_floor = true;
+      assert(object.custom_mesh != nullptr);
+      assert(!object.custom_mesh->vertices.empty());
+      assert(object.material.render_role == aster::MaterialRenderRole::SupportSurface);
+      assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
+    }
     if (object.name == "Chunked procedural cave interior") {
       saw_cave_chunk = true;
       assert(object.material.opacity >= 0.999f);
@@ -2153,6 +2948,38 @@ void testLumenCaveVisualContracts() {
       assert(object.material.opacity >= 0.999f);
       assert(object.material.cull_mode == aster::FaceCullMode::Back);
       assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
+      assert(!object.camera_occlusion_fade);
+    }
+    if (object.name == "Ironstone voxel cave surface" && object.custom_mesh != nullptr &&
+        !object.custom_mesh->vertices.empty()) {
+      saw_ironstone_blocker = true;
+    }
+    if (object.name == "Oval cave spider web span") {
+      saw_cave_web = true;
+      assert(object.custom_mesh != nullptr);
+      assert(!object.custom_mesh->vertices.empty());
+      cave_web_center = {};
+      for (const aster::Vertex &vertex : object.custom_mesh->vertices) {
+        cave_web_center = cave_web_center + vertex.position;
+      }
+      cave_web_center = cave_web_center / static_cast<float>(object.custom_mesh->vertices.size());
+      assert(object.material.surface_pattern == aster::SurfacePattern::CaveWeb);
+      assert(object.material.alpha_mode == aster::MaterialAlphaMode::Blend);
+      assert(object.material.double_sided);
+      assert(object.material.cull_mode == aster::FaceCullMode::None);
+      assert(!object.camera_occlusion_fade);
+    }
+    if (object.name == "Cave skitter arachnid") {
+      ++cave_skitter_count;
+      assert(object.custom_mesh != nullptr);
+      assert(!object.custom_mesh->vertices.empty());
+      assert(object.material.surface_pattern == aster::SurfacePattern::CaveSkitterChitin);
+      assert(object.material.opacity >= 0.999f);
+      assert(object.material.alpha_mode == aster::MaterialAlphaMode::Opaque);
+      assert(object.material.depth_write == aster::MaterialDepthWrite::Enabled);
+      assert(!object.material.double_sided);
+      assert(object.material.cull_mode == aster::FaceCullMode::Back);
+      assert(object.transform.position.z < -40.0f);
       assert(!object.camera_occlusion_fade);
     }
     if (object.name == "Coal ore vein node") {
@@ -2183,14 +3010,35 @@ void testLumenCaveVisualContracts() {
   assert(saw_cave_seal);
   assert(saw_cave_throat);
   assert(saw_cave_floor);
+  assert(saw_transition_shell);
+  assert(saw_transition_floor);
   assert(saw_cave_chunk);
+  assert(saw_cave_web);
+  assert(cave_skitter_count == 3);
+  assert(!saw_ironstone_blocker);
   assert(saw_streaming_voxel_surface);
   assert(saw_central_grass_field);
   assert(saw_cave_mouth_grass_field);
   assert(saw_coal_ore);
   assert(coal_ore_count >= 4);
-  assert(saw_supply_crate);
   assert(saw_wall_light_lens);
+  const aster::Vec3 web_approach_position =
+      cave_web_center + aster::Vec3{0.0f, -0.10f, 2.35f};
+  run.relocatePlayer(web_approach_position, aster::radians(180.0f));
+  const int health_before_web = run.status().health;
+  for (int i = 0; i < 90; ++i) {
+    run.update(1.0f / 60.0f, {}, false, false);
+  }
+  assert(run.status().health == health_before_web);
+  const aster::Vec3 focus_origin = web_approach_position + aster::Vec3{0.0f, 0.42f, 0.0f};
+  run.updateInteractionFocus(focus_origin, aster::normalize(cave_web_center - focus_origin),
+                             1.0f / 60.0f);
+  const aster::FocusPromptModel transition_prompt = run.focusPromptModel();
+  assert(transition_prompt.visible);
+  assert(transition_prompt.action == "Cut");
+  assert(transition_prompt.subject == "Spider Web");
+  assert(!(transition_prompt.visible && transition_prompt.action == "Strike" &&
+           transition_prompt.subject == "Rock"));
   const aster::CaveLightingState spawn_cave_light = run.caveLightingStateAt({0.0f, 0.32f, 0.0f});
   assert(spawn_cave_light.interior < 0.001f);
   assert(spawn_cave_light.entrance_light < 0.001f);
@@ -2345,6 +3193,60 @@ void testAmphibiousPredatorMotion() {
   assert(update.mode == aster::AmphibiousMotionMode::Pursue ||
          update.mode == aster::AmphibiousMotionMode::Strike);
   assert(aster::length(update.position - aster::Vec3{-0.4f, 0.0f, 0.0f}) > 0.0f);
+}
+
+void testCaveSkitterGroupPatrolsAndBitesInsideWeb() {
+  std::vector<aster::CaveSkitterAgentState> skitters(3);
+  skitters[0].home_offset = {-0.30f, -0.10f};
+  skitters[1].home_offset = {0.22f, 0.16f};
+  skitters[2].home_offset = {0.04f, -0.22f};
+  for (std::size_t i = 0; i < skitters.size(); ++i) {
+    skitters[i].position = {skitters[i].home_offset.x, skitters[i].home_offset.y, 0.0f};
+    skitters[i].temperament = 0.2f + static_cast<float>(i) * 0.2f;
+  }
+  const aster::CaveSkitterGroupSettings settings{
+      .web = {.center = {0.0f, 0.0f, 0.0f},
+              .normal = {0.0f, 0.0f, 1.0f},
+              .side = {1.0f, 0.0f, 0.0f},
+              .up = {0.0f, 1.0f, 0.0f},
+              .radius_x = 1.2f,
+              .radius_y = 0.8f,
+              .thickness = 0.30f},
+      .max_speed = 1.1f,
+      .max_force = 5.0f,
+      .aggro_radius = 2.5f,
+      .strike_radius = 0.35f,
+      .bite_cooldown = 1.4f};
+  bool saw_bite = false;
+  for (int step = 0; step < 18; ++step) {
+    const std::vector<aster::CaveSkitterAgentUpdate> updates =
+        aster::updateCaveSkitterGroup(skitters, settings, {0.02f, 0.02f, 0.0f}, 1.0f / 30.0f);
+    assert(updates.size() == skitters.size());
+    for (const aster::CaveSkitterAgentState &skitter : skitters) {
+      const float x = skitter.position.x / settings.web.radius_x;
+      const float y = skitter.position.y / settings.web.radius_y;
+      assert(x * x + y * y <= 1.05f);
+      assert(std::abs(skitter.position.z) <= settings.web.thickness * 0.55f);
+    }
+    saw_bite = saw_bite || updates[0].bite || updates[1].bite || updates[2].bite;
+  }
+  assert(saw_bite);
+  const float cooldown_after_bite = skitters.front().bite_cooldown;
+  (void)aster::updateCaveSkitterGroup(skitters, settings, {0.02f, 0.02f, 0.0f}, 1.0f / 60.0f);
+  assert(skitters.front().bite_cooldown <= cooldown_after_bite);
+
+  aster::CaveSkitterGroupSettings dormant_settings = settings;
+  dormant_settings.aggro_radius = 0.0f;
+  dormant_settings.strike_radius = 0.0f;
+  for (aster::CaveSkitterAgentState &skitter : skitters) {
+    skitter.bite_cooldown = 0.0f;
+  }
+  const std::vector<aster::CaveSkitterAgentUpdate> dormant_updates =
+      aster::updateCaveSkitterGroup(skitters, dormant_settings, {0.02f, 0.02f, 0.0f},
+                                    1.0f / 30.0f);
+  for (const aster::CaveSkitterAgentUpdate &update : dormant_updates) {
+    assert(!update.bite);
+  }
 }
 
 void testAvatarRigSceneBinding() {
@@ -2981,6 +3883,46 @@ void testPhysicsFluidVolumeDragAndBuoyancy() {
   assert(sample.depth_below_surface > 0.0f);
 }
 
+void testPhysicsBroadphaseGeneratedParity() {
+  aster::PhysicsWorld world;
+  world.setSettings({{0.0f, 0.0f, 0.0f}, 1, 1.0f / 120.0f});
+
+  auto add_box = [&](const aster::PhysicsBodyType type, const aster::Vec3 position) {
+    aster::PhysicsBodyDesc desc;
+    desc.type = type;
+    desc.shape = aster::PhysicsShapeType::Box;
+    desc.position = position;
+    desc.half_extents = {0.5f, 0.5f, 0.5f};
+    desc.mass = 1.0f;
+    desc.filter = {1u, 1u};
+    return world.addBody(desc);
+  };
+  [[maybe_unused]] const aster::PhysicsBodyHandle dynamic_box =
+      add_box(aster::PhysicsBodyType::Dynamic, {0.0f, 0.0f, 0.0f});
+  [[maybe_unused]] const aster::PhysicsBodyHandle static_overlap =
+      add_box(aster::PhysicsBodyType::Static, {0.6f, 0.0f, 0.0f});
+  [[maybe_unused]] const aster::PhysicsBodyHandle static_far =
+      add_box(aster::PhysicsBodyType::Static, {3.0f, 0.0f, 0.0f});
+
+  aster::PhysicsBodyDesc sphere;
+  sphere.type = aster::PhysicsBodyType::Dynamic;
+  sphere.shape = aster::PhysicsShapeType::Sphere;
+  sphere.position = {0.0f, 0.75f, 0.0f};
+  sphere.radius = 0.4f;
+  sphere.mass = 1.0f;
+  sphere.filter = {1u, 1u};
+  [[maybe_unused]] const aster::PhysicsBodyHandle dynamic_sphere = world.addBody(sphere);
+
+  world.step(1.0f / 120.0f);
+  std::vector<std::pair<std::uint32_t, std::uint32_t>> pairs;
+  for (const aster::PhysicsBroadphasePair &pair : world.broadphasePairs()) {
+    pairs.push_back({pair.body_a.index, pair.body_b.index});
+  }
+  const std::vector<std::pair<std::uint32_t, std::uint32_t>> expected = {
+      {0u, 1u}, {0u, 3u}, {1u, 3u}};
+  assert(pairs == expected);
+}
+
 } // namespace
 
 int main() {
@@ -2992,14 +3934,21 @@ int main() {
   testFixedTimestep();
   testFrameTimeStats();
   testProfilerCaptureExport();
+  testBudgetedWorkQueueContracts();
   testSourceBoundaryContracts();
   testFramebufferOriginContract();
   testUiTextFittingContract();
+  testHudVisibilityPolicy();
   testGameplayItemInteractionSystems();
+  testMiningDamageAccumulatesAcrossOneCutFootprint();
+  testGenericMineableBreaksWithoutVoxelCarve();
+  testCaveWebMeshFitsOvalWithoutRectFrame();
   testMeshGeneration();
   testTerrainSculpting();
   testCaveInteriorVolume();
   testVoxelCaveStreamingAndFixtureContracts();
+  testVoxelCaveStreamingPublishesReadySnapshotsOnly();
+  testVoxelCaveDeferredEditRetainsPublishedCollision();
   testMeshProcessingPipeline();
   testMeshProcessingRejectsInvalidIndices();
   testMeshDrapingRaisesEmbeddedVertices();
@@ -3022,6 +3971,7 @@ int main() {
   testLumenInnerPondSeamHasSupport();
   testLumenSupportSurfacesRenderOpaque();
   testLumenSupplyCrateInventoryContract();
+  testLumenPrismRelayProximityInteraction();
   testLumenCaveVisualContracts();
   testLumenPondWallLightIsMountedOutsideWater();
   testControlScheme();
@@ -3029,6 +3979,7 @@ int main() {
   testSwimMotionPlan();
   testClimbMotionPlan();
   testAmphibiousPredatorMotion();
+  testCaveSkitterGroupPatrolsAndBitesInsideWeb();
   testAvatarRigSceneBinding();
   testThirdPersonFollowController();
   testContactVolumes();
@@ -3048,6 +3999,7 @@ int main() {
   testSurfaceStepAssist();
   testContinuousHorizontalCollisionBlocksFastSweep();
   testPhysicsFluidVolumeDragAndBuoyancy();
+  testPhysicsBroadphaseGeneratedParity();
   std::cout << "Aster tests passed.\n";
   return 0;
 }

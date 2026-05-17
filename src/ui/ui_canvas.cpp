@@ -283,6 +283,24 @@ float UiCanvas::wrappedTextHeight(const std::string_view text_value, const float
   return y;
 }
 
+float UiCanvas::checkboxHeight(const std::string_view label, const float width,
+                               const float scale) const {
+  const float label_width = std::max(width - 32.0f, 0.0f);
+  if (label_width <= 0.0f) {
+    return 24.0f;
+  }
+  const float text_height = textWidth(label, scale) <= label_width
+                                ? textHeight(scale)
+                                : wrappedTextHeight(label, label_width, scale);
+  return std::max(24.0f, text_height + 10.0f);
+}
+
+float UiCanvas::sliderHeight(const std::string_view label, const float width,
+                             const float label_scale) const {
+  const float fitted = fittedTextScale(label, std::max(width, 0.0f), label_scale, 0.90f);
+  return textHeight(fitted) + 23.0f;
+}
+
 void UiCanvas::fillRect(const UiRect rect, const UiColor color) {
   if (rect.width <= 0.0f || rect.height <= 0.0f || color.a <= 0.0f) {
     return;
@@ -512,9 +530,14 @@ bool UiCanvas::checkbox(const UiRect rect, const std::string_view label, bool &v
   }
   const float label_x = rect.x + 28.0f;
   const float label_width = std::max(rect.width - 32.0f, 0.0f);
-  const float label_scale = fittedTextScale(label, label_width, 1.35f, 0.90f);
+  const float label_scale = fittedTextScale(label, label_width, 1.35f, 1.0f);
   pushClip({label_x, rect.y, label_width, rect.height});
-  text(label, {label_x, rect.y + 6.0f}, {0.88f, 0.91f, 0.88f, 1.0f}, label_scale);
+  if (textWidth(label, label_scale) <= label_width) {
+    text(label, {label_x, rect.y + 6.0f}, {0.88f, 0.91f, 0.88f, 1.0f}, label_scale);
+  } else {
+    wrappedText(label, {label_x, rect.y + 4.0f}, label_width, {0.88f, 0.91f, 0.88f, 1.0f},
+                label_scale);
+  }
   popClip();
   return clicked;
 }

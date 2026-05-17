@@ -53,6 +53,10 @@ public:
                                       float minimum_scale = 1.0f) const;
   [[nodiscard]] float wrappedTextHeight(std::string_view text, float width,
                                         float scale = 2.0f) const;
+  [[nodiscard]] float checkboxHeight(std::string_view label, float width,
+                                     float scale = 1.35f) const;
+  [[nodiscard]] float sliderHeight(std::string_view label, float width,
+                                   float label_scale = 1.5f) const;
 
   void fillRect(UiRect rect, UiColor color);
   void fillRoundRect(UiRect rect, float radius, UiColor color);

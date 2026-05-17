@@ -3,8 +3,11 @@
 
 #include "aster/physics/physics_world.hpp"
 
+#include "aster/core/profiler.hpp"
+
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <stdexcept>
 
@@ -29,6 +32,11 @@ struct SegmentTriangleClosest {
   Vec3 segment_point{};
   Vec3 triangle_point{};
   float distance_sq = std::numeric_limits<float>::infinity();
+};
+
+struct BroadphaseEntry {
+  std::size_t index = 0u;
+  Aabb bounds{};
 };
 
 float safeMass(const float mass) {
@@ -122,6 +130,30 @@ Aabb bodyAabb(const PhysicsBody &body) {
 Aabb expandAabb(const Aabb box, const float amount) {
   const Vec3 expansion{amount, amount, amount};
   return {box.min - expansion, box.max + expansion};
+}
+
+Aabb triangleAabb(const PhysicsMeshTriangle &triangle) {
+  return {{std::min({triangle.a.x, triangle.b.x, triangle.c.x}),
+           std::min({triangle.a.y, triangle.b.y, triangle.c.y}),
+           std::min({triangle.a.z, triangle.b.z, triangle.c.z})},
+          {std::max({triangle.a.x, triangle.b.x, triangle.c.x}),
+           std::max({triangle.a.y, triangle.b.y, triangle.c.y}),
+           std::max({triangle.a.z, triangle.b.z, triangle.c.z})}};
+}
+
+Aabb segmentAabb(const Vec3 a, const Vec3 b) {
+  return {{std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)},
+          {std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)}};
+}
+
+bool contains(const Aabb box, const Vec3 point) {
+  return point.x >= box.min.x && point.x <= box.max.x && point.y >= box.min.y &&
+         point.y <= box.max.y && point.z >= box.min.z && point.z <= box.max.z;
+}
+
+bool sphereOverlapsAabb(const Vec3 center, const float radius, const Aabb box) {
+  const Vec3 closest = clampVec(center, box.min, box.max);
+  return dot(center - closest, center - closest) <= radius * radius;
 }
 
 void expandAabbByPoint(Aabb &box, const Vec3 point) {
@@ -429,7 +461,13 @@ ContactCandidate capsuleBoxContact(const PhysicsBody &capsule, const PhysicsBody
 ContactCandidate sphereTriangleMeshContact(const PhysicsBody &sphere, const PhysicsBody &mesh) {
   ContactCandidate best;
   float best_penetration = 0.0f;
+  if (!sphereOverlapsAabb(sphere.position, sphere.radius, bodyAabb(mesh))) {
+    return best;
+  }
   for (const PhysicsMeshTriangle &triangle : mesh.mesh_triangles) {
+    if (!sphereOverlapsAabb(sphere.position, sphere.radius, triangleAabb(triangle))) {
+      continue;
+    }
     const Vec3 triangle_point =
         closestPointOnTriangle(sphere.position, triangle.a, triangle.b, triangle.c);
     Vec3 delta = sphere.position - triangle_point;
@@ -460,8 +498,15 @@ ContactCandidate capsuleTriangleMeshContact(const PhysicsBody &capsule, const Ph
   const Vec3 segment_b{capsule.position.x, capsule.position.y + capsule.half_extents.y,
                        capsule.position.z};
   const Vec3 segment_mid = (segment_a + segment_b) * 0.5f;
+  const Aabb capsule_bounds = expandAabb(segmentAabb(segment_a, segment_b), capsule.radius);
+  if (!overlaps(capsule_bounds, bodyAabb(mesh))) {
+    return best;
+  }
 
   for (const PhysicsMeshTriangle &triangle : mesh.mesh_triangles) {
+    if (!overlaps(capsule_bounds, triangleAabb(triangle))) {
+      continue;
+    }
     const SegmentTriangleClosest closest = closestSegmentTriangle(segment_a, segment_b, triangle);
     const float radius_sq = capsule.radius * capsule.radius;
     if (closest.distance_sq >= radius_sq) {
@@ -595,6 +640,16 @@ bool raycastAabb(const Vec3 origin, const Vec3 direction, const float max_distan
   return true;
 }
 
+bool rayTouchesAabb(const Vec3 origin, const Vec3 direction, const float max_distance,
+                    const Aabb box) {
+  if (contains(box, origin)) {
+    return true;
+  }
+  float distance = 0.0f;
+  Vec3 normal{};
+  return raycastAabb(origin, direction, max_distance, box, distance, normal);
+}
+
 bool raycastSphere(const Vec3 origin, const Vec3 direction, const float max_distance,
                    const Vec3 center, const float radius, float &distance, Vec3 &normal) {
   const Vec3 m = origin - center;
@@ -660,10 +715,16 @@ bool raycastTriangle(const Vec3 origin, const Vec3 direction, const float max_di
 
 bool raycastTriangleMesh(const Vec3 origin, const Vec3 direction, const float max_distance,
                          const PhysicsBody &mesh, float &distance, Vec3 &normal) {
+  if (!rayTouchesAabb(origin, direction, max_distance, bodyAabb(mesh))) {
+    return false;
+  }
   bool found = false;
   float closest = max_distance;
   Vec3 closest_normal{};
   for (const PhysicsMeshTriangle &triangle : mesh.mesh_triangles) {
+    if (!rayTouchesAabb(origin, direction, closest, triangleAabb(triangle))) {
+      continue;
+    }
     float triangle_distance = 0.0f;
     Vec3 triangle_normal{};
     if (!raycastTriangle(origin, direction, closest, triangle, triangle_distance,
@@ -739,10 +800,18 @@ bool sphereCastTriangle(const Vec3 origin, const Vec3 direction, const float max
 bool sphereCastTriangleMesh(const Vec3 origin, const Vec3 direction, const float max_distance,
                             const float radius, const PhysicsBody &mesh, float &distance,
                             Vec3 &normal) {
+  const Aabb swept_bounds = expandAabb(segmentAabb(origin, origin + direction * max_distance),
+                                      radius);
+  if (!overlaps(swept_bounds, bodyAabb(mesh))) {
+    return false;
+  }
   bool found = false;
   float closest = max_distance;
   Vec3 closest_normal{};
   for (const PhysicsMeshTriangle &triangle : mesh.mesh_triangles) {
+    if (!overlaps(swept_bounds, expandAabb(triangleAabb(triangle), radius))) {
+      continue;
+    }
     float triangle_distance = 0.0f;
     Vec3 triangle_normal{};
     if (!sphereCastTriangle(origin, direction, closest, radius, triangle, triangle_distance,
@@ -765,6 +834,9 @@ bool sphereOverlapsBody(const Vec3 center, const float radius, const PhysicsBody
     return length(center - body.position) <= radius + body.radius;
   }
   if (body.shape == PhysicsShapeType::TriangleMesh) {
+    if (!sphereOverlapsAabb(center, radius, bodyAabb(body))) {
+      return false;
+    }
     PhysicsBody sphere;
     sphere.shape = PhysicsShapeType::Sphere;
     sphere.position = center;
@@ -988,6 +1060,7 @@ void PhysicsWorld::step(const float dt) {
 }
 
 bool PhysicsWorld::raycast(const PhysicsRay &ray, PhysicsRayHit &hit) const {
+  ASTER_PROFILE_SCOPE("PhysicsWorld::raycast");
   if (ray.max_distance <= 0.0f) {
     return false;
   }
@@ -1041,6 +1114,7 @@ bool PhysicsWorld::raycast(const PhysicsRay &ray, PhysicsRayHit &hit) const {
 }
 
 bool PhysicsWorld::castSphere(const PhysicsSphereCast &cast, PhysicsShapeCastHit &hit) const {
+  ASTER_PROFILE_SCOPE("PhysicsWorld::castSphere");
   if (cast.radius <= 0.0f) {
     throw std::invalid_argument("Sphere cast requires radius > 0.");
   }
@@ -1096,6 +1170,7 @@ bool PhysicsWorld::castSphere(const PhysicsSphereCast &cast, PhysicsShapeCastHit
 
 std::vector<PhysicsOverlapHit> PhysicsWorld::overlapSphere(const Vec3 center, const float radius,
                                                            const PhysicsQueryFilter filter) const {
+  ASTER_PROFILE_SCOPE("PhysicsWorld::overlapSphere");
   if (radius <= 0.0f) {
     throw std::invalid_argument("Sphere overlap requires radius > 0.");
   }
@@ -1281,27 +1356,54 @@ void PhysicsWorld::integrate(const float dt) {
 }
 
 void PhysicsWorld::buildBroadphasePairs() {
+  ASTER_PROFILE_SCOPE("PhysicsWorld::broadphase");
   broadphase_pairs_.clear();
-  for (std::size_t index_a = 0; index_a < bodies_.size(); ++index_a) {
-    const PhysicsBody &body_a = bodies_[index_a];
-    if (!body_a.active) {
-      continue;
-    }
-
-    for (std::size_t index_b = index_a + 1u; index_b < bodies_.size(); ++index_b) {
-      const PhysicsBody &body_b = bodies_[index_b];
-      if (!body_b.active ||
-          (body_a.type == PhysicsBodyType::Static && body_b.type == PhysicsBodyType::Static)) {
-        continue;
-      }
-      if (!filtersAllowCollision(body_a, body_b) || !overlaps(bodyAabb(body_a), bodyAabb(body_b))) {
-        continue;
-      }
-
-      broadphase_pairs_.push_back({{static_cast<std::uint32_t>(index_a), body_a.generation},
-                                   {static_cast<std::uint32_t>(index_b), body_b.generation}});
+  std::vector<BroadphaseEntry> entries;
+  entries.reserve(bodies_.size());
+  for (std::size_t index = 0; index < bodies_.size(); ++index) {
+    const PhysicsBody &body = bodies_[index];
+    if (body.active) {
+      entries.push_back({index, bodyAabb(body)});
     }
   }
+  std::sort(entries.begin(), entries.end(),
+            [](const BroadphaseEntry &lhs, const BroadphaseEntry &rhs) {
+              if (lhs.bounds.min.x != rhs.bounds.min.x) {
+                return lhs.bounds.min.x < rhs.bounds.min.x;
+              }
+              return lhs.index < rhs.index;
+            });
+
+  for (std::size_t entry_a = 0; entry_a < entries.size(); ++entry_a) {
+    const BroadphaseEntry &a = entries[entry_a];
+    const PhysicsBody &body_a = bodies_[a.index];
+    for (std::size_t entry_b = entry_a + 1u; entry_b < entries.size(); ++entry_b) {
+      const BroadphaseEntry &b = entries[entry_b];
+      if (b.bounds.min.x > a.bounds.max.x) {
+        break;
+      }
+      const PhysicsBody &body_b = bodies_[b.index];
+      if (body_a.type == PhysicsBodyType::Static && body_b.type == PhysicsBodyType::Static) {
+        continue;
+      }
+      if (!filtersAllowCollision(body_a, body_b) || !overlaps(a.bounds, b.bounds)) {
+        continue;
+      }
+
+      const std::size_t first = std::min(a.index, b.index);
+      const std::size_t second = std::max(a.index, b.index);
+      broadphase_pairs_.push_back({{static_cast<std::uint32_t>(first), bodies_[first].generation},
+                                   {static_cast<std::uint32_t>(second),
+                                    bodies_[second].generation}});
+    }
+  }
+  std::sort(broadphase_pairs_.begin(), broadphase_pairs_.end(),
+            [](const PhysicsBroadphasePair &lhs, const PhysicsBroadphasePair &rhs) {
+              if (lhs.body_a.index != rhs.body_a.index) {
+                return lhs.body_a.index < rhs.body_a.index;
+              }
+              return lhs.body_b.index < rhs.body_b.index;
+            });
 }
 
 void PhysicsWorld::solveConstraints(const float dt) {
@@ -1345,6 +1447,7 @@ void PhysicsWorld::solveConstraints(const float dt) {
 }
 
 void PhysicsWorld::solveCollisions() {
+  ASTER_PROFILE_SCOPE("PhysicsWorld::narrowphase");
   buildBroadphasePairs();
   for (const PhysicsBroadphasePair &pair : broadphase_pairs_) {
     if (!valid(pair.body_a) || !valid(pair.body_b)) {

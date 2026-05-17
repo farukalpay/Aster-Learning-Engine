@@ -128,6 +128,10 @@ struct FrameStats {
   std::size_t visible_objects = 0;
   std::size_t culled_objects = 0;
   std::size_t instance_groups = 0;
+  std::size_t lod_culled_objects = 0;
+  std::size_t visibility_hint_objects = 0;
+  std::size_t dynamic_mesh_objects = 0;
+  std::size_t dynamic_mesh_cache_entries = 0;
   double rust_plan_seconds = 0.0;
   double render_encode_seconds = 0.0;
 };
@@ -150,6 +154,7 @@ public:
 private:
   [[nodiscard]] const CpuMesh &meshForPrimitive(MeshPrimitive primitive) const;
   [[nodiscard]] const CpuMesh &meshForObject(const RenderObject &object);
+  void syncDynamicMeshes(const Scene &scene, bool immediate_eviction);
 
   std::unique_ptr<NativeRenderBackend> native_backend_;
   CpuMesh box_;
@@ -161,6 +166,12 @@ private:
   CpuMesh ruin_block_;
   CpuMesh pillar_;
   std::unordered_map<const CpuMesh *, CpuMesh> custom_mesh_cache_;
+  std::unordered_map<const CpuMesh *, std::uint64_t> custom_mesh_last_seen_;
+  std::unordered_map<DynamicMeshResourceKey, CpuMesh, DynamicMeshResourceKeyHash>
+      custom_mesh_resource_cache_;
+  std::unordered_map<DynamicMeshResourceKey, std::uint64_t, DynamicMeshResourceKeyHash>
+      custom_mesh_resource_last_seen_;
+  std::uint64_t mesh_cache_frame_ = 0u;
   RenderScene render_scene_;
 };
 

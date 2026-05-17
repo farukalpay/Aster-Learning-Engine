@@ -29,6 +29,25 @@ struct MiningAttempt {
   int resource_quantity = 0;
 };
 
+struct MineableHit {
+  bool hit = false;
+  std::string target_key;
+  Vec3 point{};
+  Vec3 normal{0.0f, 1.0f, 0.0f};
+  VoxelCaveMaterial material = VoxelCaveMaterial::Air;
+  VoxelCellCoord cell{};
+};
+
+struct MineableAttempt {
+  float now_seconds = 0.0f;
+  MineableHit hit{};
+  MiningToolStats tool{};
+  float material_hardness = 0.0f;
+  std::string resource_item_id;
+  int resource_quantity = 0;
+  bool carve_surface = true;
+};
+
 enum class VoxelImpactEventKind {
   SurfaceHit,
   Crack,
@@ -65,16 +84,20 @@ class MiningState {
 public:
   void reset();
   [[nodiscard]] MiningFeedback tryMine(const MiningAttempt &attempt);
+  [[nodiscard]] MiningFeedback tryMine(const MineableAttempt &attempt);
   [[nodiscard]] float nextAllowedSwingSeconds() const;
 
 private:
   struct DamageRecord {
+    std::string target_key;
     VoxelCellCoord cell{};
+    Vec3 point{};
+    VoxelCaveMaterial material = VoxelCaveMaterial::Air;
     float damage = 0.0f;
   };
 
-  [[nodiscard]] DamageRecord *findDamage(VoxelCellCoord cell);
-  [[nodiscard]] const DamageRecord *findDamage(VoxelCellCoord cell) const;
+  [[nodiscard]] DamageRecord *findDamage(const MineableHit &hit, float merge_radius);
+  [[nodiscard]] const DamageRecord *findDamage(const MineableHit &hit, float merge_radius) const;
 
   float next_allowed_swing_seconds_ = 0.0f;
   std::vector<DamageRecord> damage_;

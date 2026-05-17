@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 namespace aster {
@@ -48,9 +49,15 @@ struct RenderObjectPacket {
   RenderMaterialKey material{};
   MaterialRenderQueue render_queue = MaterialRenderQueue::Opaque;
   std::uint32_t flags = 0;
+  RenderVisibilityClass visibility_class = RenderVisibilityClass::General;
   Vec3 position{};
+  Vec3 visibility_cell{};
   RenderBounds bounds{};
   float opacity = 1.0f;
+  float lod_max_distance = 0.0f;
+  float lod_min_projected_radius = 0.0f;
+  float portal_depth = 0.0f;
+  std::uint64_t dynamic_mesh_generation = 0u;
 };
 
 struct FrameRenderInstance {
@@ -77,6 +84,9 @@ struct FrameRenderDiagnostics {
   std::size_t transparent_groups = 0;
   std::size_t instance_groups = 0;
   std::size_t planned_instances = 0;
+  std::size_t lod_culled_objects = 0;
+  std::size_t visibility_hint_objects = 0;
+  std::size_t dynamic_mesh_objects = 0;
   double rust_plan_seconds = 0.0;
 };
 
@@ -89,7 +99,14 @@ public:
   }
 
 private:
+  struct CachedLocalBounds {
+    Vec3 min{};
+    Vec3 max{};
+    float radius = 0.0f;
+  };
+
   std::vector<RenderObjectPacket> objects_;
+  std::unordered_map<std::uintptr_t, CachedLocalBounds> custom_bounds_cache_;
 };
 
 struct FrameRenderPlan {

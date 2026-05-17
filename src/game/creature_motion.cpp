@@ -251,4 +251,171 @@ AvianAgentUpdate updateAvianAgent(AvianAgentState &state, const AvianFlockSettin
           .mode = state.mode};
 }
 
+std::vector<CaveSkitterAgentUpdate>
+updateCaveSkitterGroup(std::vector<CaveSkitterAgentState> &skitters,
+                       const CaveSkitterGroupSettings &settings, const Vec3 player_position,
+                       const float dt) {
+  const float step = std::max(dt, 0.0f);
+  std::vector<CaveSkitterAgentUpdate> updates;
+  updates.reserve(skitters.size());
+
+  Vec3 normal = length(settings.web.normal) > 0.0001f ? normalize(settings.web.normal)
+                                                       : Vec3{0.0f, 0.0f, 1.0f};
+  Vec3 side = length(settings.web.side) > 0.0001f ? normalize(settings.web.side)
+                                                  : Vec3{1.0f, 0.0f, 0.0f};
+  side = normalize(side - normal * dot(side, normal));
+  if (length(side) <= 0.0001f) {
+    side = normalize(cross({0.0f, 1.0f, 0.0f}, normal));
+  }
+  if (length(side) <= 0.0001f) {
+    side = {1.0f, 0.0f, 0.0f};
+  }
+  Vec3 up = length(settings.web.up) > 0.0001f ? normalize(settings.web.up) : cross(normal, side);
+  up = normalize(up - normal * dot(up, normal) - side * dot(up, side));
+  if (length(up) <= 0.0001f) {
+    up = normalize(cross(normal, side));
+  }
+
+  const float radius_x = std::max(settings.web.radius_x, 0.05f);
+  const float radius_y = std::max(settings.web.radius_y, 0.05f);
+  const float half_thickness = std::max(settings.web.thickness * 0.5f, 0.02f);
+  const float depth_wander =
+      settings.depth_wander >= 0.0f ? settings.depth_wander : half_thickness * 0.52f;
+  const auto localToWorld = [&](const Vec2 local, const float depth) {
+    return settings.web.center + side * local.x + up * local.y +
+           normal * (settings.surface_offset + depth);
+  };
+  const auto clampLocal = [&](const Vec2 local, const float inset) {
+    const float safe_x = std::max(radius_x * std::max(inset, 0.05f), 0.05f);
+    const float safe_y = std::max(radius_y * std::max(inset, 0.05f), 0.05f);
+    const float normalized =
+        std::sqrt((local.x * local.x) / (safe_x * safe_x) + (local.y * local.y) / (safe_y * safe_y));
+    if (normalized <= 1.0f || normalized <= 0.0001f) {
+      return local;
+    }
+    return local / normalized;
+  };
+  const auto clampWorld = [&](const Vec3 world) {
+    const Vec3 offset = world - settings.web.center;
+    const Vec2 local = clampLocal({dot(offset, side), dot(offset, up)}, 0.94f);
+    const float depth =
+        std::clamp(dot(offset, normal) - settings.surface_offset, -depth_wander, depth_wander);
+    return localToWorld(local, depth);
+  };
+  const auto projectedPlayer = [&] {
+    const Vec3 offset = player_position - settings.web.center;
+    return localToWorld(clampLocal({dot(offset, side), dot(offset, up)}, 0.92f),
+                        std::clamp(dot(offset, normal) - settings.surface_offset, -depth_wander,
+                                   depth_wander));
+  };
+
+  std::vector<SteeringAgent> neighbors;
+  neighbors.reserve(skitters.size());
+  for (const CaveSkitterAgentState &other : skitters) {
+    if (!other.dead) {
+      neighbors.push_back(
+          {other.position, other.velocity, std::max(settings.max_speed, 0.0f),
+           std::max(settings.max_force, 0.0f)});
+    }
+  }
+
+  for (CaveSkitterAgentState &state : skitters) {
+    CaveSkitterAgentUpdate update;
+    state.phase += step * (1.0f + state.temperament * 0.24f);
+    state.bite_cooldown = std::max(0.0f, state.bite_cooldown - step);
+    state.flinch_seconds = std::max(0.0f, state.flinch_seconds - step);
+
+    if (state.dead) {
+      state.velocity = {};
+      state.mode = CaveSkitterMotionMode::Dead;
+      update = {.position = state.position,
+                .velocity = state.velocity,
+                .facing_yaw = state.facing_yaw,
+                .mode = state.mode,
+                .bite = false};
+      updates.push_back(update);
+      continue;
+    }
+
+    if (length(state.position) <= 0.0001f) {
+      state.position = clampWorld(localToWorld(state.home_offset, 0.0f));
+    }
+
+    const Vec3 player_on_web = projectedPlayer();
+    const float player_distance = length(player_on_web - state.position);
+    const float player_world_distance = length(player_position - state.position);
+    const bool aggro =
+        player_world_distance <= std::max(settings.aggro_radius, settings.strike_radius);
+
+    Vec3 target = state.position;
+    float speed_scale = 1.0f;
+    bool bite = false;
+    if (state.flinch_seconds > 0.0f) {
+      const Vec3 away = normalize(state.position - player_on_web);
+      target = clampWorld(state.position + (length(away) > 0.0001f ? away : normal) *
+                                             (0.26f + settings.retreat_seconds * 0.12f));
+      speed_scale = 0.72f;
+      state.mode = CaveSkitterMotionMode::Flinch;
+    } else if (aggro && player_distance <= std::max(settings.strike_radius, 0.05f) &&
+               state.bite_cooldown <= 0.0f) {
+      target = player_on_web;
+      bite = true;
+      state.bite_cooldown = std::max(settings.bite_cooldown, 0.05f);
+      state.mode = CaveSkitterMotionMode::Strike;
+    } else if (aggro) {
+      target = player_on_web;
+      state.mode = CaveSkitterMotionMode::Pursue;
+    } else {
+      Vec2 home = state.home_offset;
+      if (length(home) <= 0.0001f) {
+        const float angle = state.temperament * kPi * 2.0f;
+        home = {std::cos(angle) * radius_x * 0.46f, std::sin(angle) * radius_y * 0.36f};
+      }
+      const float orbit = state.phase * (0.58f + state.temperament * 0.18f);
+      const Vec2 wander{std::cos(orbit) * radius_x * 0.14f,
+                        std::sin(orbit * 1.37f) * radius_y * 0.12f};
+      const float depth = std::sin(state.phase * 1.9f + state.temperament * 3.1f) *
+                          depth_wander;
+      target = localToWorld(clampLocal(home + wander, 0.78f), depth);
+      speed_scale = std::max(settings.patrol_speed_scale, 0.05f);
+      state.mode = player_world_distance <= settings.aggro_radius * 1.20f
+                       ? CaveSkitterMotionMode::Guard
+                       : CaveSkitterMotionMode::Patrol;
+    }
+
+    SteeringAgent agent{state.position,
+                        state.velocity,
+                        std::max(settings.max_speed * speed_scale, 0.0f),
+                        std::max(settings.max_force, 0.0f)};
+    Vec3 steering = steerArrive(agent, target, state.mode == CaveSkitterMotionMode::Pursue ? 0.42f
+                                                                                           : 0.28f);
+    steering = steering +
+               steerFlock(agent, neighbors,
+                          {.separation_radius = std::max(settings.separation_radius, 0.01f),
+                           .alignment_radius = std::max(settings.cohesion_radius, 0.01f),
+                           .cohesion_radius = std::max(settings.cohesion_radius, 0.01f),
+                           .separation_weight = 1.45f,
+                           .alignment_weight = 0.14f,
+                           .cohesion_weight = state.mode == CaveSkitterMotionMode::Pursue ? 0.26f
+                                                                                          : 0.12f});
+    integrateSteering(agent, steering, step);
+    state.position = clampWorld(agent.position);
+    state.velocity = agent.velocity;
+    if (length(state.velocity) > 0.0001f) {
+      state.facing_yaw = signedAngleToYaw(state.velocity);
+    } else if (aggro) {
+      state.facing_yaw = yawTo(state.position, player_on_web);
+    }
+
+    update = {.position = state.position,
+              .velocity = state.velocity,
+              .facing_yaw = state.facing_yaw,
+              .mode = state.mode,
+              .bite = bite};
+    updates.push_back(update);
+  }
+
+  return updates;
+}
+
 } // namespace aster

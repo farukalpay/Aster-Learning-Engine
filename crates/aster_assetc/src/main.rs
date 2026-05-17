@@ -14,11 +14,13 @@ fn self_check() {
         material_key: 1,
         render_queue: 0,
         flags: 0,
+        visibility_class: 0,
         position: AsterRuntimeVec3 {
             x: 0.0,
             y: 0.0,
             z: 4.0,
         },
+        visibility_cell: AsterRuntimeVec3::default(),
         bounds_center: AsterRuntimeVec3 {
             x: 0.0,
             y: 0.0,
@@ -26,6 +28,10 @@ fn self_check() {
         },
         bounds_radius: 0.5,
         opacity: 1.0,
+        lod_max_distance: 0.0,
+        lod_min_projected_radius: 0.0,
+        portal_depth: 0.0,
+        dynamic_mesh_generation: 0,
     };
     let camera = AsterRuntimeCamera {
         position: AsterRuntimeVec3::default(),

@@ -8,7 +8,10 @@
 #include "aster/geometry/cable_mesh.hpp"
 #include "aster/geometry/castle_course.hpp"
 #include "aster/geometry/cave_system.hpp"
+#include "aster/geometry/cave_web_mesh.hpp"
+#include "aster/geometry/energy_conduit_mesh.hpp"
 #include "aster/geometry/generated_scenery.hpp"
+#include "aster/geometry/mesh_cut.hpp"
 #include "aster/geometry/mesh_projection.hpp"
 #include "aster/geometry/nature_mesh.hpp"
 #include "aster/geometry/stroke_mesh.hpp"
@@ -22,6 +25,7 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
@@ -29,6 +33,8 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -82,11 +88,26 @@ constexpr float kProceduralCaveWallFixtureSpacing = 5.8f;
 constexpr int kProceduralCaveWallFixtureBehind = 1;
 constexpr int kProceduralCaveWallFixtureAhead = 2;
 constexpr std::size_t kProceduralCaveWallFixtureVisualPoolSize = 8u;
-constexpr int kVoxelCaveChunkRebuildBudget = 1;
-constexpr int kVoxelCaveForcedRebuildRadius = 0;
+constexpr std::size_t kMiningFractureShardVisualPoolSize = 28u;
 constexpr aster::Vec3 kCaveIndustrialRed{1.0f, 0.10f, 0.055f};
 constexpr float kOreInteractionDistance = 2.35f;
+constexpr float kVoxelMiningInteractionDistance = 3.45f;
+constexpr float kCaveWebInteractionDistance = 3.10f;
+constexpr float kCaveWebSlowScale = 0.18f;
+constexpr float kCaveTransitionConnectorLength = 7.20f;
+constexpr float kCaveTransitionInteractionGuardScale = 1.12f;
+constexpr int kCaveSkitterEncounterCount = 3;
+constexpr float kCaveSkitterInteractionDistance = 2.85f;
+constexpr int kCaveSkitterMaxHealth = 3;
+constexpr int kPlayerMaxHealth = 20;
+constexpr int kCaveSkitterBiteDamage = 4;
 constexpr int kCoalOreMaxHealth = 3;
+constexpr aster::Vec3 kPrismRelayCastleLocal{-8.4f, 0.035f, -14.2f};
+constexpr float kPrismRelayInteractionDistance = 3.25f;
+constexpr float kPrismRelayCoreHeight = 2.28f;
+constexpr float kPrismRelayIdleCharge = 0.18f;
+constexpr float kPrismRelayIgnitedCharge = 1.0f;
+constexpr float kPrismRelayRetuneKick = 0.16f;
 
 struct UnderpassPortalPlacement {
   const char *name = "";
@@ -210,6 +231,28 @@ std::string placedResourceId(const std::uint64_t serial) {
   return "placed_resource:" + std::to_string(serial);
 }
 
+std::uint32_t fractureSeedFor(const aster::Vec3 position, const std::uint32_t salt) {
+  const auto quantize = [](const float value) {
+    const auto scaled = static_cast<std::int32_t>(std::floor(value * 127.0f));
+    return static_cast<std::uint32_t>(scaled);
+  };
+  std::uint32_t seed = salt ^ 0x9e3779b9u;
+  seed ^= quantize(position.x) + 0x85ebca6bu + (seed << 6u) + (seed >> 2u);
+  seed ^= quantize(position.y) + 0xc2b2ae35u + (seed << 6u) + (seed >> 2u);
+  seed ^= quantize(position.z) + 0x27d4eb2fu + (seed << 6u) + (seed >> 2u);
+  return seed == 0u ? 1u : seed;
+}
+
+void hideRenderObject(aster::RenderObject &object) {
+  object.transform.position = {0.0f, -24.0f, 0.0f};
+  object.transform.scale = {0.001f, 0.001f, 0.001f};
+  object.custom_mesh.reset();
+  object.dynamic_mesh = {};
+  object.visibility_hint = {};
+  object.lod = {};
+  object.material.emission_strength = 0.0f;
+}
+
 aster::MeshPrimitive placementPrimitiveFor(const aster::ItemPlacementShape shape) {
   (void)shape;
   return aster::MeshPrimitive::Rock;
@@ -328,6 +371,24 @@ aster::ItemRegistry makeLumenRunItemRegistry() {
                 .hand_scale = {1.0f, 1.0f, 1.0f},
                 .stackable = true,
                 .max_stack = 24});
+  registry.add({.id = "iron_ore",
+                .display_name = "Ironstone",
+                .short_label = "IRO",
+                .type = aster::ItemType::Resource,
+                .tint = {0.46f, 0.26f, 0.16f},
+                .world_scale = {0.34f, 0.26f, 0.32f},
+                .hand_scale = {0.86f, 0.86f, 0.86f},
+                .stackable = true,
+                .max_stack = 64});
+  registry.add({.id = "copper_ore",
+                .display_name = "Copper",
+                .short_label = "COP",
+                .type = aster::ItemType::Resource,
+                .tint = {0.72f, 0.36f, 0.16f},
+                .world_scale = {0.32f, 0.24f, 0.30f},
+                .hand_scale = {0.84f, 0.84f, 0.84f},
+                .stackable = true,
+                .max_stack = 64});
   registry.add({.id = "stone",
                 .display_name = "Rock",
                 .short_label = "RCK",
@@ -356,6 +417,10 @@ aster::Vec3 castleOrigin() {
 
 aster::Vec3 parkourChestBase() {
   return castleOrigin() + aster::Vec3{3.08f, 0.035f, 5.16f};
+}
+
+aster::Vec3 prismRelayBasePlacement() {
+  return castleOrigin() + kPrismRelayCastleLocal;
 }
 
 aster::AvatarAttachmentSocket plushRightHandCarrySocket() {
@@ -1295,13 +1360,13 @@ aster::CaveTunnelProfile lumenCaveTunnelProfile(const float floor_y) {
           .control_b = {entrance.x + 3.65f, floor_y - 4.85f, entrance.z - 19.20f},
           .end = {entrance.x - 0.86f, floor_y - 6.35f, entrance.z - 30.20f},
           .length_segments = 112,
-          .radial_segments = 28,
-          .half_width = 1.58f,
-          .wall_height = 2.34f,
-          .floor_width = 2.34f,
+          .radial_segments = 36,
+          .half_width = 1.76f,
+          .wall_height = 2.58f,
+          .floor_width = 2.52f,
           .floor_crown = 0.030f,
           .floor_edge_raise = 0.075f,
-          .wall_noise = 0.38f,
+          .wall_noise = 0.30f,
           .visible_wall_start_t = 0.0f,
           .collision_start_t = 0.0f,
           .ore_start_t = 0.24f,
@@ -1316,15 +1381,15 @@ aster::CaveTunnelProfile lumenCaveTunnelProfile(const float floor_y) {
 aster::CaveComplexSpec lumenCaveComplexSpec(const float floor_y) {
   aster::CaveComplexSpec spec;
   spec.tunnel = lumenCaveTunnelProfile(floor_y);
-  spec.portal = {.arch_segments = 32,
-                 .inner_half_width = 1.34f,
-                 .inner_height = 1.62f,
-                 .outer_half_width = 1.90f,
-                 .outer_height = 2.28f,
-                 .depth = 1.18f,
+  spec.portal = {.arch_segments = 48,
+                 .inner_half_width = 1.48f,
+                 .inner_height = 1.78f,
+                 .outer_half_width = 2.28f,
+                 .outer_height = 2.78f,
+                 .depth = 1.54f,
                  .ground_lip = 0.08f,
-                 .inner_lining_depth = 1.62f,
-                 .lining_breakup = 0.070f};
+                 .inner_lining_depth = 2.20f,
+                 .lining_breakup = 0.052f};
   spec.ore = {.seed = kLumenCaveSeed + 211u,
               .candidates = 132,
               .max_nodes = 20,
@@ -1380,18 +1445,20 @@ aster::Vec3 caveEntranceLightPosition(const float floor_y) {
 }
 
 aster::CaveWallFixtureProfile lumenCaveWallFixtureProfile() {
-  return {.start_t = 0.10f,
+  return {.start_t = 0.28f,
           .end_t = 0.72f,
           .target_spacing = 4.6f,
           .max_count = 5,
           .wall_side = -1.0f,
           .mount_height = 1.22f,
-          .wall_inset = 0.18f};
+          .wall_inset = 0.24f,
+          .lens_offset = 0.095f,
+          .light_offset = 0.22f};
 }
 
 aster::CaveWallFixtureProfile lumenCaveSecondaryWallFixtureProfile() {
   aster::CaveWallFixtureProfile profile = lumenCaveWallFixtureProfile();
-  profile.start_t = 0.18f;
+  profile.start_t = 0.34f;
   profile.end_t = 0.66f;
   profile.target_spacing = 6.2f;
   profile.max_count = 3;
@@ -1413,11 +1480,11 @@ aster::VoxelCaveFixtureProfile lumenVoxelCaveFixtureProfile() {
           .procedural_behind = kProceduralCaveWallFixtureBehind,
           .procedural_ahead = kProceduralCaveWallFixtureAhead,
           .side_mode = aster::VoxelCaveFixtureSideMode::Alternating,
-          .wall_inset = 0.18f,
+          .wall_inset = 0.24f,
           .mount_height = 0.10f,
           .normal_up_bias = -0.10f,
-          .lens_offset = 0.075f,
-          .light_offset = 0.18f};
+          .lens_offset = 0.095f,
+          .light_offset = 0.22f};
 }
 
 aster::VoxelCaveFixtureProfile lumenVoxelCaveProceduralFixtureProfile() {
@@ -1454,6 +1521,136 @@ float voxelCaveTunnelRadius(const aster::CaveTunnelFrame &frame) {
   return std::min(frame.half_width * 0.92f, frame.height * 0.52f);
 }
 
+struct LumenCaveWebPlacement {
+  aster::Vec3 center{};
+  aster::Vec3 normal{0.0f, 0.0f, -1.0f};
+  aster::Vec3 side{1.0f, 0.0f, 0.0f};
+  aster::Vec3 up{0.0f, 1.0f, 0.0f};
+  float radius_x = 1.0f;
+  float radius_y = 1.0f;
+  float thickness = 0.42f;
+};
+
+LumenCaveWebPlacement lumenCaveWebPlacement(const float floor_y) {
+  const aster::CaveTunnelProfile tunnel = lumenCaveTunnelProfile(floor_y);
+  const aster::CaveTunnelFrame end_frame = sampleCaveTunnelFrame(tunnel, 1.0f);
+  const float end_radius = voxelCaveTunnelRadius(end_frame);
+  return {.center = voxelCaveTunnelCenter(end_frame) + end_frame.tangent * 0.75f,
+          .normal = end_frame.tangent,
+          .side = end_frame.side,
+          .up = end_frame.up,
+          .radius_x = std::max(end_frame.half_width * 1.08f, end_radius * 1.18f),
+          .radius_y = std::max(end_frame.height * 0.58f, end_radius * 1.04f),
+          .thickness = std::max(0.34f, end_radius * 0.30f)};
+}
+
+aster::CpuMesh makeCaveTransitionShellMesh(const aster::CaveTunnelFrame &frame,
+                                           const float length) {
+  constexpr int kRows = 20;
+  constexpr int kRingSegments = 42;
+  const aster::Vec3 tangent =
+      aster::length(frame.tangent) > 0.0001f ? aster::normalize(frame.tangent)
+                                             : aster::Vec3{0.0f, 0.0f, -1.0f};
+  const aster::Vec3 side =
+      aster::length(frame.side) > 0.0001f ? aster::normalize(frame.side) : aster::Vec3{1.0f, 0.0f, 0.0f};
+  const aster::Vec3 up =
+      aster::length(frame.up) > 0.0001f ? aster::normalize(frame.up) : aster::Vec3{0.0f, 1.0f, 0.0f};
+  const float radius_x = std::max(frame.half_width * 1.05f, 0.30f);
+  const float radius_up = std::max(frame.height * 0.66f, 0.30f);
+  const float radius_down = std::max(frame.height * 0.55f, 0.24f);
+  const float ring_center_height = std::max(frame.height * 0.55f, 0.18f);
+  aster::CpuMesh mesh;
+  mesh.vertices.reserve(static_cast<std::size_t>((kRows + 1) * (kRingSegments + 1)));
+  mesh.indices.reserve(static_cast<std::size_t>(kRows * kRingSegments * 6));
+  for (int row = 0; row <= kRows; ++row) {
+    const float along = static_cast<float>(row) / static_cast<float>(kRows);
+    const float station = std::max(length, 0.0f) * along;
+    const float taper = 1.0f + 0.035f * std::sin(along * kPi);
+    const aster::Vec3 center = frame.floor_center + tangent * station + up * ring_center_height;
+    for (int segment = 0; segment <= kRingSegments; ++segment) {
+      const float fill = static_cast<float>(segment) / static_cast<float>(kRingSegments);
+      const float angle = fill * kPi * 2.0f;
+      const float cos_angle = std::cos(angle);
+      const float sin_angle = std::sin(angle);
+      const float vertical_radius = sin_angle >= 0.0f ? radius_up : radius_down;
+      const float breakup =
+          1.0f + 0.020f * std::sin(station * 1.7f + angle * 3.1f) +
+          0.014f * std::sin(station * 0.9f - angle * 5.3f);
+      const aster::Vec3 radial =
+          side * (cos_angle * radius_x * taper * breakup) +
+          up * (sin_angle * vertical_radius * taper * breakup);
+      aster::Vec3 inward =
+          aster::normalize(side * (-cos_angle / radius_x) +
+                           up * (-sin_angle / std::max(vertical_radius, 0.001f)));
+      if (aster::length(inward) <= 0.0001f) {
+        inward = up * -1.0f;
+      }
+      aster::Vertex vertex{center + radial, inward, {along * 2.0f, fill * 4.0f}};
+      vertex.ambient_occlusion = 0.72f + 0.18f * std::max(sin_angle, 0.0f);
+      mesh.vertices.push_back(vertex);
+    }
+  }
+  const auto indexAt = [](const int row, const int segment) {
+    return static_cast<std::uint32_t>(row * (kRingSegments + 1) + segment);
+  };
+  for (int row = 0; row < kRows; ++row) {
+    for (int segment = 0; segment < kRingSegments; ++segment) {
+      const std::uint32_t a = indexAt(row, segment);
+      const std::uint32_t b = indexAt(row + 1, segment);
+      const std::uint32_t c = indexAt(row + 1, segment + 1);
+      const std::uint32_t d = indexAt(row, segment + 1);
+      mesh.indices.insert(mesh.indices.end(), {a, c, b, a, d, c});
+    }
+  }
+  return mesh;
+}
+
+aster::CpuMesh makeCaveTransitionFloorMesh(const aster::CaveTunnelFrame &frame,
+                                           const float length) {
+  constexpr int kRows = 18;
+  constexpr int kColumns = 10;
+  const aster::Vec3 tangent =
+      aster::length(frame.tangent) > 0.0001f ? aster::normalize(frame.tangent)
+                                             : aster::Vec3{0.0f, 0.0f, -1.0f};
+  const aster::Vec3 side =
+      aster::length(frame.side) > 0.0001f ? aster::normalize(frame.side) : aster::Vec3{1.0f, 0.0f, 0.0f};
+  const aster::Vec3 up =
+      aster::length(frame.up) > 0.0001f ? aster::normalize(frame.up) : aster::Vec3{0.0f, 1.0f, 0.0f};
+  const float half_width =
+      std::max(std::max(frame.floor_half_width, frame.half_width * 0.56f), 0.28f);
+  aster::CpuMesh mesh;
+  mesh.vertices.reserve(static_cast<std::size_t>((kRows + 1) * (kColumns + 1)));
+  mesh.indices.reserve(static_cast<std::size_t>(kRows * kColumns * 6));
+  for (int row = 0; row <= kRows; ++row) {
+    const float along = static_cast<float>(row) / static_cast<float>(kRows);
+    const float station = std::max(length, 0.0f) * along;
+    const float width = half_width * (1.0f + 0.10f * along);
+    for (int column = 0; column <= kColumns; ++column) {
+      const float lateral_fill = static_cast<float>(column) / static_cast<float>(kColumns);
+      const float lateral = lateral_fill * 2.0f - 1.0f;
+      const float crown = (1.0f - std::abs(lateral)) * 0.030f;
+      const aster::Vec3 position =
+          frame.floor_center + tangent * station + side * (lateral * width) + up * crown;
+      aster::Vertex vertex{position, up, {lateral_fill, along * 3.0f}};
+      vertex.ambient_occlusion = 0.82f + 0.12f * (1.0f - std::abs(lateral));
+      mesh.vertices.push_back(vertex);
+    }
+  }
+  const auto indexAt = [](const int row, const int column) {
+    return static_cast<std::uint32_t>(row * (kColumns + 1) + column);
+  };
+  for (int row = 0; row < kRows; ++row) {
+    for (int column = 0; column < kColumns; ++column) {
+      const std::uint32_t a = indexAt(row, column);
+      const std::uint32_t b = indexAt(row, column + 1);
+      const std::uint32_t c = indexAt(row + 1, column + 1);
+      const std::uint32_t d = indexAt(row + 1, column);
+      mesh.indices.insert(mesh.indices.end(), {a, b, c, a, c, d});
+    }
+  }
+  return mesh;
+}
+
 aster::VoxelCaveSpec lumenVoxelCaveSpec(const float floor_y) {
   const aster::CaveTunnelProfile tunnel = lumenCaveTunnelProfile(floor_y);
   const aster::CaveTunnelFrame end_frame = sampleCaveTunnelFrame(tunnel, 1.0f);
@@ -1462,11 +1659,15 @@ aster::VoxelCaveSpec lumenVoxelCaveSpec(const float floor_y) {
   spec.seed = kLumenCaveSeed + 1709u;
   spec.origin = end_center - aster::Vec3{18.0f, 9.0f, 18.0f};
   spec.cell_size = 0.40f;
-  spec.chunk_cells = 16;
-  spec.stream_radius = 1;
-  spec.unload_radius = 3;
-  spec.max_chunk_rebuilds_per_update = kVoxelCaveChunkRebuildBudget;
-  spec.forced_rebuild_radius = kVoxelCaveForcedRebuildRadius;
+  spec.chunk_cells = 10;
+  spec.coarse_proxy_cells = 4;
+  spec.stream_radius = 2;
+  spec.unload_radius = 4;
+  spec.path_prefetch_ahead_chunks = 3;
+  spec.path_prefetch_behind_chunks = 1;
+  spec.path_prefetch_radius = 0;
+  spec.path_prefetch_spacing_chunks = 0.72f;
+  spec.chunk_transition_seconds = 0.34f;
   spec.structural_surface_mode = aster::VoxelCaveStructuralSurfaceMode::RenderAndCollide;
   spec.authored_fixture_light_color = kCaveIndustrialRed;
   spec.procedural_fixture_light_color = kCaveIndustrialRed;
@@ -1474,36 +1675,115 @@ aster::VoxelCaveSpec lumenVoxelCaveSpec(const float floor_y) {
                              .seed = kLumenCaveSeed + 1811u,
                              .display_name = "Rock",
                              .visual_material_id = "rock",
-                             .hardness = 1.4f,
+                             .hardness = 3.25f,
                              .resource_item_id = "stone",
-                             .resource_quantity = 1}};
+                             .resource_quantity = 1},
+                            {.material = aster::VoxelCaveMaterial::Coal,
+                             .seed = kLumenCaveSeed + 2213u,
+                             .display_name = "Coal",
+                             .visual_material_id = "coal",
+                             .min_tool_tier = 0,
+                             .hardness = 3.80f,
+                             .resource_item_id = "coal",
+                             .resource_quantity = 2,
+                             .vein_frequency = 0.15f,
+                             .vein_radius = 0.22f,
+                             .rarity = 0.70f,
+                             .warp_frequency = 0.13f,
+                             .warp_strength = 0.74f,
+                             .surface_relief = 0.12f,
+                             .surface_exposure_threshold = 0.0f,
+                             .surface_coverage = 0.64f},
+                            {.material = aster::VoxelCaveMaterial::Copper,
+                             .seed = kLumenCaveSeed + 2399u,
+                             .display_name = "Copper",
+                             .visual_material_id = "copper",
+                             .min_tool_tier = 0,
+                             .hardness = 4.85f,
+                             .resource_item_id = "copper_ore",
+                             .resource_quantity = 1,
+                             .vein_frequency = 0.12f,
+                             .vein_radius = 0.18f,
+                             .rarity = 0.78f,
+                             .warp_frequency = 0.10f,
+                             .warp_strength = 0.68f,
+                             .surface_relief = 0.18f,
+                             .surface_exposure_threshold = 0.0f,
+                             .surface_coverage = 0.58f},
+                            {.material = aster::VoxelCaveMaterial::Iron,
+                             .seed = kLumenCaveSeed + 2617u,
+                             .display_name = "Ironstone",
+                             .visual_material_id = "ironstone",
+                             .hardness = 6.40f,
+                             .resource_item_id = "iron_ore",
+                             .resource_quantity = 1,
+                             .vein_frequency = 0.0f,
+                             .vein_radius = 0.0f,
+                             .surface_relief = 0.30f,
+                             .surface_exposure_threshold = 0.0f,
+                             .surface_coverage = 0.84f}};
 
+  const float end_radius = voxelCaveTunnelRadius(end_frame);
   const aster::Vec3 terminal_center = end_center + end_frame.tangent * 9.0f;
   spec.chambers.push_back({terminal_center, {4.25f, 2.10f, 4.80f}});
-  spec.tunnels.push_back({end_center, terminal_center, voxelCaveTunnelRadius(end_frame) * 1.05f});
+  spec.tunnels.push_back({end_center, terminal_center, end_radius * 1.05f});
   spec.procedural_fields.push_back({.enabled = true,
                                     .seed = kLumenCaveSeed + 4211u,
                                     .start = terminal_center,
                                     .forward = end_frame.tangent,
                                     .up = end_frame.up,
                                     .backtrack_distance = 2.0f,
-                                    .tunnel_radius = voxelCaveTunnelRadius(end_frame) * 1.03f,
-                                    .vertical_radius = voxelCaveTunnelRadius(end_frame) * 0.86f,
-                                    .radius_variation = 0.20f,
-                                    .wander_frequency = 0.040f,
-                                    .side_wander = 1.15f,
-                                    .vertical_wander = 0.42f,
-                                    .chamber_spacing = 18.0f,
-                                    .chamber_radius = 3.65f,
-                                    .chamber_vertical_radius = 2.05f,
-                                    .chamber_radius_variation = 0.24f,
-                                    .chamber_jitter = 0.32f});
+                                    .tunnel_radius = end_radius * 1.03f,
+                                    .vertical_radius = end_radius * 0.86f,
+                                    .radius_variation = 0.26f,
+                                    .wander_frequency = 0.052f,
+                                    .side_wander = 2.15f,
+                                    .vertical_wander = 0.58f,
+                                    .macro_wander_frequency = 0.014f,
+                                    .macro_side_wander = 4.80f,
+                                    .macro_vertical_wander = 0.72f,
+                                    .path_sample_steps = 0,
+                                    .path_sample_spacing = end_radius * 1.15f,
+                                    .frame_derivative_step = end_radius * 0.82f,
+                                    .chamber_spacing = 14.5f,
+                                    .chamber_radius = 4.35f,
+                                    .chamber_vertical_radius = 2.18f,
+                                    .chamber_radius_variation = 0.32f,
+                                    .chamber_jitter = 0.42f});
   return spec;
 }
 
 const char *voxelChunkBatchName(const aster::VoxelCaveMaterial material) {
-  (void)material;
+  switch (material) {
+  case aster::VoxelCaveMaterial::Air:
+    return "Air voxel cave surface";
+  case aster::VoxelCaveMaterial::Rock:
+    return "Rock voxel cave surface";
+  case aster::VoxelCaveMaterial::Coal:
+    return "Coal voxel cave surface";
+  case aster::VoxelCaveMaterial::Copper:
+    return "Copper voxel cave surface";
+  case aster::VoxelCaveMaterial::Iron:
+    return "Ironstone voxel cave surface";
+  }
   return "Rock voxel cave surface";
+}
+
+std::uint64_t voxelDynamicMeshId(const aster::VoxelChunkCoord coord,
+                                 const aster::VoxelChunkRenderBatchKind kind,
+                                 const aster::VoxelCaveMaterial material) {
+  auto append = [](std::uint64_t hash, const std::uint64_t value) {
+    hash ^= value;
+    hash *= 1099511628211ull;
+    return hash;
+  };
+  std::uint64_t hash = 1469598103934665603ull;
+  hash = append(hash, static_cast<std::uint32_t>(coord.x));
+  hash = append(hash, static_cast<std::uint32_t>(coord.y));
+  hash = append(hash, static_cast<std::uint32_t>(coord.z));
+  hash = append(hash, static_cast<std::uint32_t>(kind));
+  hash = append(hash, static_cast<std::uint32_t>(material));
+  return hash == 0u ? 1u : hash;
 }
 
 std::shared_ptr<const aster::CpuMesh> grassTuftMesh() {
@@ -1825,6 +2105,8 @@ void LumenRun::reset() {
   ASTER_PROFILE_SCOPE("LumenRun::reset");
   status_ = {};
   status_.lives = 3;
+  status_.max_health = kPlayerMaxHealth;
+  status_.health = status_.max_health;
   status_.total_shards = tuning_.shard_count;
   terrain_ = makeProceduralTerrain({.grid_size = 289,
                                     .square_size = 0.74f,
@@ -1836,6 +2118,9 @@ void LumenRun::reset() {
   const TerrainSurfaceSample start_ground = sampleTerrain(terrain_, {0.0f, 0.0f});
   player_position_ = {
       0.0f, (start_ground.valid ? start_ground.height : 0.0f) + playerSupportExtent(), 0.0f};
+  prism_relay_base_ = prismRelayBasePlacement();
+  prism_relay_active_ = false;
+  prism_relay_charge_ = kPrismRelayIdleCharge;
   player_velocity_ = {};
   player_avatar_instance_ = {};
   player_facing_yaw_ = 0.0f;
@@ -1875,6 +2160,11 @@ void LumenRun::reset() {
   supply_crate_base_ = {};
   supply_crate_yaw_ = 0.0f;
   equipped_light_ = {};
+  prism_relay_core_object_ = 0;
+  prism_relay_core_valid_ = false;
+  prism_relay_ring_objects_.clear();
+  prism_relay_conduit_objects_.clear();
+  prism_relay_node_objects_.clear();
   torch_flame_.reset();
   crocodile_state_ = {};
   crocodile_state_.position = inner_pond_center_ + Vec3{-2.80f, 0.24f, 0.18f};
@@ -1890,19 +2180,28 @@ void LumenRun::reset() {
   castle_birds_.clear();
   crocodile_objects_.clear();
   blood_particles_.clear();
+  blood_particle_cursor_ = 0;
   chest_items_.clear();
   equipped_item_parts_.clear();
   placed_rocks_.clear();
   scenery_collision_boxes_.clear();
   torch_particle_visuals_.clear();
+  mining_fracture_shards_.clear();
   coal_ores_.clear();
+  cave_webs_.clear();
+  cave_skitters_.clear();
   cave_collision_mesh_.reset();
   cave_viewer_cull_volume_ = {};
   voxel_cave_.clear();
   voxel_chunk_visuals_.clear();
   voxel_chunk_colliders_.clear();
+  voxel_streaming_view_position_ = {};
+  voxel_streaming_view_direction_ = {0.0f, 0.0f, -1.0f};
+  voxel_streaming_view_valid_ = false;
   focused_voxel_hit_ = {};
   focused_voxel_hit_valid_ = false;
+  focused_cave_web_index_ = 0;
+  focused_cave_web_valid_ = false;
   mining_.reset();
   placed_resource_serial_ = 1u;
   x_eye_objects_.clear();
@@ -1964,6 +2263,17 @@ void LumenRun::reset() {
   rebuildScene();
 }
 
+void LumenRun::setVoxelStreamingView(const Vec3 position, Vec3 direction) {
+  direction = normalize(direction);
+  if (length(direction) <= 0.0001f) {
+    voxel_streaming_view_valid_ = false;
+    return;
+  }
+  voxel_streaming_view_position_ = position;
+  voxel_streaming_view_direction_ = direction;
+  voxel_streaming_view_valid_ = true;
+}
+
 void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
                       const bool jump_requested) {
   ASTER_PROFILE_SCOPE("LumenRun::update");
@@ -1975,6 +2285,7 @@ void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
   status_.elapsed_seconds += step;
   invulnerability_ = std::max(0.0f, invulnerability_ - step);
   updateBloodParticles(step);
+  updateMiningFractureVisuals(step);
 
   if (death_state_ != DeathSequenceState::Alive) {
     updateDeathSequence(step);
@@ -1994,7 +2305,9 @@ void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
   enforceWorldBounds();
   updateVoxelCave(step);
   updateChestInteractionState();
+  updatePrismRelay(step);
   updateCrocodile(step);
+  updateCaveSkitters(step);
   updateCastleBirds(step);
 
   collectOverlaps();
@@ -2030,6 +2343,50 @@ Vec3 LumenRun::playerPosition() const {
 
 Vec3 LumenRun::playerRenderPosition() const {
   return player_render_position_valid_ ? player_render_position_ : player_position_;
+}
+
+Vec3 LumenRun::prismRelayBasePosition() const {
+  return prism_relay_base_;
+}
+
+Vec3 LumenRun::prismRelayFocusPosition() const {
+  return prism_relay_base_ + Vec3{0.0f, kPrismRelayCoreHeight, 0.0f};
+}
+
+Vec3 LumenRun::voxelCaveFrameReportPosition(const float progress_distance) const {
+  const VoxelCaveSpec &spec = voxel_cave_.spec();
+  if (!spec.procedural_fields.empty()) {
+    const VoxelCaveProceduralFrame frame =
+        sampleVoxelCaveProceduralFrameAt(spec.procedural_fields.front(),
+                                         std::max(progress_distance, 0.0f));
+    if (frame.valid) {
+      return frame.center + frame.up * 0.34f;
+    }
+  }
+  if (cave_tunnel_valid_) {
+    const CaveTunnelFrame terminal = sampleCaveTunnelFrame(cave_tunnel_, 1.0f);
+    return voxelCaveTunnelCenter(terminal) + Vec3{0.0f, playerSupportExtent(), 0.0f};
+  }
+  return player_position_;
+}
+
+void LumenRun::enqueueVoxelCaveStressEdit(const std::uint32_t edit_index) {
+  const VoxelCaveSpec &spec = voxel_cave_.spec();
+  if (spec.procedural_fields.empty()) {
+    return;
+  }
+  const float progress = 18.0f + static_cast<float>(edit_index % 12u) * 0.48f;
+  const VoxelCaveProceduralFrame frame =
+      sampleVoxelCaveProceduralFrameAt(spec.procedural_fields.front(), progress);
+  if (!frame.valid) {
+    return;
+  }
+  const float side_step = (static_cast<float>(edit_index % 5u) - 2.0f) * 0.22f;
+  const float up_step = (static_cast<float>((edit_index / 5u) % 3u) - 1.0f) * 0.16f;
+  const Vec3 center = frame.center + frame.side * side_step + frame.up * (0.30f + up_step);
+  (void)voxel_cave_.applyEdit({.center = center, .radius = 0.54f},
+                              VoxelEditRebuildMode::Deferred);
+  invalidateSceneReports();
 }
 
 void LumenRun::relocatePlayer(Vec3 position, const float facing_yaw) {
@@ -2243,7 +2600,7 @@ void LumenRun::clearAvatarPointTarget() {
 void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_direction,
                                       const float dt) {
   std::vector<InteractionTarget> targets;
-  targets.reserve(2u + coal_ores_.size());
+  targets.reserve(3u + coal_ores_.size() + cave_webs_.size() + cave_skitters_.size());
   const Vec3 chest_focus = chest_base_ + Vec3{0.0f, 0.46f, 0.0f};
   const bool player_near_chest = length(player_position_ - chest_focus) < kChestInteractionDistance;
   std::string action = "Open";
@@ -2265,10 +2622,67 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                      .position = chest_focus,
                      .radius = 0.82f,
                      .max_distance = 14.0f,
+                     .proximity_distance = kChestInteractionDistance,
                      .enabled = player_near_chest});
 
+  const Vec3 relay_focus = prismRelayFocusPosition();
+  const bool player_near_relay =
+      length(player_position_ - relay_focus) <= kPrismRelayInteractionDistance;
+  targets.push_back({.id = "relay:prism",
+                     .kind = InteractionTargetKind::Item,
+                     .action_label = prism_relay_active_ ? "Tune" : "Ignite",
+                     .subject_label = "Prism Relay",
+                     .position = relay_focus,
+                     .radius = 0.92f,
+                     .max_distance = 14.0f,
+                     .proximity_distance = kPrismRelayInteractionDistance,
+                     .enabled = player_near_relay});
+
   focused_voxel_hit_ = {};
+  focused_cave_web_index_ = 0;
+  focused_cave_web_valid_ = false;
   const float ray_length = length(ray_direction);
+  const Vec3 ray_direction_unit = ray_length > 0.0001f ? ray_direction / ray_length : Vec3{};
+  const auto webRayHit = [&](const CaveWebObstacle &web) -> std::optional<std::pair<float, Vec3>> {
+    if (web.broken || ray_length <= 0.0001f) {
+      return std::nullopt;
+    }
+    const float denom = dot(ray_direction_unit, web.normal);
+    if (std::abs(denom) <= 0.0001f) {
+      return std::nullopt;
+    }
+    const float t = dot(web.center - ray_origin, web.normal) / denom;
+    if (t < 0.0f || t > kCaveWebInteractionDistance + 1.0f) {
+      return std::nullopt;
+    }
+    const Vec3 hit = ray_origin + ray_direction_unit * t;
+    const Vec3 offset = hit - web.center;
+    const float x = dot(offset, web.side) / std::max(web.radius_x, 0.001f);
+    const float y = dot(offset, web.up) / std::max(web.radius_y, 0.001f);
+    if (x * x + y * y > 1.0f) {
+      return std::nullopt;
+    }
+    return std::make_pair(t, hit);
+  };
+  const auto rayOccludedByWeb = [&](const Vec3 target, const float target_distance) {
+    if (ray_length <= 0.0001f) {
+      return false;
+    }
+    for (const CaveWebObstacle &web : cave_webs_) {
+      if (web.broken) {
+        continue;
+      }
+      const std::optional<std::pair<float, Vec3>> hit = webRayHit(web);
+      if (hit.has_value() && hit->first > 0.02f &&
+          hit->first < std::max(target_distance - 0.02f, 0.0f)) {
+        const Vec3 to_target = target - ray_origin;
+        if (dot(normalize(to_target), ray_direction_unit) > 0.92f) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
   const VoxelCaveInteriorProbe cave_probe = lumenVoxelCaveInteriorProbe();
   const VoxelCaveInteriorSample player_cave_sample =
       voxel_cave_.sampleInterior(player_position_, cave_probe);
@@ -2279,15 +2693,35 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
       player_cave_sample.interior > 0.001f ||
       cave_entrance_distance <= std::max(cave_probe.entrance_light_distance, 0.1f) * 3.0f;
   if (ray_length > 0.0001f && voxel_interaction_relevant) {
-    focused_voxel_hit_ = voxel_cave_.raycast(ray_origin, ray_direction / ray_length, 4.4f);
+    focused_voxel_hit_ = voxel_cave_.raycast(ray_origin, ray_direction_unit, 4.4f);
   }
-  focused_voxel_hit_valid_ =
-      focused_voxel_hit_.hit && length(player_position_ - focused_voxel_hit_.point) <= 3.45f;
-
   const ItemStack &equipped = equipment_.equipped();
   const ItemDefinition *equipped_definition = item_registry_.find(equipped.item_id);
   const bool pickaxe_equipped =
       equipped_definition != nullptr && equipped_definition->has_mining_tool;
+  const MiningToolStats tool = activePickaxeStats();
+  const float mining_reach = std::max(tool.reach, kVoxelMiningInteractionDistance);
+  focused_voxel_hit_valid_ =
+      focused_voxel_hit_.hit && length(player_position_ - focused_voxel_hit_.point) <= mining_reach;
+  if (focused_voxel_hit_valid_ && focused_voxel_hit_.material == VoxelCaveMaterial::Rock) {
+    for (const CaveWebObstacle &web : cave_webs_) {
+      const Vec3 offset = focused_voxel_hit_.point - web.center;
+      const float plane = dot(offset, web.normal);
+      if (plane < -std::max(web.thickness * 2.0f, 0.10f) ||
+          plane > kCaveTransitionConnectorLength) {
+        continue;
+      }
+      const float x = dot(offset, web.side) /
+                      std::max(web.radius_x * kCaveTransitionInteractionGuardScale, 0.001f);
+      const float y = dot(offset, web.up) /
+                      std::max(web.radius_y * kCaveTransitionInteractionGuardScale, 0.001f);
+      if (x * x + y * y <= 1.0f) {
+        focused_voxel_hit_valid_ = false;
+        focused_voxel_hit_ = {};
+        break;
+      }
+    }
+  }
   for (std::size_t i = 0; i < coal_ores_.size(); ++i) {
     const CoalOreNode &ore = coal_ores_[i];
     if (ore.collected) {
@@ -2303,8 +2737,53 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                        .max_distance = 14.0f,
                        .enabled = distance <= kOreInteractionDistance});
   }
+  float nearest_web_distance = std::numeric_limits<float>::infinity();
+  for (std::size_t i = 0; i < cave_webs_.size(); ++i) {
+    const CaveWebObstacle &web = cave_webs_[i];
+    if (web.broken) {
+      continue;
+    }
+    const float distance = length(player_position_ - web.center);
+    if (distance < nearest_web_distance && distance <= kCaveWebInteractionDistance) {
+      nearest_web_distance = distance;
+      focused_cave_web_index_ = i;
+      focused_cave_web_valid_ = true;
+    }
+    const std::optional<std::pair<float, Vec3>> web_hit = webRayHit(web);
+    targets.push_back({.id = "web:" + std::to_string(i),
+                       .kind = InteractionTargetKind::Item,
+                       .shape = web_hit.has_value() ? InteractionTargetShape::ExplicitHit
+                                                     : InteractionTargetShape::Sphere,
+                       .action_label = pickaxe_equipped ? "Cut" : "Need",
+                       .subject_label = pickaxe_equipped ? "Spider Web" : "Pickaxe",
+                       .position = web_hit.has_value() ? web_hit->second : web.center,
+                       .radius = std::max(std::max(web.radius_x, web.radius_y) * 0.56f, 0.42f),
+                       .max_distance = 14.0f,
+                       .proximity_distance = kCaveWebInteractionDistance,
+                       .hit_distance = web_hit.has_value() ? web_hit->first : 0.0f,
+                       .evidence_strength = web_hit.has_value() ? 2.0f : 1.0f,
+                       .enabled = distance <= kCaveWebInteractionDistance});
+  }
+  for (std::size_t i = 0; i < cave_skitters_.size(); ++i) {
+    const CaveSkitter &skitter = cave_skitters_[i];
+    if (skitter.dead || skitter.state.dead) {
+      continue;
+    }
+    const float distance = length(player_position_ - skitter.state.position);
+    const Vec3 skitter_focus = skitter.state.position + Vec3{0.0f, 0.10f, 0.0f};
+    const float ray_distance = length(skitter_focus - ray_origin);
+    targets.push_back({.id = "skitter:" + std::to_string(i),
+                       .kind = InteractionTargetKind::Item,
+                       .action_label = pickaxe_equipped ? "Strike" : "Need",
+                       .subject_label = pickaxe_equipped ? "Cave Skitter" : "Pickaxe",
+                       .position = skitter_focus,
+                       .radius = 0.48f,
+                       .max_distance = 14.0f,
+                       .proximity_distance = kCaveSkitterInteractionDistance,
+                       .occluded = rayOccludedByWeb(skitter_focus, ray_distance),
+                       .enabled = distance <= kCaveSkitterInteractionDistance});
+  }
 
-  const MiningToolStats tool = activePickaxeStats();
   if (focused_voxel_hit_valid_) {
     const VoxelMaterialProfile *profile = voxel_cave_.profileFor(focused_voxel_hit_.material);
     const std::string subject =
@@ -2322,12 +2801,12 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                        .enabled = true});
   }
 
-  interaction_.update(targets, ray_origin, ray_direction, dt);
+  interaction_.update(targets, ray_origin, ray_direction, player_position_, dt);
 }
 
 void LumenRun::interactFocused() {
   const InteractionFocus &focus = interaction_.focus();
-  if (!focus.visible || focus.strength < 0.20f) {
+  if (!focus.visible) {
     return;
   }
 
@@ -2342,8 +2821,21 @@ void LumenRun::interactFocused() {
     }
     return;
   }
+  if (focus.kind == InteractionTargetKind::Item && focus.target_id == "relay:prism") {
+    activatePrismRelay();
+    setAvatarPointTarget(prismRelayFocusPosition());
+    return;
+  }
   if (focus.kind == InteractionTargetKind::Item && focus.target_id.rfind("ore:", 0u) == 0u) {
     (void)mineFocusedOre(focus.target_id);
+    return;
+  }
+  if (focus.kind == InteractionTargetKind::Item && focus.target_id.rfind("web:", 0u) == 0u) {
+    (void)mineFocusedCaveWeb(focus.target_id);
+    return;
+  }
+  if (focus.kind == InteractionTargetKind::Item && focus.target_id.rfind("skitter:", 0u) == 0u) {
+    (void)mineFocusedCaveSkitter(focus.target_id);
     return;
   }
   if (focus.kind == InteractionTargetKind::Item && focus.target_id == "voxel:mine") {
@@ -2364,6 +2856,16 @@ void LumenRun::secondaryInteractFocused(const Vec3 ray_origin, const Vec3 ray_di
   if (focus.visible && focus.kind == InteractionTargetKind::Item &&
       focus.target_id.rfind("ore:", 0u) == 0u) {
     (void)mineFocusedOre(focus.target_id);
+    return;
+  }
+  if (focus.visible && focus.kind == InteractionTargetKind::Item &&
+      focus.target_id.rfind("web:", 0u) == 0u) {
+    (void)mineFocusedCaveWeb(focus.target_id);
+    return;
+  }
+  if (focus.visible && focus.kind == InteractionTargetKind::Item &&
+      focus.target_id.rfind("skitter:", 0u) == 0u) {
+    (void)mineFocusedCaveSkitter(focus.target_id);
     return;
   }
   if (focus.visible && focus.kind == InteractionTargetKind::Item &&
@@ -2547,6 +3049,18 @@ std::optional<DynamicPointLight> LumenRun::pondAccentLight() const {
                               pond_accent_light_position_, status_.elapsed_seconds);
 }
 
+std::optional<DynamicPointLight> LumenRun::prismRelayLight() const {
+  if (prism_relay_charge_ <= 0.05f) {
+    return std::nullopt;
+  }
+  return evaluateFlickerLight({.color = {0.46f, 0.86f, 1.0f},
+                              .intensity = 2.85f * clamp(prism_relay_charge_, 0.0f, 1.15f),
+                               .amplitude = 0.045f,
+                               .speed = 2.4f,
+                               .source_radius = 4.8f},
+                              prismRelayFocusPosition(), status_.elapsed_seconds);
+}
+
 CaveLightingState LumenRun::caveLightingState() const {
   return caveLightingStateAt(player_position_);
 }
@@ -2582,8 +3096,8 @@ CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
       candidates.push_back(
           {.sample = {.position = fixture.light_position,
                       .color = fixture.light_color,
-                      .intensity = 58.0f * weight,
-                      .source_radius = 1.18f,
+                      .intensity = 76.0f * weight,
+                      .source_radius = 1.45f,
                       .tunnel_t = fixture.t},
            .distance = distance,
            .score = distance * 0.55f + progress_delta * kProceduralCaveWallFixtureSpacing * 1.30f});
@@ -2598,8 +3112,8 @@ CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
   for (const VoxelCaveFixtureLightSample &ranked : ranked_procedural_lights) {
     candidates.push_back({.sample = {.position = ranked.placement.light_position,
                                      .color = ranked.placement.light_color,
-                                     .intensity = 64.0f * ranked.weight,
-                                     .source_radius = 1.28f,
+                                     .intensity = 92.0f * ranked.weight,
+                                     .source_radius = 1.72f,
                                      .tunnel_t = ranked.placement.progress_normalized},
                           .distance = ranked.distance,
                           .score = ranked.score});
@@ -2660,7 +3174,14 @@ void LumenRun::rebuildScene() {
   voxel_cave_.clear();
   voxel_chunk_visuals_.clear();
   voxel_chunk_colliders_.clear();
+  cave_webs_.clear();
   scenery_collision_boxes_.clear();
+  mining_fracture_shards_.clear();
+  prism_relay_core_object_ = 0;
+  prism_relay_core_valid_ = false;
+  prism_relay_ring_objects_.clear();
+  prism_relay_conduit_objects_.clear();
+  prism_relay_node_objects_.clear();
   procedural_cave_wall_fixture_visuals_.clear();
   const CastleCourse &course = castleCourse();
   const Vec3 castle_origin = castleOrigin();
@@ -2803,15 +3324,15 @@ void LumenRun::rebuildScene() {
                                .roughness_variation = 0.14f,
                                .height_shading = 0.16f};
   Material cave_mouth_stone = mountain_stone;
-  cave_mouth_stone.base_color = {0.270f, 0.280f, 0.255f};
+  cave_mouth_stone.base_color = {0.315f, 0.318f, 0.286f};
   cave_mouth_stone.surface_pattern = SurfacePattern::CaveRock;
-  cave_mouth_stone.pattern_scale = {2.8f, 4.6f};
-  cave_mouth_stone.pattern_depth = 0.105f;
-  cave_mouth_stone.pattern_contrast = 0.96f;
+  cave_mouth_stone.pattern_scale = {3.6f, 6.2f};
+  cave_mouth_stone.pattern_depth = 0.132f;
+  cave_mouth_stone.pattern_contrast = 1.06f;
   cave_mouth_stone.detail_strength = 0.94f;
-  cave_mouth_stone.detail_scale = 9.2f;
-  cave_mouth_stone.edge_wear = 0.24f;
-  cave_mouth_stone.ambient_occlusion = 0.66f;
+  cave_mouth_stone.detail_scale = 11.4f;
+  cave_mouth_stone.edge_wear = 0.32f;
+  cave_mouth_stone.ambient_occlusion = 0.62f;
   cave_mouth_stone.double_sided = true;
   cave_mouth_stone.camera_occlusion = CameraOcclusionPolicy::Solid;
   cave_mouth_stone.procedural = {.macro_variation = 0.58f,
@@ -2831,9 +3352,9 @@ void LumenRun::rebuildScene() {
                           .wetness = 0.10f,
                           .height_shading = 0.24f};
   Material cave_entrance_wall = cave_wall;
-  cave_entrance_wall.base_color = {0.170f, 0.158f, 0.130f};
-  cave_entrance_wall.emission_color = {0.030f, 0.021f, 0.012f};
-  cave_entrance_wall.emission_strength = 0.034f;
+  cave_entrance_wall.base_color = {0.190f, 0.172f, 0.132f};
+  cave_entrance_wall.emission_color = {0.052f, 0.032f, 0.014f};
+  cave_entrance_wall.emission_strength = 0.046f;
   cave_entrance_wall.ambient_occlusion = 0.54f;
   cave_entrance_wall.procedural.wetness = 0.12f;
   Material cave_floor = makeSupportSurfaceMaterial(cave_wall);
@@ -2844,7 +3365,7 @@ void LumenRun::rebuildScene() {
   cave_floor.procedural.wetness = 0.18f;
   Material cave_talus = makeSupportSurfaceMaterial(
       material({0.155f, 0.150f, 0.128f}, {0.010f, 0.008f, 0.005f}, 0.94f, 0.0f, 0.008f, 0.82f, 8.6f,
-               0.30f, 0.62f, SurfacePattern::None, {0.46f, 0.52f}, 0.0f, 0.28f, 0.055f));
+               0.30f, 0.62f, SurfacePattern::CaveRock, {2.8f, 5.4f}, 0.052f, 0.72f, 0.055f));
   cave_talus.camera_occlusion = CameraOcclusionPolicy::Solid;
   cave_talus.procedural = {.macro_variation = 0.34f,
                            .micro_normal_strength = 0.28f,
@@ -2866,6 +3387,43 @@ void LumenRun::rebuildScene() {
   coal_ore_material.emission_strength = 0.16f;
   coal_ore_material.edge_wear = 0.30f;
   coal_ore_material.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material ironstone_ore_material =
+      material({0.245f, 0.155f, 0.105f}, {0.42f, 0.19f, 0.075f}, 0.78f, 0.08f, 0.040f, 0.82f,
+               14.0f, 0.28f, 0.86f, SurfacePattern::CaveRock, {3.8f, 6.8f}, 0.180f, 0.94f,
+               0.055f);
+  ironstone_ore_material.opacity = 1.0f;
+  ironstone_ore_material.edge_wear = 0.38f;
+  ironstone_ore_material.emission_strength = 0.075f;
+  ironstone_ore_material.camera_occlusion = CameraOcclusionPolicy::Solid;
+  ironstone_ore_material.cull_mode = FaceCullMode::Back;
+  Material cave_web_material =
+      material({0.78f, 0.80f, 0.76f}, {0.070f, 0.078f, 0.070f}, 0.34f, 0.0f, 0.060f, 0.76f,
+               15.0f, 0.02f, 0.82f, SurfacePattern::CaveWeb, {4.0f, 18.0f}, 0.018f, 0.72f,
+               0.035f,
+               {.macro_variation = 0.18f,
+                .micro_normal_strength = 0.16f,
+                .roughness_variation = 0.18f,
+                .height_shading = 0.04f});
+  cave_web_material.opacity = 0.86f;
+  cave_web_material.double_sided = true;
+  cave_web_material.cull_mode = FaceCullMode::None;
+  cave_web_material.alpha_mode = MaterialAlphaMode::Blend;
+  cave_web_material.depth_write = MaterialDepthWrite::Enabled;
+  cave_web_material.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material cave_skitter_material =
+      material({0.115f, 0.058f, 0.042f}, {0.105f, 0.020f, 0.010f}, 0.34f, 0.06f, 0.070f, 0.82f,
+               24.0f, 0.12f, 0.84f, SurfacePattern::CaveSkitterChitin, {28.0f, 34.0f}, 0.070f,
+               0.92f, 0.035f,
+               {.macro_variation = 0.24f,
+                .micro_normal_strength = 0.38f,
+                .roughness_variation = 0.24f,
+                .height_shading = 0.16f});
+  cave_skitter_material.camera_occlusion = CameraOcclusionPolicy::Solid;
+  cave_skitter_material.opacity = 1.0f;
+  cave_skitter_material.alpha_mode = MaterialAlphaMode::Opaque;
+  cave_skitter_material.depth_write = MaterialDepthWrite::Enabled;
+  cave_skitter_material.double_sided = false;
+  cave_skitter_material.cull_mode = FaceCullMode::Back;
   Material industrial_light_metal = material(
       {0.070f, 0.064f, 0.055f}, {0.004f, 0.003f, 0.002f}, 0.52f, 0.68f, 0.004f, 0.54f, 12.0f, 0.16f,
       0.78f, SurfacePattern::WeatheredStone, {4.2f, 6.4f}, 0.024f, 0.56f, 0.05f);
@@ -3024,6 +3582,155 @@ void LumenRun::rebuildScene() {
     return appendScenery(name, MeshPrimitive::Box, (from + to) * 0.5f,
                          {radius, beam_length, radius}, segmentRotation(from, to), beam_material);
   };
+
+  Material prism_statue_stone = dark_masonry;
+  prism_statue_stone.base_color = mixColor(prism_statue_stone.base_color, {0.18f, 0.205f, 0.20f},
+                                           0.34f);
+  prism_statue_stone.roughness = 0.88f;
+  prism_statue_stone.metallic = 0.0f;
+  prism_statue_stone.edge_wear = 0.38f;
+  prism_statue_stone.ambient_occlusion = 0.78f;
+  prism_statue_stone.procedural = {.macro_variation = 0.30f,
+                                   .micro_normal_strength = 0.34f,
+                                   .roughness_variation = 0.16f,
+                                   .height_shading = 0.14f};
+  prism_statue_stone.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material prism_statue_trim = pond_stone;
+  prism_statue_trim.base_color = mixColor(prism_statue_trim.base_color, {0.26f, 0.30f, 0.30f},
+                                          0.36f);
+  prism_statue_trim.roughness = 0.82f;
+  prism_statue_trim.edge_wear = 0.44f;
+  prism_statue_trim.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material prism_inlay = weathered_iron;
+  prism_inlay.base_color = mixColor(prism_inlay.base_color, {0.08f, 0.12f, 0.13f}, 0.46f);
+  prism_inlay.emission_color = {0.10f, 0.36f, 0.42f};
+  prism_inlay.emission_strength = 0.08f;
+  prism_inlay.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material prism_core_material = amber_shard;
+  prism_core_material.base_color = {0.34f, 0.78f, 1.0f};
+  prism_core_material.emission_color = {0.30f, 0.78f, 1.0f};
+  prism_core_material.emission_strength = 0.30f;
+  prism_core_material.surface_pattern = SurfacePattern::AmberResin;
+  prism_core_material.pattern_scale = {8.0f, 14.0f};
+  prism_core_material.pattern_depth = 0.060f;
+  prism_core_material.pattern_contrast = 0.95f;
+  prism_core_material.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material prism_conduit_material = prism_core_material;
+  prism_conduit_material.base_color = {0.16f, 0.56f, 0.92f};
+  prism_conduit_material.emission_color = {0.26f, 0.82f, 1.0f};
+  prism_conduit_material.emission_strength = 0.46f;
+  prism_conduit_material.opacity = 0.18f;
+  prism_conduit_material.double_sided = true;
+  prism_conduit_material.alpha_mode = MaterialAlphaMode::Blend;
+  prism_conduit_material.depth_write = MaterialDepthWrite::Disabled;
+  prism_conduit_material.camera_occlusion = CameraOcclusionPolicy::Solid;
+  prism_conduit_material.surface_pattern = SurfacePattern::FiberStrands;
+  prism_conduit_material.pattern_scale = {10.0f, 18.0f};
+  prism_conduit_material.pattern_depth = 0.030f;
+  prism_conduit_material.procedural = {.macro_variation = 0.38f,
+                                       .micro_normal_strength = 0.18f,
+                                       .roughness_variation = 0.12f,
+                                       .height_shading = 0.08f};
+
+  const auto appendRelayStatuePart = [&](const char *name, const MeshPrimitive primitive,
+                                         const Vec3 position, const Vec3 scale,
+                                         const Vec3 rotation, const Material &part_material,
+                                         const bool collision = false,
+                                         const float shadow = 0.22f) {
+    const std::size_t index =
+        enableContactShadow(appendStructuralScenery(name, primitive, position, scale, rotation,
+                                                    part_material),
+                            shadow, 0.86f);
+    if (collision) {
+      scenery_collision_boxes_.push_back({position, scale * 0.50f});
+      support_surfaces_.addBox({position, scale * 0.50f});
+    }
+    return index;
+  };
+  const Vec3 relay_core = prismRelayFocusPosition();
+  appendRelayStatuePart("Prism relay statue square plinth", MeshPrimitive::Box,
+                        prism_relay_base_ + Vec3{0.0f, 0.11f, 0.0f},
+                        {1.45f, 0.22f, 1.45f}, {}, prism_statue_trim, true, 0.32f);
+  appendRelayStatuePart("Prism relay statue octagonal riser", MeshPrimitive::Pillar,
+                        prism_relay_base_ + Vec3{0.0f, 0.44f, 0.0f},
+                        {0.78f, 0.58f, 0.78f}, {}, prism_statue_stone, true, 0.30f);
+  appendRelayStatuePart("Prism relay statue engraved inlay", MeshPrimitive::Box,
+                        prism_relay_base_ + Vec3{0.0f, 0.75f, 0.0f},
+                        {0.92f, 0.045f, 0.92f}, {}, prism_inlay, false, 0.18f);
+  appendRelayStatuePart("Prism relay statue torso", MeshPrimitive::Pillar,
+                        prism_relay_base_ + Vec3{0.0f, 1.18f, 0.0f},
+                        {0.34f, 0.82f, 0.28f}, {}, prism_statue_stone, false, 0.24f);
+  appendRelayStatuePart("Prism relay statue shoulders", MeshPrimitive::Box,
+                        prism_relay_base_ + Vec3{0.0f, 1.54f, 0.02f},
+                        {0.82f, 0.16f, 0.28f}, {}, prism_statue_trim, false, 0.22f);
+  appendRelayStatuePart("Prism relay statue head", MeshPrimitive::Sphere,
+                        prism_relay_base_ + Vec3{0.0f, 1.83f, 0.0f},
+                        {0.18f, 0.22f, 0.18f}, {}, prism_statue_stone, false, 0.20f);
+  enableContactShadow(appendBeam("Prism relay statue left raised arm",
+                                 prism_relay_base_ + Vec3{-0.34f, 1.50f, 0.02f},
+                                 prism_relay_base_ + Vec3{-0.18f, 2.06f, 0.06f}, 0.060f,
+                                 prism_statue_trim),
+                      0.18f, 0.70f);
+  enableContactShadow(appendBeam("Prism relay statue right raised arm",
+                                 prism_relay_base_ + Vec3{0.34f, 1.50f, 0.02f},
+                                 prism_relay_base_ + Vec3{0.18f, 2.06f, 0.06f}, 0.060f,
+                                 prism_statue_trim),
+                      0.18f, 0.70f);
+  appendRelayStatuePart("Prism relay statue left crystal hand", MeshPrimitive::Sphere,
+                        prism_relay_base_ + Vec3{-0.18f, 2.07f, 0.06f},
+                        {0.075f, 0.075f, 0.075f}, {}, prism_inlay, false, 0.12f);
+  appendRelayStatuePart("Prism relay statue right crystal hand", MeshPrimitive::Sphere,
+                        prism_relay_base_ + Vec3{0.18f, 2.07f, 0.06f},
+                        {0.075f, 0.075f, 0.075f}, {}, prism_inlay, false, 0.12f);
+  prism_relay_core_object_ =
+      appendScenery("Aster prism relay refractor core", MeshPrimitive::Crystal, relay_core,
+                    {0.24f, 0.52f, 0.24f}, {0.0f, status_.elapsed_seconds, 0.0f},
+                    prism_core_material, 0.36f);
+  prism_relay_core_valid_ = true;
+  prism_relay_ring_objects_.push_back(appendGeneratedScenery(
+      "Aster prism relay equatorial field ring",
+      makeSharedMesh(
+          makeEnergyConduitRingMesh({.radius = 0.56f, .band_width = 0.030f, .segments = 72})),
+      relay_core, {1.0f, 1.0f, 1.0f}, {}, prism_conduit_material, 0.18f));
+  prism_relay_ring_objects_.push_back(appendGeneratedScenery(
+      "Aster prism relay vertical field ring",
+      makeSharedMesh(
+          makeEnergyConduitRingMesh({.radius = 0.68f, .band_width = 0.026f, .segments = 72})),
+      relay_core, {1.0f, 1.0f, 1.0f}, {radians(90.0f), 0.0f, radians(12.0f)},
+      prism_conduit_material, -0.14f));
+
+  std::vector<EnergyConduitRibbonSpec> relay_conduits;
+  relay_conduits.reserve(3u);
+  const auto addRelayConduit = [&](const Vec3 anchor, const float crest, const float width) {
+    Vec3 planar_direction{anchor.x - relay_core.x, 0.0f, anchor.z - relay_core.z};
+    if (length(planar_direction) <= 0.0001f) {
+      planar_direction = {1.0f, 0.0f, 0.0f};
+    }
+    const Vec3 start =
+        relay_core + normalize(planar_direction) * 0.76f + Vec3{0.0f, -0.08f, 0.0f};
+    const Vec3 midpoint = (start + anchor) * 0.5f + Vec3{0.0f, crest, 0.0f};
+    relay_conduits.push_back({.points = {start, midpoint, anchor},
+                              .width = width,
+                              .crest_height = crest * 0.20f,
+                              .subdivisions_per_segment = 24});
+  };
+  const Vec3 relay_left_anchor = prism_relay_base_ + Vec3{-0.92f, 0.78f, 0.26f};
+  const Vec3 relay_right_anchor = prism_relay_base_ + Vec3{0.92f, 0.78f, 0.26f};
+  const Vec3 relay_rear_anchor = prism_relay_base_ + Vec3{0.0f, 0.88f, -1.02f};
+  addRelayConduit(relay_left_anchor, 0.36f, 0.070f);
+  addRelayConduit(relay_right_anchor, 0.36f, 0.070f);
+  addRelayConduit(relay_rear_anchor, 0.44f, 0.064f);
+  prism_relay_conduit_objects_.push_back(appendGeneratedScenery(
+      "Aster prism relay conduit network",
+      makeSharedMesh(makeEnergyConduitRibbonNetworkMesh(relay_conduits)),
+      {}, {1.0f, 1.0f, 1.0f}, {}, prism_conduit_material));
+  for (const Vec3 node : {relay_left_anchor, relay_right_anchor, relay_rear_anchor}) {
+    prism_relay_node_objects_.push_back(appendScenery("Aster prism relay endpoint node",
+                                                     MeshPrimitive::Sphere, node,
+                                                     {0.095f, 0.095f, 0.095f}, {},
+                                                     prism_core_material,
+                                                     0.22f));
+  }
 
   for (PlacedResourceRock &rock : placed_rocks_) {
     const ItemDefinition *definition = item_registry_.find(rock.item_id);
@@ -3232,6 +3939,86 @@ void LumenRun::rebuildScene() {
   CaveComplex cave_complex = buildCaveComplex(cave_spec);
   cave_tunnel_ = cave_spec.tunnel;
   voxel_cave_.configure(lumenVoxelCaveSpec(cave_floor_y));
+  const LumenCaveWebPlacement web_placement = lumenCaveWebPlacement(cave_floor_y);
+  CaveWebObstacle cave_web;
+  cave_web.id = "cave_web:0";
+  cave_web.center = web_placement.center;
+  cave_web.normal =
+      length(web_placement.normal) > 0.0001f ? normalize(web_placement.normal)
+                                             : Vec3{0.0f, 0.0f, -1.0f};
+  cave_web.side = length(web_placement.side) > 0.0001f ? normalize(web_placement.side)
+                                                       : Vec3{1.0f, 0.0f, 0.0f};
+  cave_web.up =
+      length(web_placement.up) > 0.0001f ? normalize(web_placement.up) : Vec3{0.0f, 1.0f, 0.0f};
+  cave_web.radius_x = web_placement.radius_x;
+  cave_web.radius_y = web_placement.radius_y;
+  cave_web.thickness = web_placement.thickness;
+  cave_web.slow_scale = kCaveWebSlowScale;
+  cave_web.hardness = 2.0f;
+  cave_web.object_index = keepCameraSolid(appendGeneratedScenery(
+      "Oval cave spider web span",
+      makeSharedMesh(makeCaveWebMesh({.center = cave_web.center,
+                                      .normal = cave_web.normal,
+                                      .side = cave_web.side,
+                                      .up = cave_web.up,
+                                      .radius_x = cave_web.radius_x,
+                                      .radius_y = cave_web.radius_y,
+                                      .radial_strands = 26,
+                                      .ring_strands = 8,
+                                      .ring_segments = 112,
+                                      .strand_width =
+                                          std::max(0.010f, std::min(cave_web.radius_x,
+                                                                    cave_web.radius_y) *
+                                                            0.010f),
+                                      .anchor_width_scale = 1.30f,
+                                      .sag = cave_web.radius_y * 0.065f,
+                                      .irregularity = 0.055f,
+                                      .seed = kLumenCaveSeed + 7331u,
+                                      .double_sided = true})),
+      {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, cave_web_material));
+  if (cave_web.object_index < scene_.objects().size()) {
+    scene_.objects()[cave_web.object_index].auto_contact_shadow = false;
+  }
+  cave_webs_.push_back(cave_web);
+  const std::shared_ptr<const CpuMesh> cave_skitter_mesh =
+      makeSharedMesh(makeCaveSkitterMesh({.body_segments = 34,
+                                          .body_rings = 11,
+                                          .leg_segments = 10,
+                                          .body_length = 0.30f,
+                                          .body_width = 0.17f,
+                                          .body_height = 0.095f,
+                                          .abdomen_length = 0.36f,
+                                          .abdomen_width = 0.22f,
+                                          .abdomen_height = 0.14f,
+                                          .leg_span = 0.42f,
+                                          .leg_lift = 0.050f,
+                                          .fang_length = 0.070f,
+                                          .eye_radius = 0.020f}));
+  for (int skitter_index = 0; skitter_index < kCaveSkitterEncounterCount; ++skitter_index) {
+    const float angle =
+        (static_cast<float>(skitter_index) / static_cast<float>(kCaveSkitterEncounterCount)) *
+            kPi * 2.0f +
+        kPi * 0.18f;
+    CaveSkitter skitter;
+    skitter.id = "cave_skitter:" + std::to_string(skitter_index);
+    skitter.max_health = kCaveSkitterMaxHealth;
+    skitter.health = skitter.max_health;
+    skitter.state.home_offset = {std::cos(angle) * cave_web.radius_x * 0.38f,
+                                 std::sin(angle) * cave_web.radius_y * 0.30f};
+    skitter.state.position = cave_web.center + cave_web.side * skitter.state.home_offset.x +
+                             cave_web.up * skitter.state.home_offset.y -
+                             cave_web.normal * std::max(cave_web.thickness * 0.64f, 0.12f);
+    skitter.state.facing_yaw = std::atan2(cave_web.normal.x, cave_web.normal.z);
+    skitter.state.temperament =
+        0.22f + 0.26f * static_cast<float>(skitter_index) +
+        0.08f * std::sin(static_cast<float>(skitter_index) * 1.73f);
+    skitter.object_index = appendGeneratedScenery("Cave skitter arachnid", cave_skitter_mesh,
+                                                  skitter.state.position, {1.0f, 1.0f, 1.0f},
+                                                  {0.0f, skitter.state.facing_yaw, 0.0f},
+                                                  cave_skitter_material);
+    enableContactShadow(skitter.object_index, 0.42f, 0.82f);
+    cave_skitters_.push_back(skitter);
+  }
   cave_wall_fixtures_ = placeCaveWallFixtures(cave_tunnel_, lumenCaveWallFixtureProfile());
   cave_secondary_wall_fixtures_ =
       placeCaveWallFixtures(cave_tunnel_, lumenCaveSecondaryWallFixtureProfile());
@@ -3346,6 +4133,13 @@ void LumenRun::rebuildScene() {
         appendScenery("Equipped torch fire particle", MeshPrimitive::Crystal, {0.0f, -20.0f, 0.0f},
                       {0.001f, 0.001f, 0.001f}, {}, torch_flame_material);
     torch_particle_visuals_.push_back({index});
+  }
+  for (std::size_t i = 0; i < kMiningFractureShardVisualPoolSize; ++i) {
+    const std::size_t index =
+        appendScenery("Mesh-cut mining fragment", MeshPrimitive::Rock, {0.0f, -24.0f, 0.0f},
+                      {0.001f, 0.001f, 0.001f}, {}, cave_talus);
+    scene_.objects()[index].camera_occlusion_fade = false;
+    mining_fracture_shards_.push_back({.object_index = index});
   }
 
   support_surfaces_.addBox({chest_base_ + Vec3{0.0f, 0.25f, 0.0f}, {0.40f, 0.25f, 0.30f}});
@@ -3733,29 +4527,6 @@ void LumenRun::rebuildScene() {
     supply_crate_base_.y = supply_ground.height + 0.28f;
   }
   supply_crate_yaw_ = cave_yaw + radians(8.0f);
-  const auto supplyPartPosition = [&](const Vec3 local_offset) {
-    return supply_crate_base_ + rotateYaw(local_offset, supply_crate_yaw_);
-  };
-  const std::size_t supply_crate_index =
-      appendScenery("Cave torch supply crate base", MeshPrimitive::Box, supply_crate_base_,
-                    {0.72f, 0.36f, 0.48f}, {0.0f, supply_crate_yaw_, 0.0f}, sign_wood);
-  enableContactShadow(supply_crate_index, 0.50f, 0.86f);
-  appendScenery("Cave torch supply crate dark interior", MeshPrimitive::Box,
-                supplyPartPosition({0.0f, 0.14f, 0.0f}), {0.60f, 0.060f, 0.36f},
-                {0.0f, supply_crate_yaw_, 0.0f}, dark_chest_interior);
-  appendScenery("Cave torch supply crate front iron band", MeshPrimitive::Box,
-                supplyPartPosition({0.0f, 0.02f, 0.254f}), {0.62f, 0.046f, 0.026f},
-                {0.0f, supply_crate_yaw_, 0.0f}, weathered_iron);
-  appendScenery("Cave torch supply crate side iron band", MeshPrimitive::Box,
-                supplyPartPosition({-0.374f, 0.02f, 0.0f}), {0.026f, 0.046f, 0.36f},
-                {0.0f, supply_crate_yaw_, 0.0f}, weathered_iron);
-  appendScenery("Cave torch supply crate visible torch bundle", MeshPrimitive::Box,
-                supplyPartPosition({0.10f, 0.31f, 0.02f}), {0.13f, 0.36f, 0.13f},
-                {radians(4.0f), supply_crate_yaw_ + radians(18.0f), radians(-12.0f)}, sign_wood);
-  appendScenery("Cave torch supply crate ember caps", MeshPrimitive::Sphere,
-                supplyPartPosition({0.18f, 0.52f, 0.10f}), {0.12f, 0.085f, 0.12f},
-                {0.0f, supply_crate_yaw_, 0.0f}, torch_flame_material);
-  support_surfaces_.addBox({supply_crate_base_ + Vec3{0.0f, 0.18f, 0.0f}, {0.38f, 0.22f, 0.28f}});
   appendGroundUnderlay("Cave mouth fractured talus apron",
                        makeSharedMesh(makePathJunctionMesh({.radial_segments = 128,
                                                             .rings = 7,
@@ -3819,6 +4590,26 @@ void LumenRun::rebuildScene() {
                          {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, cave_floor);
   support_surfaces_.addMesh({cave_floor_mesh, {}, 0.36f});
   decorative_ground_surfaces.addMesh({cave_floor_mesh, {}, 0.36f});
+  const CaveTunnelFrame cave_terminal_frame = sampleCaveTunnelFrame(cave_tunnel_, 1.0f);
+  Material cave_connector_wall = cave_wall;
+  cave_connector_wall.double_sided = true;
+  cave_connector_wall.cull_mode = FaceCullMode::None;
+  cave_connector_wall.camera_occlusion = CameraOcclusionPolicy::Solid;
+  const std::shared_ptr<const CpuMesh> cave_transition_shell =
+      makeSharedMesh(makeCaveTransitionShellMesh(cave_terminal_frame,
+                                                 kCaveTransitionConnectorLength));
+  appendGeneratedStructuralScenery("Continuous streaming cave connector shell",
+                                   cave_transition_shell, {0.0f, 0.0f, 0.0f},
+                                   {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f},
+                                   cave_connector_wall);
+  const std::shared_ptr<const CpuMesh> cave_transition_floor =
+      makeSharedMesh(makeCaveTransitionFloorMesh(cave_terminal_frame,
+                                                 kCaveTransitionConnectorLength));
+  appendGeneratedScenery("Walkable streaming cave connector floor", cave_transition_floor,
+                         {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f},
+                         cave_floor);
+  support_surfaces_.addMesh({cave_transition_floor, {}, 0.38f});
+  decorative_ground_surfaces.addMesh({cave_transition_floor, {}, 0.38f});
   std::size_t cave_chunk_index = 0;
   for (CpuMesh &chunk : cave_complex.tunnel_chunks) {
     const Material &chunk_material = cave_chunk_index < 2u ? cave_entrance_wall : cave_wall;
@@ -3840,22 +4631,59 @@ void LumenRun::rebuildScene() {
   voxel_rock_material.cull_mode = FaceCullMode::Back;
   voxel_rock_material.camera_occlusion = CameraOcclusionPolicy::Solid;
   voxel_chunk_visuals_.clear();
-  const int voxel_stream_width = voxel_cave_.spec().stream_radius * 2 + 1;
-  const std::size_t voxel_visual_capacity =
+  const int voxel_stream_width = voxel_cave_.spec().unload_radius * 2 + 1;
+  const std::size_t voxel_chunk_capacity =
       static_cast<std::size_t>(voxel_stream_width * voxel_stream_width * voxel_stream_width);
+  struct VoxelVisualTemplate {
+    VoxelChunkRenderBatchKind kind = VoxelChunkRenderBatchKind::StructuralSurface;
+    VoxelCaveMaterial material = VoxelCaveMaterial::Rock;
+    Material render_material{};
+  };
+  const std::array<VoxelVisualTemplate, 5> voxel_visual_templates{
+      VoxelVisualTemplate{.kind = VoxelChunkRenderBatchKind::CoarseProxySurface,
+                          .material = VoxelCaveMaterial::Rock,
+                          .render_material = voxel_rock_material},
+      VoxelVisualTemplate{.kind = VoxelChunkRenderBatchKind::StructuralSurface,
+                          .material = VoxelCaveMaterial::Rock,
+                          .render_material = voxel_rock_material},
+      VoxelVisualTemplate{.kind = VoxelChunkRenderBatchKind::MaterialSurface,
+                          .material = VoxelCaveMaterial::Coal,
+                          .render_material = coal_ore_material},
+      VoxelVisualTemplate{.kind = VoxelChunkRenderBatchKind::MaterialSurface,
+                          .material = VoxelCaveMaterial::Copper,
+                          .render_material = cave_mineral_glow},
+      VoxelVisualTemplate{.kind = VoxelChunkRenderBatchKind::MaterialSurface,
+                          .material = VoxelCaveMaterial::Iron,
+                          .render_material = ironstone_ore_material}};
+  const std::size_t voxel_visual_capacity =
+      voxel_chunk_capacity * voxel_visual_templates.size();
   voxel_chunk_visuals_.reserve(voxel_visual_capacity);
-  for (std::size_t i = 0; i < voxel_visual_capacity; ++i) {
-    const std::size_t object_index =
-        appendScenery(voxelChunkBatchName(VoxelCaveMaterial::Rock), MeshPrimitive::Box,
-                      {0.0f, -24.0f, 0.0f}, {0.001f, 0.001f, 0.001f}, {}, voxel_rock_material);
-    RenderObject &object = scene_.objects()[object_index];
-    object.camera_occlusion_fade = false;
-    object.custom_mesh.reset();
-    voxel_chunk_visuals_.push_back({.kind = VoxelChunkRenderBatchKind::StructuralSurface,
-                                    .material = VoxelCaveMaterial::Rock,
-                                    .object_index = object_index});
+  for (std::size_t i = 0; i < voxel_chunk_capacity; ++i) {
+    for (const VoxelVisualTemplate &visual_template : voxel_visual_templates) {
+      const std::size_t object_index =
+          appendScenery(voxelChunkBatchName(visual_template.material), MeshPrimitive::Box,
+                        {0.0f, -24.0f, 0.0f}, {0.001f, 0.001f, 0.001f}, {},
+                        visual_template.render_material);
+      RenderObject &object = scene_.objects()[object_index];
+      object.camera_occlusion_fade = false;
+      object.custom_mesh.reset();
+      voxel_chunk_visuals_.push_back({.kind = visual_template.kind,
+                                      .material = visual_template.material,
+                                      .object_index = object_index});
+    }
   }
-  voxel_cave_.updateStreaming(player_position_, 0.0f);
+  {
+    VoxelCaveUpdateOptions warmup_options;
+    warmup_options.override_rebuild_budget = true;
+    warmup_options.rebuild_budget = voxelCaveRebuildItemBudget(8u);
+    const Vec3 warmup_focus =
+        cave_web.center +
+        cave_web.normal * std::max(voxelCaveTunnelRadius(cave_terminal_frame), 1.0f);
+    for (int step = 0; step < 5; ++step) {
+      warmup_options.viewer_velocity = cave_web.normal * (2.0f + static_cast<float>(step));
+      voxel_cave_.updateStreaming(warmup_focus, 0.0f, warmup_options);
+    }
+  }
   syncVoxelChunkVisuals();
 
   procedural_cave_wall_fixture_visuals_.clear();
@@ -3906,15 +4734,19 @@ void LumenRun::rebuildScene() {
     keepCameraSolid(appendScenery(name, primitive, position, scale, rotation, feature_material));
   }
 
-  const Vec3 sign_base = {cave_entrance.x - 1.78f, cave_floor_y + 0.50f, cave_entrance.z + 1.32f};
-  appendScenery("Cave sign left post", MeshPrimitive::Box, sign_base + Vec3{-0.40f, -0.18f, 0.0f},
-                {0.060f, 0.86f, 0.060f}, {0.0f, 0.0f, 0.0f}, sign_wood);
-  appendScenery("Cave sign right post", MeshPrimitive::Box, sign_base + Vec3{0.40f, -0.18f, 0.0f},
-                {0.060f, 0.86f, 0.060f}, {0.0f, 0.0f, 0.0f}, sign_wood);
-  appendScenery("Weathered Cave sign board", MeshPrimitive::Box, sign_base, {1.08f, 0.40f, 0.060f},
+  Vec3 sign_base = {cave_entrance.x - 1.78f, cave_floor_y + 0.72f, cave_entrance.z + 1.32f};
+  if (const TerrainSurfaceSample sign_ground = groundDrapeSurface({sign_base.x, sign_base.z});
+      sign_ground.valid) {
+    sign_base.y = sign_ground.height + 0.76f;
+  }
+  appendScenery("Cave sign left post", MeshPrimitive::Box, sign_base + Vec3{-0.40f, -0.25f, 0.0f},
+                {0.060f, 0.74f, 0.060f}, {0.0f, 0.0f, 0.0f}, sign_wood);
+  appendScenery("Cave sign right post", MeshPrimitive::Box, sign_base + Vec3{0.40f, -0.25f, 0.0f},
+                {0.060f, 0.74f, 0.060f}, {0.0f, 0.0f, 0.0f}, sign_wood);
+  appendScenery("Weathered Cave sign board", MeshPrimitive::Box, sign_base, {1.08f, 0.34f, 0.060f},
                 {0.0f, 0.0f, 0.0f}, sign_wood);
   appendGeneratedScenery("Cave sign handwritten text", caveSignStrokeMesh(),
-                         sign_base + Vec3{0.0f, -0.006f, 0.037f}, {0.82f, 0.82f, 0.82f},
+                         sign_base + Vec3{0.0f, -0.004f, 0.037f}, {0.82f, 0.82f, 0.82f},
                          {0.0f, 0.0f, 0.0f}, sign_ink);
 
   for (int i = 0; i < 7; ++i) {
@@ -3947,18 +4779,18 @@ void LumenRun::rebuildScene() {
       {.min = cave_route_min,
        .max = cave_route_max,
        .seed = kLumenCaveSeed + 2701u,
-       .target_blades = 1320,
-       .max_blades = 1320,
-       .min_spacing = 0.080f,
+       .target_blades = 1780,
+       .max_blades = 1780,
+       .min_spacing = 0.066f,
        .surface_offset = 0.020f,
        .min_height = 0.18f,
-       .max_height = 0.46f,
+       .max_height = 0.54f,
        .min_width = 0.010f,
-       .max_width = 0.027f,
-       .max_bend = 0.112f,
-       .max_lean = 0.050f,
-       .density_noise_scale = 0.58f,
-       .density_noise_contrast = 0.32f,
+       .max_width = 0.032f,
+       .max_bend = 0.140f,
+       .max_lean = 0.066f,
+       .density_noise_scale = 0.66f,
+       .density_noise_contrast = 0.42f,
        .min_surface_normal_y = 0.50f,
        .preferred_surface_normal_y = 0.83f,
        .accepts_position =
@@ -3974,30 +4806,60 @@ void LumenRun::rebuildScene() {
       {.min = {cave_entrance.x - 5.10f, cave_entrance.z - 1.05f},
        .max = {cave_entrance.x + 5.10f, cave_entrance.z + 5.20f},
        .seed = kLumenCaveSeed + 2809u,
-       .target_blades = 760,
-       .max_blades = 760,
-       .min_spacing = 0.072f,
+       .target_blades = 1180,
+       .max_blades = 1180,
+       .min_spacing = 0.058f,
        .surface_offset = 0.022f,
        .min_height = 0.20f,
-       .max_height = 0.58f,
+       .max_height = 0.66f,
        .min_width = 0.011f,
-       .max_width = 0.030f,
-       .max_bend = 0.132f,
-       .max_lean = 0.060f,
-       .density_noise_scale = 0.74f,
-       .density_noise_contrast = 0.38f,
+       .max_width = 0.034f,
+       .max_bend = 0.160f,
+       .max_lean = 0.072f,
+       .density_noise_scale = 0.86f,
+       .density_noise_contrast = 0.46f,
        .min_surface_normal_y = 0.48f,
        .preferred_surface_normal_y = 0.82f,
        .accepts_position =
-           [cave_path_specs, outsideCavePortal, this](const Vec2 position) {
-             const Vec2 crate_delta{position.x - supply_crate_base_.x,
-                                    position.y - supply_crate_base_.z};
+           [cave_path_specs, outsideCavePortal](const Vec2 position) {
              return outsideCavePortal(position) &&
                     distanceToPathRoute(cave_path_specs, position) >
-                        kCaveApproachPathWidth * 0.76f &&
-                    length(crate_delta) > 0.86f;
+                        kCaveApproachPathWidth * 0.76f;
            }},
       grass_blades, terrainGrassSurface);
+  const std::vector<GroundDetailAnchor> cave_ground_details = scatterGroundDetailAnchors(
+      {.min = {cave_entrance.x - 5.35f, cave_entrance.z - 1.20f},
+       .max = {cave_entrance.x + 5.35f, cave_entrance.z + 5.45f},
+       .seed = kLumenCaveSeed + 2927u,
+       .target_details = 260,
+       .max_details = 260,
+       .min_spacing = 0.165f,
+       .surface_offset = 0.026f,
+       .min_radius = 0.035f,
+       .max_radius = 0.135f,
+       .twig_fraction = 0.22f,
+       .leaf_fraction = 0.32f,
+       .density_noise_scale = 0.50f,
+       .density_noise_contrast = 0.34f,
+       .min_surface_normal_y = 0.42f,
+       .preferred_surface_normal_y = 0.80f,
+       .accepts_position =
+           [cave_path_specs, outsideCavePortal](const Vec2 position) {
+             return outsideCavePortal(position) &&
+                    distanceToPathRoute(cave_path_specs, position) >
+                        kCaveApproachPathWidth * 0.62f;
+           }},
+      terrainGrassSurface);
+  appendGeneratedScenery("Engine cave mouth procedural ground detail",
+                         makeSharedMesh(makeGroundDetailMesh(
+                             cave_ground_details,
+                             {.pebble_segments = 8,
+                              .double_sided_litter = true,
+                              .pebble_height = 0.46f,
+                              .leaf_curl = 0.024f,
+                              .twig_height = 0.022f})),
+                         {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f},
+                         {0.0f, 0.0f, 0.0f}, cave_talus);
 
   coal_ores_.clear();
   coal_ores_.reserve(cave_complex.ore_nodes.size());
@@ -4466,6 +5328,7 @@ void LumenRun::rebuildScene() {
   }
 
   blood_particles_.clear();
+  blood_particle_cursor_ = 0;
   for (int i = 0; i < 24; ++i) {
     blood_particles_.push_back(
         {{},
@@ -4599,7 +5462,6 @@ void LumenRun::rebuildPhysicsWorld() {
   addStaticBox({boundary, 1.0f, 0.0f}, {0.30f, 2.0f, boundary});
   addStaticBox({-boundary, 1.0f, 0.0f}, {0.30f, 2.0f, boundary});
   addStaticBox(chest_base_ + Vec3{0.0f, 0.25f, 0.0f}, {0.40f, 0.25f, 0.30f});
-  addStaticBox(supply_crate_base_ + Vec3{0.0f, 0.18f, 0.0f}, {0.38f, 0.22f, 0.28f});
   addStaticBox(climbable_tree_.base + Vec3{0.0f, climbable_tree_.height * 0.5f, 0.0f},
                {climbable_tree_.radius * 0.82f, climbable_tree_.height * 0.5f,
                 climbable_tree_.radius * 0.82f});
@@ -4731,8 +5593,6 @@ SceneCoherenceProblem LumenRun::buildSceneCoherenceProblem() const {
   addSolid("playable east boundary", {boundary, 1.0f, 0.0f}, {0.30f, 2.0f, boundary});
   addSolid("playable west boundary", {-boundary, 1.0f, 0.0f}, {0.30f, 2.0f, boundary});
   addSolid("cave chest collision", chest_base_ + Vec3{0.0f, 0.25f, 0.0f}, {0.40f, 0.25f, 0.30f});
-  addSolid("cave supply crate collision", supply_crate_base_ + Vec3{0.0f, 0.18f, 0.0f},
-           {0.38f, 0.22f, 0.28f});
   addSolid("climbable trunk collision",
            climbable_tree_.base + Vec3{0.0f, climbable_tree_.height * 0.5f, 0.0f},
            {climbable_tree_.radius * 0.82f, climbable_tree_.height * 0.5f,
@@ -4957,6 +5817,7 @@ void LumenRun::rebuildSceneTraceReport() const {
 
 void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const bool run_requested,
                                    const bool jump_requested) {
+  ASTER_PROFILE_SCOPE("LumenRun::updatePlayerPhysics");
   if (!physics_.valid(player_body_)) {
     return;
   }
@@ -4971,6 +5832,17 @@ void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const b
       {.move_axis = move_axis, .run_requested = run_requested, .jump_requested = jump_requested});
 
   CharacterMoveInput character_input = move_plan.input;
+  const float cave_web_slow = caveWebSlowScaleAt(physics_.body(player_body_).position);
+  if (cave_web_slow < 0.999f) {
+    character_input.desired_velocity.x *= cave_web_slow;
+    character_input.desired_velocity.z *= cave_web_slow;
+    PhysicsBody &body = physics_.body(player_body_);
+    const float damp_response = 1.0f - std::exp(-16.0f * std::max(dt, 0.0f));
+    const float velocity_scale = 1.0f - (1.0f - cave_web_slow) * damp_response;
+    body.velocity.x *= velocity_scale;
+    body.velocity.z *= velocity_scale;
+    physics_.wakeBody(player_body_);
+  }
   const bool was_climbing = player_climbing_;
   player_climbing_ = false;
   player_climb_blend_ = 0.0f;
@@ -5182,15 +6054,18 @@ void LumenRun::updateSceneObjects(const float animation_dt) {
     object.material.emission_strength = 0.02f + 0.03f * (0.5f + 0.5f * std::sin(phase));
   }
 
+  updatePrismRelayVisuals(animation_dt);
   updateChestVisuals(animation_dt);
   updateEquipmentVisuals(animation_dt);
   updateCaveVisuals(animation_dt);
+  updateCaveSkitterVisuals(animation_dt);
   updateFishingVisual();
   updateCastleBirdVisuals();
   updateCrocodileVisual();
 }
 
 void LumenRun::updateChestInteractionState() {
+  ASTER_PROFILE_SCOPE("LumenRun::updateChestInteractionState");
   if (!chest_open_) {
     return;
   }
@@ -5347,6 +6222,88 @@ void LumenRun::updateEquipmentVisuals(const float dt) {
   }
 }
 
+void LumenRun::activatePrismRelay() {
+  prism_relay_active_ = true;
+  prism_relay_charge_ =
+      std::max(prism_relay_charge_, std::min(kPrismRelayIgnitedCharge + kPrismRelayRetuneKick,
+                                             kPrismRelayIgnitedCharge * 1.15f));
+}
+
+void LumenRun::updatePrismRelay(const float dt) {
+  ASTER_PROFILE_SCOPE("LumenRun::updatePrismRelay");
+  const float target = prism_relay_active_ ? kPrismRelayIgnitedCharge : kPrismRelayIdleCharge;
+  const float response = prism_relay_active_ ? 2.7f : 1.4f;
+  const float blend = clamp(dt * response, 0.0f, 1.0f);
+  prism_relay_charge_ = std::lerp(prism_relay_charge_, target, blend);
+}
+
+void LumenRun::updatePrismRelayVisuals(const float dt) {
+  (void)dt;
+  auto &objects = scene_.objects();
+  const float charge = clamp(prism_relay_charge_, 0.0f, 1.15f);
+  const float field = clamp((charge - 0.05f) / 0.95f, 0.0f, 1.0f);
+  const float pulse = 0.5f + 0.5f * std::sin(status_.elapsed_seconds * 3.35f);
+  const Vec3 relay_core = prismRelayFocusPosition();
+
+  if (prism_relay_core_valid_ && prism_relay_core_object_ < objects.size()) {
+    RenderObject &core = objects[prism_relay_core_object_];
+    core.transform.position = relay_core + Vec3{0.0f, 0.035f * field * pulse, 0.0f};
+    core.transform.rotation = {0.045f * std::sin(status_.elapsed_seconds * 1.7f),
+                               status_.elapsed_seconds * (0.32f + field * 0.22f),
+                               0.050f * std::cos(status_.elapsed_seconds * 1.3f)};
+    const float breathe = 1.0f + field * (0.026f + 0.018f * pulse);
+    core.transform.scale = {0.24f * breathe, 0.52f * breathe, 0.24f * breathe};
+    core.material.emission_strength = 0.10f + charge * (0.56f + 0.20f * pulse);
+  }
+
+  for (std::size_t i = 0; i < prism_relay_ring_objects_.size(); ++i) {
+    const std::size_t object_index = prism_relay_ring_objects_[i];
+    if (object_index >= objects.size()) {
+      continue;
+    }
+    RenderObject &ring = objects[object_index];
+    const float direction = i == 0u ? 1.0f : -1.0f;
+    ring.transform.position = relay_core;
+    ring.transform.rotation =
+        i == 0u
+            ? Vec3{0.08f * field * std::sin(status_.elapsed_seconds * 1.1f),
+                   status_.elapsed_seconds * 0.24f * direction,
+                   0.05f * field * std::cos(status_.elapsed_seconds * 1.6f)}
+            : Vec3{radians(90.0f) + 0.07f * field * std::sin(status_.elapsed_seconds * 1.4f),
+                   status_.elapsed_seconds * 0.18f * direction,
+                   radians(12.0f) + 0.04f * field * std::cos(status_.elapsed_seconds * 1.9f)};
+    const float ring_breathe = 1.0f + field * (0.035f + 0.018f * pulse);
+    ring.transform.scale = {ring_breathe, ring_breathe, ring_breathe};
+    ring.material.opacity = 0.08f + field * 0.34f;
+    ring.material.emission_strength = 0.04f + charge * (0.42f + 0.16f * pulse);
+  }
+
+  for (std::size_t i = 0; i < prism_relay_conduit_objects_.size(); ++i) {
+    const std::size_t object_index = prism_relay_conduit_objects_[i];
+    if (object_index >= objects.size()) {
+      continue;
+    }
+    RenderObject &conduit = objects[object_index];
+    const float phase = pulse + 0.5f * std::sin(status_.elapsed_seconds * 2.2f +
+                                                static_cast<float>(i) * 1.37f);
+    conduit.material.opacity = 0.045f + field * (0.22f + 0.08f * phase);
+    conduit.material.emission_strength = 0.035f + charge * (0.46f + 0.18f * phase);
+  }
+
+  for (std::size_t i = 0; i < prism_relay_node_objects_.size(); ++i) {
+    const std::size_t object_index = prism_relay_node_objects_[i];
+    if (object_index >= objects.size()) {
+      continue;
+    }
+    RenderObject &node = objects[object_index];
+    const float phase = 0.5f + 0.5f * std::sin(status_.elapsed_seconds * 2.6f +
+                                               static_cast<float>(i) * 0.91f);
+    const float scale = 0.11f + field * (0.035f + 0.018f * phase);
+    node.transform.scale = {scale, scale, scale};
+    node.material.emission_strength = 0.08f + charge * (0.38f + 0.12f * phase);
+  }
+}
+
 void LumenRun::updateCaveVisuals(const float dt) {
   auto &objects = scene_.objects();
   for (CoalOreNode &ore : coal_ores_) {
@@ -5368,6 +6325,19 @@ void LumenRun::updateCaveVisuals(const float dt) {
     object.transform.scale = ore.scale * (1.0f + pulse);
     object.material.emission_strength = 0.055f + ore.hit_flash * 0.120f + damage * 0.030f;
     object.material.edge_wear = 0.18f + damage * 0.38f;
+  }
+  for (CaveWebObstacle &web : cave_webs_) {
+    if (web.object_index >= objects.size()) {
+      continue;
+    }
+    RenderObject &object = objects[web.object_index];
+    if (web.broken) {
+      hideRenderObject(object);
+      continue;
+    }
+    web.hit_flash = std::max(0.0f, web.hit_flash - dt * 4.4f);
+    object.material.emission_strength = 0.035f + web.hit_flash * 0.18f;
+    object.material.opacity = 0.74f + web.hit_flash * 0.10f;
   }
   updateProceduralCaveWallFixtureVisuals();
 }
@@ -5468,31 +6438,68 @@ void LumenRun::updateProceduralCaveWallFixtureVisuals() {
 }
 
 void LumenRun::updateVoxelCave(const float dt) {
-  voxel_cave_.updateStreaming(player_position_, dt);
+  ASTER_PROFILE_SCOPE("LumenRun::updateVoxelCave");
+  Vec3 streaming_focus = player_position_;
+  if (cave_tunnel_valid_ && !cave_webs_.empty()) {
+    const CaveWebObstacle &web = cave_webs_.front();
+    const Vec3 offset = player_position_ - web.center;
+    const float approach = dot(offset, web.normal);
+    const float lateral_x = dot(offset, web.side) / std::max(web.radius_x, 0.001f);
+    const float lateral_y = dot(offset, web.up) / std::max(web.radius_y, 0.001f);
+    const bool within_connector_aperture =
+        lateral_x * lateral_x + lateral_y * lateral_y <= 2.25f;
+    const bool authored_side_near_transition =
+        approach < 0.0f && std::abs(approach) <= kCaveTransitionConnectorLength &&
+        within_connector_aperture;
+    if (authored_side_near_transition) {
+      const CaveTunnelFrame terminal_frame = sampleCaveTunnelFrame(cave_tunnel_, 1.0f);
+      streaming_focus =
+          web.center + web.normal * std::max(voxelCaveTunnelRadius(terminal_frame), 1.0f);
+    }
+  }
+  VoxelCaveUpdateOptions update_options;
+  update_options.viewer_velocity = player_velocity_;
+  if (voxel_streaming_view_valid_) {
+    const float chunk_size =
+        voxel_cave_.spec().cell_size * static_cast<float>(voxel_cave_.spec().chunk_cells);
+    update_options.visibility_probes.push_back(voxel_streaming_view_position_);
+    update_options.visibility_probes.push_back(voxel_streaming_view_position_ +
+                                               voxel_streaming_view_direction_ * chunk_size * 1.5f);
+  }
+  voxel_cave_.updateStreaming(streaming_focus, dt, update_options);
   syncVoxelChunkVisuals();
   syncVoxelChunkPhysics();
 }
 
 void LumenRun::syncVoxelChunkVisuals() {
+  ASTER_PROFILE_SCOPE("LumenRun::syncVoxelChunkVisuals");
   auto &objects = scene_.objects();
   for (VoxelChunkVisual &visual : voxel_chunk_visuals_) {
     visual.assigned = false;
   }
 
+  const auto batchMatchesSnapshot = [&](const VoxelChunkSnapshot &chunk,
+                                        const VoxelChunkRenderBatch &batch) {
+    if (batch.mesh == nullptr || batch.mesh->vertices.empty()) {
+      return false;
+    }
+    const float chunk_world_size =
+        voxel_cave_.spec().cell_size * static_cast<float>(voxel_cave_.spec().chunk_cells);
+    const float lease_radius = std::max(chunk_world_size * 1.85f, 0.50f);
+    return chunk.surface_stats.surface_vertices == 0u ||
+           length(chunk.bounds_center - chunk.center) <= lease_radius;
+  };
+
   const auto findVisual = [&](const VoxelChunkCoord coord, const VoxelChunkRenderBatchKind kind,
                               const VoxelCaveMaterial material) -> VoxelChunkVisual * {
     for (VoxelChunkVisual &visual : voxel_chunk_visuals_) {
-      if (visual.coord == coord && visual.kind == kind && visual.material == material) {
+      if (!visual.assigned && visual.coord == coord && visual.kind == kind &&
+          visual.material == material) {
         return &visual;
       }
     }
     for (VoxelChunkVisual &visual : voxel_chunk_visuals_) {
       if (!visual.assigned && visual.kind == kind && visual.material == material) {
-        return &visual;
-      }
-    }
-    for (VoxelChunkVisual &visual : voxel_chunk_visuals_) {
-      if (!visual.assigned) {
         return &visual;
       }
     }
@@ -5504,6 +6511,9 @@ void LumenRun::syncVoxelChunkVisuals() {
       if (batch.mesh == nullptr || batch.mesh->vertices.empty() || batch.mesh->indices.empty()) {
         continue;
       }
+      if (!batchMatchesSnapshot(chunk, batch)) {
+        continue;
+      }
       VoxelChunkVisual *visual = findVisual(batch.coord, batch.kind, batch.material);
       if (visual == nullptr || visual->object_index >= objects.size()) {
         continue;
@@ -5511,6 +6521,7 @@ void LumenRun::syncVoxelChunkVisuals() {
       visual->coord = batch.coord;
       visual->kind = batch.kind;
       visual->material = batch.material;
+      visual->mesh_generation = chunk.mesh_generation;
       visual->assigned = true;
 
       RenderObject &object = objects[visual->object_index];
@@ -5520,8 +6531,17 @@ void LumenRun::syncVoxelChunkVisuals() {
       object.transform.position = {};
       object.transform.rotation = {};
       object.transform.scale = {1.0f, 1.0f, 1.0f};
+      object.material.opacity = std::clamp(batch.opacity, 0.0f, 1.0f);
       object.camera_occlusion_fade = false;
       object.viewer_cull_volume = {};
+      object.visibility_hint = {.visibility_class = RenderVisibilityClass::DynamicVoxel,
+                                .cell = {static_cast<float>(batch.coord.x),
+                                         static_cast<float>(batch.coord.y),
+                                         static_cast<float>(batch.coord.z)},
+                                .portal_depth = length(chunk.center - player_position_)};
+      object.lod = {};
+      object.dynamic_mesh = {.id = voxelDynamicMeshId(batch.coord, batch.kind, batch.material),
+                             .generation = chunk.mesh_generation};
     }
   }
 
@@ -5531,26 +6551,37 @@ void LumenRun::syncVoxelChunkVisuals() {
     }
     RenderObject &object = objects[visual.object_index];
     object.custom_mesh.reset();
+    object.material.opacity = 1.0f;
     object.transform.position = {0.0f, -24.0f, 0.0f};
     object.viewer_cull_volume = {};
+    object.visibility_hint = {};
+    object.lod = {};
+    object.dynamic_mesh = {};
     visual.coord = {};
+    visual.mesh_generation = 0u;
   }
 }
 
 void LumenRun::syncVoxelChunkPhysics() {
-  const auto hasActiveChunk = [this](const VoxelChunkCoord coord) {
-    for (const VoxelChunkSnapshot &chunk : voxel_cave_.activeChunks()) {
-      if (chunk.coord == coord) {
-        return true;
-      }
-    }
-    return false;
-  };
+  ASTER_PROFILE_SCOPE("LumenRun::syncVoxelChunkPhysics");
+  std::unordered_map<VoxelChunkCoord, const VoxelChunkSnapshot *, VoxelChunkCoordHash>
+      active_chunks;
+  active_chunks.reserve(voxel_cave_.activeChunks().size());
+  for (const VoxelChunkSnapshot &chunk : voxel_cave_.activeChunks()) {
+    active_chunks[chunk.coord] = &chunk;
+  }
 
   voxel_chunk_colliders_.erase(std::remove_if(voxel_chunk_colliders_.begin(),
                                               voxel_chunk_colliders_.end(),
                                               [&](const VoxelChunkCollider &collider) {
-                                                if (hasActiveChunk(collider.coord)) {
+                                                const auto active =
+                                                    active_chunks.find(collider.coord);
+                                                if (active != active_chunks.end() &&
+                                                    active->second->mesh_generation ==
+                                                        collider.mesh_generation &&
+                                                    active->second->collision_mesh != nullptr &&
+                                                    !active->second->collision_mesh->vertices.empty() &&
+                                                    !active->second->collision_mesh->indices.empty()) {
                                                   return false;
                                                 }
                                                 if (physics_.valid(collider.body)) {
@@ -5560,27 +6591,25 @@ void LumenRun::syncVoxelChunkPhysics() {
                                               }),
                                voxel_chunk_colliders_.end());
 
-  const auto findCollider = [this](const VoxelChunkCoord coord) -> VoxelChunkCollider * {
-    for (VoxelChunkCollider &collider : voxel_chunk_colliders_) {
-      if (collider.coord == coord) {
-        return &collider;
-      }
+  std::unordered_map<VoxelChunkCoord, std::size_t, VoxelChunkCoordHash> collider_indices;
+  const auto rebuildColliderIndex = [&]() {
+    collider_indices.clear();
+    collider_indices.reserve(voxel_chunk_colliders_.size());
+    for (std::size_t index = 0; index < voxel_chunk_colliders_.size(); ++index) {
+      collider_indices[voxel_chunk_colliders_[index].coord] = index;
     }
-    return nullptr;
   };
-  const auto removeCollider = [&](const VoxelChunkCoord coord) {
-    voxel_chunk_colliders_.erase(std::remove_if(voxel_chunk_colliders_.begin(),
-                                                voxel_chunk_colliders_.end(),
-                                                [&](const VoxelChunkCollider &collider) {
-                                                  if (!(collider.coord == coord)) {
-                                                    return false;
-                                                  }
-                                                  if (physics_.valid(collider.body)) {
-                                                    physics_.removeBody(collider.body);
-                                                  }
-                                                  return true;
-                                                }),
-                                 voxel_chunk_colliders_.end());
+  rebuildColliderIndex();
+  const auto removeColliderAt = [&](const std::size_t index) {
+    if (index >= voxel_chunk_colliders_.size()) {
+      return;
+    }
+    if (physics_.valid(voxel_chunk_colliders_[index].body)) {
+      physics_.removeBody(voxel_chunk_colliders_[index].body);
+    }
+    voxel_chunk_colliders_.erase(voxel_chunk_colliders_.begin() +
+                                 static_cast<std::ptrdiff_t>(index));
+    rebuildColliderIndex();
   };
   const auto addCollider = [&](const VoxelChunkSnapshot &chunk) {
     if (chunk.collision_mesh == nullptr || chunk.collision_mesh->vertices.empty() ||
@@ -5595,32 +6624,94 @@ void LumenRun::syncVoxelChunkPhysics() {
     body.material = {0.74f, 0.0f};
     body.filter = {kPhysicsLayerWorld, kPhysicsLayerPlayer};
     body.mesh_double_sided = false;
-    voxel_chunk_colliders_.push_back({chunk.coord, physics_.addBody(body)});
+    voxel_chunk_colliders_.push_back(
+        {chunk.coord, physics_.addBody(body), chunk.mesh_generation});
+    collider_indices[chunk.coord] = voxel_chunk_colliders_.size() - 1u;
   };
 
-  for (const VoxelChunkSnapshot &active_chunk : voxel_cave_.activeChunks()) {
-    VoxelChunkSnapshot chunk = active_chunk;
-    if (active_chunk.collision_dirty) {
-      removeCollider(active_chunk.coord);
-      if (std::optional<VoxelChunkSnapshot> dirty =
-              voxel_cave_.consumeDirtyChunk(active_chunk.coord)) {
-        chunk = *dirty;
-      }
+  std::vector<const VoxelChunkSnapshot *> collision_updates;
+  collision_updates.reserve(voxel_cave_.changedChunks().size());
+  std::unordered_set<VoxelChunkCoord, VoxelChunkCoordHash> queued_updates;
+  queued_updates.reserve(voxel_cave_.changedChunks().size() + voxel_cave_.activeChunks().size());
+  for (const VoxelChunkSnapshot &chunk : voxel_cave_.changedChunks()) {
+    if (chunk.collision_dirty) {
+      collision_updates.push_back(&chunk);
+      queued_updates.insert(chunk.coord);
     }
-    if (findCollider(chunk.coord) != nullptr) {
+  }
+  for (const VoxelChunkSnapshot &chunk : voxel_cave_.activeChunks()) {
+    if (chunk.collision_dirty && !queued_updates.contains(chunk.coord)) {
+      collision_updates.push_back(&chunk);
+      queued_updates.insert(chunk.coord);
+    }
+  }
+
+  for (const VoxelChunkSnapshot *pending_chunk : collision_updates) {
+    VoxelChunkSnapshot chunk = *pending_chunk;
+    if (std::optional<VoxelChunkSnapshot> dirty = voxel_cave_.consumeDirtyChunk(chunk.coord)) {
+      chunk = *dirty;
+    }
+    const auto collider = collider_indices.find(chunk.coord);
+    if (collider != collider_indices.end() &&
+        voxel_chunk_colliders_[collider->second].mesh_generation == chunk.mesh_generation) {
       continue;
+    }
+    if (collider != collider_indices.end()) {
+      removeColliderAt(collider->second);
     }
     addCollider(chunk);
   }
 }
 
+float LumenRun::caveWebSlowScaleAt(const Vec3 position) const {
+  float slow_scale = 1.0f;
+  for (const CaveWebObstacle &web : cave_webs_) {
+    if (web.broken) {
+      continue;
+    }
+    const Vec3 offset = position - web.center;
+    const float plane_distance = std::abs(dot(offset, web.normal));
+    if (plane_distance > std::max(web.thickness, 0.01f)) {
+      continue;
+    }
+    const float radius_x = std::max(web.radius_x, 0.001f);
+    const float radius_y = std::max(web.radius_y, 0.001f);
+    const float x = dot(offset, web.side) / radius_x;
+    const float y = dot(offset, web.up) / radius_y;
+    if (x * x + y * y <= 1.0f) {
+      slow_scale = std::min(slow_scale, std::clamp(web.slow_scale, 0.05f, 1.0f));
+    }
+  }
+  return slow_scale;
+}
+
 TerrainSurfaceSample LumenRun::sampleVoxelCaveSupport(const SurfaceSupportQuery &query,
                                                       const float min_normal_y) const {
+  ASTER_PROFILE_SCOPE("LumenRun::sampleVoxelCaveSupport");
   TerrainSurfaceSample best;
+  const float horizontal_margin = std::max(voxel_cave_.spec().cell_size * 1.5f, 0.05f);
+  const bool has_reference_y = std::isfinite(query.reference_y);
+  const float min_y =
+      has_reference_y && std::isfinite(query.max_below) ? query.reference_y - query.max_below
+                                                        : -std::numeric_limits<float>::infinity();
+  const float max_y =
+      has_reference_y && std::isfinite(query.max_above) ? query.reference_y + query.max_above
+                                                        : std::numeric_limits<float>::infinity();
   for (const VoxelChunkSnapshot &chunk : voxel_cave_.activeChunks()) {
     if (chunk.collision_mesh == nullptr || chunk.collision_mesh->vertices.empty() ||
         chunk.collision_mesh->indices.empty()) {
       continue;
+    }
+    if (chunk.surface_stats.surface_vertices > 0u) {
+      const Vec3 min = chunk.surface_stats.bounds_min;
+      const Vec3 max = chunk.surface_stats.bounds_max;
+      if (query.world_position.x < min.x - horizontal_margin ||
+          query.world_position.x > max.x + horizontal_margin ||
+          query.world_position.y < min.z - horizontal_margin ||
+          query.world_position.y > max.z + horizontal_margin || max.y < min_y ||
+          min.y > max_y) {
+        continue;
+      }
     }
     const TerrainSurfaceSample sample =
         sampleMeshSupport(*chunk.collision_mesh, {}, query, min_normal_y);
@@ -5718,6 +6809,7 @@ void LumenRun::updateAquaticLifeVisual() {
 }
 
 void LumenRun::updateCastleBirds(const float dt) {
+  ASTER_PROFILE_SCOPE("LumenRun::updateCastleBirds");
   if (castle_birds_.empty()) {
     return;
   }
@@ -5765,6 +6857,7 @@ void LumenRun::updateCastleBirdVisuals() {
 }
 
 void LumenRun::updateCrocodile(const float dt) {
+  ASTER_PROFILE_SCOPE("LumenRun::updateCrocodile");
   if (death_state_ != DeathSequenceState::Alive) {
     return;
   }
@@ -5790,6 +6883,64 @@ void LumenRun::updateCrocodile(const float dt) {
   crocodile_swim_blend_ = update.swim_blend;
   if (update.strike && invulnerability_ <= 0.0f) {
     triggerPlayerDeath(update.position);
+  }
+}
+
+void LumenRun::updateCaveSkitters(const float dt) {
+  ASTER_PROFILE_SCOPE("LumenRun::updateCaveSkitters");
+  if (death_state_ != DeathSequenceState::Alive || cave_skitters_.empty() || cave_webs_.empty()) {
+    return;
+  }
+
+  const CaveWebObstacle *web = &cave_webs_.front();
+  const Vec3 player_web_offset = player_position_ - web->center;
+  const float player_plane_distance = std::abs(dot(player_web_offset, web->normal));
+  const float player_web_x = dot(player_web_offset, web->side) / std::max(web->radius_x, 0.001f);
+  const float player_web_y = dot(player_web_offset, web->up) / std::max(web->radius_y, 0.001f);
+  const bool player_inside_web_volume =
+      player_plane_distance <= std::max(web->thickness * 1.15f, 0.01f) &&
+      player_web_x * player_web_x + player_web_y * player_web_y <= 1.0f;
+  bool skitters_awake = web->broken || player_inside_web_volume;
+  for (const CaveSkitter &skitter : cave_skitters_) {
+    skitters_awake = skitters_awake || skitter.hit_flash > 0.0f || skitter.health < skitter.max_health;
+  }
+
+  std::vector<CaveSkitterAgentState> states;
+  states.reserve(cave_skitters_.size());
+  for (CaveSkitter &skitter : cave_skitters_) {
+    skitter.state.dead = skitter.dead;
+    states.push_back(skitter.state);
+  }
+
+  const std::vector<CaveSkitterAgentUpdate> updates = updateCaveSkitterGroup(
+      states,
+      {.web = {.center = web->center,
+               .normal = web->normal,
+               .side = web->side,
+               .up = web->up,
+               .radius_x = web->radius_x,
+               .radius_y = web->radius_y,
+               .thickness = web->thickness},
+       .max_speed = 1.05f,
+       .max_force = 5.4f,
+       .patrol_speed_scale = 0.54f,
+       .aggro_radius = skitters_awake ? 3.15f : 0.0f,
+       .strike_radius = skitters_awake ? tuning_.player_radius + 0.34f : 0.0f,
+       .bite_cooldown = 1.40f,
+       .separation_radius = 0.34f,
+       .cohesion_radius = 0.95f,
+       .retreat_seconds = 0.36f,
+       .surface_offset = -std::max(web->thickness * 0.64f, 0.12f),
+       .depth_wander = std::max(web->thickness * 0.12f, 0.035f)},
+      player_position_, dt);
+
+  for (std::size_t i = 0; i < cave_skitters_.size(); ++i) {
+    CaveSkitter &skitter = cave_skitters_[i];
+    skitter.state = states[i];
+    if (skitters_awake && i < updates.size() && updates[i].bite) {
+      skitter.bite_flash = 1.0f;
+      (void)applyPlayerDamage(kCaveSkitterBiteDamage, skitter.state.position);
+    }
   }
 }
 
@@ -5824,7 +6975,51 @@ void LumenRun::updateCrocodileVisual() {
   setPart(3, {0.074f, 0.088f, 0.635f}, {0.0f, 0.035f, 0.0f}, {0.024f, 0.020f, 0.026f});
 }
 
+void LumenRun::updateCaveSkitterVisuals(const float dt) {
+  auto &objects = scene_.objects();
+  for (CaveSkitter &skitter : cave_skitters_) {
+    if (skitter.object_index >= objects.size()) {
+      continue;
+    }
+    RenderObject &object = objects[skitter.object_index];
+    if (skitter.dead || skitter.state.dead) {
+      hideRenderObject(object);
+      continue;
+    }
+
+    skitter.hit_flash = std::max(0.0f, skitter.hit_flash - dt * 4.8f);
+    skitter.bite_flash = std::max(0.0f, skitter.bite_flash - dt * 5.6f);
+    const float stride = length(skitter.state.velocity);
+    const float gait = std::sin(skitter.state.phase * (8.0f + stride * 2.8f));
+    const float alert =
+        skitter.state.mode == CaveSkitterMotionMode::Pursue ||
+                skitter.state.mode == CaveSkitterMotionMode::Strike
+            ? 1.0f
+            : 0.0f;
+    const float damage = 1.0f - static_cast<float>(std::max(skitter.health, 0)) /
+                                    static_cast<float>(std::max(skitter.max_health, 1));
+    const Vec3 hit_recoil = skitter.last_hit_normal * (-skitter.hit_flash * 0.055f);
+    object.transform.position =
+        skitter.state.position + hit_recoil +
+        Vec3{0.0f, 0.012f * gait - skitter.hit_flash * 0.010f, 0.0f};
+    object.transform.rotation = {0.030f * gait,
+                                 skitter.state.facing_yaw,
+                                 0.040f * std::sin(skitter.state.phase * 5.4f) +
+                                     skitter.hit_flash * 0.080f};
+    const float scale = 1.0f + skitter.bite_flash * 0.06f;
+    object.transform.scale = {scale * (1.0f + skitter.hit_flash * 0.035f),
+                              scale * (1.0f - damage * 0.05f - skitter.hit_flash * 0.12f),
+                              scale * (1.0f + skitter.hit_flash * 0.080f)};
+    object.material.emission_strength =
+        0.020f + alert * 0.035f + skitter.hit_flash * 0.18f + skitter.bite_flash * 0.12f;
+    object.material.edge_wear = 0.10f + damage * 0.24f;
+    object.material.pattern_depth = 0.060f + damage * 0.055f + skitter.hit_flash * 0.035f;
+    object.material.pattern_contrast = 0.88f + damage * 0.16f + skitter.hit_flash * 0.14f;
+  }
+}
+
 void LumenRun::updateBloodParticles(const float dt) {
+  ASTER_PROFILE_SCOPE("LumenRun::updateBloodParticles");
   auto &objects = scene_.objects();
   for (SceneParticle &particle : blood_particles_) {
     if (particle.object_index >= objects.size()) {
@@ -5849,10 +7044,71 @@ void LumenRun::updateBloodParticles(const float dt) {
   }
 }
 
+void LumenRun::updateMiningFractureVisuals(const float dt) {
+  ASTER_PROFILE_SCOPE("LumenRun::updateMiningFractureVisuals");
+  auto &objects = scene_.objects();
+  for (MiningFractureShardVisual &shard : mining_fracture_shards_) {
+    if (shard.object_index >= objects.size()) {
+      continue;
+    }
+    RenderObject &object = objects[shard.object_index];
+    if (!shard.active) {
+      hideRenderObject(object);
+      continue;
+    }
+
+    shard.age += std::max(dt, 0.0f);
+    if (shard.age >= shard.lifetime) {
+      shard.active = false;
+      hideRenderObject(object);
+      continue;
+    }
+
+    shard.velocity.y -= 3.9f * std::max(dt, 0.0f);
+    shard.position = shard.position + shard.velocity * std::max(dt, 0.0f);
+    shard.rotation = shard.rotation + shard.angular_velocity * std::max(dt, 0.0f);
+    const float life =
+        std::clamp(1.0f - shard.age / std::max(shard.lifetime, 0.001f), 0.0f, 1.0f);
+    const float scale = shard.base_scale * (0.18f + 0.82f * life);
+    object.transform.position = shard.position;
+    object.transform.rotation = shard.rotation;
+    object.transform.scale = {scale, scale, scale};
+    object.material.emission_strength = std::max(object.material.emission_strength, 0.035f * life);
+  }
+}
+
+void LumenRun::spawnBloodBurst(const Vec3 center, const Vec3 impact_origin, const float intensity) {
+  if (blood_particles_.empty()) {
+    return;
+  }
+  const std::size_t count = std::clamp(
+      static_cast<std::size_t>(std::ceil(std::max(intensity, 0.0f) * 8.0f)), std::size_t{3},
+      blood_particles_.size());
+  const Vec3 away_base = length(center - impact_origin) > 0.0001f
+                             ? normalize(center - impact_origin)
+                             : Vec3{0.0f, 0.45f, 1.0f};
+  for (std::size_t emitted = 0; emitted < count; ++emitted) {
+    const std::size_t particle_index = (blood_particle_cursor_ + emitted) % blood_particles_.size();
+    SceneParticle &particle = blood_particles_[particle_index];
+    const float serial = static_cast<float>(blood_particle_cursor_ + emitted);
+    const float angle = serial * (kPi * (3.0f - std::sqrt(5.0f)));
+    const Vec3 radial{std::cos(angle), 0.0f, std::sin(angle)};
+    const float ring = 0.22f + 0.32f * (static_cast<float>(emitted % 5u) / 4.0f);
+    particle.position = center + Vec3{0.0f, 0.08f, 0.0f};
+    particle.velocity = radial * ring + away_base * (0.20f + 0.10f * intensity) +
+                        Vec3{0.0f, 0.52f + 0.28f * std::sin(angle * 1.7f), 0.0f};
+    particle.age = 0.0f;
+    particle.lifetime = 0.42f + 0.18f * (static_cast<float>(emitted % 4u) / 3.0f);
+    particle.size = 0.016f + 0.014f * std::clamp(intensity, 0.0f, 1.5f);
+  }
+  blood_particle_cursor_ += count;
+}
+
 void LumenRun::triggerPlayerDeath(const Vec3 impact_origin) {
   if (death_state_ != DeathSequenceState::Alive) {
     return;
   }
+  status_.health = 0;
   --status_.lives;
   pending_defeat_ = status_.lives <= 0;
   invulnerability_ = tuning_.invulnerability_seconds + 1.2f;
@@ -5883,6 +7139,35 @@ void LumenRun::triggerPlayerDeath(const Vec3 impact_origin) {
     particle.lifetime = 0.75f + 0.28f * (static_cast<float>(i % 5u) / 4.0f);
     particle.size = 0.025f + 0.018f * (static_cast<float>(i % 4u) / 3.0f);
   }
+}
+
+bool LumenRun::applyPlayerDamage(const int hit_points, const Vec3 impact_origin) {
+  if (hit_points <= 0 || invulnerability_ > 0.0f || death_state_ != DeathSequenceState::Alive ||
+      status_.defeated) {
+    return false;
+  }
+  status_.max_health = std::max(status_.max_health, kPlayerMaxHealth);
+  status_.health = std::clamp(status_.health - hit_points, 0, status_.max_health);
+  if (status_.health <= 0) {
+    triggerPlayerDeath(impact_origin);
+    return true;
+  }
+  invulnerability_ = std::max(invulnerability_, 0.62f);
+  player_mouth_open_ = 1.0f;
+  for (std::size_t i = 0; i < blood_particles_.size(); i += 3u) {
+    SceneParticle &particle = blood_particles_[i];
+    const float angle = static_cast<float>(i) * (kPi * (3.0f - std::sqrt(5.0f)));
+    const Vec3 away = length(player_position_ - impact_origin) > 0.0001f
+                          ? normalize(player_position_ - impact_origin)
+                          : Vec3{std::cos(angle), 0.0f, std::sin(angle)};
+    particle.position = player_position_ + Vec3{0.0f, 0.18f, 0.0f};
+    particle.velocity = away * (0.36f + 0.10f * static_cast<float>(i % 4u)) +
+                        Vec3{0.0f, 0.62f + 0.08f * std::sin(angle), 0.0f};
+    particle.age = 0.0f;
+    particle.lifetime = 0.42f + 0.08f * static_cast<float>(i % 3u);
+    particle.size = 0.018f + 0.006f * static_cast<float>(i % 2u);
+  }
+  return true;
 }
 
 void LumenRun::updateDeathSequence(const float dt) {
@@ -5997,6 +7282,7 @@ void LumenRun::respawnPlayer() {
   player_swim_blend_ = 0.0f;
   player_climbing_ = false;
   player_climb_blend_ = 0.0f;
+  status_.health = status_.max_health;
   clearAvatarPointTarget();
   invulnerability_ = tuning_.invulnerability_seconds;
   death_state_ = DeathSequenceState::Alive;
@@ -6092,6 +7378,124 @@ MiningToolStats LumenRun::activePickaxeStats() const {
     return definition->mining_tool;
   }
   return starterPickaxeStats();
+}
+
+void LumenRun::spawnMiningFractureEffect(const Vec3 center, Vec3 normal, Vec3 half_extents,
+                                         const Material &material, const std::uint32_t seed,
+                                         const int shard_count) {
+  if (mining_fracture_shards_.empty()) {
+    return;
+  }
+  normal = length(normal) > 0.0001f ? normalize(normal) : Vec3{0.0f, 1.0f, 0.0f};
+  half_extents = {std::max(half_extents.x, 0.035f), std::max(half_extents.y, 0.035f),
+                  std::max(half_extents.z, 0.035f)};
+
+  Vec3 axis_y = std::abs(normal.y) < 0.94f ? Vec3{0.0f, 1.0f, 0.0f} : Vec3{1.0f, 0.0f, 0.0f};
+  Vec3 axis_x = normalize(cross(axis_y, normal));
+  if (length(axis_x) <= 0.0001f) {
+    axis_x = {1.0f, 0.0f, 0.0f};
+  }
+  axis_y = normalize(cross(normal, axis_x));
+
+  const int requested_shards =
+      std::clamp(shard_count, 2, static_cast<int>(mining_fracture_shards_.size()));
+  MeshCutImpactSpec cut;
+  cut.volume = {.center = center,
+                .half_extents = half_extents,
+                .axis_x = axis_x,
+                .axis_y = axis_y,
+                .axis_z = normal};
+  cut.impact_point = center + normal * half_extents.z;
+  cut.impact_normal = normal;
+  cut.seed = seed;
+  cut.plane_count =
+      std::clamp(static_cast<int>(std::ceil(std::log2(static_cast<float>(requested_shards)))),
+                 2, 5);
+  cut.angular_spread = 0.54f;
+  cut.offset_spread = 0.18f;
+  cut.minimum_fragment_area = 0.00004f;
+
+  MeshCutResult cut_result = buildImpactMeshCut(cut);
+  std::vector<MeshCutFragment> fragments = std::move(cut_result.fragments);
+  if (fragments.empty()) {
+    return;
+  }
+  if (fragments.size() > static_cast<std::size_t>(requested_shards)) {
+    std::sort(fragments.begin(), fragments.end(),
+              [](const MeshCutFragment &lhs, const MeshCutFragment &rhs) {
+                return lhs.surface_area > rhs.surface_area;
+              });
+    fragments.resize(static_cast<std::size_t>(requested_shards));
+  }
+  float total_area = 0.0f;
+  for (const MeshCutFragment &fragment : fragments) {
+    total_area += std::max(fragment.surface_area, 0.0f);
+  }
+
+  const auto acquireSlot = [&]() -> MiningFractureShardVisual * {
+    for (MiningFractureShardVisual &visual : mining_fracture_shards_) {
+      if (!visual.active) {
+        return &visual;
+      }
+    }
+    return &*std::max_element(mining_fracture_shards_.begin(), mining_fracture_shards_.end(),
+                              [](const MiningFractureShardVisual &lhs,
+                                 const MiningFractureShardVisual &rhs) {
+                                return lhs.age < rhs.age;
+                              });
+  };
+
+  const float golden_angle = kPi * (3.0f - std::sqrt(5.0f));
+  for (std::size_t i = 0; i < fragments.size(); ++i) {
+    MiningFractureShardVisual *visual = acquireSlot();
+    if (visual == nullptr || visual->object_index >= scene_.objects().size()) {
+      continue;
+    }
+    CpuMesh local_mesh = std::move(fragments[i].mesh);
+    for (Vertex &vertex : local_mesh.vertices) {
+      vertex.position = vertex.position - fragments[i].centroid;
+    }
+
+    const float fill =
+        fragments.size() <= 1u ? 0.0f
+                               : static_cast<float>(i) / static_cast<float>(fragments.size() - 1u);
+    const float area_fraction =
+        total_area > 0.0001f ? fragments[i].surface_area / total_area : 0.0f;
+    const float volume_factor = std::clamp(1.0f - area_fraction, 0.35f, 1.0f);
+    const Vec3 tangent_kick =
+        axis_x * std::cos(golden_angle * static_cast<float>(i)) +
+        axis_y * std::sin(golden_angle * static_cast<float>(i));
+
+    visual->active = true;
+    visual->position = fragments[i].centroid;
+    visual->velocity = fragments[i].impulse_direction * (0.78f + volume_factor * 0.72f) +
+                       tangent_kick * (0.18f + fill * 0.18f) + normal * 0.18f;
+    visual->rotation = {fill * 0.7f, fill * 1.3f, fill * 0.5f};
+    visual->angular_velocity =
+        {1.8f + fill * 2.0f, 2.4f + volume_factor * 2.3f, 1.2f + fill * 1.7f};
+    visual->age = 0.0f;
+    visual->lifetime = 0.68f + volume_factor * 0.32f;
+    visual->base_scale = 1.0f;
+
+    RenderObject &object = scene_.objects()[visual->object_index];
+    object.name = "Mesh-cut mining fragment";
+    object.primitive = MeshPrimitive::Box;
+    object.custom_mesh = makeSharedMesh(std::move(local_mesh));
+    object.transform.position = visual->position;
+    object.transform.rotation = visual->rotation;
+    object.transform.scale = {1.0f, 1.0f, 1.0f};
+    object.material = material;
+    object.material.edge_wear = std::max(object.material.edge_wear, 0.34f + fill * 0.18f);
+    object.material.pattern_depth = std::max(object.material.pattern_depth, 0.16f);
+    object.material.pattern_contrast = std::max(object.material.pattern_contrast, 0.30f);
+    object.material.emission_color = object.material.emission_strength > 0.0f
+                                         ? object.material.emission_color
+                                         : Vec3{0.54f, 0.38f, 0.24f};
+    object.material.emission_strength =
+        std::max(object.material.emission_strength, 0.070f + volume_factor * 0.035f);
+    object.camera_occlusion_fade = false;
+    object.casts_contact_shadow = false;
+  }
 }
 
 bool LumenRun::placeEquippedResource(const Vec3 ray_origin, Vec3 ray_direction) {
@@ -6243,6 +7647,7 @@ bool LumenRun::placeEquippedResource(const Vec3 ray_origin, Vec3 ray_direction) 
 }
 
 bool LumenRun::mineFocusedVoxel(const std::string_view target_id) {
+  ASTER_PROFILE_SCOPE("LumenRun::mineFocusedVoxel");
   if (target_id != "voxel:mine" || !focused_voxel_hit_valid_) {
     return false;
   }
@@ -6252,7 +7657,8 @@ bool LumenRun::mineFocusedVoxel(const std::string_view target_id) {
     return false;
   }
   const MiningToolStats tool = activePickaxeStats();
-  if (focused_voxel_hit_.distance > tool.reach) {
+  const float mining_reach = std::max(tool.reach, kVoxelMiningInteractionDistance);
+  if (length(player_position_ - focused_voxel_hit_.point) > mining_reach) {
     return false;
   }
   const VoxelMaterialProfile *profile = voxel_cave_.profileFor(focused_voxel_hit_.material);
@@ -6272,6 +7678,20 @@ bool LumenRun::mineFocusedVoxel(const std::string_view target_id) {
 
   setAvatarPointTarget(feedback.impact_point);
   if (!feedback.carved) {
+    const ItemDefinition *chip_resource =
+        profile->resource_item_id.empty() ? nullptr
+                                          : item_registry_.find(profile->resource_item_id);
+    Material chip_material = lumenPlacedResourceMaterial(chip_resource);
+    chip_material.surface_pattern = SurfacePattern::CaveRock;
+    chip_material.emission_color = {0.70f, 0.48f, 0.30f};
+    chip_material.emission_strength = 0.035f + feedback.crack_fraction * 0.075f;
+    const float crack_scale = std::clamp(0.42f + feedback.crack_fraction * 0.35f, 0.35f, 0.82f);
+    spawnMiningFractureEffect(
+        feedback.impact_point - feedback.impact_normal * 0.055f, feedback.impact_normal,
+        {tool.carve_radius * 0.40f * crack_scale, tool.carve_radius * 0.25f * crack_scale,
+         tool.carve_radius * 0.18f * crack_scale},
+        chip_material, fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 7601u),
+        4 + static_cast<int>(std::ceil(feedback.crack_fraction * 4.0f)));
     return true;
   }
 
@@ -6281,8 +7701,199 @@ bool LumenRun::mineFocusedVoxel(const std::string_view target_id) {
       return false;
     }
   }
-  voxel_cave_.applyEdit(feedback.edit);
-  updateVoxelCave(0.0f);
+  const ItemDefinition *fracture_resource =
+      feedback.resource_item_id.empty() ? nullptr : item_registry_.find(feedback.resource_item_id);
+  Material fracture_material = lumenPlacedResourceMaterial(fracture_resource);
+  fracture_material.surface_pattern = SurfacePattern::CaveRock;
+  spawnMiningFractureEffect(feedback.impact_point - feedback.impact_normal * 0.08f,
+                            feedback.impact_normal,
+                            {feedback.edit.radius * 0.98f, feedback.edit.radius * 0.72f,
+                             feedback.edit.radius * 0.56f},
+                            fracture_material,
+                            fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 8009u), 16);
+  const VoxelEditResult edit_result =
+      voxel_cave_.applyEdit(feedback.edit, VoxelEditRebuildMode::Deferred);
+  if (!edit_result.accepted) {
+    return false;
+  }
+  invalidateSceneReports();
+  return true;
+}
+
+bool LumenRun::mineFocusedCaveWeb(const std::string_view target_id) {
+  constexpr std::string_view prefix = "web:";
+  const ItemStack &equipped = equipment_.equipped();
+  const ItemDefinition *equipped_definition = item_registry_.find(equipped.item_id);
+  if (target_id.substr(0u, prefix.size()) != prefix || equipped_definition == nullptr ||
+      !equipped_definition->has_mining_tool) {
+    return false;
+  }
+  std::size_t web_index = 0u;
+  const std::string_view index_text = target_id.substr(prefix.size());
+  const char *begin = index_text.data();
+  const char *end = begin + index_text.size();
+  const std::from_chars_result parsed = std::from_chars(begin, end, web_index);
+  if (parsed.ec != std::errc{} || parsed.ptr != end || web_index >= cave_webs_.size()) {
+    return false;
+  }
+
+  CaveWebObstacle &web = cave_webs_[web_index];
+  if (web.broken || length(player_position_ - web.center) > kCaveWebInteractionDistance) {
+    return false;
+  }
+
+  const MiningToolStats tool = activePickaxeStats();
+  Vec3 hit_normal = player_position_ - web.center;
+  hit_normal = length(hit_normal) > 0.0001f ? normalize(hit_normal) : web.normal;
+  const MineableHit web_hit{.hit = true,
+                            .target_key = web.id.empty()
+                                              ? "cave_web:" + std::to_string(web_index)
+                                              : web.id,
+                            .point = web.center,
+                            .normal = hit_normal,
+                            .material = VoxelCaveMaterial::Rock,
+                            .cell = voxel_cave_.cellCoordFor(web.center)};
+  const MineableAttempt mine_attempt{.now_seconds = status_.elapsed_seconds,
+                                     .hit = web_hit,
+                                     .tool = tool,
+                                     .material_hardness = std::max(web.hardness, 0.1f),
+                                     .resource_item_id = {},
+                                     .resource_quantity = 0,
+                                     .carve_surface = false};
+  const MiningFeedback feedback = mining_.tryMine(mine_attempt);
+  if (!feedback.accepted) {
+    return false;
+  }
+
+  web.hit_flash = 1.0f;
+  setAvatarPointTarget(feedback.impact_point);
+  Material fracture_material =
+      web.object_index < scene_.objects().size() ? scene_.objects()[web.object_index].material
+                                                 : Material{};
+  fracture_material.surface_pattern = SurfacePattern::CaveWeb;
+  fracture_material.opacity = std::max(fracture_material.opacity, 0.62f);
+  const Vec3 fracture_extent{std::max(web.radius_x * 0.22f, 0.16f),
+                             std::max(web.radius_y * 0.12f, 0.10f), 0.035f};
+  if (!feedback.carved) {
+    fracture_material.emission_strength = 0.08f + feedback.crack_fraction * 0.10f;
+    spawnMiningFractureEffect(feedback.impact_point, feedback.impact_normal, fracture_extent,
+                              fracture_material,
+                              fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 8719u),
+                              4 + static_cast<int>(std::ceil(feedback.crack_fraction * 5.0f)));
+    return true;
+  }
+
+  web.broken = true;
+  if (web.object_index < scene_.objects().size()) {
+    spawnMiningFractureEffect(feedback.impact_point, feedback.impact_normal,
+                              {std::max(web.radius_x * 0.42f, 0.22f),
+                               std::max(web.radius_y * 0.20f, 0.14f), 0.045f},
+                              fracture_material,
+                              fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 8729u), 14);
+    hideRenderObject(scene_.objects()[web.object_index]);
+  }
+  for (CaveSkitter &skitter : cave_skitters_) {
+    if (skitter.dead || skitter.state.dead) {
+      continue;
+    }
+    const Vec3 skitter_center = skitter.state.position + Vec3{0.0f, 0.08f, 0.0f};
+    spawnBloodBurst(skitter_center, feedback.impact_point, 1.0f);
+    if (skitter.object_index < scene_.objects().size()) {
+      Material skitter_burst_material = scene_.objects()[skitter.object_index].material;
+      skitter_burst_material.base_color = {0.42f, 0.018f, 0.010f};
+      skitter_burst_material.emission_color = {0.12f, 0.0f, 0.0f};
+      skitter_burst_material.emission_strength =
+          std::max(skitter_burst_material.emission_strength, 0.10f);
+      spawnMiningFractureEffect(skitter_center, feedback.impact_normal, {0.22f, 0.12f, 0.24f},
+                                skitter_burst_material,
+                                fractureSeedFor(skitter_center, kLumenCaveSeed + 8837u), 8);
+      hideRenderObject(scene_.objects()[skitter.object_index]);
+    }
+    skitter.dead = true;
+    skitter.state.dead = true;
+    skitter.state.velocity = {};
+    skitter.health = 0;
+  }
+  focused_cave_web_valid_ = false;
+  invalidateSceneReports();
+  return true;
+}
+
+bool LumenRun::mineFocusedCaveSkitter(const std::string_view target_id) {
+  constexpr std::string_view prefix = "skitter:";
+  const ItemStack &equipped = equipment_.equipped();
+  const ItemDefinition *equipped_definition = item_registry_.find(equipped.item_id);
+  if (target_id.substr(0u, prefix.size()) != prefix || equipped_definition == nullptr ||
+      !equipped_definition->has_mining_tool) {
+    return false;
+  }
+  std::size_t skitter_index = 0u;
+  const std::string_view index_text = target_id.substr(prefix.size());
+  const char *begin = index_text.data();
+  const char *end = begin + index_text.size();
+  const std::from_chars_result parsed = std::from_chars(begin, end, skitter_index);
+  if (parsed.ec != std::errc{} || parsed.ptr != end || skitter_index >= cave_skitters_.size()) {
+    return false;
+  }
+
+  CaveSkitter &skitter = cave_skitters_[skitter_index];
+  if (skitter.dead || skitter.state.dead ||
+      length(player_position_ - skitter.state.position) > kCaveSkitterInteractionDistance) {
+    return false;
+  }
+
+  const MiningToolStats tool = activePickaxeStats();
+  Vec3 hit_normal = player_position_ - skitter.state.position;
+  hit_normal = length(hit_normal) > 0.0001f ? normalize(hit_normal) : Vec3{0.0f, 1.0f, 0.0f};
+  const MineableHit skitter_hit{.hit = true,
+                                .target_key = skitter.id.empty()
+                                                  ? "cave_skitter:" + std::to_string(skitter_index)
+                                                  : skitter.id,
+                                .point = skitter.state.position + Vec3{0.0f, 0.08f, 0.0f},
+                                .normal = hit_normal,
+                                .material = VoxelCaveMaterial::Rock,
+                                .cell = voxel_cave_.cellCoordFor(skitter.state.position)};
+  const MiningFeedback feedback =
+      mining_.tryMine({.now_seconds = status_.elapsed_seconds,
+                       .hit = skitter_hit,
+                       .tool = tool,
+                       .material_hardness = static_cast<float>(std::max(skitter.max_health, 1)),
+                       .resource_item_id = {},
+                       .resource_quantity = 0,
+                       .carve_surface = false});
+  if (!feedback.accepted) {
+    return false;
+  }
+
+  skitter.hit_flash = 1.0f;
+  skitter.last_hit_normal = feedback.impact_normal;
+  skitter.state.flinch_seconds = 0.36f;
+  setAvatarPointTarget(feedback.impact_point);
+  skitter.health = std::max(
+      feedback.carved ? 0 : 1,
+      static_cast<int>(std::ceil((1.0f - feedback.crack_fraction) *
+                                 static_cast<float>(std::max(skitter.max_health, 1)))));
+  const Material fracture_material =
+      skitter.object_index < scene_.objects().size() ? scene_.objects()[skitter.object_index].material
+                                                     : Material{};
+  if (!feedback.carved) {
+    spawnMiningFractureEffect(feedback.impact_point, feedback.impact_normal,
+                              {0.24f, 0.16f, 0.26f}, fracture_material,
+                              fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 8819u),
+                              8 + static_cast<int>(std::ceil(feedback.crack_fraction * 7.0f)));
+    return true;
+  }
+
+  skitter.dead = true;
+  skitter.state.dead = true;
+  skitter.state.velocity = {};
+  spawnBloodBurst(skitter.state.position + Vec3{0.0f, 0.08f, 0.0f}, feedback.impact_point, 1.0f);
+  if (skitter.object_index < scene_.objects().size()) {
+    spawnMiningFractureEffect(feedback.impact_point, feedback.impact_normal,
+                              {0.24f, 0.14f, 0.28f}, fracture_material,
+                              fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 8829u), 18);
+    hideRenderObject(scene_.objects()[skitter.object_index]);
+  }
   invalidateSceneReports();
   return true;
 }
@@ -6309,17 +7920,47 @@ bool LumenRun::mineFocusedOre(const std::string_view target_id) {
     return false;
   }
 
+  const MiningToolStats tool = activePickaxeStats();
+  VoxelCaveHit ore_hit;
+  ore_hit.hit = true;
+  ore_hit.point = ore.position;
+  ore_hit.normal = length(ore.normal) > 0.0001f ? normalize(ore.normal) : Vec3{0.0f, 1.0f, 0.0f};
+  ore_hit.distance = length(player_position_ - ore.position);
+  ore_hit.material = VoxelCaveMaterial::Coal;
+  ore_hit.chunk = voxel_cave_.chunkCoordFor(ore.position);
+  ore_hit.cell = voxel_cave_.cellCoordFor(ore.position);
+  MiningFeedback feedback = mining_.tryMine({.now_seconds = status_.elapsed_seconds,
+                                             .hit = ore_hit,
+                                             .tool = tool,
+                                             .material_hardness =
+                                                 static_cast<float>(std::max(ore.max_health, 1)),
+                                             .resource_item_id = "coal",
+                                             .resource_quantity = ore.yield_quantity});
+  if (!feedback.accepted) {
+    return false;
+  }
+
   ore.hit_flash = 1.0f;
-  setAvatarPointTarget(ore.position);
-  ore.health = std::max(ore.health - 1, 0);
-  if (ore.health > 0) {
+  setAvatarPointTarget(feedback.impact_point);
+  ore.health = std::max(
+      feedback.carved ? 0 : 1,
+      static_cast<int>(std::ceil((1.0f - feedback.crack_fraction) *
+                                 static_cast<float>(std::max(ore.max_health, 1)))));
+  if (!feedback.carved) {
     return true;
   }
 
   const ItemDefinition *coal = item_registry_.find("coal");
-  if (coal == nullptr || !storeMinedResource(*coal, ore.yield_quantity)) {
+  if (coal == nullptr || !storeMinedResource(*coal, feedback.resource_quantity)) {
     ore.health = 1;
     return false;
+  }
+
+  if (ore.object_index < scene_.objects().size()) {
+    const Material fracture_material = scene_.objects()[ore.object_index].material;
+    spawnMiningFractureEffect(ore.position, ore.normal, ore.scale * 0.52f, fracture_material,
+                              fractureSeedFor(ore.position, kLumenCaveSeed + 9001u), 12);
+    hideRenderObject(scene_.objects()[ore.object_index]);
   }
   ore.collected = true;
   equipment_.equipFromHotbar(hotbar_);
@@ -6327,6 +7968,7 @@ bool LumenRun::mineFocusedOre(const std::string_view target_id) {
 }
 
 void LumenRun::collectOverlaps() {
+  ASTER_PROFILE_SCOPE("LumenRun::collectOverlaps");
   for (Shard &shard : shards_) {
     if (shard.collected) {
       continue;
@@ -6341,6 +7983,7 @@ void LumenRun::collectOverlaps() {
 }
 
 void LumenRun::resolveSentinelImpacts() {
+  ASTER_PROFILE_SCOPE("LumenRun::resolveSentinelImpacts");
   if (invulnerability_ > 0.0f) {
     return;
   }

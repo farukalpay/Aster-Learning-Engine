@@ -287,6 +287,66 @@ aster::Vec3 organicFiberAlbedo(const aster::Material &material, const aster::Vec
   return mixVec(dark, light, strand_mask * (0.56f + material.pattern_contrast * 0.28f));
 }
 
+aster::Vec3 caveWebAlbedo(const aster::Material &material, const aster::Vec3 world_position,
+                          const aster::Vec3 normal, const aster::Vec2 uv) {
+  const float along = uv.x * std::max(material.pattern_scale.y, 0.001f);
+  const float across = std::abs(uv.y - 0.5f) * 2.0f;
+  const float fiber =
+      ridge(0.5f + 0.5f * std::sin(along * 0.72f +
+                                   projectedFbm(material, world_position, normal, 0.88f, 211.0f) *
+                                       4.6f));
+  const float core = 1.0f - smoothstep(0.18f, 1.0f, across);
+  const float dust = projectedFbm(material, world_position, normal, 1.42f, 227.0f);
+  const float glint = smoothstep(0.58f, 0.98f, fiber * core);
+  const aster::Vec3 shadow = material.base_color * aster::Vec3{0.62f, 0.66f, 0.66f};
+  const aster::Vec3 silk = material.base_color * aster::Vec3{1.22f, 1.24f, 1.16f};
+  const aster::Vec3 pearl = material.base_color + aster::Vec3{0.08f, 0.09f, 0.075f};
+  return aster::clamp(mixVec(mixVec(shadow, silk, core * 0.72f + dust * 0.16f), pearl, glint),
+                      0.0f, 4.0f);
+}
+
+aster::Vec3 caveSkitterEyeAlbedo(const aster::Material &material,
+                                 const aster::Vec3 world_position, const aster::Vec3 normal);
+
+aster::Vec3 caveSkitterChitinAlbedo(const aster::Material &material,
+                                    const aster::Vec3 world_position, const aster::Vec3 normal,
+                                    const aster::Vec2 uv) {
+  if (uv.x > 0.90f && uv.y < 0.28f) {
+    return caveSkitterEyeAlbedo(material, world_position, normal);
+  }
+  const float texel_x = std::floor(uv.x * std::max(material.pattern_scale.x, 1.0f));
+  const float texel_y = std::floor(uv.y * std::max(material.pattern_scale.y, 1.0f));
+  const float texel = fractValue(std::sin(texel_x * 12.9898f + texel_y * 78.233f) * 43758.5453f);
+  const float ridge_a = ridge(projectedFbm(material, world_position, normal, 1.35f, 241.0f));
+  const float band =
+      0.5f + 0.5f * std::sin((texel_y * 0.92f + std::floor(texel_x * 0.25f)) * 1.73f);
+  const float shell = smoothstep(0.20f, 0.92f, ridge_a * 0.56f + band * 0.30f + texel * 0.14f);
+  const float center_spot =
+      (1.0f - smoothstep(0.04f, 0.18f, std::abs(uv.x - 0.50f))) *
+      smoothstep(0.10f, 0.54f, uv.y) * (1.0f - smoothstep(0.78f, 0.98f, uv.y));
+  const float leg_band = smoothstep(0.62f, 0.96f, ridge(0.5f + 0.5f * std::sin(texel_y * 2.45f)));
+  const float oil = projectedFbm(material, world_position + normal * 0.05f, normal, 0.78f, 263.0f);
+  const aster::Vec3 under = material.base_color * aster::Vec3{0.44f, 0.34f, 0.30f};
+  const aster::Vec3 lacquer = material.base_color * aster::Vec3{1.54f, 1.04f, 0.78f};
+  const aster::Vec3 warm_mark = material.base_color + aster::Vec3{0.070f, 0.020f, 0.010f};
+  const aster::Vec3 dark_band = material.base_color * aster::Vec3{0.22f, 0.18f, 0.18f};
+  const aster::Vec3 cool_sheen = material.base_color + aster::Vec3{0.042f, 0.050f, 0.060f};
+  aster::Vec3 albedo = mixVec(under, lacquer, shell);
+  albedo = mixVec(albedo, warm_mark, center_spot * 0.58f);
+  albedo = mixVec(albedo, dark_band, leg_band * (0.18f + texel * 0.12f));
+  albedo = mixVec(albedo, cool_sheen, oil * 0.26f);
+  return aster::clamp(albedo, 0.0f, 4.0f);
+}
+
+aster::Vec3 caveSkitterEyeAlbedo(const aster::Material &material,
+                                 const aster::Vec3 world_position, const aster::Vec3 normal) {
+  const float wet = smoothstep(0.45f, 0.96f,
+                               projectedFbm(material, world_position, normal, 1.9f, 283.0f));
+  return aster::clamp(material.base_color * (0.62f + wet * 0.44f) +
+                          material.emission_color * (0.28f + wet * 0.34f),
+                      0.0f, 4.0f);
+}
+
 aster::Vec3 foliageAlbedo(const aster::Material &material, const aster::Vec3 world_position,
                           const aster::Vec3 normal, const aster::Vec2 uv) {
   const float blade_height = saturate(uv.y);
@@ -489,6 +549,14 @@ aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 wo
   case aster::SurfacePattern::FiberStrands:
     return aster::clamp(
         organicFiberAlbedo(material, world_position, normal, uv, pattern_id + 151.0f), 0.0f, 4.0f);
+  case aster::SurfacePattern::CaveWeb:
+    return applyProceduralLayer(material, world_position, normal,
+                                caveWebAlbedo(material, world_position, normal, uv));
+  case aster::SurfacePattern::CaveSkitterChitin:
+    return applyProceduralLayer(material, world_position, normal,
+                                caveSkitterChitinAlbedo(material, world_position, normal, uv));
+  case aster::SurfacePattern::CaveSkitterEye:
+    return caveSkitterEyeAlbedo(material, world_position, normal);
   case aster::SurfacePattern::Foliage:
     return applyProceduralLayer(
         material, world_position, normal,
@@ -969,6 +1037,17 @@ const CpuMesh &RenderDevice::meshForObject(const RenderObject &object) {
     return meshForPrimitive(object.primitive);
   }
 
+  if (object.dynamic_mesh.valid()) {
+    auto it = custom_mesh_resource_cache_.find(object.dynamic_mesh);
+    if (it == custom_mesh_resource_cache_.end()) {
+      it = custom_mesh_resource_cache_
+               .emplace(object.dynamic_mesh,
+                        prepareMeshForRendering(*object.custom_mesh, renderMeshOptions()))
+               .first;
+    }
+    return it->second;
+  }
+
   const CpuMesh *source = object.custom_mesh.get();
   auto it = custom_mesh_cache_.find(source);
   if (it == custom_mesh_cache_.end()) {
@@ -976,6 +1055,69 @@ const CpuMesh &RenderDevice::meshForObject(const RenderObject &object) {
              .first;
   }
   return it->second;
+}
+
+void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_eviction) {
+  ASTER_PROFILE_SCOPE("RenderDevice::syncDynamicMeshes");
+  ++mesh_cache_frame_;
+  std::unordered_set<const CpuMesh *> live_meshes;
+  std::unordered_set<DynamicMeshResourceKey, DynamicMeshResourceKeyHash> live_resources;
+  live_meshes.reserve(scene.objects().size());
+  live_resources.reserve(scene.objects().size());
+  for (const RenderObject &object : scene.objects()) {
+    if (object.custom_mesh == nullptr) {
+      continue;
+    }
+    if (object.dynamic_mesh.valid()) {
+      live_resources.insert(object.dynamic_mesh);
+      custom_mesh_resource_last_seen_[object.dynamic_mesh] = mesh_cache_frame_;
+    } else {
+      live_meshes.insert(object.custom_mesh.get());
+      custom_mesh_last_seen_[object.custom_mesh.get()] = mesh_cache_frame_;
+    }
+  }
+
+  constexpr std::uint64_t kRetiredMeshGraceFrames = 3u;
+  for (auto it = custom_mesh_cache_.begin(); it != custom_mesh_cache_.end();) {
+    const auto seen = custom_mesh_last_seen_.find(it->first);
+    const bool live = live_meshes.contains(it->first);
+    const bool expired =
+        immediate_eviction || seen == custom_mesh_last_seen_.end() ||
+        mesh_cache_frame_ > seen->second + kRetiredMeshGraceFrames;
+    if (live || !expired) {
+      ++it;
+    } else {
+      custom_mesh_last_seen_.erase(it->first);
+      it = custom_mesh_cache_.erase(it);
+    }
+  }
+
+  for (auto it = custom_mesh_resource_cache_.begin(); it != custom_mesh_resource_cache_.end();) {
+    const auto seen = custom_mesh_resource_last_seen_.find(it->first);
+    const bool live = live_resources.contains(it->first);
+    const bool expired =
+        immediate_eviction || seen == custom_mesh_resource_last_seen_.end() ||
+        mesh_cache_frame_ > seen->second + kRetiredMeshGraceFrames;
+    if (live || !expired) {
+      ++it;
+    } else {
+      custom_mesh_resource_last_seen_.erase(it->first);
+      it = custom_mesh_resource_cache_.erase(it);
+    }
+  }
+
+  for (const CpuMesh *mesh : live_meshes) {
+    if (!custom_mesh_cache_.contains(mesh)) {
+      custom_mesh_cache_.emplace(mesh, prepareMeshForRendering(*mesh, renderMeshOptions()));
+    }
+  }
+  for (const RenderObject &object : scene.objects()) {
+    if (object.custom_mesh != nullptr && object.dynamic_mesh.valid() &&
+        !custom_mesh_resource_cache_.contains(object.dynamic_mesh)) {
+      custom_mesh_resource_cache_.emplace(
+          object.dynamic_mesh, prepareMeshForRendering(*object.custom_mesh, renderMeshOptions()));
+    }
+  }
 }
 
 void RenderDevice::initialize() {
@@ -1003,27 +1145,7 @@ void RenderDevice::initialize() {
 void RenderDevice::prepareScene(const Scene &scene) {
   ASTER_PROFILE_SCOPE("RenderDevice::prepareScene");
   render_scene_.rebuild(scene);
-  std::unordered_set<const CpuMesh *> live_meshes;
-  live_meshes.reserve(scene.objects().size());
-  for (const RenderObject &object : scene.objects()) {
-    if (object.custom_mesh != nullptr) {
-      live_meshes.insert(object.custom_mesh.get());
-    }
-  }
-
-  for (auto it = custom_mesh_cache_.begin(); it != custom_mesh_cache_.end();) {
-    if (live_meshes.contains(it->first)) {
-      ++it;
-    } else {
-      it = custom_mesh_cache_.erase(it);
-    }
-  }
-
-  for (const CpuMesh *mesh : live_meshes) {
-    if (!custom_mesh_cache_.contains(mesh)) {
-      custom_mesh_cache_.emplace(mesh, prepareMeshForRendering(*mesh, renderMeshOptions()));
-    }
-  }
+  syncDynamicMeshes(scene, true);
 }
 
 FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
@@ -1039,6 +1161,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     return stats;
   }
 
+  syncDynamicMeshes(scene, false);
   render_scene_.rebuild(scene);
   const FrameRenderPlan plan =
       buildFrameRenderPlan(render_scene_, camera, settings.line_of_sight_fade, framebuffer_width,
@@ -1046,6 +1169,11 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.visible_objects = plan.diagnostics.visible_objects;
   stats.culled_objects = plan.diagnostics.culled_objects;
   stats.instance_groups = plan.diagnostics.instance_groups;
+  stats.lod_culled_objects = plan.diagnostics.lod_culled_objects;
+  stats.visibility_hint_objects = plan.diagnostics.visibility_hint_objects;
+  stats.dynamic_mesh_objects = plan.diagnostics.dynamic_mesh_objects;
+  stats.dynamic_mesh_cache_entries =
+      custom_mesh_cache_.size() + custom_mesh_resource_cache_.size();
   stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
 
   SoftwareFrameBuffer &framebuffer = activeFrameBuffer();
@@ -1060,14 +1188,21 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
         .ruin_block = &ruin_block_,
         .pillar = &pillar_,
         .custom_meshes = &custom_mesh_cache_,
+        .custom_mesh_resources = &custom_mesh_resource_cache_,
     };
     framebuffer.resize(framebuffer_width, framebuffer_height);
     framebuffer.clearTransparent();
-    FrameStats native_stats = native_backend_->render(scene, plan, camera, settings, meshes, framebuffer_width,
-                                   framebuffer_height, frame_seconds);
+    FrameStats native_stats = native_backend_->render(scene, plan, camera, settings, meshes,
+                                                      framebuffer_width, framebuffer_height,
+                                                      frame_seconds);
     native_stats.visible_objects = plan.diagnostics.visible_objects;
     native_stats.culled_objects = plan.diagnostics.culled_objects;
     native_stats.instance_groups = plan.diagnostics.instance_groups;
+    native_stats.lod_culled_objects = plan.diagnostics.lod_culled_objects;
+    native_stats.visibility_hint_objects = plan.diagnostics.visibility_hint_objects;
+    native_stats.dynamic_mesh_objects = plan.diagnostics.dynamic_mesh_objects;
+    native_stats.dynamic_mesh_cache_entries =
+        custom_mesh_cache_.size() + custom_mesh_resource_cache_.size();
     native_stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
     return native_stats;
   }

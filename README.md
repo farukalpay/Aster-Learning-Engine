@@ -35,8 +35,9 @@ The images below are generated from the current build.
   renderer diagnostics.
 - Lumen Run, a playable sample that exercises terrain, castle geometry, cave
   traversal, sealed cave portals, streaming cave continuation, fixture-driven
-  cave lighting, mineral formations, water, vegetation, avatar animation,
-  inventory, HUD, interaction, physics, particles, and capture automation.
+  cave lighting, mineral formations, procedural ground detail, water,
+  vegetation, avatar animation, inventory, HUD, interaction, physics,
+  particles, and capture automation.
 - Engine-owned math, mesh preparation, brush level mesh generation, procedural
   noise, scene import, scenery assembly, TCP loopback transport, and lightweight
   CPU profiling.
@@ -59,14 +60,17 @@ The images below are generated from the current build.
 
 ## Changelog
 
-- Added a continuous procedural cave-mouth formation, cached cave fixture state,
-  and a deterministic cave-entry capture route.
+- Added a continuous procedural cave-mouth formation, reusable ground-detail
+  scatter, cached cave fixture state, and deterministic cave-entry capture and
+  benchmark routes.
 - Added sealed cave portal/throat geometry, engine-native voxel cave streaming,
   and industrial wall-light placement for darker cave traversal.
 - Expanded analytic procedural material controls across terrain, grass, rock,
   cave stone, water, and avatar surfaces.
-- Tightened Studio UI text fitting, framebuffer origin regression coverage, and
-  README media refresh commands.
+- Tightened Studio UI measurement/scrolling, framebuffer origin handling,
+  renderer cull/depth parity, and README media refresh commands.
+- Opened an initial Windows configuration path for core builds while native
+  desktop presentation continues to live behind `aster::Window`.
 
 ## Build
 
@@ -114,6 +118,8 @@ Check frame timing:
 
 ```bash
 ./build/aster_lumen_run --frame-report --frame-report-warmup 30 --run-frames 240 --lag-budget-ms 16.7 --window-width 1280 --window-height 720 --msaa 0
+./build/aster_lumen_run --frame-report --frame-report-route cave-entry --frame-report-warmup 30 --run-frames 240 --lag-budget-ms 16.7 --window-width 1280 --window-height 720 --msaa 0
+./build/aster_studio --frame-report --frame-report-warmup 30 --run-frames 240 --lag-budget-ms 16.7 --window-width 1280 --window-height 720
 ```
 
 Set `ASTER_FORCE_SOFTWARE_RENDERER=1` to run the deterministic software fallback
@@ -127,7 +133,7 @@ mkdir -p /tmp/aster_learning_shots/cave_entry_frames
 find /tmp/aster_learning_shots -type f \( -name '*.ppm' -o -name '*.png' -o -name '*.gif' \) -delete
 
 ./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_run.ppm --screenshot-frame 8 --capture-hud --msaa 0 --window-width 1280 --window-height 720
-./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_cave.ppm --screenshot-frame 8 --msaa 0 --window-width 1280 --window-height 720 --camera-target-x 31.0 --camera-target-y 4.8 --camera-target-z -58.5 --camera-yaw-deg 0 --camera-pitch-deg 31 --camera-radius 18.8 --camera-fov-deg 32
+./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_cave.ppm --screenshot-frame 38 --capture-route cave-entry --msaa 0 --window-width 1280 --window-height 720
 ./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_cave_interior.ppm --screenshot-frame 60 --capture-route cave-entry --msaa 0 --window-width 1280 --window-height 720
 ./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_inventory.ppm --screenshot-frame 2 --open-inventory --player-at-supply-crate --capture-hud --msaa 0 --window-width 1280 --window-height 720
 ./build/aster_studio --screenshot /tmp/aster_learning_shots/studio.ppm --window-width 1280 --window-height 720
@@ -148,13 +154,17 @@ commands and any GIF encoder that accepts numbered PPM frames.
 
 ## Platform Targets
 
-Aster v1 targets macOS and Linux.
+Aster v1 has shipping desktop paths for macOS and Linux, plus an initial
+Windows configuration skeleton for core/test work.
 
 - macOS uses a native Cocoa adapter for windows, events, cursor state, and
   Metal presentation.
 - Linux uses a raw X11 protocol adapter implemented over POSIX sockets; no
   desktop client library is linked.
-- Windows and Wayland are not v1 targets.
+- Windows currently provides a minimal `aster::Window` adapter so the core
+  library can grow platform support without introducing a desktop wrapper
+  dependency.
+- Wayland is not implemented yet.
 
 ## Authorship
 

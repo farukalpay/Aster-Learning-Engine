@@ -1,7 +1,10 @@
 #include "aster/geometry/voxel_cave.hpp"
 
+#include "aster/core/profiler.hpp"
+
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -10,6 +13,7 @@
 namespace {
 
 constexpr float kEpsilon = 0.000001f;
+constexpr std::uint32_t kVoxelChunkRebuildWorkClass = 1u;
 
 std::uint32_t mixBits(std::uint32_t value) {
   value ^= value >> 16u;
@@ -104,29 +108,59 @@ aster::Vec3 normalizedOr(const aster::Vec3 value, const aster::Vec3 fallback) {
   return value / value_length;
 }
 
+std::uint64_t chunkWorkId(const aster::VoxelChunkCoord coord) {
+  return static_cast<std::uint64_t>(aster::VoxelChunkCoordHash{}(coord));
+}
+
+aster::Vec3 surfaceBoundsCenter(const aster::VoxelChunkSurfaceStats &stats,
+                                const aster::Vec3 fallback) {
+  if (stats.surface_vertices == 0u) {
+    return fallback;
+  }
+  return (stats.bounds_min + stats.bounds_max) * 0.5f;
+}
+
+float surfaceBoundsRadius(const aster::VoxelChunkSurfaceStats &stats, const aster::Vec3 center) {
+  if (stats.surface_vertices == 0u) {
+    return 0.0f;
+  }
+  return aster::length(stats.bounds_max - center);
+}
+
 struct ProceduralFieldBasis {
   aster::Vec3 forward{0.0f, 0.0f, -1.0f};
   aster::Vec3 side{1.0f, 0.0f, 0.0f};
   aster::Vec3 up{0.0f, 1.0f, 0.0f};
 };
 
-ProceduralFieldBasis proceduralBasis(const aster::VoxelCaveProceduralField &field) {
+ProceduralFieldBasis basisFromForwardUp(const aster::Vec3 forward, const aster::Vec3 up) {
   ProceduralFieldBasis basis;
-  basis.forward = normalizedOr(field.forward, {0.0f, 0.0f, -1.0f});
-  basis.up = normalizedOr(field.up, {0.0f, 1.0f, 0.0f});
+  basis.forward = normalizedOr(forward, {0.0f, 0.0f, -1.0f});
+  basis.up = normalizedOr(up, {0.0f, 1.0f, 0.0f});
   basis.side = normalizedOr(aster::cross(basis.up, basis.forward), {1.0f, 0.0f, 0.0f});
   basis.up = normalizedOr(aster::cross(basis.forward, basis.side), {0.0f, 1.0f, 0.0f});
   return basis;
+}
+
+ProceduralFieldBasis proceduralBasis(const aster::VoxelCaveProceduralField &field) {
+  return basisFromForwardUp(field.forward, field.up);
 }
 
 aster::Vec3 proceduralCenterAt(const aster::VoxelCaveProceduralField &field,
                                const ProceduralFieldBasis &basis, const float distance) {
   const float frequency = std::max(field.wander_frequency, 0.001f);
   const float domain = distance * frequency;
-  const float side = (fbm3({domain, 4.70f, -2.10f}, field.seed + 911u, 4) - 0.5f) *
-                     std::max(field.side_wander, 0.0f) * 2.0f;
-  const float vertical = (fbm3({-1.60f, domain, 8.20f}, field.seed + 1291u, 4) - 0.5f) *
-                         std::max(field.vertical_wander, 0.0f) * 2.0f;
+  float side = (fbm3({domain, 4.70f, -2.10f}, field.seed + 911u, 4) - 0.5f) *
+               std::max(field.side_wander, 0.0f) * 2.0f;
+  float vertical = (fbm3({-1.60f, domain, 8.20f}, field.seed + 1291u, 4) - 0.5f) *
+                   std::max(field.vertical_wander, 0.0f) * 2.0f;
+  if (field.macro_wander_frequency > 0.0f) {
+    const float macro_domain = distance * std::max(field.macro_wander_frequency, 0.001f);
+    side += (fbm3({macro_domain, -8.30f, 6.10f}, field.seed + 3433u, 3) - 0.5f) *
+            std::max(field.macro_side_wander, 0.0f) * 2.0f;
+    vertical += (fbm3({5.20f, macro_domain, -11.60f}, field.seed + 3541u, 3) - 0.5f) *
+                std::max(field.macro_vertical_wander, 0.0f) * 2.0f;
+  }
   return field.start + basis.forward * distance + basis.side * side + basis.up * vertical;
 }
 
@@ -141,13 +175,46 @@ aster::Vec2 proceduralTunnelRadii(const aster::VoxelCaveProceduralField &field,
           std::max(field.vertical_radius, 0.12f)};
 }
 
+float proceduralFrameDerivativeStep(const aster::VoxelCaveProceduralField &field) {
+  if (field.frame_derivative_step > 0.0f) {
+    return field.frame_derivative_step;
+  }
+  return std::max(std::max(field.tunnel_radius, field.vertical_radius) * 0.70f, 0.25f);
+}
+
+float proceduralPathSampleSpacing(const aster::VoxelCaveProceduralField &field) {
+  if (field.path_sample_spacing > 0.0f) {
+    return field.path_sample_spacing;
+  }
+  return std::max(std::max(field.tunnel_radius, field.vertical_radius) * 0.85f, 0.30f);
+}
+
+ProceduralFieldBasis proceduralBasisAt(const aster::VoxelCaveProceduralField &field,
+                                       const ProceduralFieldBasis &global_basis,
+                                       const float distance) {
+  const float step = proceduralFrameDerivativeStep(field);
+  const float before_distance = std::max(distance - step, 0.0f);
+  const float after_distance = distance + step;
+  const aster::Vec3 before = proceduralCenterAt(field, global_basis, before_distance);
+  const aster::Vec3 after = proceduralCenterAt(field, global_basis, after_distance);
+
+  ProceduralFieldBasis local;
+  local.forward = normalizedOr(after - before, global_basis.forward);
+  local.up = field.up - local.forward * aster::dot(field.up, local.forward);
+  local.up = normalizedOr(local.up, global_basis.up);
+  local.side = normalizedOr(aster::cross(local.up, local.forward), global_basis.side);
+  local.up = normalizedOr(aster::cross(local.forward, local.side), global_basis.up);
+  return local;
+}
+
 float proceduralTunnelSdf(const aster::Vec3 point, const aster::VoxelCaveProceduralField &field,
                           const ProceduralFieldBasis &basis, const float distance) {
   const aster::Vec3 center = proceduralCenterAt(field, basis, distance);
+  const ProceduralFieldBasis local_basis = proceduralBasisAt(field, basis, distance);
   const aster::Vec2 radii = proceduralTunnelRadii(field, distance);
   const aster::Vec3 offset = point - center;
-  const float lateral = aster::dot(offset, basis.side) / radii.x;
-  const float vertical = aster::dot(offset, basis.up) / radii.y;
+  const float lateral = aster::dot(offset, local_basis.side) / radii.x;
+  const float vertical = aster::dot(offset, local_basis.up) / radii.y;
   return (std::sqrt(lateral * lateral + vertical * vertical) - 1.0f) * std::min(radii.x, radii.y);
 }
 
@@ -168,10 +235,11 @@ float proceduralChamberSdf(const aster::Vec3 point, const aster::VoxelCaveProced
   const float up_radius = std::max(field.chamber_vertical_radius * radius_scale, 0.12f);
   const float forward_radius = std::max(side_radius * 1.24f, 0.12f);
   const aster::Vec3 center = proceduralCenterAt(field, basis, distance);
+  const ProceduralFieldBasis local_basis = proceduralBasisAt(field, basis, distance);
   const aster::Vec3 offset = point - center;
-  const aster::Vec3 scaled{aster::dot(offset, basis.side) / side_radius,
-                           aster::dot(offset, basis.up) / up_radius,
-                           aster::dot(offset, basis.forward) / forward_radius};
+  const aster::Vec3 scaled{aster::dot(offset, local_basis.side) / side_radius,
+                           aster::dot(offset, local_basis.up) / up_radius,
+                           aster::dot(offset, local_basis.forward) / forward_radius};
   return (aster::length(scaled) - 1.0f) * std::min({side_radius, up_radius, forward_radius});
 }
 
@@ -185,16 +253,198 @@ float proceduralFieldSdf(const aster::Vec3 point, const aster::VoxelCaveProcedur
     return std::numeric_limits<float>::max();
   }
 
-  const float distance = std::max(projected, 0.0f);
-  float density = proceduralTunnelSdf(point, field, basis, distance);
-  if (field.chamber_spacing > 0.0f && field.chamber_radius > 0.0f) {
-    const int chamber =
-        static_cast<int>(std::floor(distance / std::max(field.chamber_spacing, 0.001f)));
-    for (int offset = -1; offset <= 1; ++offset) {
-      density = std::min(density, proceduralChamberSdf(point, field, basis, chamber + offset));
+  const float base_distance = std::max(projected, 0.0f);
+  const int sample_steps = std::max(field.path_sample_steps, 0);
+  const float sample_spacing = proceduralPathSampleSpacing(field);
+  float density = std::numeric_limits<float>::max();
+  for (int sample_offset = -sample_steps; sample_offset <= sample_steps; ++sample_offset) {
+    const float candidate_distance =
+        std::max(base_distance + static_cast<float>(sample_offset) * sample_spacing, 0.0f);
+    density = std::min(density, proceduralTunnelSdf(point, field, basis, candidate_distance));
+    if (field.chamber_spacing > 0.0f && field.chamber_radius > 0.0f) {
+      const int chamber = static_cast<int>(
+          std::floor(candidate_distance / std::max(field.chamber_spacing, 0.001f)));
+      for (int offset = -1; offset <= 1; ++offset) {
+        density = std::min(density, proceduralChamberSdf(point, field, basis, chamber + offset));
+      }
     }
   }
   return density;
+}
+
+struct SolidPlugShape {
+  bool valid = false;
+  std::uint32_t seed = 1u;
+  aster::Vec3 center{};
+  ProceduralFieldBasis basis{};
+  aster::VoxelCaveMaterial material = aster::VoxelCaveMaterial::Iron;
+  float radius = 1.0f;
+  float vertical_radius = 1.0f;
+  float half_length = 1.0f;
+  float edge_feather = 0.0f;
+  float surface_noise = 0.0f;
+};
+
+struct SolidPlugSample {
+  bool active = false;
+  aster::VoxelCaveMaterial material = aster::VoxelCaveMaterial::Rock;
+  float density = -std::numeric_limits<float>::infinity();
+  float strength = 0.0f;
+};
+
+SolidPlugShape solidPlugShapeFrom(const aster::VoxelCaveSolidPlug &plug) {
+  if (!plug.enabled || plug.material == aster::VoxelCaveMaterial::Air || plug.radius <= 0.0f ||
+      plug.vertical_radius <= 0.0f || plug.half_length <= 0.0f) {
+    return {};
+  }
+  return {.valid = true,
+          .seed = plug.seed,
+          .center = plug.center,
+          .basis = basisFromForwardUp(plug.forward, plug.up),
+          .material = plug.material,
+          .radius = std::max(plug.radius, 0.001f),
+          .vertical_radius = std::max(plug.vertical_radius, 0.001f),
+          .half_length = std::max(plug.half_length, 0.001f),
+          .edge_feather = std::max(plug.edge_feather, 0.0f),
+          .surface_noise = std::max(plug.surface_noise, 0.0f)};
+}
+
+const aster::VoxelCaveProceduralField *
+solidPlugPathField(const aster::VoxelCaveSpec &spec,
+                   const aster::VoxelCaveProceduralSolidPlugField &field) {
+  if (field.path_field_index < 0) {
+    return nullptr;
+  }
+  const std::size_t index = static_cast<std::size_t>(field.path_field_index);
+  return index < spec.procedural_fields.size() ? &spec.procedural_fields[index] : nullptr;
+}
+
+float solidPlugFieldProjectedDistance(const aster::VoxelCaveSpec &spec,
+                                      const aster::VoxelCaveProceduralSolidPlugField &field,
+                                      const aster::Vec3 position) {
+  if (const aster::VoxelCaveProceduralField *path = solidPlugPathField(spec, field)) {
+    const ProceduralFieldBasis basis = proceduralBasis(*path);
+    return aster::dot(position - path->start, basis.forward);
+  }
+  const ProceduralFieldBasis basis = basisFromForwardUp(field.forward, field.up);
+  return aster::dot(position - field.start, basis.forward);
+}
+
+SolidPlugShape proceduralSolidPlugShapeFrom(
+    const aster::VoxelCaveSpec &spec, const aster::VoxelCaveProceduralSolidPlugField &field,
+    const int plug_index) {
+  if (!field.enabled || field.material == aster::VoxelCaveMaterial::Air || plug_index < 0 ||
+      field.spacing <= 0.0f || field.half_length <= 0.0f) {
+    return {};
+  }
+
+  const float distance =
+      std::max(field.first_distance + static_cast<float>(plug_index) * field.spacing, 0.0f);
+  ProceduralFieldBasis basis = basisFromForwardUp(field.forward, field.up);
+  aster::Vec3 center = field.start + basis.forward * distance;
+  float radius = std::max(field.radius, 0.001f);
+  float vertical_radius = std::max(field.vertical_radius, 0.001f);
+
+  if (const aster::VoxelCaveProceduralField *path = solidPlugPathField(spec, field)) {
+    const aster::VoxelCaveProceduralFrame frame =
+        aster::sampleVoxelCaveProceduralFrameAt(*path, distance);
+    basis = basisFromForwardUp(frame.forward, frame.up);
+    center = frame.center;
+    const aster::Vec2 path_radii = proceduralTunnelRadii(*path, distance);
+    radius = std::max(path_radii.x * std::max(field.radius_scale, 0.0f), 0.001f);
+    vertical_radius =
+        std::max(path_radii.y * std::max(field.vertical_radius_scale, 0.0f), 0.001f);
+  }
+
+  const float radius_noise = hashGrid(plug_index, 17, 5, field.seed + 401u) * 2.0f - 1.0f;
+  const float length_noise = hashGrid(plug_index, 29, 11, field.seed + 503u) * 2.0f - 1.0f;
+  const float side_noise = hashGrid(plug_index, 43, 19, field.seed + 607u) * 2.0f - 1.0f;
+  const float up_noise = hashGrid(plug_index, 59, 23, field.seed + 709u) * 2.0f - 1.0f;
+  const float radius_scale =
+      1.0f + radius_noise * std::max(field.radius_variation, 0.0f);
+  const float length_scale =
+      1.0f + length_noise * std::max(field.length_variation, 0.0f);
+  center = center + basis.side * (side_noise * std::max(field.lateral_jitter, 0.0f)) +
+           basis.up * (up_noise * std::max(field.vertical_jitter, 0.0f));
+
+  return {.valid = true,
+          .seed = field.seed + static_cast<std::uint32_t>(plug_index) * 92821u,
+          .center = center,
+          .basis = basis,
+          .material = field.material,
+          .radius = std::max(radius * radius_scale, 0.001f),
+          .vertical_radius = std::max(vertical_radius * radius_scale, 0.001f),
+          .half_length = std::max(field.half_length * length_scale, 0.001f),
+          .edge_feather = std::max(field.edge_feather, 0.0f),
+          .surface_noise = std::max(field.surface_noise, 0.0f)};
+}
+
+float solidPlugSdf(const aster::Vec3 point, const SolidPlugShape &shape) {
+  const aster::Vec3 offset = point - shape.center;
+  const float axial = std::abs(aster::dot(offset, shape.basis.forward)) - shape.half_length;
+  const float side = aster::dot(offset, shape.basis.side) / std::max(shape.radius, 0.001f);
+  const float up = aster::dot(offset, shape.basis.up) / std::max(shape.vertical_radius, 0.001f);
+  const float radial =
+      (std::sqrt(side * side + up * up) - 1.0f) *
+      std::min(std::max(shape.radius, 0.001f), std::max(shape.vertical_radius, 0.001f));
+  const float outside_axial = std::max(axial, 0.0f);
+  const float outside_radial = std::max(radial, 0.0f);
+  float sdf = std::sqrt(outside_axial * outside_axial + outside_radial * outside_radial) +
+              std::min(std::max(axial, radial), 0.0f);
+  if (shape.surface_noise > 0.0f) {
+    const float scale =
+        std::max(std::min({shape.radius, shape.vertical_radius, shape.half_length}) * 1.65f,
+                 0.001f);
+    sdf += (fbm3((point - shape.center) / scale, shape.seed + 811u, 3) - 0.5f) *
+           shape.surface_noise;
+  }
+  return sdf;
+}
+
+SolidPlugSample sampleSolidPlugShape(const aster::Vec3 position, const SolidPlugShape &shape) {
+  if (!shape.valid) {
+    return {};
+  }
+  const float sdf = solidPlugSdf(position, shape);
+  if (sdf > shape.edge_feather) {
+    return {};
+  }
+  const float edge = std::max(shape.edge_feather, 0.001f);
+  return {.active = true,
+          .material = shape.material,
+          .density = -sdf,
+          .strength = aster::clamp((-sdf + edge) / edge, 0.0f, 1.0f)};
+}
+
+void selectSolidPlugSample(SolidPlugSample &best, const SolidPlugSample candidate) {
+  if (!candidate.active) {
+    return;
+  }
+  if (!best.active || candidate.density > best.density) {
+    best = candidate;
+  }
+}
+
+SolidPlugSample sampleSolidPlug(const aster::VoxelCaveSpec &spec, const aster::Vec3 position) {
+  SolidPlugSample sample;
+  for (const aster::VoxelCaveSolidPlug &plug : spec.solid_plugs) {
+    selectSolidPlugSample(sample, sampleSolidPlugShape(position, solidPlugShapeFrom(plug)));
+  }
+  for (const aster::VoxelCaveProceduralSolidPlugField &field :
+       spec.procedural_solid_plug_fields) {
+    if (!field.enabled || field.spacing <= 0.0f) {
+      continue;
+    }
+    const float projected = solidPlugFieldProjectedDistance(spec, field, position);
+    const float base = (projected - field.first_distance) / std::max(field.spacing, 0.001f);
+    const int plug_index = static_cast<int>(std::floor(base));
+    for (int offset = -1; offset <= 1; ++offset) {
+      selectSolidPlugSample(
+          sample, sampleSolidPlugShape(
+                      position, proceduralSolidPlugShapeFrom(spec, field, plug_index + offset)));
+    }
+  }
+  return sample;
 }
 
 bool insideSurfaceOpening(const aster::VoxelCaveSurfaceOpening &opening,
@@ -235,6 +485,10 @@ float densityAtSpec(const aster::VoxelCaveSpec &spec, const aster::Vec3 position
         capsuleSdf(position, spec.origin, spec.origin + aster::Vec3{0.0f, 0.0f, -12.0f}, 1.2f);
   }
   density += (fbm3((position - spec.origin) * 0.23f, spec.seed + 53u, 3) - 0.5f) * 0.18f;
+  const SolidPlugSample solid_plug = sampleSolidPlug(spec, position);
+  if (solid_plug.active) {
+    density = std::max(density, solid_plug.density);
+  }
   if (edits != nullptr) {
     for (const aster::VoxelEdit &edit : *edits) {
       if (edit.operation == aster::VoxelEditOperation::Carve) {
@@ -484,6 +738,7 @@ void appendMaterialInterfaceQuad(aster::CpuMesh &collision_mesh, aster::CpuMesh 
 struct CaveFrameCandidate {
   bool valid = false;
   bool procedural = false;
+  int procedural_field_index = -1;
   aster::Vec3 center{};
   aster::Vec3 forward{0.0f, 0.0f, -1.0f};
   aster::Vec3 side{1.0f, 0.0f, 0.0f};
@@ -498,15 +753,6 @@ struct CaveFrameCandidate {
   float radial_fraction = std::numeric_limits<float>::infinity();
 };
 
-ProceduralFieldBasis basisFromForwardUp(const aster::Vec3 forward, const aster::Vec3 up) {
-  ProceduralFieldBasis basis;
-  basis.forward = normalizedOr(forward, {0.0f, 0.0f, -1.0f});
-  basis.up = normalizedOr(up, {0.0f, 1.0f, 0.0f});
-  basis.side = normalizedOr(aster::cross(basis.up, basis.forward), {1.0f, 0.0f, 0.0f});
-  basis.up = normalizedOr(aster::cross(basis.forward, basis.side), {0.0f, 1.0f, 0.0f});
-  return basis;
-}
-
 float authoredPathLength(const aster::VoxelCaveSpec &spec) {
   float total = 0.0f;
   for (const aster::VoxelCaveTunnel &tunnel : spec.tunnels) {
@@ -519,7 +765,8 @@ CaveFrameCandidate makeFrameCandidate(const aster::Vec3 position, const aster::V
                                       const ProceduralFieldBasis &basis, const float tunnel_radius,
                                       const float vertical_radius, const float progress_distance,
                                       const float path_length, const bool procedural,
-                                      const float procedural_distance = 0.0f) {
+                                      const float procedural_distance = 0.0f,
+                                      const int procedural_field_index = -1) {
   const float radius = std::max(tunnel_radius, 0.001f);
   const float height = std::max(vertical_radius, 0.001f);
   const aster::Vec3 offset = position - center;
@@ -529,6 +776,7 @@ CaveFrameCandidate makeFrameCandidate(const aster::Vec3 position, const aster::V
                                           (vertical * vertical) / (height * height));
   return {.valid = true,
           .procedural = procedural,
+          .procedural_field_index = procedural_field_index,
           .center = center,
           .forward = basis.forward,
           .side = basis.side,
@@ -580,7 +828,8 @@ CaveFrameCandidate closestProceduralFrame(const aster::VoxelCaveSpec &spec,
                                           const aster::Vec3 position) {
   CaveFrameCandidate best;
   const float path_length = authoredPathLength(spec);
-  for (const aster::VoxelCaveProceduralField &field : spec.procedural_fields) {
+  for (std::size_t field_index = 0; field_index < spec.procedural_fields.size(); ++field_index) {
+    const aster::VoxelCaveProceduralField &field = spec.procedural_fields[field_index];
     const aster::VoxelCaveProceduralFrame frame =
         aster::closestVoxelCaveProceduralFrame(field, position);
     if (!frame.valid) {
@@ -591,7 +840,7 @@ CaveFrameCandidate closestProceduralFrame(const aster::VoxelCaveSpec &spec,
     const CaveFrameCandidate candidate = makeFrameCandidate(
         position, frame.center, basis, frame.tunnel_radius, frame.vertical_radius,
         base_progress + frame.distance, std::max(path_length, base_progress + frame.distance), true,
-        frame.distance);
+        frame.distance, static_cast<int>(field_index));
     if (!best.valid || candidate.radial_fraction < best.radial_fraction) {
       best = candidate;
     }
@@ -736,7 +985,7 @@ aster::VoxelCaveFixturePlacement fixtureFromFrame(const aster::VoxelCaveSpec &sp
                       frame.up * std::max(fixture.mount_height, 0.0f);
   aster::Vec3 surface{};
   if (projectFixtureToSurface(spec, frame, fixture, side_sign, surface, normal)) {
-    mount = surface;
+    mount = surface + normal * std::max(fixture.wall_inset, 0.0f);
   }
   const aster::Vec3 lens = mount + normal * std::max(fixture.lens_offset, 0.0f);
   const aster::Vec3 light = lens + normal * std::max(fixture.light_offset, 0.0f);
@@ -828,6 +1077,24 @@ sampleSurfaceVeinMaterial(const aster::VoxelCaveSpec &spec, const aster::Vec3 su
   }
 
   VeinMaterialSample sample;
+  const float plug_depth = std::max(cell_size * 1.6f, 0.10f);
+  const float plug_step = std::max(cell_size * 0.5f, 0.05f);
+  const int plug_sample_count = std::max(1, static_cast<int>(std::ceil(plug_depth / plug_step)));
+  for (int index = 0; index <= plug_sample_count; ++index) {
+    const float depth =
+        plug_depth * (static_cast<float>(index) / static_cast<float>(plug_sample_count));
+    const SolidPlugSample plug_sample = sampleSolidPlug(spec, surface_point + solid_direction * depth);
+    if (!plug_sample.active || plug_sample.material == aster::VoxelCaveMaterial::Rock ||
+        plug_sample.material == aster::VoxelCaveMaterial::Air) {
+      continue;
+    }
+    const aster::VoxelMaterialProfile *profile = profileForMaterial(profiles, plug_sample.material);
+    if (profile != nullptr && plug_sample.strength >= sample.strength) {
+      sample.profile = profile;
+      sample.material = plug_sample.material;
+      sample.strength = plug_sample.strength;
+    }
+  }
   for (const aster::VoxelMaterialProfile &profile : profiles) {
     if (!usesVeinField(profile)) {
       continue;
@@ -866,12 +1133,13 @@ VoxelCaveProceduralFrame sampleVoxelCaveProceduralFrameAt(const VoxelCaveProcedu
   }
   const ProceduralFieldBasis basis = proceduralBasis(field);
   const float clamped_distance = std::max(distance, 0.0f);
+  const ProceduralFieldBasis local_basis = proceduralBasisAt(field, basis, clamped_distance);
   const Vec2 radii = proceduralTunnelRadii(field, clamped_distance);
   return {.valid = true,
           .center = proceduralCenterAt(field, basis, clamped_distance),
-          .forward = basis.forward,
-          .side = basis.side,
-          .up = basis.up,
+          .forward = local_basis.forward,
+          .side = local_basis.side,
+          .up = local_basis.up,
           .distance = clamped_distance,
           .tunnel_radius = radii.x,
           .vertical_radius = radii.y};
@@ -887,7 +1155,32 @@ VoxelCaveProceduralFrame closestVoxelCaveProceduralFrame(const VoxelCaveProcedur
   if (projected < -std::max(field.backtrack_distance, 0.0f)) {
     return {};
   }
-  return sampleVoxelCaveProceduralFrameAt(field, std::max(projected, 0.0f));
+  const int sample_steps = std::max(field.path_sample_steps, 0);
+  const float sample_spacing = proceduralPathSampleSpacing(field);
+  VoxelCaveProceduralFrame best;
+  float best_score = std::numeric_limits<float>::max();
+  for (int sample_offset = -sample_steps; sample_offset <= sample_steps; ++sample_offset) {
+    const float candidate_distance =
+        std::max(projected + static_cast<float>(sample_offset) * sample_spacing, 0.0f);
+    VoxelCaveProceduralFrame candidate =
+        sampleVoxelCaveProceduralFrameAt(field, candidate_distance);
+    if (!candidate.valid) {
+      continue;
+    }
+    const Vec3 offset = position - candidate.center;
+    const float radius = std::max(candidate.tunnel_radius, 0.001f);
+    const float height = std::max(candidate.vertical_radius, 0.001f);
+    const float lateral = dot(offset, candidate.side) / radius;
+    const float vertical = dot(offset, candidate.up) / height;
+    const float axial =
+        std::abs(dot(offset, candidate.forward)) / std::max(sample_spacing, 0.001f);
+    const float score = lateral * lateral + vertical * vertical + axial * axial * 0.35f;
+    if (!best.valid || score < best_score) {
+      best = candidate;
+      best_score = score;
+    }
+  }
+  return best;
 }
 
 VoxelCaveInteriorSample sampleVoxelCaveInterior(const VoxelCaveSpec &spec, const Vec3 position,
@@ -916,6 +1209,7 @@ VoxelCaveInteriorSample sampleVoxelCaveInterior(const VoxelCaveSpec &spec, const
   sample.valid = true;
   sample.inside = density <= 0.0f || interior > 0.10f;
   sample.procedural = frame.procedural;
+  sample.procedural_field_index = frame.procedural_field_index;
   sample.interior = aster::clamp(interior, 0.0f, 1.0f);
   sample.entrance_light = aster::clamp(entrance, 0.0f, 1.0f);
   sample.depth =
@@ -924,6 +1218,7 @@ VoxelCaveInteriorSample sampleVoxelCaveInterior(const VoxelCaveSpec &spec, const
   sample.progress_distance = frame.progress_distance;
   sample.progress_normalized =
       path_length > 0.001f ? aster::clamp(frame.progress_distance / path_length, 0.0f, 1.0f) : 0.0f;
+  sample.procedural_distance = frame.procedural_distance;
   sample.center = frame.center;
   sample.forward = frame.forward;
   sample.side = frame.side;
@@ -934,6 +1229,18 @@ VoxelCaveInteriorSample sampleVoxelCaveInterior(const VoxelCaveSpec &spec, const
   sample.tunnel_radius = frame.tunnel_radius;
   sample.vertical_radius = frame.vertical_radius;
   return sample;
+}
+
+FrameWorkBudget defaultVoxelCaveInteractiveRebuildBudget() {
+  return voxelCaveRebuildItemBudget(1u);
+}
+
+FrameWorkBudget voxelCaveRebuildItemBudget(const std::uint32_t max_items) {
+  FrameWorkBudget budget;
+  budget.max_items = std::max(max_items, 1u);
+  budget.class_budgets.push_back(
+      {.class_id = kVoxelChunkRebuildWorkClass, .max_items = budget.max_items, .max_seconds = 0.0});
+  return budget;
 }
 
 std::vector<VoxelCaveFixturePlacement> placeVoxelCavePathFixtures(const VoxelCaveSpec &spec,
@@ -1056,14 +1363,30 @@ void VoxelCaveState::configure(VoxelCaveSpec spec) {
   spec.unload_radius = std::max(spec.unload_radius, spec.stream_radius);
   spec.max_chunk_rebuilds_per_update = std::max(spec.max_chunk_rebuilds_per_update, 0);
   spec.forced_rebuild_radius = std::max(spec.forced_rebuild_radius, 0);
+  spec.visibility_probe_radius = std::clamp(spec.visibility_probe_radius, 0, spec.unload_radius);
+  spec.predictive_lookahead_seconds = std::max(spec.predictive_lookahead_seconds, 0.0f);
+  spec.path_prefetch_ahead_chunks =
+      std::clamp(spec.path_prefetch_ahead_chunks, 0, spec.unload_radius);
+  spec.path_prefetch_behind_chunks =
+      std::clamp(spec.path_prefetch_behind_chunks, 0, spec.unload_radius);
+  spec.path_prefetch_radius = std::clamp(spec.path_prefetch_radius, 0, spec.unload_radius);
+  spec.path_prefetch_spacing_chunks = std::max(spec.path_prefetch_spacing_chunks, 0.10f);
+  spec.chunk_transition_seconds = std::max(spec.chunk_transition_seconds, 0.0f);
+  spec.coarse_proxy_cells =
+      std::clamp(spec.coarse_proxy_cells, 2, std::max(spec.chunk_cells, 2));
   spec_ = std::move(spec);
   clear();
 }
 
 void VoxelCaveState::clear() {
   chunks_.clear();
+  chunk_lookup_.clear();
   edits_.clear();
   snapshots_.clear();
+  changed_snapshots_.clear();
+  last_update_stats_ = {};
+  rebuild_costs_.clear();
+  rebuild_budget_controller_.reset();
 }
 
 const VoxelCaveSpec &VoxelCaveState::spec() const {
@@ -1078,23 +1401,30 @@ void VoxelCaveState::setEdits(std::vector<VoxelEdit> edits) {
   edits_ = std::move(edits);
   for (ChunkState &chunk : chunks_) {
     chunk.dirty = true;
-    chunk.collision_dirty = true;
+    chunk.dirty_age = 0.0f;
+    chunk.dirty_frames = 0u;
+    chunk.edit_overlaps = 0u;
   }
-  snapshots_.clear();
+  changed_snapshots_.clear();
 }
 
 const std::vector<VoxelChunkSnapshot> &VoxelCaveState::activeChunks() const {
   return snapshots_;
 }
 
+const std::vector<VoxelChunkSnapshot> &VoxelCaveState::changedChunks() const {
+  return changed_snapshots_;
+}
+
+const VoxelCaveUpdateStats &VoxelCaveState::lastUpdateStats() const {
+  return last_update_stats_;
+}
+
 std::optional<VoxelChunkSnapshot> VoxelCaveState::consumeDirtyChunk(const VoxelChunkCoord coord) {
-  for (ChunkState &chunk : chunks_) {
-    if (chunk.coord == coord && chunk.collision_dirty) {
-      chunk.collision_dirty = false;
-      return VoxelChunkSnapshot{chunk.coord,          chunk.center,         chunk.reveal_age,
-                                chunk.newly_revealed, chunk.dirty,          true,
-                                chunk.batches,        chunk.collision_mesh, chunk.surface_stats};
-    }
+  ChunkState *chunk = findChunk(coord);
+  if (chunk != nullptr && !chunk->dirty && chunk->collision_dirty) {
+    chunk->collision_dirty = false;
+    return snapshotFor(*chunk, true);
   }
   return std::nullopt;
 }
@@ -1125,11 +1455,72 @@ int VoxelCaveState::chunkDistance(const VoxelChunkCoord lhs, const VoxelChunkCoo
   return std::max({std::abs(lhs.x - rhs.x), std::abs(lhs.y - rhs.y), std::abs(lhs.z - rhs.z)});
 }
 
+void VoxelCaveState::rebuildChunkLookup() {
+  chunk_lookup_.clear();
+  chunk_lookup_.reserve(chunks_.size());
+  for (std::size_t index = 0; index < chunks_.size(); ++index) {
+    chunk_lookup_[chunks_[index].coord] = index;
+  }
+}
+
+VoxelCaveState::ChunkState *VoxelCaveState::findChunk(const VoxelChunkCoord coord) {
+  const auto found = chunk_lookup_.find(coord);
+  if (found == chunk_lookup_.end() || found->second >= chunks_.size()) {
+    return nullptr;
+  }
+  return &chunks_[found->second];
+}
+
+const VoxelCaveState::ChunkState *VoxelCaveState::findChunk(const VoxelChunkCoord coord) const {
+  const auto found = chunk_lookup_.find(coord);
+  if (found == chunk_lookup_.end() || found->second >= chunks_.size()) {
+    return nullptr;
+  }
+  return &chunks_[found->second];
+}
+
+VoxelChunkSnapshot VoxelCaveState::snapshotFor(const ChunkState &chunk,
+                                               const bool collision_dirty) const {
+  const Vec3 bounds_center = surfaceBoundsCenter(chunk.surface_stats, chunk.center);
+  VoxelChunkSnapshot snapshot;
+  snapshot.coord = chunk.coord;
+  snapshot.center = chunk.center;
+  snapshot.bounds_center = bounds_center;
+  snapshot.bounds_radius = surfaceBoundsRadius(chunk.surface_stats, bounds_center);
+  snapshot.reveal_age = chunk.reveal_age;
+  snapshot.newly_revealed = chunk.newly_revealed;
+  snapshot.rebuild_pending = chunk.dirty;
+  snapshot.collision_dirty = !chunk.dirty && collision_dirty;
+  snapshot.coarse_proxy = chunk.coarse_proxy;
+  snapshot.lifecycle = chunk.lifecycle;
+  const bool transitioning =
+      !chunk.retiring_batches.empty() && chunk.render_transition_seconds > 0.0f;
+  const float transition =
+      transitioning
+          ? clamp(chunk.render_transition_age / std::max(chunk.render_transition_seconds, 0.001f),
+                  0.0f, 1.0f)
+          : 1.0f;
+  snapshot.batches.reserve(chunk.retiring_batches.size() + chunk.batches.size());
+  for (VoxelChunkRenderBatch batch : chunk.retiring_batches) {
+    batch.opacity *= 1.0f - transition;
+    if (batch.opacity > 0.003f) {
+      snapshot.batches.push_back(std::move(batch));
+    }
+  }
+  for (VoxelChunkRenderBatch batch : chunk.batches) {
+    batch.opacity *= transitioning ? transition : 1.0f;
+    if (batch.opacity > 0.003f) {
+      snapshot.batches.push_back(std::move(batch));
+    }
+  }
+  snapshot.collision_mesh = chunk.collision_mesh;
+  snapshot.surface_stats = chunk.surface_stats;
+  snapshot.mesh_generation = chunk.mesh_generation;
+  return snapshot;
+}
+
 void VoxelCaveState::ensureChunk(const VoxelChunkCoord coord) {
-  const auto found = std::find_if(chunks_.begin(), chunks_.end(), [coord](const ChunkState &chunk) {
-    return chunk.coord == coord;
-  });
-  if (found != chunks_.end()) {
+  if (findChunk(coord) != nullptr) {
     return;
   }
 
@@ -1137,7 +1528,206 @@ void VoxelCaveState::ensureChunk(const VoxelChunkCoord coord) {
   chunk.coord = coord;
   chunk.center = chunkCenter(coord);
   chunk.newly_revealed = true;
+  rebuildCoarseProxy(chunk);
   chunks_.push_back(std::move(chunk));
+  chunk_lookup_[coord] = chunks_.size() - 1u;
+}
+
+void VoxelCaveState::rebuildCoarseProxy(ChunkState &chunk) {
+  ASTER_PROFILE_SCOPE("VoxelCaveState::coarseProxy");
+  chunk.batches.clear();
+  chunk.retiring_batches.clear();
+  chunk.collision_mesh.reset();
+  chunk.surface_stats = {};
+  chunk.coarse_proxy = false;
+  chunk.lifecycle = VoxelChunkLifecycle::Requested;
+  chunk.render_transition_age = 0.0f;
+  chunk.render_transition_seconds = 0.0f;
+
+  const int n = std::clamp(spec_.coarse_proxy_cells, 2, std::max(spec_.chunk_cells, 2));
+  const float chunk_size = spec_.cell_size * static_cast<float>(spec_.chunk_cells);
+  const float s = chunk_size / static_cast<float>(n);
+  const Vec3 chunk_origin =
+      spec_.origin + Vec3{static_cast<float>(chunk.coord.x) * chunk_size,
+                          static_cast<float>(chunk.coord.y) * chunk_size,
+                          static_cast<float>(chunk.coord.z) * chunk_size};
+  const int cell_grid = n + 1;
+  const int density_grid = n + 2;
+  constexpr int cube_offsets[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
+                                      {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
+  constexpr int cube_edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                                     {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+
+  const auto cellIndex = [cell_grid](const int x, const int y, const int z) {
+    return static_cast<std::size_t>((z * cell_grid + y) * cell_grid + x);
+  };
+  const auto densityIndex = [density_grid](const int x, const int y, const int z) {
+    return static_cast<std::size_t>((z * density_grid + y) * density_grid + x);
+  };
+  const auto gridPoint = [&](const int x, const int y, const int z) {
+    return chunk_origin + Vec3{static_cast<float>(x) * s, static_cast<float>(y) * s,
+                               static_cast<float>(z) * s};
+  };
+
+  std::vector<float> density_samples(
+      static_cast<std::size_t>(density_grid * density_grid * density_grid), 0.0f);
+  for (int z = 0; z < density_grid; ++z) {
+    for (int y = 0; y < density_grid; ++y) {
+      for (int x = 0; x < density_grid; ++x) {
+        density_samples[densityIndex(x, y, z)] = densityAt(gridPoint(x, y, z));
+      }
+    }
+  }
+  const auto densitySample = [&](const int x, const int y, const int z) {
+    return density_samples[densityIndex(x, y, z)];
+  };
+  const auto edgeCrossesSurface = [&](const int ax, const int ay, const int az, const int bx,
+                                      const int by, const int bz) {
+    const float da = densitySample(ax, ay, az);
+    const float db = densitySample(bx, by, bz);
+    return (da > 0.0f) != (db > 0.0f);
+  };
+
+  std::vector<SurfaceNetCell> cells(static_cast<std::size_t>(cell_grid * cell_grid * cell_grid));
+  for (int z = 0; z <= n; ++z) {
+    for (int y = 0; y <= n; ++y) {
+      for (int x = 0; x <= n; ++x) {
+        std::array<Vec3, 8> p{};
+        std::array<float, 8> d{};
+        for (int i = 0; i < 8; ++i) {
+          p[i] = gridPoint(x + cube_offsets[i][0], y + cube_offsets[i][1],
+                           z + cube_offsets[i][2]);
+          d[i] = densitySample(x + cube_offsets[i][0], y + cube_offsets[i][1],
+                               z + cube_offsets[i][2]);
+        }
+        const bool all_solid =
+            std::all_of(d.begin(), d.end(), [](const float value) { return value > 0.0f; });
+        const bool all_air =
+            std::all_of(d.begin(), d.end(), [](const float value) { return value <= 0.0f; });
+        if (all_solid || all_air) {
+          continue;
+        }
+
+        Vec3 intersection_sum{};
+        int intersection_count = 0;
+        for (const auto &edge : cube_edges) {
+          const int a = edge[0];
+          const int b = edge[1];
+          const bool solid_a = d[a] > 0.0f;
+          const bool solid_b = d[b] > 0.0f;
+          if (solid_a == solid_b) {
+            continue;
+          }
+          const float denom = d[a] - d[b];
+          const float t = std::abs(denom) > kEpsilon ? clamp(d[a] / denom, 0.0f, 1.0f) : 0.5f;
+          intersection_sum = intersection_sum + p[a] + (p[b] - p[a]) * t;
+          ++intersection_count;
+        }
+        if (intersection_count <= 0) {
+          continue;
+        }
+
+        SurfaceNetCell cell;
+        cell.active = true;
+        cell.position = intersection_sum / static_cast<float>(intersection_count);
+        const float e = s * 0.35f;
+        Vec3 normal{densityAt(cell.position - Vec3{e, 0.0f, 0.0f}) -
+                        densityAt(cell.position + Vec3{e, 0.0f, 0.0f}),
+                    densityAt(cell.position - Vec3{0.0f, e, 0.0f}) -
+                        densityAt(cell.position + Vec3{0.0f, e, 0.0f}),
+                    densityAt(cell.position - Vec3{0.0f, 0.0f, e}) -
+                        densityAt(cell.position + Vec3{0.0f, 0.0f, e})};
+        normal = normalize(normal);
+        cell.normal = length(normal) > 0.0001f ? normal : Vec3{0.0f, 1.0f, 0.0f};
+        cells[cellIndex(x, y, z)] = cell;
+        ++chunk.surface_stats.active_cells;
+      }
+    }
+  }
+
+  CpuMesh proxy_mesh;
+  const auto activeCell = [&](const int x, const int y, const int z) -> const SurfaceNetCell * {
+    if (x < 0 || y < 0 || z < 0 || x > n || y > n || z > n) {
+      return nullptr;
+    }
+    const SurfaceNetCell &cell = cells[cellIndex(x, y, z)];
+    return cell.active ? &cell : nullptr;
+  };
+  const auto appendFace = [&](const SurfaceNetCell *a, const SurfaceNetCell *b,
+                              const SurfaceNetCell *c, const SurfaceNetCell *d) {
+    if (a == nullptr || b == nullptr || c == nullptr || d == nullptr) {
+      return;
+    }
+    Vec3 preferred = normalize(a->normal + b->normal + c->normal + d->normal);
+    if (length(preferred) <= 0.0001f) {
+      preferred = {0.0f, 1.0f, 0.0f};
+    }
+    const Vec3 centroid = (a->position + b->position + c->position + d->position) * 0.25f;
+    if (insideAnySurfaceOpening(spec_, centroid)) {
+      return;
+    }
+    appendSurfaceQuad(proxy_mesh, *a, *b, *c, *d, preferred);
+  };
+
+  for (int z = 1; z <= n; ++z) {
+    for (int y = 1; y <= n; ++y) {
+      for (int x = 0; x < n; ++x) {
+        if (edgeCrossesSurface(x, y, z, x + 1, y, z)) {
+          appendFace(activeCell(x, y - 1, z - 1), activeCell(x, y, z - 1), activeCell(x, y, z),
+                     activeCell(x, y - 1, z));
+        }
+      }
+    }
+  }
+  for (int z = 1; z <= n; ++z) {
+    for (int y = 0; y < n; ++y) {
+      for (int x = 1; x <= n; ++x) {
+        if (edgeCrossesSurface(x, y, z, x, y + 1, z)) {
+          appendFace(activeCell(x - 1, y, z - 1), activeCell(x - 1, y, z), activeCell(x, y, z),
+                     activeCell(x, y, z - 1));
+        }
+      }
+    }
+  }
+  for (int z = 0; z < n; ++z) {
+    for (int y = 1; y <= n; ++y) {
+      for (int x = 1; x <= n; ++x) {
+        if (edgeCrossesSurface(x, y, z, x, y, z + 1)) {
+          appendFace(activeCell(x - 1, y - 1, z), activeCell(x, y - 1, z), activeCell(x, y, z),
+                     activeCell(x - 1, y, z));
+        }
+      }
+    }
+  }
+
+  if (proxy_mesh.vertices.empty() || proxy_mesh.indices.empty()) {
+    return;
+  }
+
+  chunk.surface_stats.surface_vertices = static_cast<std::uint32_t>(proxy_mesh.vertices.size());
+  chunk.surface_stats.surface_triangles =
+      static_cast<std::uint32_t>(proxy_mesh.indices.size() / 3u);
+  chunk.surface_stats.bounds_min = proxy_mesh.vertices.front().position;
+  chunk.surface_stats.bounds_max = proxy_mesh.vertices.front().position;
+  for (const Vertex &vertex : proxy_mesh.vertices) {
+    chunk.surface_stats.bounds_min.x = std::min(chunk.surface_stats.bounds_min.x, vertex.position.x);
+    chunk.surface_stats.bounds_min.y = std::min(chunk.surface_stats.bounds_min.y, vertex.position.y);
+    chunk.surface_stats.bounds_min.z = std::min(chunk.surface_stats.bounds_min.z, vertex.position.z);
+    chunk.surface_stats.bounds_max.x = std::max(chunk.surface_stats.bounds_max.x, vertex.position.x);
+    chunk.surface_stats.bounds_max.y = std::max(chunk.surface_stats.bounds_max.y, vertex.position.y);
+    chunk.surface_stats.bounds_max.z = std::max(chunk.surface_stats.bounds_max.z, vertex.position.z);
+  }
+  chunk.surface_stats.materials.push_back({VoxelCaveMaterial::Rock,
+                                           static_cast<std::uint32_t>(proxy_mesh.vertices.size()),
+                                           static_cast<std::uint32_t>(proxy_mesh.indices.size() /
+                                                                      3u)});
+  chunk.surface_stats.material_batches = 1u;
+  ++chunk.mesh_generation;
+  chunk.coarse_proxy = true;
+  chunk.lifecycle = VoxelChunkLifecycle::CoarseVisible;
+  chunk.batches.push_back({chunk.coord, VoxelChunkRenderBatchKind::CoarseProxySurface,
+                           VoxelCaveMaterial::Rock, "Cave coarse proxy", 1.0f,
+                           std::make_shared<const CpuMesh>(std::move(proxy_mesh))});
 }
 
 bool VoxelCaveState::chunkIntersectsEdit(const VoxelChunkCoord coord, const VoxelEdit &edit) const {
@@ -1151,81 +1741,318 @@ bool VoxelCaveState::chunkIntersectsEdit(const VoxelChunkCoord coord, const Voxe
 }
 
 void VoxelCaveState::updateStreaming(const Vec3 viewer_position, const float dt) {
+  updateStreaming(viewer_position, dt, {});
+}
+
+void VoxelCaveState::updateStreaming(const Vec3 viewer_position, const float dt,
+                                     const VoxelCaveUpdateOptions &options) {
+  ASTER_PROFILE_SCOPE("VoxelCaveState::streaming");
+  last_update_stats_ = {};
+  changed_snapshots_.clear();
+
+  const float chunk_size = spec_.cell_size * static_cast<float>(spec_.chunk_cells);
+  std::vector<VoxelChunkCoord> retention_centers;
+  const auto ensureNeighborhood = [&](const Vec3 position, const int radius,
+                                      const bool count_probe_chunks) {
+    const VoxelChunkCoord center = chunkCoordFor(position);
+    retention_centers.push_back(center);
+    const int r = std::clamp(radius, 0, spec_.unload_radius);
+    for (int z = -r; z <= r; ++z) {
+      for (int y = -r; y <= r; ++y) {
+        for (int x = -r; x <= r; ++x) {
+          const VoxelChunkCoord coord{center.x + x, center.y + y, center.z + z};
+          if (count_probe_chunks && findChunk(coord) == nullptr) {
+            ++last_update_stats_.visibility_probe_chunks;
+          }
+          ensureChunk(coord);
+        }
+      }
+    }
+  };
+
   const VoxelChunkCoord viewer = chunkCoordFor(viewer_position);
-  for (int z = -spec_.stream_radius; z <= spec_.stream_radius; ++z) {
-    for (int y = -spec_.stream_radius; y <= spec_.stream_radius; ++y) {
-      for (int x = -spec_.stream_radius; x <= spec_.stream_radius; ++x) {
-        ensureChunk({viewer.x + x, viewer.y + y, viewer.z + z});
+  ensureNeighborhood(viewer_position, spec_.stream_radius, false);
+  if (length(options.viewer_velocity) > kEpsilon && spec_.predictive_lookahead_seconds > 0.0f) {
+    ensureNeighborhood(viewer_position + options.viewer_velocity * spec_.predictive_lookahead_seconds,
+                       std::max(1, spec_.visibility_probe_radius), true);
+  }
+  for (const Vec3 probe : options.visibility_probes) {
+    ensureNeighborhood(probe, spec_.visibility_probe_radius, true);
+  }
+  const VoxelCaveInteriorSample viewer_interior = sampleInterior(viewer_position);
+  const bool has_cave_frame = viewer_interior.valid && viewer_interior.inside &&
+                              length(viewer_interior.forward) > 0.0001f &&
+                              length(viewer_interior.side) > 0.0001f &&
+                              length(viewer_interior.up) > 0.0001f;
+  if (has_cave_frame) {
+    const bool follows_procedural_path =
+        viewer_interior.procedural && viewer_interior.procedural_field_index >= 0 &&
+        static_cast<std::size_t>(viewer_interior.procedural_field_index) <
+            spec_.procedural_fields.size();
+    if (follows_procedural_path) {
+      const VoxelCaveProceduralField &field =
+          spec_.procedural_fields[static_cast<std::size_t>(viewer_interior.procedural_field_index)];
+      const int ahead_limit = std::min(spec_.unload_radius, spec_.path_prefetch_ahead_chunks);
+      const int behind_limit = std::min(spec_.unload_radius, spec_.path_prefetch_behind_chunks);
+      const int probe_radius = std::clamp(spec_.path_prefetch_radius, 0, spec_.unload_radius);
+      const float spacing = chunk_size * std::max(spec_.path_prefetch_spacing_chunks, 0.10f);
+      for (int step = -behind_limit; step <= ahead_limit; ++step) {
+        if (step == 0) {
+          continue;
+        }
+        const float distance =
+            std::max(viewer_interior.procedural_distance + static_cast<float>(step) * spacing,
+                     0.0f);
+        const VoxelCaveProceduralFrame frame =
+            sampleVoxelCaveProceduralFrameAt(field, distance);
+        if (frame.valid) {
+          ensureNeighborhood(frame.center, probe_radius, true);
+        }
+      }
+    } else {
+      const int ahead_limit = std::min(spec_.unload_radius, spec_.stream_radius + 1);
+      const int lateral_span = std::max(0, spec_.stream_radius - 1);
+      for (int ahead = 1; ahead <= ahead_limit; ++ahead) {
+        for (int up = -lateral_span; up <= lateral_span; ++up) {
+          for (int side = -lateral_span; side <= lateral_span; ++side) {
+            const Vec3 probe = viewer_position +
+                               normalize(viewer_interior.forward) * (chunk_size * ahead) +
+                               normalize(viewer_interior.side) * (chunk_size * 0.70f *
+                                                                  static_cast<float>(side)) +
+                               normalize(viewer_interior.up) * (chunk_size * 0.54f *
+                                                                static_cast<float>(up));
+            ensureChunk(chunkCoordFor(probe));
+          }
+        }
       }
     }
   }
 
+  const std::size_t chunks_before_unload = chunks_.size();
   chunks_.erase(std::remove_if(chunks_.begin(), chunks_.end(),
                                [&](const ChunkState &chunk) {
-                                 return chunkDistance(chunk.coord, viewer) > spec_.unload_radius;
+                                 return std::none_of(
+                                     retention_centers.begin(), retention_centers.end(),
+                                     [&](const VoxelChunkCoord center) {
+                                       return chunkDistance(chunk.coord, center) <=
+                                              spec_.unload_radius;
+                                     });
                                }),
                 chunks_.end());
-
-  std::vector<ChunkState *> dirty_chunks;
-  dirty_chunks.reserve(chunks_.size());
-  for (ChunkState &chunk : chunks_) {
-    if (chunk.dirty) {
-      dirty_chunks.push_back(&chunk);
-    }
+  if (chunks_.size() != chunks_before_unload) {
+    last_update_stats_.expired_chunks =
+        static_cast<std::uint32_t>(chunks_before_unload - chunks_.size());
+    rebuildChunkLookup();
   }
-  std::sort(dirty_chunks.begin(), dirty_chunks.end(),
-            [&](const ChunkState *lhs, const ChunkState *rhs) {
-              const int lhs_distance = chunkDistance(lhs->coord, viewer);
-              const int rhs_distance = chunkDistance(rhs->coord, viewer);
-              if (lhs_distance != rhs_distance) {
-                return lhs_distance < rhs_distance;
-              }
-              return length(lhs->center - viewer_position) < length(rhs->center - viewer_position);
-            });
 
-  int remaining_rebuilds = spec_.max_chunk_rebuilds_per_update <= 0
-                               ? std::numeric_limits<int>::max()
-                               : spec_.max_chunk_rebuilds_per_update;
-  for (ChunkState *chunk : dirty_chunks) {
-    const bool forced =
-        chunkDistance(chunk->coord, viewer) <= std::max(spec_.forced_rebuild_radius, 0);
-    if (!forced && remaining_rebuilds <= 0) {
+  const Vec3 motion_direction =
+      length(options.viewer_velocity) > kEpsilon ? normalize(options.viewer_velocity) : Vec3{};
+  const Vec3 cave_direction = has_cave_frame ? normalize(viewer_interior.forward) : Vec3{};
+  const Vec3 priority_direction =
+      length(motion_direction) > kEpsilon ? motion_direction : cave_direction;
+
+  BudgetedWorkQueue rebuild_queue;
+  rebuild_queue.reserve(chunks_.size());
+  std::uint64_t sequence = 0u;
+  for (std::size_t index = 0; index < chunks_.size(); ++index) {
+    ChunkState &chunk = chunks_[index];
+    if (!chunk.dirty) {
       continue;
     }
-    rebuildChunk(*chunk);
-    chunk->dirty = false;
-    chunk->collision_dirty = true;
-    if (!forced && remaining_rebuilds < std::numeric_limits<int>::max()) {
-      --remaining_rebuilds;
+    chunk.dirty_age += std::max(dt, 0.0f);
+    ++chunk.dirty_frames;
+    ++last_update_stats_.dirty_chunks;
+
+    const bool missing_collision =
+        chunk.collision_mesh == nullptr || chunk.collision_mesh->vertices.empty() ||
+        chunk.collision_mesh->indices.empty();
+    const bool missing_render =
+        std::none_of(chunk.batches.begin(), chunk.batches.end(),
+                     [](const VoxelChunkRenderBatch &batch) {
+                       return batch.mesh != nullptr && !batch.mesh->vertices.empty() &&
+                              !batch.mesh->indices.empty();
+                     });
+    const double distance_chunks =
+        static_cast<double>(std::max(length(chunk.center - viewer_position) / chunk_size, 0.0f));
+    const double distance_score = 1.0 / (1.0 + distance_chunks);
+    const Vec3 to_chunk = chunk.center - viewer_position;
+    const double alignment_score =
+        length(priority_direction) > kEpsilon && length(to_chunk) > kEpsilon
+            ? std::max(0.0f, dot(normalize(to_chunk), priority_direction))
+            : 0.0;
+    const VoxelCaveRebuildPriorityWeights &weights = options.priority_weights;
+    const double priority =
+        (missing_collision ? weights.missing_collision : 0.0) +
+        (missing_render ? weights.missing_render : 0.0) +
+        static_cast<double>(chunk.edit_overlaps) * weights.edit_overlap +
+        distance_score * weights.viewer_distance + alignment_score * weights.velocity_alignment +
+        static_cast<double>(chunk.dirty_age) * weights.dirty_age;
+
+    const double rebuild_estimate =
+        rebuild_costs_.estimate(kVoxelChunkRebuildWorkClass,
+                                options.override_rebuild_budget ? 1.0 : 0.0015);
+    rebuild_queue.enqueue({.id = chunkWorkId(chunk.coord),
+                           .class_id = kVoxelChunkRebuildWorkClass,
+                           .priority = priority,
+                           .estimated_seconds = rebuild_estimate,
+                           .virtual_backlog_frames = chunk.dirty_frames,
+                           .sequence = sequence++,
+                           .payload_index = index});
+  }
+
+  FrameWorkBudget budget = options.override_rebuild_budget ? options.rebuild_budget : FrameWorkBudget{};
+  if (!options.override_rebuild_budget && spec_.max_chunk_rebuilds_per_update > 0) {
+    budget.max_items = static_cast<std::uint32_t>(spec_.max_chunk_rebuilds_per_update);
+    budget.class_budgets.push_back(
+        {.class_id = kVoxelChunkRebuildWorkClass,
+         .max_items = static_cast<std::uint32_t>(spec_.max_chunk_rebuilds_per_update),
+         .max_seconds = 0.0});
+  }
+  if (!options.override_rebuild_budget) {
+    FrameBudgetControllerInput controller_input = options.budget_feedback;
+    controller_input.backlog_items =
+        std::max(controller_input.backlog_items,
+                 static_cast<std::uint32_t>(rebuild_queue.items().size()));
+    controller_input.viewer_speed = std::max(controller_input.viewer_speed,
+                                             static_cast<double>(length(options.viewer_velocity)));
+    budget = rebuild_budget_controller_.nextBudget(controller_input, budget);
+    last_update_stats_.budget_telemetry = rebuild_budget_controller_.telemetry();
+  } else {
+    last_update_stats_.budget_telemetry = {};
+    last_update_stats_.budget_telemetry.backlog_items =
+        static_cast<std::uint32_t>(rebuild_queue.items().size());
+  }
+  const BudgetedWorkSelection selected = rebuild_queue.select(budget);
+  last_update_stats_.queued_rebuilds =
+      static_cast<std::uint32_t>(selected.diagnostics.queued_items);
+  last_update_stats_.selected_rebuilds =
+      static_cast<std::uint32_t>(selected.diagnostics.selected_items);
+  last_update_stats_.rebuild_queue = selected.diagnostics;
+
+  std::vector<bool> rebuild_flags(chunks_.size(), false);
+  for (const BudgetedWorkItem &item : selected.selected) {
+    if (item.payload_index < rebuild_flags.size()) {
+      rebuild_flags[item.payload_index] = true;
+    }
+  }
+  for (std::size_t index = 0; index < chunks_.size(); ++index) {
+    const ChunkState &chunk = chunks_[index];
+    if (!chunk.dirty) {
+      continue;
+    }
+    const bool forced =
+        chunkDistance(chunk.coord, viewer) <= std::max(spec_.forced_rebuild_radius, 0);
+    if (forced && !rebuild_flags[index]) {
+      rebuild_flags[index] = true;
+      ++last_update_stats_.forced_rebuilds;
     }
   }
 
-  snapshots_.clear();
-  snapshots_.reserve(chunks_.size());
-  for (ChunkState &chunk : chunks_) {
-    chunk.reveal_age += std::max(dt, 0.0f);
-    const bool published_collision_dirty = !chunk.dirty && chunk.collision_dirty;
-    snapshots_.push_back({chunk.coord, chunk.center, chunk.reveal_age, chunk.newly_revealed,
-                          chunk.dirty, published_collision_dirty, chunk.batches,
-                          chunk.collision_mesh, chunk.surface_stats});
-    chunk.newly_revealed = false;
+  for (std::size_t index = 0; index < chunks_.size(); ++index) {
+    ChunkState &chunk = chunks_[index];
+    if (!chunk.dirty || !rebuild_flags[index]) {
+      continue;
+    }
+    chunk.lifecycle = chunk.coarse_proxy ? VoxelChunkLifecycle::CoarseVisible
+                                         : VoxelChunkLifecycle::FullBuilding;
+    const auto rebuild_start = std::chrono::steady_clock::now();
+    rebuildChunk(chunk);
+    const auto rebuild_end = std::chrono::steady_clock::now();
+    rebuild_costs_.observe({.class_id = kVoxelChunkRebuildWorkClass,
+                            .seconds =
+                                std::chrono::duration<double>(rebuild_end - rebuild_start).count()});
+    chunk.dirty = false;
+    chunk.collision_dirty = true;
+    chunk.dirty_age = 0.0f;
+    chunk.dirty_frames = 0u;
+    chunk.edit_overlaps = 0u;
+    ++last_update_stats_.rebuilt_chunks;
   }
+
+  {
+    ASTER_PROFILE_SCOPE("VoxelCaveState::chunkPublish");
+    snapshots_.clear();
+    snapshots_.reserve(chunks_.size());
+    for (ChunkState &chunk : chunks_) {
+      chunk.reveal_age += std::max(dt, 0.0f);
+      if (chunk.render_transition_seconds > 0.0f) {
+        chunk.render_transition_age += std::max(dt, 0.0f);
+        if (chunk.render_transition_age >= chunk.render_transition_seconds) {
+          chunk.retiring_batches.clear();
+          chunk.render_transition_age = 0.0f;
+          chunk.render_transition_seconds = 0.0f;
+        }
+      }
+      const bool has_publishable_mesh =
+          chunk.mesh_generation > 0u &&
+          ((!chunk.batches.empty() && std::any_of(chunk.batches.begin(), chunk.batches.end(),
+                                                  [](const VoxelChunkRenderBatch &batch) {
+                                                    return batch.mesh != nullptr &&
+                                                           !batch.mesh->vertices.empty() &&
+                                                           !batch.mesh->indices.empty();
+                                                  })) ||
+           (!chunk.retiring_batches.empty() &&
+            std::any_of(chunk.retiring_batches.begin(), chunk.retiring_batches.end(),
+                        [](const VoxelChunkRenderBatch &batch) {
+                          return batch.mesh != nullptr && !batch.mesh->vertices.empty() &&
+                                 !batch.mesh->indices.empty();
+                        })) ||
+           chunk.collision_mesh != nullptr);
+      if (!has_publishable_mesh) {
+        continue;
+      }
+      const VoxelChunkSnapshot snapshot = snapshotFor(chunk, chunk.collision_dirty);
+      snapshots_.push_back(snapshot);
+      ++last_update_stats_.published_chunks;
+      if (chunk.coarse_proxy) {
+        ++last_update_stats_.coarse_visible_chunks;
+      } else {
+        ++last_update_stats_.full_published_chunks;
+      }
+      if (chunk.dirty) {
+        ++last_update_stats_.pending_chunks;
+      } else if (chunk.published_generation != chunk.mesh_generation || chunk.newly_revealed) {
+        changed_snapshots_.push_back(snapshot);
+        chunk.published_generation = chunk.mesh_generation;
+      }
+      chunk.newly_revealed = false;
+    }
+  }
+  last_update_stats_.active_chunks = static_cast<std::uint32_t>(snapshots_.size());
+  last_update_stats_.changed_snapshots = static_cast<std::uint32_t>(changed_snapshots_.size());
 }
 
-void VoxelCaveState::applyEdit(const VoxelEdit &edit) {
+VoxelEditResult VoxelCaveState::applyEdit(const VoxelEdit &edit,
+                                          const VoxelEditRebuildMode rebuild_mode) {
+  ASTER_PROFILE_SCOPE("VoxelCaveState::applyEdit");
+  VoxelEditResult result;
   if (edit.radius <= 0.0f) {
-    return;
+    return result;
   }
   if (edit.operation != VoxelEditOperation::Carve) {
-    return;
+    return result;
   }
+  result.accepted = true;
   edits_.push_back(edit);
   for (ChunkState &chunk : chunks_) {
     if (chunkIntersectsEdit(chunk.coord, edit)) {
       chunk.dirty = true;
-      chunk.collision_dirty = true;
+      chunk.dirty_age = 0.0f;
+      chunk.dirty_frames = 0u;
+      ++chunk.edit_overlaps;
+      result.affected_chunks.push_back(chunk.coord);
+      if (rebuild_mode == VoxelEditRebuildMode::ImmediateAffected) {
+        rebuildChunk(chunk);
+        chunk.dirty = false;
+        chunk.collision_dirty = true;
+        chunk.dirty_age = 0.0f;
+        chunk.dirty_frames = 0u;
+        chunk.edit_overlaps = 0u;
+        ++result.rebuilt_chunks;
+      }
     }
   }
+  return result;
 }
 
 float VoxelCaveState::densityAt(const Vec3 position) const {
@@ -1237,6 +2064,11 @@ VoxelCaveMaterial VoxelCaveState::materialAt(const Vec3 position) const {
     return VoxelCaveMaterial::Air;
   }
 
+  const SolidPlugSample plug_sample = sampleSolidPlug(spec_, position);
+  if (plug_sample.active && plug_sample.density >= 0.0f &&
+      plug_sample.material != VoxelCaveMaterial::Air) {
+    return plug_sample.material;
+  }
   const VeinMaterialSample sample = sampleVeinMaterial(spec_, position, spec_.material_profiles);
   return sample.profile != nullptr ? sample.material : VoxelCaveMaterial::Rock;
 }
@@ -1311,9 +2143,21 @@ VoxelCaveInteriorSample VoxelCaveState::sampleInterior(const Vec3 position,
 }
 
 void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
+  ASTER_PROFILE_SCOPE("VoxelCaveState::chunkRebuild");
+  std::vector<VoxelChunkRenderBatch> retiring_batches;
+  if (chunk.coarse_proxy && spec_.chunk_transition_seconds > 0.0f) {
+    retiring_batches = chunk.batches;
+  }
   chunk.batches.clear();
   chunk.collision_mesh.reset();
   chunk.surface_stats = {};
+  chunk.coarse_proxy = false;
+  chunk.lifecycle = VoxelChunkLifecycle::FullBuilding;
+  chunk.retiring_batches = std::move(retiring_batches);
+  chunk.render_transition_age = 0.0f;
+  chunk.render_transition_seconds =
+      chunk.retiring_batches.empty() ? 0.0f : spec_.chunk_transition_seconds;
+  ++chunk.mesh_generation;
 
   CpuMesh collision_mesh;
   std::vector<std::pair<VoxelCaveMaterial, CpuMesh>> render_meshes;
@@ -1321,6 +2165,7 @@ void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
   const float s = spec_.cell_size;
   const VoxelCellCoord base{chunk.coord.x * n, chunk.coord.y * n, chunk.coord.z * n};
   const int cell_grid = n + 1;
+  const int density_grid = n + 2;
   constexpr int cube_offsets[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
                                       {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
   constexpr int cube_edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
@@ -1329,17 +2174,37 @@ void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
   const auto cellIndex = [cell_grid](const int x, const int y, const int z) {
     return static_cast<std::size_t>((z * cell_grid + y) * cell_grid + x);
   };
+  const auto densityIndex = [density_grid](const int x, const int y, const int z) {
+    return static_cast<std::size_t>((z * density_grid + y) * density_grid + x);
+  };
   const auto gridPoint = [&](const int x, const int y, const int z) {
     return spec_.origin + Vec3{static_cast<float>(base.x + x) * s,
                                static_cast<float>(base.y + y) * s,
                                static_cast<float>(base.z + z) * s};
   };
-  const auto edgeCrossesSurface = [&](const Vec3 a, const Vec3 b) {
-    const float da = densityAt(a);
-    const float db = densityAt(b);
+  std::vector<float> density_samples(
+      static_cast<std::size_t>(density_grid * density_grid * density_grid), 0.0f);
+  {
+    ASTER_PROFILE_SCOPE("VoxelCaveState::chunkDensity");
+    for (int z = 0; z < density_grid; ++z) {
+      for (int y = 0; y < density_grid; ++y) {
+        for (int x = 0; x < density_grid; ++x) {
+          density_samples[densityIndex(x, y, z)] = densityAt(gridPoint(x, y, z));
+        }
+      }
+    }
+  }
+  const auto densitySample = [&](const int x, const int y, const int z) {
+    return density_samples[densityIndex(x, y, z)];
+  };
+  const auto edgeCrossesSurface = [&](const int ax, const int ay, const int az, const int bx,
+                                      const int by, const int bz) {
+    const float da = densitySample(ax, ay, az);
+    const float db = densitySample(bx, by, bz);
     return (da > 0.0f) != (db > 0.0f);
   };
 
+  ASTER_PROFILE_SCOPE("VoxelCaveState::chunkMeshBuild");
   std::vector<SurfaceNetCell> cells(static_cast<std::size_t>(cell_grid * cell_grid * cell_grid));
   for (int z = 0; z <= n; ++z) {
     for (int y = 0; y <= n; ++y) {
@@ -1351,7 +2216,8 @@ void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
                           static_cast<float>(base.y + y + cube_offsets[i][1]) * s,
                           static_cast<float>(base.z + z + cube_offsets[i][2]) * s};
           p[i] = spec_.origin + cell;
-          d[i] = densityAt(p[i]);
+          d[i] = densitySample(x + cube_offsets[i][0], y + cube_offsets[i][1],
+                               z + cube_offsets[i][2]);
         }
         const bool all_solid =
             std::all_of(d.begin(), d.end(), [](const float value) { return value > 0.0f; });
@@ -1439,7 +2305,7 @@ void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
   for (int z = 1; z <= n; ++z) {
     for (int y = 1; y <= n; ++y) {
       for (int x = 0; x < n; ++x) {
-        if (edgeCrossesSurface(gridPoint(x, y, z), gridPoint(x + 1, y, z))) {
+        if (edgeCrossesSurface(x, y, z, x + 1, y, z)) {
           appendFace(activeCell(x, y - 1, z - 1), activeCell(x, y, z - 1), activeCell(x, y, z),
                      activeCell(x, y - 1, z));
         }
@@ -1449,7 +2315,7 @@ void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
   for (int z = 1; z <= n; ++z) {
     for (int y = 0; y < n; ++y) {
       for (int x = 1; x <= n; ++x) {
-        if (edgeCrossesSurface(gridPoint(x, y, z), gridPoint(x, y + 1, z))) {
+        if (edgeCrossesSurface(x, y, z, x, y + 1, z)) {
           appendFace(activeCell(x - 1, y, z - 1), activeCell(x - 1, y, z), activeCell(x, y, z),
                      activeCell(x, y, z - 1));
         }
@@ -1459,7 +2325,7 @@ void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
   for (int z = 0; z < n; ++z) {
     for (int y = 1; y <= n; ++y) {
       for (int x = 1; x <= n; ++x) {
-        if (edgeCrossesSurface(gridPoint(x, y, z), gridPoint(x, y, z + 1))) {
+        if (edgeCrossesSurface(x, y, z, x, y, z + 1)) {
           appendFace(activeCell(x - 1, y - 1, z), activeCell(x, y - 1, z), activeCell(x, y, z),
                      activeCell(x - 1, y, z));
         }
@@ -1500,6 +2366,7 @@ void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
       static_cast<std::uint32_t>(chunk.surface_stats.materials.size());
 
   if (collision_mesh.vertices.empty() || collision_mesh.indices.empty()) {
+    chunk.lifecycle = VoxelChunkLifecycle::FullPublished;
     return;
   }
 
@@ -1511,6 +2378,7 @@ void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
       spec_.structural_surface_mode == VoxelCaveStructuralSurfaceMode::RenderAndCollide;
   chunk.collision_mesh = structural_collision_enabled ? collision_surface : nullptr;
   if (!structural_render_enabled) {
+    chunk.lifecycle = VoxelChunkLifecycle::FullPublished;
     return;
   }
 
@@ -1524,8 +2392,9 @@ void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
                                                : VoxelChunkRenderBatchKind::MaterialSurface;
     chunk.batches.push_back({chunk.coord, kind, entry.first,
                              materialSurfaceLabel(spec_.material_profiles, entry.first),
-                             std::make_shared<const CpuMesh>(std::move(surface_mesh))});
+                             1.0f, std::make_shared<const CpuMesh>(std::move(surface_mesh))});
   }
+  chunk.lifecycle = VoxelChunkLifecycle::FullPublished;
 }
 
 } // namespace aster

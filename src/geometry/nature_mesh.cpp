@@ -761,6 +761,176 @@ CpuMesh makeGrassFieldMesh(const std::vector<GrassBladeAnchor> &anchors,
   return mesh;
 }
 
+std::vector<GroundDetailAnchor>
+scatterGroundDetailAnchors(const GroundDetailScatterSpec &spec,
+                           const GrassSurfaceSampler &sampler) {
+  if (!sampler) {
+    throw std::invalid_argument("Ground detail scatter requires a surface sampler.");
+  }
+  const Vec2 min_bounds = orderedMin(spec.min, spec.max);
+  const Vec2 max_bounds = orderedMax(spec.min, spec.max);
+  const Vec2 extent = max_bounds - min_bounds;
+  if (extent.x <= 0.0f || extent.y <= 0.0f || spec.details_per_square_meter < 0.0f ||
+      spec.candidate_multiplier < 1 || spec.max_details < 0 || spec.min_spacing < 0.0f ||
+      spec.surface_offset < 0.0f || spec.min_radius <= 0.0f ||
+      spec.max_radius < spec.min_radius || spec.density_noise_scale < 0.0f ||
+      spec.density_noise_contrast < 0.0f) {
+    throw std::invalid_argument("Ground detail scatter requires valid bounds and dimensions.");
+  }
+
+  const float area = extent.x * extent.y;
+  int target_details = spec.target_details > 0
+                           ? spec.target_details
+                           : static_cast<int>(std::ceil(area * spec.details_per_square_meter));
+  if (spec.max_details > 0) {
+    target_details = std::min(target_details, spec.max_details);
+  }
+  if (target_details <= 0) {
+    return {};
+  }
+
+  const int candidate_count =
+      std::max(target_details * spec.candidate_multiplier, target_details);
+  const float spacing_sq = spec.min_spacing * spec.min_spacing;
+  const float preferred_normal_y =
+      std::max(spec.preferred_surface_normal_y, spec.min_surface_normal_y + 0.001f);
+  const float twig_fraction = clamp(spec.twig_fraction, 0.0f, 1.0f);
+  const float leaf_fraction = clamp(spec.leaf_fraction, 0.0f, 1.0f - twig_fraction);
+
+  std::vector<GroundDetailAnchor> anchors;
+  anchors.reserve(static_cast<std::size_t>(target_details));
+
+  for (int candidate = 0; candidate < candidate_count &&
+                          static_cast<int>(anchors.size()) < target_details;
+       ++candidate) {
+    const Vec2 position{min_bounds.x + random01(spec.seed, candidate, 1) * extent.x,
+                        min_bounds.y + random01(spec.seed, candidate, 2) * extent.y};
+    if (spec.accepts_position && !spec.accepts_position(position)) {
+      continue;
+    }
+    const TerrainSurfaceSample sample = sampler(position);
+    if (!sample.valid) {
+      continue;
+    }
+    const Vec3 up = safeUp(sample.normal);
+    const float slope_weight = smoothstep(spec.min_surface_normal_y, preferred_normal_y, up.y);
+    if (slope_weight <= 0.0f || random01(spec.seed, candidate, 3) > slope_weight) {
+      continue;
+    }
+    if (spacing_sq > 0.0f) {
+      bool too_close = false;
+      for (const GroundDetailAnchor &anchor : anchors) {
+        const float dx = anchor.position.x - position.x;
+        const float dz = anchor.position.z - position.y;
+        if (dx * dx + dz * dz < spacing_sq) {
+          too_close = true;
+          break;
+        }
+      }
+      if (too_close) {
+        continue;
+      }
+    }
+
+    const float density_noise =
+        spec.density_noise_scale > 0.0f
+            ? fractalNoise({position.x * spec.density_noise_scale, sample.height * 0.13f,
+                            position.y * spec.density_noise_scale},
+                           spec.seed + 401u, 3)
+            : 0.5f;
+    const float density_weight =
+        clamp(1.0f + (density_noise - 0.5f) * spec.density_noise_contrast * 2.0f, 0.0f, 2.0f);
+    if (random01(spec.seed, candidate, 4) > std::min(density_weight, 1.0f)) {
+      continue;
+    }
+
+    const float kind = random01(spec.seed, candidate, 5);
+    GroundDetailAnchor anchor;
+    anchor.kind = kind < twig_fraction       ? GroundDetailKind::Twig
+                  : kind < twig_fraction + leaf_fraction ? GroundDetailKind::Leaf
+                                                         : GroundDetailKind::Pebble;
+    anchor.normal = up;
+    anchor.radius = spec.min_radius +
+                    (spec.max_radius - spec.min_radius) * random01(spec.seed, candidate, 6);
+    anchor.length = anchor.radius * (anchor.kind == GroundDetailKind::Twig ? 4.2f : 2.2f) *
+                    (0.78f + random01(spec.seed, candidate, 7) * 0.46f);
+    anchor.width = anchor.radius * (anchor.kind == GroundDetailKind::Twig ? 0.58f : 1.24f) *
+                   (0.76f + random01(spec.seed, candidate, 8) * 0.42f);
+    anchor.yaw = random01(spec.seed, candidate, 9) * kPi * 2.0f;
+    anchor.lift = spec.surface_offset + random01(spec.seed, candidate, 10) * anchor.radius * 0.10f;
+    anchor.position = {position.x, sample.height + anchor.lift, position.y};
+    anchor.ambient_occlusion = clamp(0.70f + density_noise * 0.22f + slope_weight * 0.08f, 0.0f,
+                                     1.0f);
+    anchors.push_back(anchor);
+  }
+
+  return anchors;
+}
+
+CpuMesh makeGroundDetailMesh(const std::vector<GroundDetailAnchor> &anchors,
+                             GroundDetailMeshSpec spec) {
+  if (spec.pebble_segments < 5 || spec.pebble_height <= 0.0f || spec.leaf_curl < 0.0f ||
+      spec.twig_height < 0.0f) {
+    throw std::invalid_argument("Ground detail mesh requires valid primitive dimensions.");
+  }
+
+  CpuMesh mesh;
+  mesh.vertices.reserve(anchors.size() * 12u);
+  mesh.indices.reserve(anchors.size() * 24u);
+  for (const GroundDetailAnchor &anchor : anchors) {
+    if (anchor.radius <= 0.0f || anchor.length <= 0.0f || anchor.width <= 0.0f) {
+      continue;
+    }
+    const Vec3 up = safeUp(anchor.normal);
+    const Vec3 forward = tangentFromAzimuth(up, anchor.yaw);
+    Vec3 side = normalize(cross(forward, up));
+    if (length(side) <= 0.0001f) {
+      side = {1.0f, 0.0f, 0.0f};
+    }
+
+    if (anchor.kind == GroundDetailKind::Pebble) {
+      const int segments = std::max(spec.pebble_segments, 5);
+      const Vec3 crown = anchor.position + up * (anchor.radius * spec.pebble_height);
+      for (int segment = 0; segment < segments; ++segment) {
+        const float a = static_cast<float>(segment) * kPi * 2.0f / static_cast<float>(segments);
+        const float b =
+            static_cast<float>(segment + 1) * kPi * 2.0f / static_cast<float>(segments);
+        const Vec3 radial_a = forward * std::cos(a) + side * std::sin(a);
+        const Vec3 radial_b = forward * std::cos(b) + side * std::sin(b);
+        const float oval_a = 0.76f + 0.24f * std::sin(a * 2.0f + anchor.yaw);
+        const float oval_b = 0.76f + 0.24f * std::sin(b * 2.0f + anchor.yaw);
+        appendTriangle(mesh, anchor.position + radial_a * (anchor.radius * oval_a), crown,
+                       anchor.position + radial_b * (anchor.radius * oval_b), {0.0f, 0.0f},
+                       {0.5f, 1.0f}, {1.0f, 0.0f});
+      }
+      continue;
+    }
+
+    if (anchor.kind == GroundDetailKind::Twig) {
+      const Vec3 from = anchor.position - forward * (anchor.length * 0.5f) + up * spec.twig_height;
+      const Vec3 to = anchor.position + forward * (anchor.length * 0.5f) + up * spec.twig_height;
+      appendTaperedCylinder(mesh, from, to, anchor.width * 0.34f, anchor.width * 0.24f, 6,
+                            {0.0f, 0.0f}, {1.0f, 1.0f});
+      continue;
+    }
+
+    const Vec3 center = anchor.position + up * (spec.leaf_curl * 0.25f);
+    const Vec3 tip = center + forward * (anchor.length * 0.5f) + up * spec.leaf_curl;
+    const Vec3 root = center - forward * (anchor.length * 0.5f);
+    const Vec3 left = center - side * (anchor.width * 0.5f);
+    const Vec3 right = center + side * (anchor.width * 0.5f);
+    const float ao = anchor.ambient_occlusion;
+    appendQuadAo(mesh, root, right, tip, left, {0.5f, 0.0f}, {1.0f, 0.5f}, {0.5f, 1.0f},
+                 {0.0f, 0.5f}, ao * 0.92f, ao, ao * 1.04f, ao);
+    if (spec.double_sided_litter) {
+      appendQuadAo(mesh, root, right, tip, left, {0.5f, 0.0f}, {1.0f, 0.5f}, {0.5f, 1.0f},
+                   {0.0f, 0.5f}, ao * 0.92f, ao, ao * 1.04f, ao, true);
+    }
+  }
+
+  return mesh;
+}
+
 CpuMesh makeFishMesh(FishMeshSpec spec) {
   if (spec.body_segments < 6 || spec.body_rings < 4 || spec.body_length <= 0.0f ||
       spec.body_height <= 0.0f || spec.body_width <= 0.0f || spec.tail_length <= 0.0f ||
@@ -1303,6 +1473,97 @@ CpuMesh makeAmphibiousPredatorMesh(AmphibiousPredatorMeshSpec spec) {
           {half_width * 0.38f, plate_height * 0.58f, plate_length * 0.72f},
           std::max(spec.radial_segments - 2, 6), 3, {0.36f, fill}, {0.08f, 0.040f});
     }
+  }
+
+  return mesh;
+}
+
+CpuMesh makeCaveSkitterMesh(CaveSkitterMeshSpec spec) {
+  if (spec.body_segments < 10 || spec.body_rings < 5 || spec.leg_segments < 5 ||
+      spec.body_length <= 0.0f || spec.body_width <= 0.0f || spec.body_height <= 0.0f ||
+      spec.abdomen_length <= 0.0f || spec.abdomen_width <= 0.0f ||
+      spec.abdomen_height <= 0.0f || spec.leg_span <= 0.0f || spec.leg_lift < 0.0f ||
+      spec.fang_length < 0.0f || spec.eye_radius < 0.0f) {
+    throw std::invalid_argument(
+        "Cave skitter mesh requires positive body, abdomen, and leg dimensions.");
+  }
+
+  CpuMesh mesh;
+  mesh.vertices.reserve(static_cast<std::size_t>(
+      (spec.body_rings + 1) * (spec.body_segments + 1) * 3 + spec.leg_segments * 8 * 18 + 96));
+  mesh.indices.reserve(static_cast<std::size_t>(spec.body_rings * spec.body_segments * 18 +
+                                                spec.leg_segments * 8 * 36 + 180));
+
+  appendEllipsoid(mesh, {0.0f, 0.0f, spec.body_length * 0.13f},
+                  {spec.body_width, spec.body_height, spec.body_length * 0.50f},
+                  spec.body_segments, spec.body_rings, {0.0f, 0.0f}, {0.36f, 0.48f});
+  appendEllipsoid(mesh, {0.0f, spec.abdomen_height * 0.06f, -spec.abdomen_length * 0.38f},
+                  {spec.abdomen_width, spec.abdomen_height, spec.abdomen_length * 0.56f},
+                  spec.body_segments, spec.body_rings, {0.36f, 0.0f}, {0.38f, 0.52f});
+  appendEllipsoid(mesh, {0.0f, spec.body_height * 0.08f, spec.body_length * 0.64f},
+                  {spec.body_width * 0.64f, spec.body_height * 0.70f, spec.body_length * 0.20f},
+                  std::max(spec.body_segments - 6, 10), std::max(spec.body_rings - 2, 5),
+                  {0.74f, 0.0f}, {0.18f, 0.24f});
+
+  const float leg_root_z[4] = {0.34f, 0.12f, -0.12f, -0.34f};
+  for (int row = 0; row < 4; ++row) {
+    const float row_fill = static_cast<float>(row) / 3.0f;
+    for (const float side_sign : {-1.0f, 1.0f}) {
+      const float z = leg_root_z[row] * spec.body_length;
+      const float sweep = (0.42f - row_fill * 0.84f) * spec.body_length;
+      const Vec3 hip{side_sign * spec.body_width * 0.76f, -spec.body_height * 0.05f, z};
+      const Vec3 knee{side_sign * (spec.body_width + spec.leg_span * 0.48f),
+                      -spec.leg_lift * (0.12f + row_fill * 0.22f), z + sweep * 0.46f};
+      const Vec3 foot{side_sign * (spec.body_width + spec.leg_span),
+                      -spec.body_height * 0.42f - spec.leg_lift * 0.28f, z + sweep};
+      const float root_radius = spec.body_width * (0.045f + (1.0f - row_fill) * 0.010f);
+      appendTaperedCylinder(mesh, hip, knee, root_radius, root_radius * 0.58f, spec.leg_segments,
+                            {0.0f, 0.56f + row_fill * 0.04f}, {0.18f, 0.08f});
+      appendTaperedCylinder(mesh, knee, foot, root_radius * 0.58f, root_radius * 0.24f,
+                            spec.leg_segments, {0.18f, 0.56f + row_fill * 0.04f}, {0.18f, 0.08f});
+      appendEllipsoid(mesh, foot,
+                      {root_radius * 1.6f, root_radius * 0.66f, root_radius * 2.1f},
+                      std::max(spec.leg_segments, 6), 3, {0.82f, 0.58f + row_fill * 0.04f},
+                      {0.05f, 0.04f});
+    }
+  }
+
+  const Vec3 head_front{0.0f, spec.body_height * 0.03f, spec.body_length * 0.84f};
+  for (const float side_sign : {-1.0f, 1.0f}) {
+    if (spec.fang_length > 0.001f) {
+      appendTaperedCylinder(mesh,
+                            head_front + Vec3{side_sign * spec.body_width * 0.16f, 0.0f, 0.0f},
+                            head_front + Vec3{side_sign * spec.body_width * 0.18f,
+                                              -spec.body_height * 0.36f, spec.fang_length},
+                            spec.body_width * 0.030f, spec.body_width * 0.010f, 6, {0.86f, 0.20f},
+                            {0.06f, 0.12f});
+    }
+    if (spec.eye_radius > 0.001f) {
+      appendEllipsoid(mesh,
+                      head_front +
+                          Vec3{side_sign * spec.body_width * 0.22f, spec.body_height * 0.34f,
+                               spec.body_length * 0.02f},
+                      {spec.eye_radius, spec.eye_radius * 0.86f, spec.eye_radius * 0.74f},
+                      std::max(spec.leg_segments, 6), 4, {0.92f, 0.06f}, {0.05f, 0.08f});
+      appendEllipsoid(mesh,
+                      head_front +
+                          Vec3{side_sign * spec.body_width * 0.07f, spec.body_height * 0.38f,
+                               spec.body_length * 0.05f},
+                      {spec.eye_radius * 0.78f, spec.eye_radius * 0.70f, spec.eye_radius * 0.58f},
+                      std::max(spec.leg_segments, 6), 4, {0.92f, 0.16f}, {0.05f, 0.07f});
+    }
+  }
+
+  const int ridge_count = 7;
+  for (int ridge_index = 0; ridge_index < ridge_count; ++ridge_index) {
+    const float fill = static_cast<float>(ridge_index) /
+                       static_cast<float>(std::max(ridge_count - 1, 1));
+    const float z = -spec.abdomen_length * (0.80f - fill * 0.74f);
+    const float width = spec.abdomen_width * (0.18f + std::sin(fill * kPi) * 0.12f);
+    appendEllipsoid(mesh, {0.0f, spec.abdomen_height * 0.96f, z},
+                    {width, spec.abdomen_height * 0.035f, spec.abdomen_length * 0.020f},
+                    std::max(spec.leg_segments, 6), 3, {0.40f, 0.54f + fill * 0.18f},
+                    {0.12f, 0.035f});
   }
 
   return mesh;

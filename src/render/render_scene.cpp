@@ -3,13 +3,16 @@
 
 #include "aster/render/render_scene.hpp"
 
+#include "aster/core/profiler.hpp"
 #include "aster/render/render_device.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace aster {
 namespace {
@@ -34,10 +37,16 @@ struct RuntimeRenderObject {
   std::uint64_t material_key = 0;
   std::uint32_t render_queue = 0;
   std::uint32_t flags = 0;
+  std::uint32_t visibility_class = 0;
   RuntimeVec3 position{};
+  RuntimeVec3 visibility_cell{};
   RuntimeVec3 bounds_center{};
   float bounds_radius = 0.0f;
   float opacity = 1.0f;
+  float lod_max_distance = 0.0f;
+  float lod_min_projected_radius = 0.0f;
+  float portal_depth = 0.0f;
+  std::uint64_t dynamic_mesh_generation = 0;
 };
 
 struct RuntimeCamera {
@@ -90,6 +99,9 @@ struct RuntimeDiagnostics {
   std::size_t transparent_groups = 0;
   std::size_t instance_groups = 0;
   std::size_t planned_instances = 0;
+  std::size_t lod_culled_objects = 0;
+  std::size_t visibility_hint_objects = 0;
+  std::size_t dynamic_mesh_objects = 0;
   double rust_plan_seconds = 0.0;
 };
 
@@ -220,6 +232,16 @@ MaterialRenderQueue materialQueueFromValue(const std::uint32_t value) {
   }
 }
 
+std::uint32_t visibilityClassValue(const RenderVisibilityClass value) {
+  return static_cast<std::uint32_t>(value);
+}
+
+std::uint64_t dynamicMeshValue(const DynamicMeshResourceKey key) {
+  std::uint64_t hash = key.id ^ 0xcbf29ce484222325ull;
+  appendKey(hash, key.generation);
+  return 0x8000000000000000ull | (hash & 0x7fffffffffffffffull);
+}
+
 FrameRenderPass passFromValue(const std::uint32_t value) {
   return value == 1u ? FrameRenderPass::Transparent : FrameRenderPass::Opaque;
 }
@@ -246,6 +268,9 @@ private:
 
 RenderMeshId renderMeshIdForObject(const RenderObject &object) {
   if (object.custom_mesh != nullptr) {
+    if (object.dynamic_mesh.valid()) {
+      return {dynamicMeshValue(object.dynamic_mesh)};
+    }
     const auto address = reinterpret_cast<std::uintptr_t>(object.custom_mesh.get());
     return {0x8000000000000000ull | static_cast<std::uint64_t>(address)};
   }
@@ -261,6 +286,7 @@ RenderMaterialKey renderMaterialKeyForObject(const RenderObject &object) {
   appendKey(hash, queue);
   appendKey(hash, writes_depth);
   appendKey(hash, double_sided);
+  appendKey(hash, object.material.cull_mode);
   appendKey(hash, contact_shadow);
   return {hash};
 }
@@ -282,6 +308,51 @@ RenderBounds renderBoundsForObject(const RenderObject &object) {
 }
 
 void RenderScene::rebuild(const Scene &scene) {
+  std::unordered_set<std::uintptr_t> live_custom_meshes;
+  live_custom_meshes.reserve(scene.objects().size());
+  for (const RenderObject &object : scene.objects()) {
+    if (object.custom_mesh != nullptr) {
+      live_custom_meshes.insert(reinterpret_cast<std::uintptr_t>(object.custom_mesh.get()));
+    }
+  }
+  for (auto it = custom_bounds_cache_.begin(); it != custom_bounds_cache_.end();) {
+    if (live_custom_meshes.contains(it->first)) {
+      ++it;
+    } else {
+      it = custom_bounds_cache_.erase(it);
+    }
+  }
+
+  const auto cached_bounds = [this](const RenderObject &object) {
+    if (object.custom_mesh == nullptr) {
+      const LocalBounds bounds = primitiveLocalBounds(object.primitive);
+      return CachedLocalBounds{bounds.min, bounds.max, primitiveLocalRadius(object.primitive)};
+    }
+    if (object.custom_mesh->vertices.empty()) {
+      return CachedLocalBounds{{}, {}, 0.0f};
+    }
+    const auto key = reinterpret_cast<std::uintptr_t>(object.custom_mesh.get());
+    if (const auto found = custom_bounds_cache_.find(key); found != custom_bounds_cache_.end()) {
+      return found->second;
+    }
+    const LocalBounds bounds = customMeshLocalBounds(*object.custom_mesh);
+    const Vec3 local_center = (bounds.min + bounds.max) * 0.5f;
+    const CachedLocalBounds cached{bounds.min, bounds.max,
+                                   customMeshLocalRadius(*object.custom_mesh, local_center)};
+    custom_bounds_cache_.emplace(key, cached);
+    return cached;
+  };
+  const auto world_bounds = [&cached_bounds](const RenderObject &object) {
+    const CachedLocalBounds bounds = cached_bounds(object);
+    if (bounds.radius <= 0.0f && object.custom_mesh != nullptr) {
+      return RenderBounds{object.transform.position, 0.0f};
+    }
+    const Vec3 local_center = (bounds.min + bounds.max) * 0.5f;
+    return RenderBounds{
+        transformPoint(object.transform, local_center),
+        bounds.radius * std::max(maxAbsComponent(object.transform.scale), 0.001f)};
+  };
+
   objects_.clear();
   objects_.reserve(scene.objects().size());
   for (std::size_t index = 0; index < scene.objects().size(); ++index) {
@@ -295,9 +366,18 @@ void RenderScene::rebuild(const Scene &scene) {
                         .material = renderMaterialKeyForObject(object),
                         .render_queue = classifyMaterialRenderQueue(object.material),
                         .flags = fade_eligible ? kRuntimeFlagFadeEligible : 0u,
+                        .visibility_class =
+                            object.visibility_hint.visibility_class,
                         .position = object.transform.position,
-                        .bounds = renderBoundsForObject(object),
-                        .opacity = object.material.opacity});
+                        .visibility_cell = object.visibility_hint.cell,
+                        .bounds = world_bounds(object),
+                        .opacity = object.material.opacity,
+                        .lod_max_distance = std::max(object.lod.max_distance, 0.0f),
+                        .lod_min_projected_radius =
+                            std::max(object.lod.min_projected_radius, 0.0f),
+                        .portal_depth = object.visibility_hint.portal_depth,
+                        .dynamic_mesh_generation =
+                            object.dynamic_mesh.valid() ? object.dynamic_mesh.generation : 0u});
   }
 }
 
@@ -305,6 +385,7 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
                                      const LineOfSightFadeSettings &fade,
                                      const int framebuffer_width,
                                      const int framebuffer_height) {
+  ASTER_PROFILE_SCOPE("RenderScene::buildFrameRenderPlan");
   const float aspect = static_cast<float>(std::max(framebuffer_width, 1)) /
                        static_cast<float>(std::max(framebuffer_height, 1));
   const Vec3 position = camera.position();
@@ -312,7 +393,8 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
   const Vec3 right = cameraRight(forward);
   const Vec3 up = normalize(cross(right, forward));
 
-  std::vector<RuntimeRenderObject> runtime_objects;
+  thread_local std::vector<RuntimeRenderObject> runtime_objects;
+  runtime_objects.clear();
   runtime_objects.reserve(scene.objects().size());
   for (const RenderObjectPacket &object : scene.objects()) {
     if (object.object_index > std::numeric_limits<std::uint32_t>::max()) {
@@ -324,10 +406,19 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
                                .material_key = object.material.value,
                                .render_queue = queueValue(object.render_queue),
                                .flags = object.flags,
+                               .visibility_class =
+                                   visibilityClassValue(object.visibility_class),
                                .position = runtimeVec(object.position),
+                               .visibility_cell = runtimeVec(object.visibility_cell),
                                .bounds_center = runtimeVec(object.bounds.center),
                                .bounds_radius = object.bounds.radius,
-                               .opacity = object.opacity});
+                               .opacity = object.opacity,
+                               .lod_max_distance = object.lod_max_distance,
+                               .lod_min_projected_radius =
+                                   object.lod_min_projected_radius,
+                               .portal_depth = object.portal_depth,
+                               .dynamic_mesh_generation =
+                                   object.dynamic_mesh_generation});
   }
 
   RuntimePlanOptions options;
@@ -387,6 +478,10 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
                       .transparent_groups = runtime_plan.diagnostics.transparent_groups,
                       .instance_groups = runtime_plan.diagnostics.instance_groups,
                       .planned_instances = runtime_plan.diagnostics.planned_instances,
+                      .lod_culled_objects = runtime_plan.diagnostics.lod_culled_objects,
+                      .visibility_hint_objects =
+                          runtime_plan.diagnostics.visibility_hint_objects,
+                      .dynamic_mesh_objects = runtime_plan.diagnostics.dynamic_mesh_objects,
                       .rust_plan_seconds = runtime_plan.diagnostics.rust_plan_seconds};
   return plan;
 }

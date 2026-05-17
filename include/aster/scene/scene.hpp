@@ -6,6 +6,8 @@
 #include "aster/math/transform.hpp"
 #include "aster/math/vec.hpp"
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -45,6 +47,9 @@ enum class SurfacePattern {
   CaveRock,
   CoalVein,
   ContactShadow,
+  CaveWeb,
+  CaveSkitterChitin,
+  CaveSkitterEye,
 };
 
 enum class FaceCullMode {
@@ -96,6 +101,52 @@ struct ViewerCullVolume {
   Vec3 half_extents{};
   FaceCullMode outside = FaceCullMode::Back;
   FaceCullMode inside = FaceCullMode::Front;
+};
+
+enum class RenderVisibilityClass : std::uint32_t {
+  General,
+  CaveCell,
+  CavePortal,
+  DynamicVoxel,
+  Creature,
+};
+
+struct RenderVisibilityHint {
+  RenderVisibilityClass visibility_class = RenderVisibilityClass::General;
+  Vec3 cell{};
+  float portal_depth = 0.0f;
+};
+
+struct RenderLodPolicy {
+  float max_distance = 0.0f;
+  float min_projected_radius = 0.0f;
+};
+
+struct DynamicMeshResourceKey {
+  std::uint64_t id = 0u;
+  std::uint64_t generation = 0u;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return id != 0u;
+  }
+
+  [[nodiscard]] friend bool operator==(const DynamicMeshResourceKey lhs,
+                                       const DynamicMeshResourceKey rhs) noexcept {
+    return lhs.id == rhs.id && lhs.generation == rhs.generation;
+  }
+};
+
+struct DynamicMeshResourceKeyHash {
+  [[nodiscard]] std::size_t operator()(const DynamicMeshResourceKey key) const noexcept {
+    std::uint64_t hash = key.id ^ 0x9e3779b97f4a7c15ull;
+    hash ^= key.generation + 0x9e3779b97f4a7c15ull + (hash << 6u) + (hash >> 2u);
+    hash ^= hash >> 33u;
+    hash *= 0xff51afd7ed558ccdull;
+    hash ^= hash >> 33u;
+    hash *= 0xc4ceb9fe1a85ec53ull;
+    hash ^= hash >> 33u;
+    return static_cast<std::size_t>(hash);
+  }
 };
 
 struct Material {
@@ -169,6 +220,9 @@ struct RenderObject {
   float contact_shadow_strength = 1.0f;
   float contact_shadow_radius_scale = 1.0f;
   ViewerCullVolume viewer_cull_volume{};
+  RenderVisibilityHint visibility_hint{};
+  RenderLodPolicy lod{};
+  DynamicMeshResourceKey dynamic_mesh{};
 };
 
 class Scene {

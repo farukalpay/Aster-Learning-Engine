@@ -27,10 +27,16 @@ pub struct AsterRuntimeRenderObject {
     pub material_key: u64,
     pub render_queue: u32,
     pub flags: u32,
+    pub visibility_class: u32,
     pub position: AsterRuntimeVec3,
+    pub visibility_cell: AsterRuntimeVec3,
     pub bounds_center: AsterRuntimeVec3,
     pub bounds_radius: f32,
     pub opacity: f32,
+    pub lod_max_distance: f32,
+    pub lod_min_projected_radius: f32,
+    pub portal_depth: f32,
+    pub dynamic_mesh_generation: u64,
 }
 
 #[repr(C)]
@@ -95,6 +101,9 @@ pub struct AsterRuntimeRenderDiagnostics {
     pub transparent_groups: usize,
     pub instance_groups: usize,
     pub planned_instances: usize,
+    pub lod_culled_objects: usize,
+    pub visibility_hint_objects: usize,
+    pub dynamic_mesh_objects: usize,
     pub rust_plan_seconds: f64,
 }
 
@@ -145,6 +154,9 @@ pub struct PlannerSummary {
     pub transparent_groups: usize,
     pub instance_groups: usize,
     pub planned_instances: usize,
+    pub lod_culled_objects: usize,
+    pub visibility_hint_objects: usize,
+    pub dynamic_mesh_objects: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -168,6 +180,101 @@ fn sub(lhs: AsterRuntimeVec3, rhs: AsterRuntimeVec3) -> AsterRuntimeVec3 {
 
 fn length_sq(value: AsterRuntimeVec3) -> f32 {
     dot(value, value)
+}
+
+fn add(lhs: AsterRuntimeVec3, rhs: AsterRuntimeVec3) -> AsterRuntimeVec3 {
+    AsterRuntimeVec3 {
+        x: lhs.x + rhs.x,
+        y: lhs.y + rhs.y,
+        z: lhs.z + rhs.z,
+    }
+}
+
+fn scale(value: AsterRuntimeVec3, scalar: f32) -> AsterRuntimeVec3 {
+    AsterRuntimeVec3 {
+        x: value.x * scalar,
+        y: value.y * scalar,
+        z: value.z * scalar,
+    }
+}
+
+fn cross(lhs: AsterRuntimeVec3, rhs: AsterRuntimeVec3) -> AsterRuntimeVec3 {
+    AsterRuntimeVec3 {
+        x: lhs.y * rhs.z - lhs.z * rhs.y,
+        y: lhs.z * rhs.x - lhs.x * rhs.z,
+        z: lhs.x * rhs.y - lhs.y * rhs.x,
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AsterRuntimeMeshCutMeasure {
+    pub centroid: AsterRuntimeVec3,
+    pub bounds_min: AsterRuntimeVec3,
+    pub bounds_max: AsterRuntimeVec3,
+    pub surface_area: f32,
+    pub signed_volume: f32,
+}
+
+pub fn measure_mesh_cut(
+    vertices: &[AsterRuntimeVec3],
+    indices: &[u32],
+) -> Option<AsterRuntimeMeshCutMeasure> {
+    if vertices.is_empty() || indices.len() < 3 || indices.len() % 3 != 0 {
+        return None;
+    }
+
+    let mut bounds_min = AsterRuntimeVec3 {
+        x: f32::INFINITY,
+        y: f32::INFINITY,
+        z: f32::INFINITY,
+    };
+    let mut bounds_max = AsterRuntimeVec3 {
+        x: f32::NEG_INFINITY,
+        y: f32::NEG_INFINITY,
+        z: f32::NEG_INFINITY,
+    };
+    for &vertex in vertices {
+        bounds_min.x = bounds_min.x.min(vertex.x);
+        bounds_min.y = bounds_min.y.min(vertex.y);
+        bounds_min.z = bounds_min.z.min(vertex.z);
+        bounds_max.x = bounds_max.x.max(vertex.x);
+        bounds_max.y = bounds_max.y.max(vertex.y);
+        bounds_max.z = bounds_max.z.max(vertex.z);
+    }
+
+    let mut area_centroid = AsterRuntimeVec3::default();
+    let mut surface_area = 0.0f32;
+    let mut signed_volume = 0.0f32;
+    for triangle in indices.chunks_exact(3) {
+        let ia = triangle[0] as usize;
+        let ib = triangle[1] as usize;
+        let ic = triangle[2] as usize;
+        if ia >= vertices.len() || ib >= vertices.len() || ic >= vertices.len() {
+            return None;
+        }
+        let a = vertices[ia];
+        let b = vertices[ib];
+        let c = vertices[ic];
+        let area = length_sq(cross(sub(b, a), sub(c, a))).sqrt() * 0.5;
+        if area > f32::EPSILON {
+            area_centroid = add(area_centroid, scale(add(add(a, b), c), area / 3.0));
+            surface_area += area;
+        }
+        signed_volume += dot(a, cross(b, c)) / 6.0;
+    }
+
+    if surface_area <= f32::EPSILON {
+        return None;
+    }
+
+    Some(AsterRuntimeMeshCutMeasure {
+        centroid: scale(area_centroid, 1.0 / surface_area),
+        bounds_min,
+        bounds_max,
+        surface_area,
+        signed_volume,
+    })
 }
 
 fn distance_point_segment_sq(
@@ -213,6 +320,27 @@ fn visible_to_camera(object: AsterRuntimeRenderObject, camera: AsterRuntimeCamer
     let horizontal_limit = vertical_limit * camera.aspect_ratio.max(0.001) + radius;
     dot(camera_to_object, camera.right).abs() <= horizontal_limit
         && dot(camera_to_object, camera.up).abs() <= vertical_limit
+}
+
+fn passes_lod_policy(object: AsterRuntimeRenderObject, camera: AsterRuntimeCamera) -> bool {
+    let radius = object.bounds_radius.max(0.0);
+    let camera_to_object = sub(object.bounds_center, camera.position);
+    let distance_sq = length_sq(camera_to_object);
+    if object.lod_max_distance > 0.0 {
+        let distance = distance_sq.sqrt();
+        if distance - radius > object.lod_max_distance {
+            return false;
+        }
+    }
+    if object.lod_min_projected_radius > 0.0 {
+        let forward_distance = dot(camera_to_object, camera.forward).max(camera.near_plane.max(0.001));
+        let focal = 1.0 / (camera.vertical_fov * 0.5).tan().max(0.001);
+        let projected_radius = radius * focal / forward_distance;
+        if projected_radius < object.lod_min_projected_radius {
+            return false;
+        }
+    }
+    true
 }
 
 fn fade_opacity(
@@ -302,9 +430,22 @@ pub fn build_frame_plan(
 ) -> PlannerOutput {
     let mut opaque = Vec::new();
     let mut transparent = Vec::new();
+    let mut lod_culled_objects = 0usize;
+    let mut visibility_hint_objects = 0usize;
+    let mut dynamic_mesh_objects = 0usize;
 
     for &object in objects {
+        if object.visibility_class != 0 {
+            visibility_hint_objects += 1;
+        }
+        if object.dynamic_mesh_generation != 0 {
+            dynamic_mesh_objects += 1;
+        }
         if !visible_to_camera(object, camera) {
+            continue;
+        }
+        if !passes_lod_policy(object, camera) {
+            lod_culled_objects += 1;
             continue;
         }
         let camera_delta = sub(object.bounds_center, camera.position);
@@ -365,6 +506,9 @@ pub fn build_frame_plan(
             transparent_groups,
             instance_groups: groups.len(),
             planned_instances: instances.len(),
+            lod_culled_objects,
+            visibility_hint_objects,
+            dynamic_mesh_objects,
         },
         instances,
         groups,
@@ -419,6 +563,9 @@ pub extern "C" fn aster_runtime_build_frame_plan(
                 transparent_groups: output.summary.transparent_groups,
                 instance_groups: output.summary.instance_groups,
                 planned_instances: output.summary.planned_instances,
+                lod_culled_objects: output.summary.lod_culled_objects,
+                visibility_hint_objects: output.summary.visibility_hint_objects,
+                dynamic_mesh_objects: output.summary.dynamic_mesh_objects,
                 rust_plan_seconds: started.elapsed().as_secs_f64(),
             },
         };
@@ -448,6 +595,149 @@ pub extern "C" fn aster_runtime_free_frame_plan(plan: AsterRuntimeFramePlan) {
     }
 }
 
+#[no_mangle]
+pub extern "C" fn aster_runtime_measure_mesh_cut(
+    vertices: *const AsterRuntimeVec3,
+    vertex_count: usize,
+    indices: *const u32,
+    index_count: usize,
+    out_measure: *mut AsterRuntimeMeshCutMeasure,
+) -> u32 {
+    if out_measure.is_null()
+        || (vertices.is_null() && vertex_count > 0)
+        || (indices.is_null() && index_count > 0)
+    {
+        return 0;
+    }
+
+    let vertex_slice = if vertex_count == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(vertices, vertex_count) }
+    };
+    let index_slice = if index_count == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(indices, index_count) }
+    };
+    let Some(measure) = measure_mesh_cut(vertex_slice, index_slice) else {
+        unsafe {
+            *out_measure = AsterRuntimeMeshCutMeasure::default();
+        }
+        return 0;
+    };
+
+    unsafe {
+        *out_measure = measure;
+    }
+    1
+}
+
+pub mod software_raster {
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct RasterVertex {
+        pub x: f32,
+        pub y: f32,
+        pub z: f32,
+        pub rgba: [f32; 4],
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct RasterImage {
+        pub width: usize,
+        pub height: usize,
+        pub color: Vec<[f32; 4]>,
+        pub depth: Vec<f32>,
+    }
+
+    impl RasterImage {
+        pub fn new(width: usize, height: usize) -> Self {
+            let pixels = width.saturating_mul(height);
+            Self {
+                width,
+                height,
+                color: vec![[0.0, 0.0, 0.0, 0.0]; pixels],
+                depth: vec![f32::INFINITY; pixels],
+            }
+        }
+
+        pub fn clear(&mut self, rgba: [f32; 4]) {
+            self.color.fill(rgba);
+            self.depth.fill(f32::INFINITY);
+        }
+
+        pub fn pixel(&self, x: usize, y: usize) -> Option<[f32; 4]> {
+            if x >= self.width || y >= self.height {
+                return None;
+            }
+            self.color.get(y * self.width + x).copied()
+        }
+    }
+
+    fn edge(a: RasterVertex, b: RasterVertex, x: f32, y: f32) -> f32 {
+        (x - a.x) * (b.y - a.y) - (y - a.y) * (b.x - a.x)
+    }
+
+    fn lerp4(a: [f32; 4], b: [f32; 4], c: [f32; 4], wa: f32, wb: f32, wc: f32) -> [f32; 4] {
+        [
+            a[0] * wa + b[0] * wb + c[0] * wc,
+            a[1] * wa + b[1] * wb + c[1] * wc,
+            a[2] * wa + b[2] * wb + c[2] * wc,
+            a[3] * wa + b[3] * wb + c[3] * wc,
+        ]
+    }
+
+    pub fn rasterize_triangle(
+        target: &mut RasterImage,
+        a: RasterVertex,
+        b: RasterVertex,
+        c: RasterVertex,
+    ) -> usize {
+        if target.width == 0 || target.height == 0 {
+            return 0;
+        }
+        let area = edge(a, b, c.x, c.y);
+        if area.abs() <= f32::EPSILON {
+            return 0;
+        }
+        let min_x = a.x.min(b.x).min(c.x).floor().max(0.0) as usize;
+        let min_y = a.y.min(b.y).min(c.y).floor().max(0.0) as usize;
+        let max_x =
+            a.x.max(b.x)
+                .max(c.x)
+                .ceil()
+                .min((target.width.saturating_sub(1)) as f32) as usize;
+        let max_y =
+            a.y.max(b.y)
+                .max(c.y)
+                .ceil()
+                .min((target.height.saturating_sub(1)) as f32) as usize;
+        let inv_area = 1.0 / area;
+        let mut written = 0usize;
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let px = x as f32 + 0.5;
+                let py = y as f32 + 0.5;
+                let wa = edge(b, c, px, py) * inv_area;
+                let wb = edge(c, a, px, py) * inv_area;
+                let wc = edge(a, b, px, py) * inv_area;
+                if wa < -0.00001 || wb < -0.00001 || wc < -0.00001 {
+                    continue;
+                }
+                let depth = a.z * wa + b.z * wb + c.z * wc;
+                let index = y * target.width + x;
+                if depth >= target.depth[index] {
+                    continue;
+                }
+                target.depth[index] = depth;
+                target.color[index] = lerp4(a.rgba, b.rgba, c.rgba, wa, wb, wc);
+                written += 1;
+            }
+        }
+        written
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,10 +756,16 @@ mod tests {
             material_key: material,
             render_queue: queue,
             flags: ASTER_RENDER_FLAG_FADE_ELIGIBLE,
+            visibility_class: 0,
             position: AsterRuntimeVec3 { x, y: 0.0, z: 6.0 },
+            visibility_cell: AsterRuntimeVec3::default(),
             bounds_center: AsterRuntimeVec3 { x, y: 0.0, z: 6.0 },
             bounds_radius: 0.5,
             opacity: 1.0,
+            lod_max_distance: 0.0,
+            lod_min_projected_radius: 0.0,
+            portal_depth: 0.0,
+            dynamic_mesh_generation: 0,
         }
     }
 
@@ -521,6 +817,55 @@ mod tests {
     }
 
     #[test]
+    fn reports_lod_visibility_and_dynamic_mesh_diagnostics() {
+        let mut visible_dynamic = object(0, 0.0, 42, 7, 0);
+        visible_dynamic.visibility_class = 3;
+        visible_dynamic.dynamic_mesh_generation = 9;
+
+        let mut lod_culled = object(1, 0.0, 43, 7, 0);
+        lod_culled.lod_max_distance = 1.0;
+
+        let output = build_frame_plan(
+            &[visible_dynamic, lod_culled],
+            camera(),
+            AsterRuntimeRenderPlanOptions::default(),
+        );
+        assert_eq!(output.summary.visible_objects, 1);
+        assert_eq!(output.summary.culled_objects, 1);
+        assert_eq!(output.summary.lod_culled_objects, 1);
+        assert_eq!(output.summary.visibility_hint_objects, 1);
+        assert_eq!(output.summary.dynamic_mesh_objects, 1);
+    }
+
+    #[test]
+    fn measures_cut_mesh_surface_and_bounds() {
+        let vertices = [
+            AsterRuntimeVec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            AsterRuntimeVec3 {
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            AsterRuntimeVec3 {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        ];
+        let indices = [0u32, 1, 2];
+        let measure = measure_mesh_cut(&vertices, &indices).expect("valid triangle");
+        assert!((measure.surface_area - 0.5).abs() < 0.0001);
+        assert!((measure.centroid.x - 1.0 / 3.0).abs() < 0.0001);
+        assert!((measure.centroid.y - 1.0 / 3.0).abs() < 0.0001);
+        assert_eq!(measure.bounds_max.x, 1.0);
+        assert_eq!(measure.bounds_max.y, 1.0);
+    }
+
+    #[test]
     fn transparent_objects_sort_back_to_front() {
         let near = object(0, 0.0, 2, 7, ASTER_RENDER_QUEUE_TRANSLUCENT);
         let mut far = object(1, 0.0, 2, 7, ASTER_RENDER_QUEUE_TRANSLUCENT);
@@ -533,5 +878,52 @@ mod tests {
         );
         assert_eq!(output.instances[0].object_index, 1);
         assert_eq!(output.instances[1].object_index, 0);
+    }
+
+    #[test]
+    fn software_raster_depth_tests_triangles() {
+        let mut image = software_raster::RasterImage::new(8, 8);
+        let far = [
+            software_raster::RasterVertex {
+                x: 1.0,
+                y: 1.0,
+                z: 0.8,
+                rgba: [0.0, 0.0, 1.0, 1.0],
+            },
+            software_raster::RasterVertex {
+                x: 6.0,
+                y: 1.0,
+                z: 0.8,
+                rgba: [0.0, 0.0, 1.0, 1.0],
+            },
+            software_raster::RasterVertex {
+                x: 1.0,
+                y: 6.0,
+                z: 0.8,
+                rgba: [0.0, 0.0, 1.0, 1.0],
+            },
+        ];
+        let near = [
+            software_raster::RasterVertex {
+                z: 0.2,
+                rgba: [1.0, 0.0, 0.0, 1.0],
+                ..far[0]
+            },
+            software_raster::RasterVertex {
+                z: 0.2,
+                rgba: [1.0, 0.0, 0.0, 1.0],
+                ..far[1]
+            },
+            software_raster::RasterVertex {
+                z: 0.2,
+                rgba: [1.0, 0.0, 0.0, 1.0],
+                ..far[2]
+            },
+        ];
+        assert!(software_raster::rasterize_triangle(&mut image, far[0], far[1], far[2]) > 0);
+        assert!(software_raster::rasterize_triangle(&mut image, near[0], near[1], near[2]) > 0);
+        let pixel = image.pixel(2, 2).expect("covered pixel");
+        assert!(pixel[0] > 0.9);
+        assert!(pixel[2] < 0.1);
     }
 }

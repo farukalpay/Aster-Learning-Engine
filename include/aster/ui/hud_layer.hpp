@@ -66,12 +66,32 @@ struct ChestContentsHudModel {
   std::vector<ChestContentsSlotModel> slots;
 };
 
+struct HudVisibilityPolicy {
+  bool status_panel = true;
+  bool health = true;
+  bool hotbar = true;
+  bool focus_prompt = true;
+  bool pointer = true;
+  bool game_cursor = true;
+};
+
+struct HudModalState {
+  bool inventory_open = false;
+  bool pause_open = false;
+  bool defeated = false;
+  bool debug_capture = false;
+};
+
+[[nodiscard]] HudVisibilityPolicy hudVisibilityForState(HudModalState state);
+
 struct HudModel {
   std::string title;
   std::string subtitle;
   int score = 0;
   int total = 0;
   int lives = 0;
+  int health = 0;
+  int max_health = 0;
   float elapsed_seconds = 0.0f;
   bool victory = false;
   bool defeated = false;
@@ -83,6 +103,7 @@ struct HudModel {
   FocusPromptModel focus_prompt;
   HotbarHudModel hotbar;
   ChestContentsHudModel chest_contents;
+  HudVisibilityPolicy visibility;
 };
 
 enum class HudAction {

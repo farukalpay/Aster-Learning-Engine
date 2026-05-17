@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <iomanip>
@@ -63,6 +64,8 @@ constexpr double kFramePacingSchedulerGuardSeconds = 0.0012;
 constexpr double kFramePacingYieldThresholdSeconds = 0.00018;
 constexpr std::size_t kMaxSimulationStepsPerFrame = 4;
 constexpr float kGameplayCameraYaw = 0.0f;
+constexpr float kCaveStreamingStressStartProgress = 10.0f;
+constexpr float kCaveStreamingStressMetersPerSecond = 10.0f;
 const float kGameplayCameraPitch = aster::radians(22.0f);
 
 bool hasArgument(const int argc, char **argv, const std::string_view value) {
@@ -383,6 +386,8 @@ aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_
   model.score = status.score;
   model.total = status.total_shards;
   model.lives = status.lives;
+  model.health = status.health;
+  model.max_health = status.max_health;
   model.elapsed_seconds = status.elapsed_seconds;
   model.victory = status.victory;
   model.defeated = status.defeated;
@@ -402,14 +407,17 @@ aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_
   };
   model.inventory =
       inventoryModel(status, inventory_open, torch_count, supply_crate_nearby, hotbar);
+  model.visibility = aster::hudVisibilityForState(
+      {.inventory_open = inventory_open, .pause_open = pause_open, .defeated = status.defeated});
   model.pointer = pointer;
   model.game_cursor = game_cursor;
-  model.game_cursor.visible = model.game_cursor.visible && !inventory_open && !pause_open;
+  model.game_cursor.visible = model.game_cursor.visible && model.visibility.game_cursor;
   model.pause.open = pause_open;
   model.pause.options_open = pause_options_open;
   model.focus_prompt = focus_prompt;
-  hotbar.visible = hotbar.visible && !inventory_open && !pause_open;
-  chest_contents.visible = chest_contents.visible && !inventory_open && !pause_open;
+  hotbar.visible = hotbar.visible && model.visibility.hotbar;
+  chest_contents.visible = chest_contents.visible && !inventory_open && !pause_open &&
+                           !status.defeated;
   model.hotbar = std::move(hotbar);
   model.chest_contents = std::move(chest_contents);
   return model;
@@ -425,7 +433,6 @@ int main(int argc, char **argv) {
         argumentPath(argc, argv, "--profile-capture");
     const int sequence_frames = argumentInt(argc, argv, "--capture-frames", 144);
     const std::string capture_route = argumentString(argc, argv, "--capture-route", "attract");
-    const bool cave_entry_capture = capture_route == "cave-entry";
     const int run_frames = argumentInt(argc, argv, "--run-frames", 0);
     const int screenshot_frame = std::max(0, argumentInt(argc, argv, "--screenshot-frame", 80));
     const bool capture_hud = hasArgument(argc, argv, "--capture-hud");
@@ -433,8 +440,14 @@ int main(int argc, char **argv) {
     const bool profile_enabled =
         hasArgument(argc, argv, "--profile") || !profile_capture_path.empty();
     const bool frame_report_enabled = hasArgument(argc, argv, "--frame-report");
+    const std::string frame_report_route =
+        argumentString(argc, argv, "--frame-report-route", "interactive");
     const bool startup_report_enabled = hasArgument(argc, argv, "--startup-report");
     const bool open_chest_for_capture = hasArgument(argc, argv, "--open-chest");
+    const bool activate_prism_relay_for_capture =
+        hasArgument(argc, argv, "--activate-prism-relay");
+    const bool player_at_prism_relay_for_capture =
+        hasArgument(argc, argv, "--player-at-prism-relay");
     const bool player_at_supply_crate_for_capture =
         hasArgument(argc, argv, "--player-at-supply-crate");
     const bool player_position_override = hasArgument(argc, argv, "--player-x") ||
@@ -449,11 +462,21 @@ int main(int argc, char **argv) {
         lag_budget_ms > 0.0f ? std::optional<double>{static_cast<double>(lag_budget_ms) / 1000.0}
                              : std::nullopt;
     const bool sequence_capture = !sequence_path.empty();
-    const bool scripted_capture = !screenshot_path.empty() || sequence_capture;
+    const bool scripted_frame_report_route =
+        frame_report_enabled && frame_report_route != "interactive";
+    const std::string playback_route =
+        scripted_frame_report_route ? frame_report_route : capture_route;
+    const bool cave_entry_capture = playback_route == "cave-entry";
+    const bool deep_cave_capture = playback_route == "deep-cave";
+    const bool voxel_mining_stress_capture = playback_route == "voxel-mining-stress";
+    const bool cave_streaming_stress_capture = playback_route == "cave-streaming-stress";
+    const bool scripted_capture =
+        !screenshot_path.empty() || sequence_capture || scripted_frame_report_route;
     const bool unlocked = hasArgument(argc, argv, "--unlocked");
     const bool no_vsync = hasArgument(argc, argv, "--no-vsync");
-    const double target_frame_seconds =
-        (!scripted_capture && !unlocked) ? kDefaultInteractiveFrameCapSeconds : 0.0;
+    const double target_frame_seconds = (!scripted_capture && !unlocked && !frame_report_enabled)
+                                            ? kDefaultInteractiveFrameCapSeconds
+                                            : 0.0;
     aster::Clock startup_clock;
     double startup_previous = startup_clock.now();
     std::vector<StartupSample> startup_samples;
@@ -473,7 +496,7 @@ int main(int argc, char **argv) {
     config.initial_height = argumentInt(argc, argv, "--window-height",
                                         scripted_capture ? 900 : kInteractiveWindowHeight);
     config.multisample_samples = argumentInt(argc, argv, "--msaa", scripted_capture ? 4 : 0);
-    config.enable_vsync = !scripted_capture && !unlocked && !no_vsync;
+    config.enable_vsync = !scripted_capture && !unlocked && !frame_report_enabled && !no_vsync;
 
     aster::Window window(config);
     mark_startup("window");
@@ -491,6 +514,17 @@ int main(int argc, char **argv) {
       const aster::Vec3 crate = game.supplyCratePosition();
       game.relocatePlayer(crate + aster::Vec3{1.10f, 0.0f, 1.00f},
                           aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", 180.0f)));
+    } else if ((deep_cave_capture || voxel_mining_stress_capture || cave_streaming_stress_capture) &&
+               !player_position_override) {
+      game.relocatePlayer(
+          game.voxelCaveFrameReportPosition(
+              cave_streaming_stress_capture ? kCaveStreamingStressStartProgress
+                                            : (voxel_mining_stress_capture ? 18.0f : 34.0f)),
+          aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", 0.0f)));
+    } else if (player_at_prism_relay_for_capture) {
+      const aster::Vec3 base = game.prismRelayBasePosition();
+      game.relocatePlayer(base + aster::Vec3{1.45f, 0.0f, 1.10f},
+                          aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", -132.0f)));
     } else if (player_at_supply_crate_for_capture) {
       game.relocatePlayer(game.supplyCratePosition(),
                           aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", 0.0f)));
@@ -510,6 +544,9 @@ int main(int argc, char **argv) {
     if (select_hotbar_for_capture > 0) {
       game.selectHotbarSlot(static_cast<std::size_t>(select_hotbar_for_capture - 1));
     }
+    if (activate_prism_relay_for_capture) {
+      game.activatePrismRelay();
+    }
     renderer.prepareScene(game.scene());
     mark_startup("prepare_scene");
     aster::ControlScheme control_scheme = makeRunControls();
@@ -521,17 +558,41 @@ int main(int argc, char **argv) {
     aster::Vec3 scripted_camera_target = {2.25f, 0.48f, -0.95f};
     if (scripted_capture) {
       const aster::Vec3 player = game.playerPosition();
-      scripted_camera_target =
-          cave_entry_capture ? caveEntryCameraTarget(player, 0.0f)
-                             : aster::Vec3{argumentFloat(argc, argv, "--camera-target-x", 2.25f),
-                                           argumentFloat(argc, argv, "--camera-target-y", 0.48f),
-                                           argumentFloat(argc, argv, "--camera-target-z", -0.95f)};
-      camera.pitch = aster::radians(
-          argumentFloat(argc, argv, "--camera-pitch-deg", cave_entry_capture ? 12.0f : 28.0f));
-      camera.yaw = aster::radians(
-          argumentFloat(argc, argv, "--camera-yaw-deg", cave_entry_capture ? 0.0f : -31.0f));
+      scripted_camera_target = cave_entry_capture
+                                   ? caveEntryCameraTarget(player, 0.0f)
+                                   : ((deep_cave_capture || voxel_mining_stress_capture ||
+                                       cave_streaming_stress_capture)
+                                          ? player + aster::Vec3{0.0f, 0.32f, 0.0f}
+                                          : aster::Vec3{
+                                                argumentFloat(argc, argv, "--camera-target-x",
+                                                              2.25f),
+                                                argumentFloat(argc, argv, "--camera-target-y",
+                                                              0.48f),
+                                                argumentFloat(argc, argv, "--camera-target-z",
+                                                              -0.95f)});
+      camera.pitch = aster::radians(argumentFloat(
+          argc, argv, "--camera-pitch-deg",
+          cave_entry_capture
+              ? 12.0f
+              : ((deep_cave_capture || voxel_mining_stress_capture ||
+                  cave_streaming_stress_capture)
+                     ? 10.0f
+                     : 28.0f)));
+      camera.yaw = aster::radians(argumentFloat(
+          argc, argv, "--camera-yaw-deg",
+          cave_entry_capture
+              ? 0.0f
+              : ((deep_cave_capture || voxel_mining_stress_capture ||
+                  cave_streaming_stress_capture)
+                     ? 0.0f
+                     : -31.0f)));
       camera.radius =
-          argumentFloat(argc, argv, "--camera-radius", cave_entry_capture ? 7.2f : 7.8f);
+          argumentFloat(argc, argv, "--camera-radius",
+                        cave_entry_capture ? 7.2f
+                                           : ((deep_cave_capture || voxel_mining_stress_capture ||
+                                               cave_streaming_stress_capture)
+                                                  ? 4.8f
+                                                  : 7.8f));
       camera.vertical_fov = aster::radians(std::clamp(
           argumentFloat(argc, argv, "--camera-fov-deg", cave_entry_capture ? 46.0f : 54.0f), 18.0f,
           72.0f));
@@ -607,6 +668,10 @@ int main(int argc, char **argv) {
     double culled_object_sum = 0.0;
     double draw_call_sum = 0.0;
     double instance_group_sum = 0.0;
+    double lod_culled_object_sum = 0.0;
+    double visibility_hint_object_sum = 0.0;
+    double dynamic_mesh_object_sum = 0.0;
+    double dynamic_mesh_cache_entry_sum = 0.0;
     double rust_plan_seconds_sum = 0.0;
     double render_encode_seconds_sum = 0.0;
     aster::FixedTimestep simulation_clock(
@@ -624,6 +689,7 @@ int main(int argc, char **argv) {
     aster::Vec2 previous_pointer{};
     bool have_previous_pointer = false;
     aster::CursorMode applied_cursor_mode = aster::CursorMode::Normal;
+    std::uint32_t voxel_mining_stress_edits = 0u;
     if (!pause_open && !inventory_open && !scripted_capture) {
       window.setCursorMode(aster::CursorMode::Disabled);
       applied_cursor_mode = aster::CursorMode::Disabled;
@@ -634,9 +700,6 @@ int main(int argc, char **argv) {
       const double frame_start_seconds = clock.now();
       const bool collect_frame_sample =
           frame_report_enabled && rendered_frames > frame_report_warmup;
-      if (collect_frame_sample) {
-        frame_times.addSample(raw_frame_dt);
-      }
       if (profile_enabled) {
         ASTER_PROFILE_FRAME("Lumen Run");
       }
@@ -757,6 +820,11 @@ int main(int argc, char **argv) {
           axis = caveEntryAxis(static_cast<float>(elapsed));
           run = caveEntryRun(static_cast<float>(elapsed));
           jump = false;
+        } else if (deep_cave_capture || voxel_mining_stress_capture ||
+                   cave_streaming_stress_capture) {
+          axis = {};
+          run = false;
+          jump = false;
         } else {
           axis = attractAxis(static_cast<float>(elapsed));
           run = scriptedRun(static_cast<float>(elapsed));
@@ -765,6 +833,7 @@ int main(int argc, char **argv) {
         jump_buffered = false;
       }
 
+      game.setVoxelStreamingView(camera.position(), camera.target - camera.position());
       const aster::Vec3 pre_update_player = game.playerPosition();
       camera_follow_pose = aster::updateThirdPersonFollow(
           camera_follow_state,
@@ -778,6 +847,18 @@ int main(int argc, char **argv) {
           static_cast<float>(frame_dt));
 
       if (scripted_capture) {
+        if (cave_streaming_stress_capture) {
+          const float progress =
+              kCaveStreamingStressStartProgress +
+              static_cast<float>(elapsed) * kCaveStreamingStressMetersPerSecond;
+          game.relocatePlayer(
+              game.voxelCaveFrameReportPosition(progress),
+              aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", 0.0f)));
+        }
+        if ((voxel_mining_stress_capture || cave_streaming_stress_capture) &&
+            rendered_frames % (cave_streaming_stress_capture ? 6 : 4) == 0) {
+          game.enqueueVoxelCaveStressEdit(voxel_mining_stress_edits++);
+        }
         game.update(static_cast<float>(frame_dt), axis, run, jump);
       } else if (!pause_open) {
         const float movement_camera_yaw = camera_follow_pose.camera_yaw;
@@ -802,6 +883,9 @@ int main(int argc, char **argv) {
       const aster::Vec3 player = game.playerRenderPosition();
       if (cave_entry_capture) {
         scripted_camera_target = caveEntryCameraTarget(player, static_cast<float>(elapsed));
+      } else if (deep_cave_capture || voxel_mining_stress_capture ||
+                 cave_streaming_stress_capture) {
+        scripted_camera_target = player + aster::Vec3{0.0f, 0.32f, 0.0f};
       }
       const aster::CaveLightingState cave_light =
           game.caveLightingStateAt(scripted_capture ? scripted_camera_target : player);
@@ -886,21 +970,26 @@ int main(int argc, char **argv) {
         settings.light_rig[2] = {light->position, light->color, light->intensity,
                                  light->source_radius};
       }
+      if (const std::optional<aster::DynamicPointLight> light = game.prismRelayLight();
+          light.has_value() && light->active) {
+        settings.light_rig[1] = {light->position, light->color, light->intensity,
+                                 light->source_radius};
+      }
       if (cave_light.interior > 0.001f) {
         const float cave_depth = std::clamp(cave_light.depth, 0.0f, 1.0f);
         const float chamber_fill = std::clamp(cave_light.chamber, 0.0f, 1.0f);
         const float source_fill = std::clamp(cave_light.wall_light, 0.0f, 1.0f);
         const aster::Vec3 cave_sky_tint = mixVec(
-            {0.016f, 0.013f, 0.011f}, cave_light.wall_light_color * 0.090f, source_fill);
+            {0.024f, 0.020f, 0.017f}, cave_light.wall_light_color * 0.105f, source_fill);
         const aster::Vec3 cave_ground_tint =
-            mixVec({0.013f, 0.011f, 0.009f}, cave_light.wall_light_color * 0.060f, source_fill);
+            mixVec({0.020f, 0.017f, 0.014f}, cave_light.wall_light_color * 0.075f, source_fill);
         settings.ambient_strength =
             std::lerp(base_ambient_strength,
-                      0.018f + source_fill * 0.014f + chamber_fill * 0.006f -
-                          cave_depth * 0.006f,
+                      0.030f + source_fill * 0.018f + chamber_fill * 0.009f -
+                          cave_depth * 0.004f,
                       cave_light.interior);
         settings.ambient_floor =
-            std::lerp(base_ambient_floor, 0.006f + source_fill * 0.006f + chamber_fill * 0.004f,
+            std::lerp(base_ambient_floor, 0.011f + source_fill * 0.008f + chamber_fill * 0.006f,
                       cave_light.interior);
         settings.sky_ambient_color = mixVec(base_sky_ambient, cave_sky_tint, cave_light.interior);
         settings.ground_ambient_color =
@@ -908,7 +997,7 @@ int main(int argc, char **argv) {
         settings.pipeline.clear_color =
             mixVec(base_clear_color, {0.006f, 0.006f, 0.005f}, cave_light.interior);
         settings.exposure = std::lerp(base_exposure,
-                                      0.90f + source_fill * 0.12f + chamber_fill * 0.030f,
+                                      1.02f + source_fill * 0.14f + chamber_fill * 0.045f,
                                       cave_light.interior);
         settings.atmosphere.fog_color =
             mixVec(base_atmosphere.fog_color, {0.030f, 0.025f, 0.020f}, cave_light.interior);
@@ -965,6 +1054,11 @@ int main(int argc, char **argv) {
         culled_object_sum += static_cast<double>(render_stats.culled_objects);
         draw_call_sum += static_cast<double>(render_stats.draw_calls);
         instance_group_sum += static_cast<double>(render_stats.instance_groups);
+        lod_culled_object_sum += static_cast<double>(render_stats.lod_culled_objects);
+        visibility_hint_object_sum += static_cast<double>(render_stats.visibility_hint_objects);
+        dynamic_mesh_object_sum += static_cast<double>(render_stats.dynamic_mesh_objects);
+        dynamic_mesh_cache_entry_sum +=
+            static_cast<double>(render_stats.dynamic_mesh_cache_entries);
         rust_plan_seconds_sum += render_stats.rust_plan_seconds;
         render_encode_seconds_sum += render_stats.render_encode_seconds;
       }
@@ -1006,12 +1100,16 @@ int main(int argc, char **argv) {
         }
       }
 
+      if (collect_frame_sample) {
+        frame_times.addSample(clock.now() - frame_start_seconds);
+      }
+
       if (sequence_capture) {
         aster::writeFramebufferPpm(framePath(sequence_path, rendered_frames), width, height);
         if (rendered_frames + 1 >= sequence_frames) {
           window.requestClose();
         }
-      } else if (scripted_capture && !captured && rendered_frames >= screenshot_frame) {
+      } else if (!screenshot_path.empty() && !captured && rendered_frames >= screenshot_frame) {
         aster::writeFramebufferPpm(screenshot_path, width, height);
         captured = true;
         window.requestClose();
@@ -1048,6 +1146,8 @@ int main(int argc, char **argv) {
       const aster::FrameTimeSummary summary = frame_times.summarize(lag_budget_seconds);
       std::cout << std::fixed << std::setprecision(3);
       std::cout << "Frame report warmup: frames=" << frame_report_warmup << '\n';
+      std::cout << "Frame report route: "
+                << (scripted_frame_report_route ? playback_route : "interactive") << '\n';
       printFrameSummary("Frame report", summary);
       printFrameSummary("Update report", update_times.summarize());
       printFrameSummary("Render report", render_times.summarize());
@@ -1060,6 +1160,10 @@ int main(int argc, char **argv) {
                   << " culled_objects_mean=" << culled_object_sum / samples
                   << " draw_calls_mean=" << draw_call_sum / samples
                   << " instance_groups_mean=" << instance_group_sum / samples
+                  << " lod_culled_mean=" << lod_culled_object_sum / samples
+                  << " visibility_hints_mean=" << visibility_hint_object_sum / samples
+                  << " dynamic_meshes_mean=" << dynamic_mesh_object_sum / samples
+                  << " dynamic_mesh_cache_mean=" << dynamic_mesh_cache_entry_sum / samples
                   << " rust_plan_ms_mean="
                   << secondsToMilliseconds(rust_plan_seconds_sum / samples)
                   << " render_encode_ms_mean="

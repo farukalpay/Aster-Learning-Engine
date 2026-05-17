@@ -1286,7 +1286,9 @@ std::vector<CaveWallFixturePlacement> placeCaveWallFixtures(const CaveTunnelProf
     const Vec3 tangent = cubicTangent(profile, t);
     const float half_width = profile.half_width * tunnelWidthScale(profile, t);
     const Vec3 normal = normalize(side * -side_sign + up * std::min(fixture.normal_up_bias, 0.20f));
-    const Vec3 mount_position = center + side * (side_sign * std::max(half_width, 0.1f)) +
+    const float inset_half_width =
+        std::max(half_width - std::max(fixture.wall_inset, 0.0f), 0.1f);
+    const Vec3 mount_position = center + side * (side_sign * inset_half_width) +
                                 up * std::max(fixture.mount_height, 0.0f);
     const Vec3 lens_position = mount_position + normal * std::max(fixture.lens_offset, 0.0f);
     const Vec3 light_position =
@@ -1396,7 +1398,9 @@ CaveComplex buildCaveComplex(const CaveComplexSpec &spec) {
                  0, spec.tunnel.length_segments - 1);
   complex.collision_mesh =
       makeTunnelChunk(spec.tunnel, first_collision_segment, spec.tunnel.length_segments);
-  appendMesh(complex.collision_mesh, makeTunnelEndCap(spec.tunnel));
+  if (spec.tunnel.end_constraint_enabled) {
+    appendMesh(complex.collision_mesh, makeTunnelEndCap(spec.tunnel));
+  }
 
   constexpr int chunk_segments = 14;
   const int first_visible_segment =
@@ -1407,7 +1411,7 @@ CaveComplex buildCaveComplex(const CaveComplexSpec &spec) {
        start += chunk_segments) {
     const int end = std::min(start + chunk_segments, spec.tunnel.length_segments);
     CpuMesh chunk = makeTunnelChunk(spec.tunnel, start, end);
-    if (end == spec.tunnel.length_segments) {
+    if (spec.tunnel.end_constraint_enabled && end == spec.tunnel.length_segments) {
       appendMesh(chunk, makeTunnelEndCap(spec.tunnel));
     }
     complex.tunnel_chunks.push_back(std::move(chunk));

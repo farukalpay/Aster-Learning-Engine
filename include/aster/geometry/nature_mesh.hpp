@@ -133,6 +133,53 @@ struct GrassFieldMeshSpec {
   float lateral_sway = 0.15f;
 };
 
+enum class GroundDetailKind {
+  Pebble,
+  Leaf,
+  Twig,
+};
+
+struct GroundDetailAnchor {
+  Vec3 position{};
+  Vec3 normal{0.0f, 1.0f, 0.0f};
+  GroundDetailKind kind = GroundDetailKind::Pebble;
+  float radius = 0.06f;
+  float length = 0.12f;
+  float width = 0.04f;
+  float yaw = 0.0f;
+  float lift = 0.0f;
+  float ambient_occlusion = 0.84f;
+};
+
+struct GroundDetailScatterSpec {
+  Vec2 min{-1.0f, -1.0f};
+  Vec2 max{1.0f, 1.0f};
+  std::uint32_t seed = 1u;
+  int target_details = 0;
+  float details_per_square_meter = 4.0f;
+  int candidate_multiplier = 4;
+  int max_details = 0;
+  float min_spacing = 0.12f;
+  float surface_offset = 0.018f;
+  float min_radius = 0.035f;
+  float max_radius = 0.115f;
+  float twig_fraction = 0.20f;
+  float leaf_fraction = 0.34f;
+  float density_noise_scale = 0.32f;
+  float density_noise_contrast = 0.22f;
+  float min_surface_normal_y = 0.46f;
+  float preferred_surface_normal_y = 0.82f;
+  GrassPlacementPredicate accepts_position{};
+};
+
+struct GroundDetailMeshSpec {
+  int pebble_segments = 7;
+  bool double_sided_litter = true;
+  float pebble_height = 0.42f;
+  float leaf_curl = 0.020f;
+  float twig_height = 0.020f;
+};
+
 struct PathRibbonMeshSpec {
   int segments = 24;
   float width = 0.58f;
@@ -275,6 +322,22 @@ struct AmphibiousPredatorMeshSpec {
   float leg_length = 0.27f;
 };
 
+struct CaveSkitterMeshSpec {
+  int body_segments = 24;
+  int body_rings = 8;
+  int leg_segments = 8;
+  float body_length = 0.30f;
+  float body_width = 0.18f;
+  float body_height = 0.10f;
+  float abdomen_length = 0.34f;
+  float abdomen_width = 0.22f;
+  float abdomen_height = 0.14f;
+  float leg_span = 0.42f;
+  float leg_lift = 0.045f;
+  float fang_length = 0.060f;
+  float eye_radius = 0.020f;
+};
+
 [[nodiscard]] CpuMesh makeMoundMesh(MoundMeshSpec spec = {});
 [[nodiscard]] CpuMesh makePondWaterMesh(PondWaterMeshSpec spec = {});
 [[nodiscard]] CpuMesh makeSubmergedBasinMesh(SubmergedBasinMeshSpec spec = {});
@@ -284,6 +347,11 @@ struct AmphibiousPredatorMeshSpec {
 scatterGrassFieldAnchors(const GrassFieldScatterSpec &spec, const GrassSurfaceSampler &sampler);
 [[nodiscard]] CpuMesh makeGrassFieldMesh(const std::vector<GrassBladeAnchor> &anchors,
                                          GrassFieldMeshSpec spec = {});
+[[nodiscard]] std::vector<GroundDetailAnchor>
+scatterGroundDetailAnchors(const GroundDetailScatterSpec &spec,
+                           const GrassSurfaceSampler &sampler);
+[[nodiscard]] CpuMesh makeGroundDetailMesh(const std::vector<GroundDetailAnchor> &anchors,
+                                           GroundDetailMeshSpec spec = {});
 [[nodiscard]] CpuMesh makeFishMesh(FishMeshSpec spec = {});
 [[nodiscard]] CpuMesh makeBroadLeafPlantMesh(BroadLeafPlantMeshSpec spec = {});
 [[nodiscard]] CpuMesh makeClimbableTreeTrunkMesh(ClimbableTreeTrunkMeshSpec spec = {});
@@ -293,6 +361,7 @@ scatterGrassFieldAnchors(const GrassFieldScatterSpec &spec, const GrassSurfaceSa
 [[nodiscard]] CpuMesh makeBirdMesh(BirdMeshSpec spec = {});
 [[nodiscard]] CpuMesh makeBirdNestMesh(BirdNestMeshSpec spec = {});
 [[nodiscard]] CpuMesh makeAmphibiousPredatorMesh(AmphibiousPredatorMeshSpec spec = {});
+[[nodiscard]] CpuMesh makeCaveSkitterMesh(CaveSkitterMeshSpec spec = {});
 [[nodiscard]] Vec3 evaluatePathRibbonCenter(const PathRibbonMeshSpec &spec, float t);
 [[nodiscard]] Vec3 evaluatePathRibbonTangent(const PathRibbonMeshSpec &spec, float t);
 [[nodiscard]] CpuMesh makePathRibbonMesh(PathRibbonMeshSpec spec = {});

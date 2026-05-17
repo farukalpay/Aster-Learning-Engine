@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -159,11 +160,52 @@ bool isStructuredSurfacePattern(const aster::SurfacePattern pattern) {
          pattern == aster::SurfacePattern::FeatherVanes ||
          pattern == aster::SurfacePattern::TwigNest ||
          pattern == aster::SurfacePattern::ReptileScales ||
-         pattern == aster::SurfacePattern::CaveRock || pattern == aster::SurfacePattern::CoalVein;
+         pattern == aster::SurfacePattern::CaveRock || pattern == aster::SurfacePattern::CoalVein ||
+         pattern == aster::SurfacePattern::CaveWeb ||
+         pattern == aster::SurfacePattern::CaveSkitterChitin ||
+         pattern == aster::SurfacePattern::CaveSkitterEye;
 }
 
 bool isContactShadowUtility(const aster::RenderObject &object) {
   return object.material.surface_pattern == aster::SurfacePattern::ContactShadow;
+}
+
+bool containsViewerCullVolume(const aster::ViewerCullVolume &volume, const aster::Vec3 point) {
+  if (!volume.enabled || volume.half_extents.x <= 0.0f || volume.half_extents.y <= 0.0f ||
+      volume.half_extents.z <= 0.0f) {
+    return false;
+  }
+  const aster::Vec3 delta = point - volume.center;
+  return std::abs(delta.x) <= volume.half_extents.x &&
+         std::abs(delta.y) <= volume.half_extents.y &&
+         std::abs(delta.z) <= volume.half_extents.z;
+}
+
+aster::FaceCullMode objectCullMode(const aster::RenderObject &object,
+                                   const aster::Vec3 camera_position,
+                                   const bool pipeline_back_face_culling) {
+  if (!pipeline_back_face_culling || aster::isDoubleSidedMaterial(object.material)) {
+    return aster::FaceCullMode::None;
+  }
+  if (containsViewerCullVolume(object.viewer_cull_volume, camera_position)) {
+    return object.viewer_cull_volume.inside;
+  }
+  if (object.viewer_cull_volume.enabled) {
+    return object.viewer_cull_volume.outside;
+  }
+  return object.material.cull_mode;
+}
+
+MTLCullMode metalCullMode(const aster::FaceCullMode mode) {
+  switch (mode) {
+  case aster::FaceCullMode::Back:
+    return MTLCullModeBack;
+  case aster::FaceCullMode::Front:
+    return MTLCullModeFront;
+  case aster::FaceCullMode::None:
+    return MTLCullModeNone;
+  }
+  return MTLCullModeNone;
 }
 
 LocalBounds primitiveLocalBounds(const aster::MeshPrimitive primitive) {
@@ -298,11 +340,18 @@ const aster::CpuMesh *meshForObject(const aster::RenderObject &object,
     return meshes.contact_shadow_plane;
   }
   if (object.custom_mesh != nullptr) {
+    if (object.dynamic_mesh.valid()) {
+      if (meshes.custom_mesh_resources == nullptr) {
+        return nullptr;
+      }
+      const auto it = meshes.custom_mesh_resources->find(object.dynamic_mesh);
+      return it == meshes.custom_mesh_resources->end() ? nullptr : &it->second;
+    }
     if (meshes.custom_meshes == nullptr) {
-      return object.custom_mesh.get();
+      return nullptr;
     }
     const auto it = meshes.custom_meshes->find(object.custom_mesh.get());
-    return it == meshes.custom_meshes->end() ? object.custom_mesh.get() : &it->second;
+    return it == meshes.custom_meshes->end() ? nullptr : &it->second;
   }
   switch (object.primitive) {
   case aster::MeshPrimitive::Box:
@@ -339,15 +388,16 @@ bool ensurePresenterPipeline() {
        "struct VSOut { float4 position [[position]]; float2 uv; };\n"
        "vertex VSOut present_vs(uint id [[vertex_id]]) {\n"
        "  float2 pos[3] = { float2(-1.0, -1.0), float2(3.0, -1.0), float2(-1.0, 3.0) };\n"
-       "  float2 uv[3] = { float2(0.0, 1.0), float2(2.0, 1.0), float2(0.0, -1.0) };\n"
+       "  float2 uv[3] = { float2(0.0, 0.0), float2(2.0, 0.0), float2(0.0, 2.0) };\n"
        "  VSOut out; out.position = float4(pos[id], 0.0, 1.0); out.uv = uv[id]; return out;\n"
        "}\n"
        "fragment float4 present_fs(VSOut in [[stage_in]], texture2d<float> scene [[texture(0)]], "
        "texture2d<float> overlay [[texture(1)]], constant uint &mode [[buffer(0)]]) {\n"
        "  constexpr sampler s(address::clamp_to_edge, filter::linear);\n"
-       "  float4 base = ((mode & 1u) != 0u) ? scene.sample(s, in.uv) : float4(0.0, 0.0, 0.0, "
+       "  float2 uv = float2(in.uv.x, 1.0 - in.uv.y);\n"
+       "  float4 base = ((mode & 1u) != 0u) ? scene.sample(s, uv) : float4(0.0, 0.0, 0.0, "
        "1.0);\n"
-       "  float4 over = ((mode & 2u) != 0u) ? overlay.sample(s, in.uv) : float4(0.0);\n"
+       "  float4 over = ((mode & 2u) != 0u) ? overlay.sample(s, uv) : float4(0.0);\n"
        "  return float4(base.rgb * (1.0 - over.a) + over.rgb * over.a, 1.0);\n"
        "}\n";
 
@@ -416,6 +466,7 @@ public:
     [opaque_depth_ release];
     [read_only_depth_ release];
     [transparent_depth_ release];
+    [disabled_depth_ release];
     [scene_texture_ release];
     [depth_texture_ release];
     [object_uniform_buffer_ release];
@@ -525,6 +576,51 @@ public:
            "float strand = 0.5 + 0.5 * sin(flow * 0.46 + n * 5.3 + uv.x * 6.2831853); "
            "float mask = smooth1(0.28, 0.92, strand); return mix(base * float3(0.64, 0.58, 0.50), "
            "base * float3(1.22, 1.14, 0.96), mask * (0.56 + object.pattern_params2.x * 0.28)); }\n"
+           "float3 cave_web(float3 base, constant Object &object, float3 world, float3 normal, "
+           "float2 uv) { "
+           "float along = uv.x * max(object.pattern_params.z, 0.001); "
+           "float across = abs(uv.y - 0.5) * 2.0; "
+           "float n = projected_fbm(world, normal, object.material_params.w * 0.88, 211.0); "
+           "float fiber = ridge1(0.5 + 0.5 * sin(along * 0.72 + n * 4.6)); "
+           "float core = 1.0 - smooth1(0.18, 1.0, across); "
+           "float dust = projected_fbm(world, normal, object.material_params.w * 1.42, 227.0); "
+           "float glint = smooth1(0.58, 0.98, fiber * core); "
+           "float3 shadow = base * float3(0.62, 0.66, 0.66); "
+           "float3 silk = base * float3(1.22, 1.24, 1.16); "
+           "float3 pearl = base + float3(0.08, 0.09, 0.075); "
+           "return clamp(mix(mix(shadow, silk, core * 0.72 + dust * 0.16), pearl, glint), "
+           "float3(0.0), float3(4.0)); }\n"
+           "float3 cave_skitter_eye(float3 base, constant Object &object, float3 world, float3 "
+           "normal);\n"
+           "float3 cave_skitter_chitin(float3 base, constant Object &object, float3 world, "
+           "float3 normal, float2 uv) { if (uv.x > 0.90 && uv.y < 0.28) return "
+           "cave_skitter_eye(base, object, world, normal); "
+           "float tx = floor(uv.x * max(object.pattern_params.y, 1.0)); "
+           "float ty = floor(uv.y * max(object.pattern_params.z, 1.0)); "
+           "float texel = fract(sin(tx * 12.9898 + ty * 78.233) * 43758.5453); "
+           "float ridge_a = ridge1(projected_fbm(world, normal, object.material_params.w * 1.35, "
+           "241.0)); "
+           "float band = 0.5 + 0.5 * sin((ty * 0.92 + floor(tx * 0.25)) * 1.73); "
+           "float shell = smooth1(0.20, 0.92, ridge_a * 0.56 + band * 0.30 + texel * 0.14); "
+           "float center_spot = (1.0 - smooth1(0.04, 0.18, abs(uv.x - 0.50))) * "
+           "smooth1(0.10, 0.54, uv.y) * (1.0 - smooth1(0.78, 0.98, uv.y)); "
+           "float leg_band = smooth1(0.62, 0.96, ridge1(0.5 + 0.5 * sin(ty * 2.45))); "
+           "float oil = projected_fbm(world + normal * 0.05, normal, object.material_params.w * "
+           "0.78, 263.0); "
+           "float3 under = base * float3(0.44, 0.34, 0.30); float3 lacquer = base * "
+           "float3(1.54, 1.04, 0.78); float3 warm_mark = base + float3(0.070, 0.020, 0.010); "
+           "float3 dark_band = base * float3(0.22, 0.18, 0.18); "
+           "float3 sheen = base + float3(0.042, 0.050, 0.060); "
+           "float3 albedo = mix(under, lacquer, shell); "
+           "albedo = mix(albedo, warm_mark, center_spot * 0.58); "
+           "albedo = mix(albedo, dark_band, leg_band * (0.18 + texel * 0.12)); "
+           "return clamp(mix(albedo, sheen, oil * 0.26), float3(0.0), float3(4.0)); }\n"
+           "float3 cave_skitter_eye(float3 base, constant Object &object, float3 world, float3 "
+           "normal) { "
+           "float wet = smooth1(0.45, 0.96, projected_fbm(world, normal, object.material_params.w "
+           "* 1.9, 283.0)); "
+           "return clamp(base * (0.62 + wet * 0.44) + object.emission_strength.rgb * (0.28 + wet "
+           "* 0.34), float3(0.0), float3(4.0)); }\n"
            "float3 foliage(float3 base, constant Object &object, float3 world, float3 normal, "
            "float2 uv) { "
            "float blade_height = saturate1(uv.y); float root_weight = 1.0 - smooth1(0.04, "
@@ -636,6 +732,12 @@ public:
            "object, world, normal), object, world, normal); "
            "if (is_pattern(pattern, 2.0) > 0.5 || is_pattern(pattern, 7.0) > 0.5) return "
            "organic_fiber(base, object, world, normal, uv, pattern + 151.0); "
+           "if (is_pattern(pattern, 20.0) > 0.5) return apply_procedural_layer(cave_web(base, "
+           "object, world, normal, uv), object, world, normal); "
+           "if (is_pattern(pattern, 21.0) > 0.5) return apply_procedural_layer("
+           "cave_skitter_chitin(base, object, world, normal, uv), object, world, normal); "
+           "if (is_pattern(pattern, 22.0) > 0.5) return cave_skitter_eye(base, object, world, "
+           "normal); "
            "if (is_pattern(pattern, 11.0) > 0.5) return apply_procedural_layer(foliage(base, "
            "object, world, normal, uv), object, world, normal); "
            "if (is_pattern(pattern, 13.0) > 0.5) { float streak = ridge1(projected_fbm(world, "
@@ -767,15 +869,21 @@ public:
       read_only_depth_desc.depthWriteEnabled = NO;
       read_only_depth_ = [device_ newDepthStencilStateWithDescriptor:read_only_depth_desc];
 
+      MTLDepthStencilDescriptor *disabled_depth_desc = [[MTLDepthStencilDescriptor alloc] init];
+      disabled_depth_desc.depthCompareFunction = MTLCompareFunctionAlways;
+      disabled_depth_desc.depthWriteEnabled = NO;
+      disabled_depth_ = [device_ newDepthStencilStateWithDescriptor:disabled_depth_desc];
+
       [opaque_depth_desc release];
       [transparent_depth_desc release];
       [read_only_depth_desc release];
+      [disabled_depth_desc release];
       [opaque_desc release];
       [transparent_desc release];
       [vertex release];
       [fragment release];
       return opaque_pipeline_ != nil && transparent_pipeline_ != nil && opaque_depth_ != nil &&
-             transparent_depth_ != nil && read_only_depth_ != nil;
+             transparent_depth_ != nil && read_only_depth_ != nil && disabled_depth_ != nil;
     }
   }
 
@@ -797,6 +905,7 @@ public:
     if (scene_texture_ == nil || depth_texture_ == nil) {
       return stats;
     }
+    evictRetiredMeshBuffers(meshes);
     metalFrameState().scene_width = framebuffer_width;
     metalFrameState().scene_height = framebuffer_height;
 
@@ -827,6 +936,7 @@ public:
       return stats;
     }
     object_uniform_cursor_ = 0;
+    const aster::Vec3 camera_position = camera.position();
 
     const auto write_object_uniform = [&](const aster::RenderObject &object, const float opacity) {
       if (object_uniform_cursor_ >= object_uniform_capacity_) {
@@ -862,9 +972,14 @@ public:
       const NSUInteger object_uniform_offset =
           static_cast<NSUInteger>(*uniform_index * kObjectUniformStride);
       [encoder setRenderPipelineState:transparent ? transparent_pipeline_ : opaque_pipeline_];
-      [encoder setDepthStencilState:transparent
-                                        ? transparent_depth_
-                                        : (writes_depth ? opaque_depth_ : read_only_depth_)];
+      [encoder setDepthStencilState:!settings.pipeline.depth_test
+                                        ? disabled_depth_
+                                        : (transparent ? transparent_depth_
+                                                       : (writes_depth ? opaque_depth_
+                                                                       : read_only_depth_))];
+      [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
+      [encoder setCullMode:metalCullMode(objectCullMode(
+                               object, camera_position, settings.pipeline.back_face_culling))];
       [encoder setVertexBuffer:buffers->vertices offset:0 atIndex:0];
       [encoder setVertexBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
       [encoder setFragmentBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
@@ -887,6 +1002,38 @@ public:
       const aster::RenderObject &first_object = scene.objects()[first_instance.object_index];
       const aster::CpuMesh *mesh = meshForObject(first_object, meshes);
       if (mesh == nullptr || mesh->indices.empty()) {
+        return;
+      }
+      const aster::FaceCullMode first_cull_mode =
+          objectCullMode(first_object, camera_position, settings.pipeline.back_face_culling);
+      bool shared_cull_mode = true;
+      for (std::size_t i = 1; i < group.instance_count; ++i) {
+        const std::size_t plan_index = group.first_instance + i;
+        if (plan_index >= plan.instances.size()) {
+          break;
+        }
+        const aster::FrameRenderInstance &instance = plan.instances[plan_index];
+        if (instance.object_index >= scene.objects().size()) {
+          break;
+        }
+        if (objectCullMode(scene.objects()[instance.object_index], camera_position,
+                           settings.pipeline.back_face_culling) != first_cull_mode) {
+          shared_cull_mode = false;
+          break;
+        }
+      }
+      if (!shared_cull_mode) {
+        for (std::size_t i = 0; i < group.instance_count; ++i) {
+          const std::size_t plan_index = group.first_instance + i;
+          if (plan_index >= plan.instances.size()) {
+            break;
+          }
+          const aster::FrameRenderInstance &instance = plan.instances[plan_index];
+          if (instance.object_index >= scene.objects().size()) {
+            break;
+          }
+          encode_object(scene.objects()[instance.object_index], instance.opacity);
+        }
         return;
       }
       MetalMeshBuffers *buffers = buffersForMesh(*mesh);
@@ -919,9 +1066,13 @@ public:
       const NSUInteger object_uniform_offset =
           static_cast<NSUInteger>(first_uniform * kObjectUniformStride);
       [encoder setRenderPipelineState:transparent ? transparent_pipeline_ : opaque_pipeline_];
-      [encoder setDepthStencilState:transparent
-                                        ? transparent_depth_
-                                        : (writes_depth ? opaque_depth_ : read_only_depth_)];
+      [encoder setDepthStencilState:!settings.pipeline.depth_test
+                                        ? disabled_depth_
+                                        : (transparent ? transparent_depth_
+                                                       : (writes_depth ? opaque_depth_
+                                                                       : read_only_depth_))];
+      [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
+      [encoder setCullMode:metalCullMode(first_cull_mode)];
       [encoder setVertexBuffer:buffers->vertices offset:0 atIndex:0];
       [encoder setVertexBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
       [encoder setFragmentBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
@@ -1147,6 +1298,47 @@ private:
     return &inserted.first->second;
   }
 
+  void evictRetiredMeshBuffers(const aster::PreparedRenderMeshes &meshes) {
+    std::unordered_set<const aster::CpuMesh *> live;
+    live.reserve(8u + (meshes.custom_meshes != nullptr ? meshes.custom_meshes->size() : 0u) +
+                 (meshes.custom_mesh_resources != nullptr
+                      ? meshes.custom_mesh_resources->size()
+                      : 0u));
+    const auto add = [&](const aster::CpuMesh *mesh) {
+      if (mesh != nullptr) {
+        live.insert(mesh);
+      }
+    };
+    add(meshes.box);
+    add(meshes.sphere);
+    add(meshes.plane);
+    add(meshes.contact_shadow_plane);
+    add(meshes.rock);
+    add(meshes.crystal);
+    add(meshes.ruin_block);
+    add(meshes.pillar);
+    if (meshes.custom_meshes != nullptr) {
+      for (const auto &entry : *meshes.custom_meshes) {
+        add(&entry.second);
+      }
+    }
+    if (meshes.custom_mesh_resources != nullptr) {
+      for (const auto &entry : *meshes.custom_mesh_resources) {
+        add(&entry.second);
+      }
+    }
+
+    for (auto it = mesh_buffers_.begin(); it != mesh_buffers_.end();) {
+      if (live.contains(it->first)) {
+        ++it;
+        continue;
+      }
+      [it->second.vertices release];
+      [it->second.indices release];
+      it = mesh_buffers_.erase(it);
+    }
+  }
+
   id<MTLDevice> device_ = nil;
   id<MTLCommandQueue> queue_ = nil;
   id<MTLLibrary> library_ = nil;
@@ -1155,6 +1347,7 @@ private:
   id<MTLDepthStencilState> opaque_depth_ = nil;
   id<MTLDepthStencilState> read_only_depth_ = nil;
   id<MTLDepthStencilState> transparent_depth_ = nil;
+  id<MTLDepthStencilState> disabled_depth_ = nil;
   id<MTLTexture> scene_texture_ = nil;
   id<MTLTexture> depth_texture_ = nil;
   id<MTLBuffer> object_uniform_buffer_ = nil;

@@ -17,6 +17,8 @@ struct PreparedRenderMeshes {
   const CpuMesh *ruin_block = nullptr;
   const CpuMesh *pillar = nullptr;
   const std::unordered_map<const CpuMesh *, CpuMesh> *custom_meshes = nullptr;
+  const std::unordered_map<DynamicMeshResourceKey, CpuMesh, DynamicMeshResourceKeyHash>
+      *custom_mesh_resources = nullptr;
 };
 
 class NativeRenderBackend {

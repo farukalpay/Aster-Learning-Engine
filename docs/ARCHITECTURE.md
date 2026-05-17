@@ -26,9 +26,9 @@ generated scenery assembly, and procedural support-surface helpers. Public
 gameplay-facing APIs remain stable where practical, including
 `buildBrushLevelMesh(...)`, `buildCaveComplex(...)`, `VoxelCaveState`, and
 `assembleGeneratedScenery(...)`. Cave entrance fitting, sealed portal/throat
-geometry, streaming cave chunks, fixture placement, collision meshes, ore nodes,
-and formation placement belong in this layer so games wire cave specs instead of
-rebuilding cave rules.
+geometry, reusable grass and ground-detail scatter, streaming cave chunks,
+fixture placement, collision meshes, ore nodes, and formation placement belong
+in this layer so games wire specs instead of rebuilding generation rules.
 
 `include/aster/net`
 
@@ -44,9 +44,10 @@ lightweight CPU trace sink with scope timing, an in-memory ring, and text export
 
 `include/aster/platform`
 
-`aster::Window` owns the native platform boundary. macOS and Linux have separate
-source files; all native handles stay inside those files. Engine and app code
-receive viewport sizes and `ControlSnapshot` values.
+`aster::Window` owns the native platform boundary. macOS, Linux, and the
+Windows skeleton have separate source files; all native handles stay inside
+those files. Engine and app code receive viewport sizes and `ControlSnapshot`
+values.
 
 `include/aster/render`
 
@@ -132,6 +133,9 @@ Native platform code is isolated by operating system:
 - `src/platform/window_linux.cpp` owns the raw X11 socket protocol path,
   including setup, window creation, input events, close protocol, cursor hiding,
   pointer recentering, and framebuffer presentation.
+- `src/platform/window_windows.cpp` is a minimal configuration skeleton. It
+  keeps Windows support behind the same adapter while native desktop
+  presentation is developed.
 
 No public header exposes native window handles. New platform work should extend
 the adapter behind `aster::Window` rather than adding product-level branches.
@@ -167,8 +171,11 @@ settings and pass them to the renderer.
 preparation cache. Every frame, `RenderDevice::render` extracts current
 renderer-facing packets, calls the Rust planner, and sends the resulting
 `FrameRenderPlan` to the native or software backend. Native Metal batches
-compatible planned instances into instanced draw calls; the software renderer
-consumes the same plan for deterministic ordering and diagnostics.
+compatible planned instances into instanced draw calls when their effective
+cull policy matches; the software renderer consumes the same plan for
+deterministic ordering and diagnostics. Custom mesh local bounds are cached in
+`RenderScene` so large generated meshes do not need their bounds recomputed on
+every frame.
 
 ## Frame Pacing
 
@@ -180,8 +187,9 @@ use deterministic fixed timing so generated media stays reproducible.
 
 CMake builds one static `aster` library plus small executables. Platform source
 selection is based on the host OS. Cargo is a required build dependency and
-builds the Rust `aster_runtime` static library before linking `aster`. Aster v1
-does not carry Windows or Wayland compatibility code.
+builds the Rust `aster_runtime` static library before linking `aster`. Windows
+support starts as a core-build skeleton behind `aster::Window`; Wayland remains
+outside the current platform set.
 
 The engine and sample should build without fetching source code or linking
 desktop client libraries. Direct OS interaction belongs only in platform
@@ -193,6 +201,8 @@ adapters.
   `aster::Window` contract without changing app, game, renderer, or UI code.
 - Linux currently presents software frames; GPU shader rendering is only
   implemented for macOS Metal.
+- Windows currently configures through a minimal adapter. Real native window and
+  presentation support should extend that file without changing app contracts.
 - The scene importer supports the subset of JSON scene data exercised by
   generated tests and engine-authored scenes. Expanding file-format coverage
   should extend that importer without

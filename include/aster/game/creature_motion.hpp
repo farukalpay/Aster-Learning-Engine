@@ -95,6 +95,61 @@ struct AvianAgentUpdate {
   AvianMotionMode mode = AvianMotionMode::Flock;
 };
 
+enum class CaveSkitterMotionMode {
+  Patrol,
+  Guard,
+  Pursue,
+  Strike,
+  Flinch,
+  Dead,
+};
+
+struct CaveSkitterWebFrame {
+  Vec3 center{};
+  Vec3 normal{0.0f, 0.0f, 1.0f};
+  Vec3 side{1.0f, 0.0f, 0.0f};
+  Vec3 up{0.0f, 1.0f, 0.0f};
+  float radius_x = 1.0f;
+  float radius_y = 1.0f;
+  float thickness = 0.40f;
+};
+
+struct CaveSkitterAgentState {
+  Vec3 position{};
+  Vec3 velocity{};
+  Vec2 home_offset{};
+  float facing_yaw = 0.0f;
+  float phase = 0.0f;
+  float temperament = 0.5f;
+  float bite_cooldown = 0.0f;
+  float flinch_seconds = 0.0f;
+  bool dead = false;
+  CaveSkitterMotionMode mode = CaveSkitterMotionMode::Patrol;
+};
+
+struct CaveSkitterGroupSettings {
+  CaveSkitterWebFrame web{};
+  float max_speed = 1.05f;
+  float max_force = 5.4f;
+  float patrol_speed_scale = 0.54f;
+  float aggro_radius = 3.15f;
+  float strike_radius = 0.52f;
+  float bite_cooldown = 1.40f;
+  float separation_radius = 0.34f;
+  float cohesion_radius = 0.95f;
+  float retreat_seconds = 0.36f;
+  float surface_offset = 0.0f;
+  float depth_wander = -1.0f;
+};
+
+struct CaveSkitterAgentUpdate {
+  Vec3 position{};
+  Vec3 velocity{};
+  float facing_yaw = 0.0f;
+  CaveSkitterMotionMode mode = CaveSkitterMotionMode::Patrol;
+  bool bite = false;
+};
+
 [[nodiscard]] AmphibiousPredatorUpdate
 updateAmphibiousPredator(AmphibiousPredatorState &state, const AmphibiousPredatorSettings &settings,
                          Vec3 target_position, float dt);
@@ -103,5 +158,9 @@ updateAmphibiousPredator(AmphibiousPredatorState &state, const AmphibiousPredato
                                                 const AvianFlockSettings &settings,
                                                 const std::vector<AvianAgentState> &flock,
                                                 Vec3 disturbance_position, float dt);
+
+[[nodiscard]] std::vector<CaveSkitterAgentUpdate>
+updateCaveSkitterGroup(std::vector<CaveSkitterAgentState> &skitters,
+                       const CaveSkitterGroupSettings &settings, Vec3 player_position, float dt);
 
 } // namespace aster

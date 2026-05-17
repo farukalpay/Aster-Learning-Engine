@@ -45,15 +45,23 @@ void section(aster::UiCanvas &canvas, const std::string &title, const float x, f
 
 void sliderRow(aster::UiCanvas &canvas, const std::string &label, float &value,
                const float min_value, const float max_value, const float x, float &y,
-               const float width, const std::string &id) {
-  canvas.slider({x, y + 17.0f, width, 8.0f}, label, value, min_value, max_value, id);
-  y += 34.0f;
+               const float width, const std::string &id, const float visible_top,
+               const float visible_bottom) {
+  const float row_height = canvas.sliderHeight(label, width);
+  if (y >= visible_top && y + row_height <= visible_bottom) {
+    canvas.slider({x, y + 17.0f, width, 8.0f}, label, value, min_value, max_value, id);
+  }
+  y += row_height + 3.0f;
 }
 
 void checkboxRow(aster::UiCanvas &canvas, const std::string &label, bool &value, const float x,
-                 float &y, const float width, const std::string &id) {
-  canvas.checkbox({x, y, width, 24.0f}, label, value, id);
-  y += 26.0f;
+                 float &y, const float width, const std::string &id, const float visible_top,
+                 const float visible_bottom) {
+  const float row_height = canvas.checkboxHeight(label, width);
+  if (y >= visible_top && y + row_height <= visible_bottom) {
+    canvas.checkbox({x, y, width, row_height}, label, value, id);
+  }
+  y += row_height + 3.0f;
 }
 
 void drawFramePanel(aster::UiCanvas &canvas, const aster::UiRect panel,
@@ -93,16 +101,23 @@ void drawCameraPanel(aster::UiCanvas &canvas, const aster::UiRect panel,
   float y = panel.y + kPanelPad;
   const float x = panel.x + kPanelPad;
   const float width = panel.width - kPanelPad * 2.0f;
+  const float visible_top = panel.y + kPanelPad;
+  const float visible_bottom = panel.y + panel.height - kPanelPad;
   section(canvas, "Camera", x, y, width);
-  sliderRow(canvas, "Yaw", camera.yaw, -3.14159f, 3.14159f, x, y, width, "yaw");
+  sliderRow(canvas, "Yaw", camera.yaw, -3.14159f, 3.14159f, x, y, width, "yaw",
+            visible_top, visible_bottom);
   sliderRow(canvas, "Pitch", camera.pitch, aster::radians(-80.0f), aster::radians(80.0f), x, y,
-            width, "pitch");
-  sliderRow(canvas, "Radius", camera.radius, 1.8f, 24.0f, x, y, width, "radius");
+            width, "pitch", visible_top, visible_bottom);
+  sliderRow(canvas, "Radius", camera.radius, 1.8f, 24.0f, x, y, width, "radius", visible_top,
+            visible_bottom);
 }
 
 void drawSceneSummary(aster::UiCanvas &canvas, const aster::Scene &scene, const float x, float &y,
-                      const float width, const float bottom) {
-  if (y + 76.0f > bottom) {
+                      const float width, const float visible_top, const float visible_bottom) {
+  const float row_top = y;
+  constexpr float kSummaryHeight = 76.0f;
+  if (row_top < visible_top || row_top + kSummaryHeight > visible_bottom) {
+    y += kSummaryHeight;
     return;
   }
   section(canvas, "Scene", x, y, width);
@@ -133,7 +148,11 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
                     const FrameStats &stats) {
   const Vec2 viewport = canvas_.viewportSize();
   const float panel_height = std::max(320.0f, viewport.y - kPanelMargin * 2.0f);
-  const UiRect panel{kPanelMargin, kPanelMargin, 420.0f, panel_height};
+  const float panel_width = std::min(
+      std::max(viewport.x - kPanelMargin * 2.0f, 260.0f),
+      std::clamp(viewport.x < 760.0f ? viewport.x - kPanelMargin * 2.0f : viewport.x * 0.34f,
+                 360.0f, 460.0f));
+  const UiRect panel{kPanelMargin, kPanelMargin, panel_width, panel_height};
   drawPanelTexture(canvas_, panel);
   if (pointInRect(input_.pointer, panel) && input_.scroll.y != 0.0f) {
     renderer_panel_scroll_ =
@@ -145,6 +164,7 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
   const float x = panel.x + kPanelPad;
   const float width = panel.width - kPanelPad * 2.0f;
   const float panel_bottom = panel.y + panel.height - kPanelPad;
+  const float visible_top = panel.y + kPanelPad;
 
   canvas_.text("Aster Learning Studio", {x, y}, kText, 2.2f);
   y += 31.0f;
@@ -155,32 +175,42 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
        22.0f;
 
   section(canvas_, "Renderer", x, y, width);
-  sliderRow(canvas_, "Exposure", settings.exposure, 0.2f, 2.5f, x, y, width, "exposure");
-  sliderRow(canvas_, "Ambient", settings.ambient_strength, 0.0f, 0.6f, x, y, width, "ambient");
-  checkboxRow(canvas_, "Grounding", settings.grounding.enabled, x, y, width, "grounding");
+  sliderRow(canvas_, "Exposure", settings.exposure, 0.2f, 2.5f, x, y, width, "exposure",
+            visible_top, panel_bottom);
+  sliderRow(canvas_, "Ambient", settings.ambient_strength, 0.0f, 0.6f, x, y, width, "ambient",
+            visible_top, panel_bottom);
+  checkboxRow(canvas_, "Grounding", settings.grounding.enabled, x, y, width, "grounding",
+              visible_top, panel_bottom);
   checkboxRow(canvas_, "Contact shadows", settings.grounding.contact_shadows, x, y, width,
-              "contact.shadows");
+              "contact.shadows", visible_top, panel_bottom);
   sliderRow(canvas_, "Ground AO", settings.grounding.surface_occlusion_strength, 0.0f, 0.7f, x, y,
-            width, "ground.ao");
+            width, "ground.ao", visible_top, panel_bottom);
   sliderRow(canvas_, "AO mix", settings.grounding.surface_occlusion_mix, 0.0f, 1.0f, x, y, width,
-            "ground.ao.mix");
+            "ground.ao.mix", visible_top, panel_bottom);
   sliderRow(canvas_, "AO floor", settings.grounding.surface_occlusion_min, 0.0f, 1.0f, x, y, width,
-            "ground.ao.floor");
+            "ground.ao.floor", visible_top, panel_bottom);
   sliderRow(canvas_, "Shadow weight", settings.grounding.contact_shadow_strength, 0.0f, 0.8f, x, y,
-            width, "contact.weight");
-  checkboxRow(canvas_, "Atmosphere", settings.atmosphere.enabled, x, y, width, "atmosphere");
-  sliderRow(canvas_, "Fog", settings.atmosphere.fog_strength, 0.0f, 0.6f, x, y, width, "fog");
+            width, "contact.weight", visible_top, panel_bottom);
+  checkboxRow(canvas_, "Atmosphere", settings.atmosphere.enabled, x, y, width, "atmosphere",
+              visible_top, panel_bottom);
+  sliderRow(canvas_, "Fog", settings.atmosphere.fog_strength, 0.0f, 0.6f, x, y, width, "fog",
+            visible_top, panel_bottom);
   sliderRow(canvas_, "Saturation", settings.atmosphere.saturation, 0.0f, 1.4f, x, y, width,
-            "saturation");
-  sliderRow(canvas_, "Contrast", settings.atmosphere.contrast, 0.5f, 1.5f, x, y, width, "contrast");
-  checkboxRow(canvas_, "ACES tone map", settings.use_aces_tonemap, x, y, width, "aces");
-  checkboxRow(canvas_, "Animation", settings.animate_scene, x, y, width, "animation");
-  checkboxRow(canvas_, "Depth test", settings.pipeline.depth_test, x, y, width, "depth");
+            "saturation", visible_top, panel_bottom);
+  sliderRow(canvas_, "Contrast", settings.atmosphere.contrast, 0.5f, 1.5f, x, y, width,
+            "contrast", visible_top, panel_bottom);
+  checkboxRow(canvas_, "ACES tone map", settings.use_aces_tonemap, x, y, width, "aces",
+              visible_top, panel_bottom);
+  checkboxRow(canvas_, "Animation", settings.animate_scene, x, y, width, "animation", visible_top,
+              panel_bottom);
+  checkboxRow(canvas_, "Depth test", settings.pipeline.depth_test, x, y, width, "depth",
+              visible_top, panel_bottom);
   checkboxRow(canvas_, "Back-face culling", settings.pipeline.back_face_culling, x, y, width,
-              "cull");
-  checkboxRow(canvas_, "Multisampling", settings.pipeline.multisampling, x, y, width, "msaa");
+              "cull", visible_top, panel_bottom);
+  checkboxRow(canvas_, "Multisampling", settings.pipeline.multisampling, x, y, width, "msaa",
+              visible_top, panel_bottom);
   y += 8.0f;
-  drawSceneSummary(canvas_, scene, x, y, width, panel_bottom + renderer_panel_scroll_ + 10000.0f);
+  drawSceneSummary(canvas_, scene, x, y, width, visible_top, panel_bottom);
   const float content_height = y + kPanelPad + renderer_panel_scroll_ - panel.y;
   const float max_scroll = std::max(0.0f, content_height - panel.height);
   renderer_panel_scroll_ = std::clamp(renderer_panel_scroll_, 0.0f, max_scroll);
@@ -198,7 +228,7 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
   if (viewport.x >= 900.0f) {
     const float side_width = 324.0f;
     const float side_x = viewport.x - side_width - kPanelMargin;
-    const UiRect frame_panel{side_x, kPanelMargin, side_width, 138.0f};
+    const UiRect frame_panel{side_x, kPanelMargin, side_width, 184.0f};
     drawFramePanel(canvas_, frame_panel, stats);
     const UiRect camera_panel{side_x, frame_panel.y + frame_panel.height + 14.0f, side_width,
                               198.0f};
