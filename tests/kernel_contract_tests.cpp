@@ -4,6 +4,7 @@
 #include "aster/kernel/api.hpp"
 
 #include <cassert>
+#include <cstdint>
 #include <cstddef>
 #include <fstream>
 #include <set>
