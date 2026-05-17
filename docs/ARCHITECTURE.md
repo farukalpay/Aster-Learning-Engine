@@ -92,6 +92,12 @@ content assumptions.
 Sample-owned contracts and authored scene builders. Lumen Run and showcase
 scenes consume engine, geometry, renderer, UI, physics, and systems modules from
 the outside. Sample code can be content-specific; engine and systems code cannot.
+The public Lumen Run contract remains in `include/aster/samples/lumen_run.hpp`;
+its implementation is split across focused `src/samples/lumen_run_*.cpp`
+translation units for lifecycle, scene/physics rebuilds, validation,
+simulation, interaction, and mining. Source-only helpers live beside those files
+so Lumen-specific placement, material, and route data do not become engine
+defaults by accident.
 
 `include/aster/ui`
 
@@ -208,6 +214,17 @@ outside the current platform set.
 The engine and sample should build without fetching source code or linking
 desktop client libraries. Direct OS interaction belongs only in platform
 adapters.
+
+## Test Policy
+
+CTest exposes subsystem targets instead of a single catch-all executable:
+`aster_core_tests`, `aster_geometry_tests`, `aster_render_scene_tests`,
+`aster_systems_tests`, `aster_physics_tests`, `aster_sample_tests`, and
+`aster_network_tests` when networking is enabled. Shared test helpers are local
+to `tests/` and must not become engine API. New coverage should land in the
+target that owns the contract being changed; sample-specific regression checks
+belong in the sample target unless they first extract a reusable engine
+contract.
 
 ## Known Compromises
 

@@ -12,6 +12,11 @@ Aster values changes that improve the engine's long-term shape.
   handles.
 - Keep renderer decisions inspectable through material, queue, depth, and
   capability contracts instead of pattern-name branches.
+- Keep sample-owned content in sample implementation files. Do not promote
+  authored Lumen Run placement, route, material, or encounter data into engine
+  modules unless the change defines a reusable contract.
+- Put tests in the subsystem target that owns the contract. Shared test helpers
+  stay under `tests/` and are not engine API.
 - Keep interactive loops frame-paced by default; use explicit flags for
   unbounded profiling runs.
 - Add tests when changing math, scene contracts, mesh generation, networking,
@@ -32,10 +37,25 @@ and document why the code cannot stay engine-owned.
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
+cargo test --workspace
 ./build/aster_studio --smoke-test
 ./build/aster_lumen_run --smoke-test
 ./build/aster_net_probe
 ```
+
+## Local Cleanup
+
+Build trees, Cargo targets, CTest output, captures, and OS metadata are local
+artifacts. Inspect before deleting:
+
+```bash
+git status --short --ignored
+git clean -ndX
+```
+
+Use `git clean -fdX` only for ignored generated state. Remove empty local
+scratch directories with `rmdir` rather than broad untracked cleanup when source
+experiments may exist.
 
 ## Screenshot Checks
 

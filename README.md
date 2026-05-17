@@ -1,17 +1,18 @@
 # Aster Learning Engine
 
-Aster Learning Engine is an educational C++20 engine by Faruk Alpay. The core
-engine, reusable simulation systems, native renderer, platform adapters,
-networking, profiling, sample scenes, editor UI, generated media, and tests live
-in one inspectable source tree.
+Aster Learning Engine is an educational C++20 real-time engine by Faruk Alpay.
+The repository is intentionally inspectable: reusable engine modules live in
+`include/aster` and `src`, executables stay thin under `apps`, Rust owns
+renderer-facing planning under `crates`, and tests are split by subsystem.
 
-Aster v1 keeps reusable code in `include/aster` and `src`, keeps executable code
-thin, and limits outside boundaries to standard C++ plus direct operating-system
-APIs inside isolated platform files.
+The project favors owned contracts over framework glue. Platform handles stay
+behind `aster::Window`, renderer policy stays in render/runtime modules, and
+sample-specific content stays in sample files instead of leaking into the
+engine library.
 
 ## Captures
 
-The images below are generated from the current build.
+The checked-in images are generated from the current build.
 
 ![Industrial pipe material preview](assets/screenshots/industrial_pipe.png)
 
@@ -34,56 +35,38 @@ The images below are generated from the current build.
 - A macOS native Metal renderer with depth, translucent sorting, procedural
   material shading, contact shadows, fog, tonemapping, frame pacing, and UI
   composition.
-- A deterministic software renderer used for fallback, capture, preview, and
-  renderer diagnostics, including standalone sample-scene preview rendering.
-- Reusable gameplay and simulation systems for movement, interaction,
-  inventory, equipment, lighting, particles, and creature motion. These systems
-  live outside sample code and do not depend on Lumen Run.
-- Sample scenes and apps that consume the engine from the outside: Lumen Run as
-  a playable sample, the architecture showcase, and an industrial material
-  preview with a rusty welded pipe.
-- Lumen Run exercises terrain, castle geometry, cave
-  traversal, sealed cave portals, authored deep-cave continuation, fixture-driven
-  cave lighting, mineral formations, procedural ground detail, water,
-  vegetation, avatar animation, inventory, HUD, interaction, physics,
-  particles, and capture automation.
-- Engine-owned math, mesh preparation, brush level mesh generation, procedural
-  noise, scene import, scenery assembly, TCP loopback transport, and lightweight
-  CPU profiling.
-- A required Rust runtime planner for renderer-facing scene packets, frustum
-  culling, draw-key grouping, translucent ordering, and shared asset-tool
-  validation.
-- Native platform adapters behind `aster::Window`; product code consumes only
-  window size and input snapshots.
+- A deterministic software renderer used for fallback presentation, capture,
+  preview rendering, and renderer diagnostics.
+- Reusable systems for player motion, creature motion, interaction, inventory,
+  equipment, lighting, particles, mining, animation, and third-person camera
+  behavior.
+- Procedural geometry and mesh tooling for terrain, caves, castle sections,
+  nature assets, water, brush levels, tubes, cables, fracture pieces, projected
+  meshes, and generated scenery.
+- Scene contracts for renderable objects, materials, symbolic trace validation,
+  and scene coherence checks.
+- A required Rust runtime planner for frustum culling, draw-key grouping,
+  translucent ordering, diagnostics, and offline asset-tool validation.
+- Thin executable entrypoints for Lumen Run, Studio, offline preview rendering,
+  and the networking probe.
 
-## Repository Layout
+## Architecture Map
 
 | Path | Purpose |
 | --- | --- |
-| `apps/` | Thin executables for sample apps, Studio, preview, and network probe |
-| `include/aster/` | Public engine headers |
-| `src/` | Engine, renderer, platform, reusable systems, samples, UI, asset, geometry, net, and core code |
-| `tests/` | Unit, regression, and structure tests |
-| `assets/` | Generated screenshots and README media |
-| `docs/` | Architecture and research notes |
+| `include/aster/` | Public engine headers and stable module contracts |
+| `src/` | Engine implementations, platform adapters, renderers, reusable systems, and sample-owned implementations |
+| `src/samples/lumen_run_*.cpp` | Lumen Run implementation split by lifecycle, scene/physics rebuild, validation, simulation, interaction, and mining |
+| `apps/` | Executable wiring only |
+| `crates/aster_runtime` | Rust frame planning and shared renderer diagnostics |
+| `crates/aster_assetc` | Rust asset/tooling entrypoint |
+| `tests/` | Subsystem CTest targets with shared local test support |
+| `assets/` | Generated README media and checked-in captures |
+| `docs/` | Architecture notes and research notes |
 
-## Changelog
-
-- Added a continuous procedural cave-mouth formation, reusable ground-detail
-  scatter, cached cave fixture state, and deterministic cave-entry capture and
-  benchmark routes.
-- Moved Lumen Run into the sample layer, split reusable gameplay systems out of
-  `game/`, and added a non-Lumen industrial pipe render sample.
-- Added reusable tube and circumferential weld-bead mesh generation plus
-  weathered-metal and weld-bead procedural material patterns.
-- Added sealed cave portal/throat geometry, authored deep-cave continuation,
-  and industrial wall-light placement for darker cave traversal.
-- Expanded analytic procedural material controls across terrain, grass, rock,
-  cave stone, water, and avatar surfaces.
-- Tightened Studio UI measurement/scrolling, framebuffer origin handling,
-  renderer cull/depth parity, and README media refresh commands.
-- Opened an initial Windows configuration path for core builds while native
-  desktop presentation continues to live behind `aster::Window`.
+The public `LumenRun` API remains in `include/aster/samples/lumen_run.hpp`.
+Lumen-specific helpers are source-only and remain under `src/samples`; reusable
+engine behavior should move only when it has a general contract.
 
 ## Build
 
@@ -94,38 +77,59 @@ Prerequisites:
 - Rust 1.88+ with Cargo
 - macOS with Cocoa and Metal, or Linux with a local X server
 
+Configure, build, and test:
+
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
+cargo test --workspace
 ```
 
 Build directories are disposable. If CMake reports that a cache was generated
-from a different source path, configure a fresh directory such as `build-release`
-or remove the stale local build tree.
+from a different source path, configure a fresh directory such as
+`build-release` or remove the stale local build tree.
 
-Run the game:
+## Run
+
+Run the playable sample:
 
 ```bash
 ./build/aster_lumen_run
 ```
 
-The desktop executables default to frame-paced interactive presentation. Pass
-`--unlocked` only when measuring raw throughput or debugging the render loop.
-
-Run the studio:
+Run Studio:
 
 ```bash
 ./build/aster_studio
 ```
 
-Render the standalone industrial material preview:
+Render the offline preview:
 
 ```bash
 ./build/aster_preview --scene industrial-pipe --output /tmp/aster_learning_shots/industrial_pipe.ppm --width 1280 --height 720 --samples 2
 ```
 
-Run smoke checks:
+Interactive executables are frame-paced by default. Pass `--unlocked` only when
+measuring raw throughput or debugging the render loop.
+
+Set `ASTER_FORCE_SOFTWARE_RENDERER=1` on macOS to use the deterministic
+software fallback.
+
+## Checks
+
+The C++ test suite is split into subsystem targets so failures point at the
+module boundary that regressed:
+
+- `aster_core_tests`
+- `aster_geometry_tests`
+- `aster_render_scene_tests`
+- `aster_systems_tests`
+- `aster_physics_tests`
+- `aster_sample_tests`
+- `aster_network_tests` when networking is enabled
+
+Run smoke checks after platform, renderer, UI, or sample-loop changes:
 
 ```bash
 ./build/aster_lumen_run --smoke-test
@@ -141,8 +145,26 @@ Check frame timing:
 ./build/aster_studio --frame-report --frame-report-warmup 30 --run-frames 240 --lag-budget-ms 16.7 --window-width 1280 --window-height 720
 ```
 
-Set `ASTER_FORCE_SOFTWARE_RENDERER=1` to run the deterministic software fallback
-on macOS.
+## Clean Worktree Policy
+
+Generated local state is intentionally untracked and disposable. Before a large
+refactor, inspect first:
+
+```bash
+git status --short --ignored
+git clean -ndX
+git clean -nd
+```
+
+Remove ignored build and cache artifacts only when they are no longer needed:
+
+```bash
+git clean -fdX
+```
+
+Use `rmdir cmake tools` only for empty local scratch directories. Do not use
+broad untracked cleanup when checked-in assets, screenshots, or source files
+could be mixed with local experiments.
 
 ## Refresh Screenshots
 
@@ -170,8 +192,8 @@ sips -s format png /tmp/aster_learning_shots/industrial_pipe.ppm --out assets/sc
 ffmpeg -y -framerate 24 -i /tmp/aster_learning_shots/cave_entry_frames/frame_%04d.ppm -vf "fps=18,scale=720:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3" assets/screenshots/lumen_cave_entry.gif
 ```
 
-On non-macOS hosts, use an equivalent PPM-to-PNG encoder for the media refresh
-commands and any GIF encoder that accepts numbered PPM frames.
+On non-macOS hosts, use an equivalent PPM-to-PNG encoder and any GIF encoder
+that accepts numbered PPM frames.
 
 ## Platform Targets
 
@@ -180,11 +202,10 @@ Windows configuration skeleton for core/test work.
 
 - macOS uses a native Cocoa adapter for windows, events, cursor state, and
   Metal presentation.
-- Linux uses a raw X11 protocol adapter implemented over POSIX sockets; no
-  desktop client library is linked.
-- Windows currently provides a minimal `aster::Window` adapter so the core
-  library can grow platform support without introducing a desktop wrapper
-  dependency.
+- Linux uses a raw X11 protocol adapter over POSIX sockets; no desktop client
+  library is linked.
+- Windows currently provides a minimal `aster::Window` adapter so core support
+  can grow behind the same contract.
 - Wayland is not implemented yet.
 
 ## Authorship
