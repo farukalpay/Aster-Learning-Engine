@@ -1,7 +1,7 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-#include "aster/game/player_motion.hpp"
+#include "aster/systems/player_motion.hpp"
 
 #include <algorithm>
 

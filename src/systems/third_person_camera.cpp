@@ -1,7 +1,7 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-#include "aster/game/third_person_camera.hpp"
+#include "aster/systems/third_person_camera.hpp"
 
 #include <algorithm>
 #include <cmath>

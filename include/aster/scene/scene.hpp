@@ -50,6 +50,8 @@ enum class SurfacePattern {
   CaveWeb,
   CaveSkitterChitin,
   CaveSkitterEye,
+  WeatheredMetal,
+  WeldBead,
 };
 
 enum class FaceCullMode {
@@ -227,8 +229,6 @@ struct RenderObject {
 
 class Scene {
 public:
-  static Scene makeShowcase();
-
   [[nodiscard]] const std::vector<RenderObject> &objects() const {
     return objects_;
   }

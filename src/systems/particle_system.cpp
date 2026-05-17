@@ -1,7 +1,7 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-#include "aster/game/particle_system.hpp"
+#include "aster/systems/particle_system.hpp"
 
 #include <algorithm>
 #include <cmath>

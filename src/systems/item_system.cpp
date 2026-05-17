@@ -1,7 +1,7 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-#include "aster/game/item_system.hpp"
+#include "aster/systems/item_system.hpp"
 
 #include <stdexcept>
 

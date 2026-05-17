@@ -392,6 +392,41 @@ aster::Vec3 amberAlbedo(const aster::Material &material, const aster::Vec3 world
          material.emission_color * (0.08f + smoothstep(0.70f, 0.98f, streak) * 0.16f);
 }
 
+aster::Vec3 weatheredMetalAlbedo(const aster::Material &material, const aster::Vec3 world_position,
+                                 const aster::Vec3 normal) {
+  const float detail = std::max(material.detail_scale, 0.001f);
+  const float broad = projectedFbm(material, world_position, normal, 0.16f, 307.0f);
+  const float fine = projectedFbm(material, world_position + normal * 0.05f, normal, 0.74f, 331.0f);
+  const float pitting = ridge(projectedFbm(material, world_position, normal, 1.38f, 359.0f));
+  const float upward = smoothstep(0.14f, 0.80f, normal.y);
+  const float oxide =
+      smoothstep(0.42f, 0.95f,
+                 broad * 0.48f + pitting * 0.34f + upward * material.pattern_depth * 0.42f);
+  const aster::Vec3 cool_steel =
+      material.base_color * aster::Vec3{0.82f, 0.88f, 0.92f} * (0.60f + fine * 0.22f);
+  const aster::Vec3 exposed =
+      material.base_color * aster::Vec3{1.18f, 1.16f, 1.06f} * (0.66f + pitting * 0.16f);
+  const aster::Vec3 orange_rust{0.42f, 0.15f, 0.045f};
+  const aster::Vec3 black_rust{0.085f, 0.060f, 0.043f};
+  aster::Vec3 color = mixVec(cool_steel, mixVec(black_rust, orange_rust, fine), oxide);
+  color = mixVec(color, exposed, material.edge_wear * smoothstep(0.72f, 0.98f, pitting));
+  return aster::clamp(color * (0.98f + detail * 0.002f), 0.0f, 4.0f);
+}
+
+aster::Vec3 weldBeadAlbedo(const aster::Material &material, const aster::Vec3 world_position,
+                           const aster::Vec3 normal, const aster::Vec2 uv) {
+  const float bead_ripple =
+      0.5f + 0.5f * std::sin(uv.y * std::max(material.pattern_scale.y, 0.001f) * kTau +
+                              projectedFbm(material, world_position, normal, 1.0f, 401.0f) * 3.8f);
+  const float heat_band = smoothstep(0.05f, 0.58f, ridge(uv.x));
+  const aster::Vec3 base = material.base_color * (0.76f + bead_ripple * 0.28f);
+  const aster::Vec3 straw{0.72f, 0.38f, 0.12f};
+  const aster::Vec3 blue_heat{0.11f, 0.16f, 0.30f};
+  aster::Vec3 color = mixVec(base, straw, heat_band * 0.24f);
+  color = mixVec(color, blue_heat, heat_band * (1.0f - bead_ripple) * 0.16f);
+  return aster::clamp(color, 0.0f, 4.0f);
+}
+
 aster::Vec3 pbrNeutralTonemap(aster::Vec3 color) {
   constexpr float start_compression = 0.76f;
   constexpr float desaturation = 0.15f;
@@ -598,6 +633,12 @@ aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 wo
     return aster::clamp(organicFiberAlbedo(material, world_position, normal, uv, 193.0f) *
                             aster::Vec3{0.90f, 0.78f, 0.58f},
                         0.0f, 4.0f);
+  case aster::SurfacePattern::WeatheredMetal:
+    return applyProceduralLayer(material, world_position, normal,
+                                weatheredMetalAlbedo(material, world_position, normal));
+  case aster::SurfacePattern::WeldBead:
+    return applyProceduralLayer(material, world_position, normal,
+                                weldBeadAlbedo(material, world_position, normal, uv));
   case aster::SurfacePattern::None:
   case aster::SurfacePattern::GrassSoil:
   case aster::SurfacePattern::SoilPath:

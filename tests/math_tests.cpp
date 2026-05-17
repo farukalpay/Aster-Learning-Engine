@@ -7,17 +7,17 @@
 #include "aster/core/frame_time_stats.hpp"
 #include "aster/core/profiler.hpp"
 #include "aster/core/work_budget.hpp"
-#include "aster/game/animation_system.hpp"
-#include "aster/game/creature_motion.hpp"
-#include "aster/game/equipment_system.hpp"
-#include "aster/game/interaction_system.hpp"
-#include "aster/game/inventory_system.hpp"
-#include "aster/game/item_system.hpp"
-#include "aster/game/light_system.hpp"
-#include "aster/game/lumen_run.hpp"
-#include "aster/game/particle_system.hpp"
-#include "aster/game/player_motion.hpp"
-#include "aster/game/third_person_camera.hpp"
+#include "aster/systems/animation_system.hpp"
+#include "aster/systems/creature_motion.hpp"
+#include "aster/systems/equipment_system.hpp"
+#include "aster/systems/interaction_system.hpp"
+#include "aster/systems/inventory_system.hpp"
+#include "aster/systems/item_system.hpp"
+#include "aster/systems/light_system.hpp"
+#include "aster/samples/lumen_run.hpp"
+#include "aster/systems/particle_system.hpp"
+#include "aster/systems/player_motion.hpp"
+#include "aster/systems/third_person_camera.hpp"
 #include "aster/geometry/architectural_mesh.hpp"
 #include "aster/geometry/brush_level_mesh.hpp"
 #include "aster/geometry/cable_mesh.hpp"
@@ -35,6 +35,7 @@
 #include "aster/geometry/stroke_mesh.hpp"
 #include "aster/geometry/terrain_mesh.hpp"
 #include "aster/geometry/terrain_sculpt.hpp"
+#include "aster/geometry/tube_mesh.hpp"
 #include "aster/geometry/voxel_cave.hpp"
 #include "aster/geometry/voxel_structure.hpp"
 #include "aster/geometry/water_mesh.hpp"
@@ -56,6 +57,8 @@
 #include "aster/render/render_device.hpp"
 #include "aster/render/render_scene.hpp"
 #include "aster/render/software_framebuffer.hpp"
+#include "aster/render/software_preview_renderer.hpp"
+#include "aster/samples/showcase_scenes.hpp"
 #include "aster/scene/avatar.hpp"
 #include "aster/scene/scene.hpp"
 #include "aster/scene/scene_coherence.hpp"
@@ -2338,11 +2341,71 @@ void testCastleCourseBuild() {
 }
 
 void testSceneContract() {
-  const aster::Scene scene = aster::Scene::makeShowcase();
+  const aster::Scene scene = aster::makeArchitectureShowcaseScene();
   assert(scene.objects().size() >= 3u);
   assert(scene.objects().front().primitive == aster::MeshPrimitive::Plane);
   assert(scene.objects().front().material.surface_pattern == aster::SurfacePattern::CourseCells);
   assert(scene.objects().front().material.pattern_depth > 0.0f);
+}
+
+void testIndustrialPipeSceneContract() {
+  const aster::CpuMesh tube = aster::makeTubeMesh({.length = 2.0f,
+                                                   .outer_radius = 0.5f,
+                                                   .wall_thickness = 0.08f,
+                                                   .radial_segments = 24,
+                                                   .length_segments = 3});
+  const aster::CpuMesh bead =
+      aster::makeCircumferentialBeadMesh({.pipe_radius = 0.5f,
+                                          .bead_radius = 0.04f,
+                                          .axial_width = 0.14f,
+                                          .radial_segments = 24,
+                                          .bead_segments = 8});
+  assert(!tube.vertices.empty());
+  assert(!tube.indices.empty());
+  assert(!bead.vertices.empty());
+  assert(!bead.indices.empty());
+
+  const aster::Scene scene = aster::makeIndustrialPipeScene();
+  std::size_t weathered_metal = 0;
+  std::size_t weld_beads = 0;
+  for (const aster::RenderObject &object : scene.objects()) {
+    weathered_metal +=
+        object.material.surface_pattern == aster::SurfacePattern::WeatheredMetal ? 1u : 0u;
+    weld_beads += object.material.surface_pattern == aster::SurfacePattern::WeldBead ? 1u : 0u;
+  }
+  assert(weathered_metal == 1u);
+  assert(weld_beads == 2u);
+}
+
+void testSoftwarePreviewRendererProducesImage() {
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.58f, 0.0f};
+  camera.yaw = aster::radians(64.0f);
+  camera.pitch = aster::radians(15.0f);
+  camera.radius = 5.0f;
+  camera.vertical_fov = aster::radians(42.0f);
+
+  aster::RendererSettings settings;
+  settings.use_aces_tonemap = true;
+  settings.procedural_surface_normals = true;
+  settings.sun_light.enabled = true;
+  settings.sun_light.intensity = 2.0f;
+  settings.sun_light.direction_to_light = {-0.50f, 0.78f, 0.36f};
+  settings.ambient_strength = 0.24f;
+  settings.ambient_floor = 0.018f;
+
+  const aster::SoftwareFrameBuffer framebuffer = aster::renderSoftwarePreview(
+      aster::makeIndustrialPipeScene(), camera,
+      {.width = 48, .height = 28, .samples_per_axis = 1, .frame_seconds = 0.0, .settings = settings});
+  assert(framebuffer.width() == 48);
+  assert(framebuffer.height() == 28);
+  assert(framebuffer.rgba8().size() == 48u * 28u * 4u);
+  bool has_non_black_pixel = false;
+  for (std::size_t i = 0; i + 2u < framebuffer.rgba8().size(); i += 4u) {
+    has_non_black_pixel = has_non_black_pixel || framebuffer.rgba8()[i + 0u] > 8u ||
+                          framebuffer.rgba8()[i + 1u] > 8u || framebuffer.rgba8()[i + 2u] > 8u;
+  }
+  assert(has_non_black_pixel);
 }
 
 void testMaterialRenderPolicies() {
@@ -4131,6 +4194,8 @@ int main() {
   testVoxelStructureBuild();
   testCastleCourseBuild();
   testSceneContract();
+  testIndustrialPipeSceneContract();
+  testSoftwarePreviewRendererProducesImage();
   testMaterialRenderPolicies();
   testRustRenderFramePlanContracts();
   testGeneratedSceneryAssembly();

@@ -80,10 +80,18 @@ and optional generated meshes. Materials expose explicit alpha, depth, render
 queue, procedural surface, and camera-occlusion policy through `MaterialDesc`
 and related helpers. Scene data does not own platform resources.
 
-`include/aster/game`
+`include/aster/systems`
 
-Reusable gameplay systems for Lumen Run: movement, interaction, inventory,
-items, lighting, particles, creature motion, camera behavior, and game state.
+Reusable simulation and gameplay-facing systems: movement, interaction,
+inventory, items, equipment, lighting, particles, creature motion, and camera
+behavior. These modules are sample-agnostic and must not encode Lumen Run
+content assumptions.
+
+`include/aster/samples`
+
+Sample-owned contracts and authored scene builders. Lumen Run and showcase
+scenes consume engine, geometry, renderer, UI, physics, and systems modules from
+the outside. Sample code can be content-specific; engine and systems code cannot.
 
 `include/aster/ui`
 
@@ -103,9 +111,9 @@ Executable wiring only. `aster_lumen_run`, `aster_studio`, `aster_preview`, and
 flowchart LR
   Platform["aster::Window"] --> Snapshot["ControlSnapshot"]
   Snapshot --> Controls["ControlState"]
-  Controls --> Game["LumenRun"]
+  Controls --> Sample["Sample App"]
   Controls --> Camera["OrbitCamera"]
-  Game --> Scene["Scene"]
+  Sample --> Scene["Scene"]
   Assets["Asset + Mesh Pipeline"] --> Scene
   Scene --> RenderScene["RenderScene Packets"]
   RenderScene --> RustPlan["Rust FrameRenderPlan"]
@@ -118,7 +126,7 @@ flowchart LR
   Framebuffer --> Platform
   NativeScene --> Capture["PPM Capture"]
   Framebuffer --> Capture
-  Game --> HudModel["HUD Models"]
+  Sample --> HudModel["HUD Models"]
   HudModel --> UI["HudLayer / UiCanvas"]
   Snapshot --> UI
   UI --> Framebuffer
@@ -159,13 +167,19 @@ origin as live presentation.
 
 Procedural material evaluation is pattern-driven rather than sample-specific.
 Terrain, water, cave rock, coal veins, foliage, fur, amber, wood, stone, scales,
-feathers, and fiber patterns are selected through `Material::surface_pattern`
-and parameterized by material fields. New patterns should extend that contract
-in both renderers rather than adding game-side shader branches.
+feathers, weathered metal, weld beads, and fiber patterns are selected through
+`Material::surface_pattern` and parameterized by material fields. New patterns
+should extend that contract in both renderers rather than adding sample-side
+shader branches.
 
 Renderer policy belongs in `src/render` and `crates/aster_runtime`. Scene
-description belongs in `src/scene` and `src/game`. App files should only select
-settings and pass them to the renderer.
+description belongs in `src/scene` and `src/samples`. App files should only
+select settings and pass them to the renderer.
+
+The offline preview path uses `aster::renderSoftwarePreview`, so ray traversal,
+material preview shading, and PPM-backed framebuffer output remain in the render
+layer. `apps/offline/preview_main.cpp` is limited to argument parsing, scene
+selection, camera setup, and output location.
 
 `RenderDevice::prepareScene` updates the C++ render-scene cache and mesh
 preparation cache. Every frame, `RenderDevice::render` extracts current

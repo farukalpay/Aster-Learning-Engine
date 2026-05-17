@@ -9,6 +9,7 @@
 #include "aster/platform/window.hpp"
 #include "aster/render/frame_capture.hpp"
 #include "aster/render/render_device.hpp"
+#include "aster/samples/showcase_scenes.hpp"
 #include "aster/scene/scene.hpp"
 #include "aster/ui/editor_ui.hpp"
 
@@ -190,7 +191,7 @@ int main(int argc, char **argv) {
     aster::RenderDevice renderer;
     renderer.initialize();
 
-    aster::Scene scene = aster::Scene::makeShowcase();
+    aster::Scene scene = aster::makeArchitectureShowcaseScene();
     renderer.prepareScene(scene);
     aster::OrbitCamera camera;
     if (!screenshot_path.empty()) {

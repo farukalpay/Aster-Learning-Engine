@@ -1,9 +1,9 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-#include "aster/game/lumen_run.hpp"
+#include "aster/samples/lumen_run.hpp"
 #include "aster/core/profiler.hpp"
-#include "aster/game/player_motion.hpp"
+#include "aster/systems/player_motion.hpp"
 #include "aster/geometry/architectural_mesh.hpp"
 #include "aster/geometry/cable_mesh.hpp"
 #include "aster/geometry/castle_course.hpp"

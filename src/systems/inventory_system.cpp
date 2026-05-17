@@ -1,7 +1,7 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-#include "aster/game/inventory_system.hpp"
+#include "aster/systems/inventory_system.hpp"
 
 #include <algorithm>
 

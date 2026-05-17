@@ -1,8 +1,9 @@
 # Aster Learning Engine
 
-Aster Learning Engine is an educational C++20 game engine by Faruk Alpay. The
-core engine, native renderer, platform adapters, networking, profiling, sample
-game, editor UI, generated media, and tests live in one inspectable source tree.
+Aster Learning Engine is an educational C++20 engine by Faruk Alpay. The core
+engine, reusable simulation systems, native renderer, platform adapters,
+networking, profiling, sample scenes, editor UI, generated media, and tests live
+in one inspectable source tree.
 
 Aster v1 keeps reusable code in `include/aster` and `src`, keeps executable code
 thin, and limits outside boundaries to standard C++ plus direct operating-system
@@ -11,6 +12,8 @@ APIs inside isolated platform files.
 ## Captures
 
 The images below are generated from the current build.
+
+![Industrial pipe material preview](assets/screenshots/industrial_pipe.png)
 
 ![Lumen Run gameplay](assets/screenshots/lumen_run.png)
 
@@ -32,8 +35,14 @@ The images below are generated from the current build.
   material shading, contact shadows, fog, tonemapping, frame pacing, and UI
   composition.
 - A deterministic software renderer used for fallback, capture, preview, and
-  renderer diagnostics.
-- Lumen Run, a playable sample that exercises terrain, castle geometry, cave
+  renderer diagnostics, including standalone sample-scene preview rendering.
+- Reusable gameplay and simulation systems for movement, interaction,
+  inventory, equipment, lighting, particles, and creature motion. These systems
+  live outside sample code and do not depend on Lumen Run.
+- Sample scenes and apps that consume the engine from the outside: Lumen Run as
+  a playable sample, the architecture showcase, and an industrial material
+  preview with a rusty welded pipe.
+- Lumen Run exercises terrain, castle geometry, cave
   traversal, sealed cave portals, authored deep-cave continuation, fixture-driven
   cave lighting, mineral formations, procedural ground detail, water,
   vegetation, avatar animation, inventory, HUD, interaction, physics,
@@ -51,9 +60,9 @@ The images below are generated from the current build.
 
 | Path | Purpose |
 | --- | --- |
-| `apps/` | Thin executables for Lumen Run, Studio, preview, and network probe |
+| `apps/` | Thin executables for sample apps, Studio, preview, and network probe |
 | `include/aster/` | Public engine headers |
-| `src/` | Engine, renderer, platform, game, UI, asset, geometry, net, and core code |
+| `src/` | Engine, renderer, platform, reusable systems, samples, UI, asset, geometry, net, and core code |
 | `tests/` | Unit, regression, and structure tests |
 | `assets/` | Generated screenshots and README media |
 | `docs/` | Architecture and research notes |
@@ -63,6 +72,10 @@ The images below are generated from the current build.
 - Added a continuous procedural cave-mouth formation, reusable ground-detail
   scatter, cached cave fixture state, and deterministic cave-entry capture and
   benchmark routes.
+- Moved Lumen Run into the sample layer, split reusable gameplay systems out of
+  `game/`, and added a non-Lumen industrial pipe render sample.
+- Added reusable tube and circumferential weld-bead mesh generation plus
+  weathered-metal and weld-bead procedural material patterns.
 - Added sealed cave portal/throat geometry, authored deep-cave continuation,
   and industrial wall-light placement for darker cave traversal.
 - Expanded analytic procedural material controls across terrain, grass, rock,
@@ -106,6 +119,12 @@ Run the studio:
 ./build/aster_studio
 ```
 
+Render the standalone industrial material preview:
+
+```bash
+./build/aster_preview --scene industrial-pipe --output /tmp/aster_learning_shots/industrial_pipe.ppm --width 1280 --height 720 --samples 2
+```
+
 Run smoke checks:
 
 ```bash
@@ -138,6 +157,7 @@ find /tmp/aster_learning_shots -type f \( -name '*.ppm' -o -name '*.png' -o -nam
 ./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_inventory.ppm --screenshot-frame 2 --open-inventory --player-at-supply-crate --capture-hud --msaa 0 --window-width 1280 --window-height 720
 ./build/aster_studio --screenshot /tmp/aster_learning_shots/studio.ppm --window-width 1280 --window-height 720
 ./build/aster_preview --output /tmp/aster_learning_shots/preview.ppm --width 960 --height 540
+./build/aster_preview --scene industrial-pipe --output /tmp/aster_learning_shots/industrial_pipe.ppm --width 1280 --height 720 --samples 2
 ./build/aster_lumen_run --capture-sequence /tmp/aster_learning_shots/cave_entry_frames --capture-frames 96 --capture-route cave-entry --msaa 0 --window-width 960 --window-height 540
 
 sips -s format png /tmp/aster_learning_shots/lumen_run.ppm --out assets/screenshots/lumen_run.png
@@ -146,6 +166,7 @@ sips -s format png /tmp/aster_learning_shots/lumen_cave_interior.ppm --out asset
 sips -s format png /tmp/aster_learning_shots/lumen_inventory.ppm --out assets/screenshots/lumen_inventory.png
 sips -s format png /tmp/aster_learning_shots/studio.ppm --out assets/screenshots/learning_studio.png
 sips -s format png /tmp/aster_learning_shots/preview.ppm --out assets/screenshots/aster_preview.png
+sips -s format png /tmp/aster_learning_shots/industrial_pipe.ppm --out assets/screenshots/industrial_pipe.png
 ffmpeg -y -framerate 24 -i /tmp/aster_learning_shots/cave_entry_frames/frame_%04d.ppm -vf "fps=18,scale=720:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3" assets/screenshots/lumen_cave_entry.gif
 ```
 

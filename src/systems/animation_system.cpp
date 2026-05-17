@@ -1,7 +1,7 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-#include "aster/game/animation_system.hpp"
+#include "aster/systems/animation_system.hpp"
 
 #include <algorithm>
 #include <cmath>

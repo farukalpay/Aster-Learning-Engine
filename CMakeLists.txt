@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.24)
 project(
   AsterLearningEngine
   VERSION 0.2.0
-  DESCRIPTION "An educational C++20 game engine with owned platform, renderer, and sample code"
+  DESCRIPTION "An educational C++20 real-time engine with owned platform, renderer, systems, and samples"
   LANGUAGES C CXX
 )
 
@@ -109,7 +109,7 @@ if(ASTER_BUILD_STUDIO)
   add_executable(aster_studio apps/studio/main.cpp)
   target_link_libraries(aster_studio PRIVATE aster)
 
-  add_executable(aster_lumen_run apps/game/main.cpp)
+  add_executable(aster_lumen_run apps/samples/lumen_run/main.cpp)
   target_link_libraries(aster_lumen_run PRIVATE aster)
 endif()
 

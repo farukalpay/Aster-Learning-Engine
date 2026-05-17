@@ -1,7 +1,7 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-#include "aster/game/equipment_system.hpp"
+#include "aster/systems/equipment_system.hpp"
 
 #include <utility>
 

@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "aster/game/mining_system.hpp"
+#include "aster/systems/mining_system.hpp"
 #include "aster/math/vec.hpp"
 
 #include <cstddef>

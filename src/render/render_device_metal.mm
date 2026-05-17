@@ -163,7 +163,9 @@ bool isStructuredSurfacePattern(const aster::SurfacePattern pattern) {
          pattern == aster::SurfacePattern::CaveRock || pattern == aster::SurfacePattern::CoalVein ||
          pattern == aster::SurfacePattern::CaveWeb ||
          pattern == aster::SurfacePattern::CaveSkitterChitin ||
-         pattern == aster::SurfacePattern::CaveSkitterEye;
+         pattern == aster::SurfacePattern::CaveSkitterEye ||
+         pattern == aster::SurfacePattern::WeatheredMetal ||
+         pattern == aster::SurfacePattern::WeldBead;
 }
 
 bool isContactShadowUtility(const aster::RenderObject &object) {
@@ -621,6 +623,30 @@ public:
            "* 1.9, 283.0)); "
            "return clamp(base * (0.62 + wet * 0.44) + object.emission_strength.rgb * (0.28 + wet "
            "* 0.34), float3(0.0), float3(4.0)); }\n"
+           "float3 weathered_metal(float3 base, constant Object &object, float3 world, float3 "
+           "normal) { "
+           "float detail = max(object.material_params.w, 0.001); "
+           "float broad = projected_fbm(world, normal, detail * 0.16, 307.0); "
+           "float fine = projected_fbm(world + normal * 0.05, normal, detail * 0.74, 331.0); "
+           "float pitting = ridge1(projected_fbm(world, normal, detail * 1.38, 359.0)); "
+           "float upward = smooth1(0.14, 0.80, normal.y); "
+           "float oxide = smooth1(0.42, 0.95, broad * 0.48 + pitting * 0.34 + upward * "
+           "object.pattern_params.w * 0.42); "
+           "float3 cool = base * float3(0.82, 0.88, 0.92) * (0.60 + fine * 0.22); "
+           "float3 exposed = base * float3(1.18, 1.16, 1.06) * (0.66 + pitting * 0.16); "
+           "float3 rust = mix(float3(0.085, 0.060, 0.043), float3(0.42, 0.15, 0.045), fine); "
+           "float3 color = mix(cool, rust, oxide); "
+           "return clamp(mix(color, exposed, object.material_params.z * smooth1(0.72, 0.98, "
+           "pitting)), float3(0.0), float3(4.0)); }\n"
+           "float3 weld_bead(float3 base, constant Object &object, float3 world, float3 normal, "
+           "float2 uv) { "
+           "float ripple = 0.5 + 0.5 * sin(uv.y * max(object.pattern_params.z, 0.001) * "
+           "6.2831853 + projected_fbm(world, normal, object.material_params.w, 401.0) * 3.8); "
+           "float heat = smooth1(0.05, 0.58, ridge1(uv.x)); "
+           "float3 color = base * (0.76 + ripple * 0.28); "
+           "color = mix(color, float3(0.72, 0.38, 0.12), heat * 0.24); "
+           "return clamp(mix(color, float3(0.11, 0.16, 0.30), heat * (1.0 - ripple) * 0.16), "
+           "float3(0.0), float3(4.0)); }\n"
            "float3 foliage(float3 base, constant Object &object, float3 world, float3 normal, "
            "float2 uv) { "
            "float blade_height = saturate1(uv.y); float root_weight = 1.0 - smooth1(0.04, "
@@ -738,6 +764,10 @@ public:
            "cave_skitter_chitin(base, object, world, normal, uv), object, world, normal); "
            "if (is_pattern(pattern, 22.0) > 0.5) return cave_skitter_eye(base, object, world, "
            "normal); "
+           "if (is_pattern(pattern, 23.0) > 0.5) return apply_procedural_layer("
+           "weathered_metal(base, object, world, normal), object, world, normal); "
+           "if (is_pattern(pattern, 24.0) > 0.5) return apply_procedural_layer("
+           "weld_bead(base, object, world, normal, uv), object, world, normal); "
            "if (is_pattern(pattern, 11.0) > 0.5) return apply_procedural_layer(foliage(base, "
            "object, world, normal, uv), object, world, normal); "
            "if (is_pattern(pattern, 13.0) > 0.5) { float streak = ridge1(projected_fbm(world, "

@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "aster/game/inventory_system.hpp"
+#include "aster/systems/inventory_system.hpp"
 
 #include <string>
 

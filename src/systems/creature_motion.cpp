@@ -1,7 +1,7 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-#include "aster/game/creature_motion.hpp"
+#include "aster/systems/creature_motion.hpp"
 
 #include "aster/ai/behavior_tree.hpp"
 #include "aster/ai/steering.hpp"

@@ -1,7 +1,7 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-#include "aster/game/mining_system.hpp"
+#include "aster/systems/mining_system.hpp"
 
 #include <algorithm>
 
