@@ -3,6 +3,8 @@
 
 #include "test_support.hpp"
 
+#include <cstring>
+
 namespace {
 
 void testFramebufferOriginContract() {
@@ -494,22 +496,50 @@ void testSceneTraceFoSeparatorSolving() {
   assert(profile.quantifier_rank == 0u);
 }
 
+struct TestCase {
+  const char *name = "";
+  void (*run)() = nullptr;
+};
+
+constexpr TestCase kTestCases[] = {
+    {"framebuffer_origin", testFramebufferOriginContract},
+    {"ui_text_fitting", testUiTextFittingContract},
+    {"hud_visibility", testHudVisibilityPolicy},
+    {"scene_contract", testSceneContract},
+    {"industrial_pipe_scene", testIndustrialPipeSceneContract},
+    {"software_preview_renderer", testSoftwarePreviewRendererProducesImage},
+    {"material_render_policies", testMaterialRenderPolicies},
+    {"rust_render_frame_plan", testRustRenderFramePlanContracts},
+    {"scene_coherence_energy", testSceneCoherenceEnergy},
+    {"scene_trace_validation", testSceneTraceValidation},
+    {"scene_trace_fo_model_checking", testSceneTraceFoModelChecking},
+    {"scene_trace_fo_quantifier_rank", testSceneTraceFoQuantifierRank},
+    {"scene_trace_fo_separator_solving", testSceneTraceFoSeparatorSolving},
+};
+
+int runTestCase(const TestCase &test_case) {
+  std::cout << "render_scene_tests: " << test_case.name << '\n';
+  test_case.run();
+  std::cout << "render_scene_tests: " << test_case.name << " passed.\n";
+  return 0;
+}
+
 } // namespace
 
-int main() {
-  testFramebufferOriginContract();
-  testUiTextFittingContract();
-  testHudVisibilityPolicy();
-  testSceneContract();
-  testIndustrialPipeSceneContract();
-  testSoftwarePreviewRendererProducesImage();
-  testMaterialRenderPolicies();
-  testRustRenderFramePlanContracts();
-  testSceneCoherenceEnergy();
-  testSceneTraceValidation();
-  testSceneTraceFoModelChecking();
-  testSceneTraceFoQuantifierRank();
-  testSceneTraceFoSeparatorSolving();
+int main(const int argc, const char **argv) {
+  if (argc > 1) {
+    for (const TestCase &test_case : kTestCases) {
+      if (std::strcmp(argv[1], test_case.name) == 0) {
+        return runTestCase(test_case);
+      }
+    }
+    std::cerr << "Unknown render_scene_tests case: " << argv[1] << '\n';
+    return 1;
+  }
+
+  for (const TestCase &test_case : kTestCases) {
+    runTestCase(test_case);
+  }
   std::cout << "render_scene_tests passed.\n";
   return 0;
 }

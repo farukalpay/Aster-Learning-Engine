@@ -145,7 +145,27 @@ if(ASTER_BUILD_TESTS)
 
   aster_add_test(aster_core_tests tests/core_tests.cpp)
   aster_add_test(aster_geometry_tests tests/geometry_tests.cpp)
-  aster_add_test(aster_render_scene_tests tests/render_scene_tests.cpp)
+  add_executable(aster_render_scene_tests tests/render_scene_tests.cpp)
+  target_link_libraries(aster_render_scene_tests PRIVATE aster)
+  target_include_directories(aster_render_scene_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  foreach(render_scene_case
+      framebuffer_origin
+      ui_text_fitting
+      hud_visibility
+      scene_contract
+      industrial_pipe_scene
+      software_preview_renderer
+      material_render_policies
+      rust_render_frame_plan
+      scene_coherence_energy
+      scene_trace_validation
+      scene_trace_fo_model_checking
+      scene_trace_fo_quantifier_rank
+      scene_trace_fo_separator_solving
+  )
+    add_test(NAME aster_render_scene_tests.${render_scene_case}
+             COMMAND aster_render_scene_tests ${render_scene_case})
+  endforeach()
   aster_add_test(aster_systems_tests tests/systems_tests.cpp)
   aster_add_test(aster_physics_tests tests/physics_tests.cpp)
   aster_add_test(aster_sample_tests tests/sample_tests.cpp)
