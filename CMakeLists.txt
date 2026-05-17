@@ -41,10 +41,17 @@ endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(ASTER_CARGO_FLAGS "")
+  set(ASTER_CARGO_PROFILE "debug")
   set(ASTER_RUST_LIBRARY "${PROJECT_SOURCE_DIR}/target/debug/${ASTER_RUST_STATICLIB_NAME}")
 else()
   set(ASTER_CARGO_FLAGS "--release")
+  set(ASTER_CARGO_PROFILE "release")
   set(ASTER_RUST_LIBRARY "${PROJECT_SOURCE_DIR}/target/release/${ASTER_RUST_STATICLIB_NAME}")
+endif()
+if(WIN32)
+  set(ASTER_ASSETC_EXECUTABLE "${PROJECT_SOURCE_DIR}/target/${ASTER_CARGO_PROFILE}/aster_assetc.exe")
+else()
+  set(ASTER_ASSETC_EXECUTABLE "${PROJECT_SOURCE_DIR}/target/${ASTER_CARGO_PROFILE}/aster_assetc")
 endif()
 
 add_custom_command(
@@ -53,6 +60,8 @@ add_custom_command(
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   DEPENDS
     "${PROJECT_SOURCE_DIR}/Cargo.toml"
+    "${PROJECT_SOURCE_DIR}/crates/aster_content/Cargo.toml"
+    "${PROJECT_SOURCE_DIR}/crates/aster_content/src/lib.rs"
     "${PROJECT_SOURCE_DIR}/crates/aster_runtime/Cargo.toml"
     "${PROJECT_SOURCE_DIR}/crates/aster_runtime/src/lib.rs"
     "${PROJECT_SOURCE_DIR}/crates/aster_assetc/Cargo.toml"
@@ -235,6 +244,14 @@ if(ASTER_BUILD_TESTS)
 
   aster_add_test(aster_core_tests tests/core_tests.cpp)
   aster_add_test(aster_geometry_tests tests/geometry_tests.cpp)
+  add_executable(aster_asset_cache_tests tests/asset_cache_tests.cpp)
+  target_link_libraries(aster_asset_cache_tests PRIVATE aster_engine_internal)
+  target_include_directories(aster_asset_cache_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  target_compile_definitions(aster_asset_cache_tests PRIVATE
+    ASTER_ASSETC_EXECUTABLE="${ASTER_ASSETC_EXECUTABLE}"
+  )
+  add_dependencies(aster_asset_cache_tests aster_rust_runtime)
+  add_test(NAME aster_asset_cache_tests COMMAND aster_asset_cache_tests)
   add_executable(aster_kernel_public_consumer tests/kernel_public_consumer.cpp)
   target_link_libraries(aster_kernel_public_consumer PRIVATE aster_kernel)
   add_test(NAME aster_kernel_public_consumer COMMAND aster_kernel_public_consumer)

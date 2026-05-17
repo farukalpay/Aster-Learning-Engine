@@ -90,11 +90,20 @@ C++ owns scene extraction, platform resources, software rasterization, and Metal
 command submission; Rust owns reusable data planning that should not live in
 game or app code.
 
+`crates/aster_content`
+
+Rust content pipeline code for imported/static scene assets. This layer imports
+the supported `.scene` JSON plus external buffers, prepares mesh data, extracts
+material and texture dependency metadata, builds static collision payloads, and
+writes deterministic `.astercache` runtime files. It is a reusable library; CLI
+argument parsing and app behavior stay outside it.
+
 `crates/aster_assetc`
 
-Rust asset/tooling entrypoint. It reuses `aster_runtime` planner logic for
-offline validation and is the home for future asset-pack compilation instead of
-duplicating renderer planning in product executables.
+Rust asset compiler CLI. It delegates content import/cache writing to
+`aster_content`, keeps `--self-check` for the shared Rust render planner, and
+provides `compile`/`inspect` commands instead of duplicating compiler logic in
+product executables.
 
 `include/aster/scene`
 

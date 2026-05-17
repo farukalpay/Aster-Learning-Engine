@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/aster_content",
   "crates/aster_runtime",
   "crates/aster_assetc",
 ]

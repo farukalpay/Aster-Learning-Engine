@@ -62,8 +62,9 @@ The checked-in images are generated from the current build.
 | `src/` | Engine implementations, platform adapters, renderers, reusable systems, and sample-owned implementations |
 | `src/samples/lumen_run_*.cpp` | Lumen Run implementation split by lifecycle, scene/physics rebuild, validation, simulation, interaction, and mining |
 | `apps/` | Executable wiring only |
+| `crates/aster_content` | Rust asset import, mesh preparation, deterministic cache writing, and cache inspection |
 | `crates/aster_runtime` | Rust frame planning and shared renderer diagnostics |
-| `crates/aster_assetc` | Rust asset/tooling entrypoint |
+| `crates/aster_assetc` | Rust asset compiler CLI for `.scene` to `.astercache` runtime caches |
 | `tests/` | Kernel boundary and subsystem CTest targets with shared local test support |
 | `assets/` | Generated README media and checked-in captures |
 | `docs/` | Architecture notes and research notes |
