@@ -147,7 +147,7 @@ void registerWindowClass() {
   wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
   wc.lpfnWndProc = DefWindowProcW;
   wc.hInstance = GetModuleHandleW(nullptr);
-  wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
   wc.lpszClassName = kWindowClassName;
   if (RegisterClassExW(&wc) == 0u) {
     throw std::runtime_error("Could not register Win32 window class.");
@@ -172,7 +172,7 @@ void enableProcessDpiAwareness() {
 
 namespace aster {
 
-struct Window::Impl {
+struct WindowImpl {
   HWND hwnd = nullptr;
   int width = 1;
   int height = 1;
@@ -187,11 +187,11 @@ struct Window::Impl {
 
 namespace {
 
-Window::Impl *implFromWindow(HWND hwnd) {
-  return reinterpret_cast<Window::Impl *>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+WindowImpl *implFromWindow(HWND hwnd) {
+  return reinterpret_cast<WindowImpl *>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 }
 
-void updateClientSize(Window::Impl &impl) {
+void updateClientSize(WindowImpl &impl) {
   RECT rect{};
   if (impl.hwnd != nullptr && GetClientRect(impl.hwnd, &rect)) {
     impl.width = std::max(rect.right - rect.left, 1L);
@@ -199,7 +199,7 @@ void updateClientSize(Window::Impl &impl) {
   }
 }
 
-void paceSoftwarePresent(Window::Impl &impl) {
+void paceSoftwarePresent(WindowImpl &impl) {
   if (!impl.vsync || impl.qpc_frequency.QuadPart <= 0) {
     QueryPerformanceCounter(&impl.qpc_last);
     return;
@@ -237,7 +237,7 @@ void paceSoftwarePresent(Window::Impl &impl) {
 }
 
 LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-  Window::Impl *impl = implFromWindow(hwnd);
+  WindowImpl *impl = implFromWindow(hwnd);
   switch (message) {
   case WM_CLOSE:
     if (impl != nullptr) {
@@ -345,7 +345,7 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
 } // namespace
 
 Window::Window(const EngineConfig &config)
-    : impl_(std::make_unique<Impl>()),
+    : impl_(std::make_unique<WindowImpl>()),
       scale_framebuffer_to_display_(config.scale_framebuffer_to_display) {
   enableProcessDpiAwareness();
   registerWindowClass();

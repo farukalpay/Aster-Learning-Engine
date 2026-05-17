@@ -11,6 +11,8 @@
 
 namespace aster {
 
+struct WindowImpl;
+
 enum class CursorMode {
   Normal,
   Hidden,
@@ -40,8 +42,7 @@ public:
   [[nodiscard]] ControlSnapshot captureControls(const ControlScheme &scheme) const;
 
 private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
+  std::unique_ptr<WindowImpl> impl_;
   bool scale_framebuffer_to_display_ = false;
 };
 

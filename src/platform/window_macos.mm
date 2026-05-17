@@ -263,11 +263,11 @@ void updateModifierKeys(NativeWindowState *state, NSEvent *event) {
 
 namespace aster {
 
-struct Window::Impl {
+struct WindowImpl {
   NativeWindowState state;
 };
 
-Window::Window(const EngineConfig &config) : impl_(std::make_unique<Impl>()) {
+Window::Window(const EngineConfig &config) : impl_(std::make_unique<WindowImpl>()) {
   scale_framebuffer_to_display_ = config.scale_framebuffer_to_display;
   impl_->state.scale_framebuffer_to_display = config.scale_framebuffer_to_display;
 

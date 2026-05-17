@@ -32,12 +32,18 @@ endif()
 find_package(Threads REQUIRED)
 find_program(CARGO_EXECUTABLE cargo REQUIRED)
 
+if(WIN32)
+  set(ASTER_RUST_STATICLIB_NAME "aster_runtime.lib")
+else()
+  set(ASTER_RUST_STATICLIB_NAME "libaster_runtime.a")
+endif()
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(ASTER_CARGO_FLAGS "")
-  set(ASTER_RUST_LIBRARY "${PROJECT_SOURCE_DIR}/target/debug/libaster_runtime.a")
+  set(ASTER_RUST_LIBRARY "${PROJECT_SOURCE_DIR}/target/debug/${ASTER_RUST_STATICLIB_NAME}")
 else()
   set(ASTER_CARGO_FLAGS "--release")
-  set(ASTER_RUST_LIBRARY "${PROJECT_SOURCE_DIR}/target/release/libaster_runtime.a")
+  set(ASTER_RUST_LIBRARY "${PROJECT_SOURCE_DIR}/target/release/${ASTER_RUST_STATICLIB_NAME}")
 endif()
 
 add_custom_command(
@@ -91,7 +97,7 @@ if(APPLE)
     "-framework QuartzCore"
   )
 elseif(WIN32)
-  target_link_libraries(aster PUBLIC User32 Gdi32)
+  target_link_libraries(aster PUBLIC User32 Gdi32 Ws2_32)
 endif()
 
 target_compile_definitions(aster PUBLIC

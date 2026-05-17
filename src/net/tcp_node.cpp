@@ -11,6 +11,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <cstddef>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -19,6 +20,13 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -27,6 +35,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#endif
 
 namespace aster::net {
 namespace {
@@ -34,43 +43,168 @@ namespace {
 constexpr int kPollTimeoutMs = 16;
 constexpr std::size_t kSocketReadChunkBytes = 4096;
 
-void closeFd(int &fd) {
-  if (fd >= 0) {
+#ifdef _WIN32
+using PollDescriptor = WSAPOLLFD;
+using SocketAddressSize = int;
+using SocketHandle = SOCKET;
+using SocketIoResult = int;
+
+constexpr SocketHandle kInvalidSocket = INVALID_SOCKET;
+
+class SocketRuntime {
+public:
+  SocketRuntime() {
+    WSADATA data{};
+    if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
+      throw std::runtime_error("Could not initialize Winsock.");
+    }
+  }
+
+  ~SocketRuntime() {
+    WSACleanup();
+  }
+
+  SocketRuntime(const SocketRuntime &) = delete;
+  SocketRuntime &operator=(const SocketRuntime &) = delete;
+};
+
+int lastSocketError() {
+  return WSAGetLastError();
+}
+
+bool socketInterrupted(const int error) {
+  return error == WSAEINTR;
+}
+
+bool socketWouldBlock(const int error) {
+  return error == WSAEWOULDBLOCK;
+}
+
+void closeFd(SocketHandle &fd) {
+  if (fd != kInvalidSocket) {
+    closesocket(fd);
+    fd = kInvalidSocket;
+  }
+}
+
+void shutdownSocket(SocketHandle fd) {
+  shutdown(fd, SD_BOTH);
+}
+
+void setReuseAddress(const SocketHandle fd) {
+  int yes = 1;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&yes), sizeof(yes));
+}
+
+bool setNonBlocking(const SocketHandle fd) {
+  u_long nonblocking = 1;
+  return ioctlsocket(fd, FIONBIO, &nonblocking) == 0;
+}
+
+SocketIoResult recvSocket(const SocketHandle fd, std::uint8_t *data, const std::size_t size) {
+  return recv(fd, reinterpret_cast<char *>(data), static_cast<int>(size), 0);
+}
+
+SocketIoResult sendSocket(const SocketHandle fd, const std::uint8_t *data,
+                          const std::size_t size) {
+  return send(fd, reinterpret_cast<const char *>(data), static_cast<int>(size), 0);
+}
+
+int pollSockets(std::vector<PollDescriptor> &poll_fds) {
+  return WSAPoll(poll_fds.data(), static_cast<ULONG>(poll_fds.size()), kPollTimeoutMs);
+}
+
+#else
+using PollDescriptor = pollfd;
+using SocketAddressSize = socklen_t;
+using SocketHandle = int;
+using SocketIoResult = ssize_t;
+
+constexpr SocketHandle kInvalidSocket = -1;
+
+class SocketRuntime {
+public:
+  SocketRuntime() = default;
+  ~SocketRuntime() = default;
+
+  SocketRuntime(const SocketRuntime &) = delete;
+  SocketRuntime &operator=(const SocketRuntime &) = delete;
+};
+
+int lastSocketError() {
+  return errno;
+}
+
+bool socketInterrupted(const int error) {
+  return error == EINTR;
+}
+
+bool socketWouldBlock(const int error) {
+  return error == EAGAIN || error == EWOULDBLOCK;
+}
+
+void closeFd(SocketHandle &fd) {
+  if (fd != kInvalidSocket) {
     close(fd);
-    fd = -1;
+    fd = kInvalidSocket;
   }
 }
 
-void closeSocket(int &fd) {
-  if (fd >= 0) {
-    shutdown(fd, SHUT_RDWR);
-    closeFd(fd);
-  }
+void shutdownSocket(SocketHandle fd) {
+  shutdown(fd, SHUT_RDWR);
 }
 
-void configureSocket(const int fd) {
+void setReuseAddress(const SocketHandle fd) {
   int yes = 1;
   setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 #ifdef SO_NOSIGPIPE
   setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
 #endif
+}
 
+bool setNonBlocking(const SocketHandle fd) {
   const int flags = fcntl(fd, F_GETFL, 0);
-  if (flags >= 0) {
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+  return flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
+}
+
+SocketIoResult recvSocket(const SocketHandle fd, std::uint8_t *data, const std::size_t size) {
+  return recv(fd, data, size, 0);
+}
+
+SocketIoResult sendSocket(const SocketHandle fd, const std::uint8_t *data,
+                          const std::size_t size) {
+  return ::send(fd, data, size,
+#ifdef MSG_NOSIGNAL
+                MSG_NOSIGNAL
+#else
+                0
+#endif
+  );
+}
+
+int pollSockets(std::vector<PollDescriptor> &poll_fds) {
+  return poll(poll_fds.data(), poll_fds.size(), kPollTimeoutMs);
+}
+#endif
+
+void closeSocket(SocketHandle &fd) {
+  if (fd != kInvalidSocket) {
+    shutdownSocket(fd);
+    closeFd(fd);
   }
 }
 
-bool wouldBlock() {
-  return errno == EAGAIN || errno == EWOULDBLOCK;
+bool configureSocket(const SocketHandle fd) {
+  setReuseAddress(fd);
+  return setNonBlocking(fd);
 }
 
 } // namespace
 
 struct TcpSession {
-  explicit TcpSession(const int socket_fd) : fd(socket_fd) {}
+  explicit TcpSession(const SocketHandle socket_fd) : fd(socket_fd) {}
 
-  int fd = -1;
+  SocketHandle fd = kInvalidSocket;
   bool closing = false;
   std::vector<std::uint8_t> input;
   std::deque<std::vector<std::uint8_t>> output;
@@ -80,7 +214,7 @@ struct TcpSession {
 struct TcpNode::Impl {
   explicit Impl(NodeProfile node_profile) : profile(std::move(node_profile)) {}
 
-  void addSessionLocked(int fd);
+  bool addSessionLocked(SocketHandle fd);
   void acceptAvailableLocked();
   void readAvailableLocked(TcpSession &session, std::vector<NetMessage> &received);
   void writeAvailableLocked(TcpSession &session);
@@ -88,30 +222,36 @@ struct TcpNode::Impl {
   void eventLoop();
   void closeAllSockets();
 
+  SocketRuntime socket_runtime;
   NodeProfile profile;
   NodeRouter router;
-  int listen_fd = -1;
+  SocketHandle listen_fd = kInvalidSocket;
   std::vector<std::shared_ptr<TcpSession>> sessions;
   mutable std::mutex mutex;
   std::thread worker;
   std::atomic_bool running = false;
 };
 
-void TcpNode::Impl::addSessionLocked(const int fd) {
-  configureSocket(fd);
+bool TcpNode::Impl::addSessionLocked(SocketHandle fd) {
+  if (!configureSocket(fd)) {
+    closeFd(fd);
+    return false;
+  }
   sessions.push_back(std::make_shared<TcpSession>(fd));
+  return true;
 }
 
 void TcpNode::Impl::acceptAvailableLocked() {
-  if (listen_fd < 0) {
+  if (listen_fd == kInvalidSocket) {
     return;
   }
   for (;;) {
     sockaddr_storage address{};
-    socklen_t address_size = sizeof(address);
-    const int fd = accept(listen_fd, reinterpret_cast<sockaddr *>(&address), &address_size);
-    if (fd < 0) {
-      if (errno == EINTR) {
+    SocketAddressSize address_size = sizeof(address);
+    SocketHandle fd = accept(listen_fd, reinterpret_cast<sockaddr *>(&address), &address_size);
+    if (fd == kInvalidSocket) {
+      const int error = lastSocketError();
+      if (socketInterrupted(error)) {
         continue;
       }
       break;
@@ -123,7 +263,7 @@ void TcpNode::Impl::acceptAvailableLocked() {
 void TcpNode::Impl::readAvailableLocked(TcpSession &session, std::vector<NetMessage> &received) {
   std::array<std::uint8_t, kSocketReadChunkBytes> chunk{};
   for (;;) {
-    const ssize_t read_bytes = recv(session.fd, chunk.data(), chunk.size(), 0);
+    const SocketIoResult read_bytes = recvSocket(session.fd, chunk.data(), chunk.size());
     if (read_bytes > 0) {
       session.input.insert(session.input.end(), chunk.begin(),
                            chunk.begin() + static_cast<std::ptrdiff_t>(read_bytes));
@@ -133,10 +273,11 @@ void TcpNode::Impl::readAvailableLocked(TcpSession &session, std::vector<NetMess
       session.closing = true;
       break;
     }
-    if (errno == EINTR) {
+    const int error = lastSocketError();
+    if (socketInterrupted(error)) {
       continue;
     }
-    if (!wouldBlock()) {
+    if (!socketWouldBlock(error)) {
       session.closing = true;
     }
     break;
@@ -160,14 +301,8 @@ void TcpNode::Impl::writeAvailableLocked(TcpSession &session) {
   while (!session.closing && !session.output.empty()) {
     const std::vector<std::uint8_t> &frame = session.output.front();
     const std::size_t remaining = frame.size() - session.output_offset;
-    const ssize_t written =
-        ::send(session.fd, frame.data() + session.output_offset, remaining,
-#ifdef MSG_NOSIGNAL
-             MSG_NOSIGNAL
-#else
-             0
-#endif
-        );
+    const SocketIoResult written =
+        sendSocket(session.fd, frame.data() + session.output_offset, remaining);
     if (written > 0) {
       session.output_offset += static_cast<std::size_t>(written);
       if (session.output_offset >= frame.size()) {
@@ -179,10 +314,11 @@ void TcpNode::Impl::writeAvailableLocked(TcpSession &session) {
     if (written == 0) {
       break;
     }
-    if (errno == EINTR) {
+    const int error = lastSocketError();
+    if (socketInterrupted(error)) {
       continue;
     }
-    if (!wouldBlock()) {
+    if (!socketWouldBlock(error)) {
       session.closing = true;
     }
     break;
@@ -197,7 +333,7 @@ void TcpNode::Impl::cleanupSessionsLocked() {
   }
   sessions.erase(std::remove_if(sessions.begin(), sessions.end(),
                                 [](const std::shared_ptr<TcpSession> &session) {
-                                  return session->closing || session->fd < 0;
+                                  return session->closing || session->fd == kInvalidSocket;
                                 }),
                  sessions.end());
 }
@@ -205,12 +341,12 @@ void TcpNode::Impl::cleanupSessionsLocked() {
 void TcpNode::Impl::eventLoop() {
   while (running) {
     std::vector<std::shared_ptr<TcpSession>> session_snapshot;
-    std::vector<pollfd> poll_fds;
+    std::vector<PollDescriptor> poll_fds;
     bool has_listener = false;
     {
       std::lock_guard lock(mutex);
       cleanupSessionsLocked();
-      if (listen_fd >= 0) {
+      if (listen_fd != kInvalidSocket) {
         poll_fds.push_back({listen_fd, POLLIN, 0});
         has_listener = true;
       }
@@ -229,9 +365,10 @@ void TcpNode::Impl::eventLoop() {
       continue;
     }
 
-    const int poll_result = poll(poll_fds.data(), poll_fds.size(), kPollTimeoutMs);
+    const int poll_result = pollSockets(poll_fds);
     if (poll_result < 0) {
-      if (errno == EINTR) {
+      const int error = lastSocketError();
+      if (socketInterrupted(error)) {
         continue;
       }
       running = false;
@@ -256,7 +393,7 @@ void TcpNode::Impl::eventLoop() {
       }
 
       for (const std::shared_ptr<TcpSession> &session : session_snapshot) {
-        if (session == nullptr || session->fd < 0) {
+        if (session == nullptr || session->fd == kInvalidSocket) {
           ++poll_index;
           continue;
         }
@@ -313,15 +450,18 @@ const NodeProfile &TcpNode::profile() const {
 
 std::uint16_t TcpNode::listen(const std::uint16_t port) {
   std::lock_guard lock(impl_->mutex);
-  if (impl_->listen_fd >= 0) {
+  if (impl_->listen_fd != kInvalidSocket) {
     throw std::runtime_error("TCP node is already listening.");
   }
 
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0) {
+  SocketHandle fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd == kInvalidSocket) {
     throw std::runtime_error("Could not create TCP socket.");
   }
-  configureSocket(fd);
+  if (!configureSocket(fd)) {
+    closeFd(fd);
+    throw std::runtime_error("Could not configure TCP socket.");
+  }
 
   sockaddr_in address{};
   address.sin_family = AF_INET;
@@ -337,7 +477,7 @@ std::uint16_t TcpNode::listen(const std::uint16_t port) {
   }
 
   sockaddr_in actual{};
-  socklen_t actual_size = sizeof(actual);
+  SocketAddressSize actual_size = sizeof(actual);
   if (getsockname(fd, reinterpret_cast<sockaddr *>(&actual), &actual_size) != 0) {
     closeFd(fd);
     throw std::runtime_error("Could not inspect TCP socket port.");
@@ -357,28 +497,26 @@ void TcpNode::connect(const std::string &host, const std::uint16_t port) {
   }
   std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> addresses(result, freeaddrinfo);
 
-  int fd = -1;
+  SocketHandle fd = kInvalidSocket;
   for (addrinfo *entry = addresses.get(); entry != nullptr; entry = entry->ai_next) {
     fd = socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
-    if (fd < 0) {
+    if (fd == kInvalidSocket) {
       continue;
     }
-    int yes = 1;
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-#ifdef SO_NOSIGPIPE
-    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
-#endif
+    setReuseAddress(fd);
     if (::connect(fd, entry->ai_addr, entry->ai_addrlen) == 0) {
       break;
     }
     closeFd(fd);
   }
-  if (fd < 0) {
+  if (fd == kInvalidSocket) {
     throw std::runtime_error("Could not connect TCP socket.");
   }
 
   std::lock_guard lock(impl_->mutex);
-  impl_->addSessionLocked(fd);
+  if (!impl_->addSessionLocked(fd)) {
+    throw std::runtime_error("Could not configure TCP socket.");
+  }
 }
 
 void TcpNode::runAsync() {
@@ -425,7 +563,7 @@ std::size_t TcpNode::peerCount() const {
   std::lock_guard lock(impl_->mutex);
   return static_cast<std::size_t>(std::count_if(
       impl_->sessions.begin(), impl_->sessions.end(), [](const std::shared_ptr<TcpSession> &session) {
-        return session != nullptr && !session->closing && session->fd >= 0;
+        return session != nullptr && !session->closing && session->fd != kInvalidSocket;
       }));
 }
 

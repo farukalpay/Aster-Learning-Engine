@@ -981,7 +981,7 @@ void pollX11Events(X11Connection &connection, bool &open) {
 
 namespace aster {
 
-struct Window::Impl {
+struct WindowImpl {
   int width = 1;
   int height = 1;
   bool open = true;
@@ -989,7 +989,7 @@ struct Window::Impl {
   std::optional<X11Connection> x11;
 };
 
-Window::Window(const EngineConfig &config) : impl_(std::make_unique<Impl>()) {
+Window::Window(const EngineConfig &config) : impl_(std::make_unique<WindowImpl>()) {
   scale_framebuffer_to_display_ = config.scale_framebuffer_to_display;
   impl_->x11 = openX11(config);
   if (!impl_->x11.has_value()) {
