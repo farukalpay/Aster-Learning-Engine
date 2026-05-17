@@ -115,7 +115,67 @@ SocketIoResult sendSocket(const SocketHandle fd, const std::uint8_t *data,
 }
 
 int pollSockets(std::vector<PollDescriptor> &poll_fds) {
-  return WSAPoll(poll_fds.data(), static_cast<ULONG>(poll_fds.size()), kPollTimeoutMs);
+  if (poll_fds.size() > FD_SETSIZE) {
+    WSASetLastError(WSAENOBUFS);
+    return SOCKET_ERROR;
+  }
+
+  fd_set read_set;
+  fd_set write_set;
+  fd_set exception_set;
+  FD_ZERO(&read_set);
+  FD_ZERO(&write_set);
+  FD_ZERO(&exception_set);
+  bool has_read = false;
+  bool has_write = false;
+  bool has_exception = false;
+  for (PollDescriptor &fd : poll_fds) {
+    fd.revents = 0;
+    if (fd.fd == kInvalidSocket) {
+      fd.revents = POLLNVAL;
+      continue;
+    }
+    if ((fd.events & POLLIN) != 0) {
+      FD_SET(fd.fd, &read_set);
+      has_read = true;
+    }
+    if ((fd.events & POLLOUT) != 0) {
+      FD_SET(fd.fd, &write_set);
+      has_write = true;
+    }
+    FD_SET(fd.fd, &exception_set);
+    has_exception = true;
+  }
+
+  timeval timeout{};
+  timeout.tv_usec = kPollTimeoutMs * 1000;
+  const int selected =
+      select(0, has_read ? &read_set : nullptr, has_write ? &write_set : nullptr,
+             has_exception ? &exception_set : nullptr, &timeout);
+  if (selected <= 0) {
+    return selected;
+  }
+
+  int ready = 0;
+  for (PollDescriptor &fd : poll_fds) {
+    if (fd.fd == kInvalidSocket) {
+      ++ready;
+      continue;
+    }
+    if (has_read && FD_ISSET(fd.fd, &read_set)) {
+      fd.revents |= POLLIN;
+    }
+    if (has_write && FD_ISSET(fd.fd, &write_set)) {
+      fd.revents |= POLLOUT;
+    }
+    if (has_exception && FD_ISSET(fd.fd, &exception_set)) {
+      fd.revents |= POLLERR;
+    }
+    if (fd.revents != 0) {
+      ++ready;
+    }
+  }
+  return ready;
 }
 
 int connectSocket(const SocketHandle fd, const sockaddr *address, const std::size_t address_size) {

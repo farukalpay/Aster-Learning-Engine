@@ -114,10 +114,11 @@ struct RuntimeFramePlan {
 };
 
 extern "C" std::uint32_t
-aster_runtime_build_frame_plan(const RuntimeRenderObject *objects, std::size_t object_count,
-                               RuntimeCamera camera, RuntimePlanOptions options,
-                               RuntimeFramePlan *out_plan);
-extern "C" void aster_runtime_free_frame_plan(RuntimeFramePlan plan);
+aster_runtime_build_frame_plan_v2(const RuntimeRenderObject *objects, std::size_t object_count,
+                                  const RuntimeCamera *camera,
+                                  const RuntimePlanOptions *options,
+                                  RuntimeFramePlan *out_plan);
+extern "C" void aster_runtime_free_frame_plan_v2(RuntimeFramePlan *plan);
 
 RuntimeVec3 runtimeVec(const Vec3 value) {
   return {value.x, value.y, value.z};
@@ -250,7 +251,7 @@ class RuntimePlanHandle {
 public:
   explicit RuntimePlanHandle(RuntimeFramePlan plan) : plan_(plan) {}
   ~RuntimePlanHandle() {
-    aster_runtime_free_frame_plan(plan_);
+    aster_runtime_free_frame_plan_v2(&plan_);
   }
 
   RuntimePlanHandle(const RuntimePlanHandle &) = delete;
@@ -439,9 +440,9 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
                                      .near_plane = camera.near_plane,
                                      .far_plane = camera.far_plane};
   RuntimeFramePlan raw_plan;
-  const std::uint32_t plan_ok = aster_runtime_build_frame_plan(
+  const std::uint32_t plan_ok = aster_runtime_build_frame_plan_v2(
       runtime_objects.empty() ? nullptr : runtime_objects.data(), runtime_objects.size(),
-      runtime_camera, options, &raw_plan);
+      &runtime_camera, &options, &raw_plan);
   if (plan_ok == 0u) {
     throw std::runtime_error("Rust render planner failed.");
   }

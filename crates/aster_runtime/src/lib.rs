@@ -333,7 +333,8 @@ fn passes_lod_policy(object: AsterRuntimeRenderObject, camera: AsterRuntimeCamer
         }
     }
     if object.lod_min_projected_radius > 0.0 {
-        let forward_distance = dot(camera_to_object, camera.forward).max(camera.near_plane.max(0.001));
+        let forward_distance =
+            dot(camera_to_object, camera.forward).max(camera.near_plane.max(0.001));
         let focal = 1.0 / (camera.vertical_fov * 0.5).tan().max(0.001);
         let projected_radius = radius * focal / forward_distance;
         if projected_radius < object.lod_min_projected_radius {
@@ -515,12 +516,11 @@ pub fn build_frame_plan(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn aster_runtime_build_frame_plan(
+fn write_frame_plan(
     objects: *const AsterRuntimeRenderObject,
     object_count: usize,
-    camera: AsterRuntimeCamera,
-    options: AsterRuntimeRenderPlanOptions,
+    camera: &AsterRuntimeCamera,
+    options: &AsterRuntimeRenderPlanOptions,
     out_plan: *mut AsterRuntimeFramePlan,
 ) -> u32 {
     let started = Instant::now();
@@ -538,7 +538,7 @@ pub extern "C" fn aster_runtime_build_frame_plan(
     } else {
         unsafe { slice::from_raw_parts(objects, object_count) }
     };
-    let output = build_frame_plan(object_slice, camera, options);
+    let output = build_frame_plan(object_slice, *camera, *options);
 
     let mut instances = output.instances.into_boxed_slice();
     let mut groups = output.groups.into_boxed_slice();
@@ -574,7 +574,47 @@ pub extern "C" fn aster_runtime_build_frame_plan(
 }
 
 #[no_mangle]
+pub extern "C" fn aster_runtime_build_frame_plan(
+    objects: *const AsterRuntimeRenderObject,
+    object_count: usize,
+    camera: AsterRuntimeCamera,
+    options: AsterRuntimeRenderPlanOptions,
+    out_plan: *mut AsterRuntimeFramePlan,
+) -> u32 {
+    write_frame_plan(objects, object_count, &camera, &options, out_plan)
+}
+
+#[no_mangle]
+pub extern "C" fn aster_runtime_build_frame_plan_v2(
+    objects: *const AsterRuntimeRenderObject,
+    object_count: usize,
+    camera: *const AsterRuntimeCamera,
+    options: *const AsterRuntimeRenderPlanOptions,
+    out_plan: *mut AsterRuntimeFramePlan,
+) -> u32 {
+    if camera.is_null() || options.is_null() {
+        if !out_plan.is_null() {
+            unsafe {
+                *out_plan = AsterRuntimeFramePlan::default();
+            }
+        }
+        return 0;
+    }
+    write_frame_plan(
+        objects,
+        object_count,
+        unsafe { &*camera },
+        unsafe { &*options },
+        out_plan,
+    )
+}
+
+#[no_mangle]
 pub extern "C" fn aster_runtime_free_frame_plan(plan: AsterRuntimeFramePlan) {
+    free_frame_plan(plan);
+}
+
+fn free_frame_plan(plan: AsterRuntimeFramePlan) {
     if !plan.instances.is_null() && plan.instance_count > 0 {
         unsafe {
             drop(Vec::from_raw_parts(
@@ -593,6 +633,18 @@ pub extern "C" fn aster_runtime_free_frame_plan(plan: AsterRuntimeFramePlan) {
             ));
         }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn aster_runtime_free_frame_plan_v2(plan: *mut AsterRuntimeFramePlan) {
+    if plan.is_null() {
+        return;
+    }
+    let owned = unsafe { std::ptr::read(plan) };
+    unsafe {
+        *plan = AsterRuntimeFramePlan::default();
+    }
+    free_frame_plan(owned);
 }
 
 #[no_mangle]
