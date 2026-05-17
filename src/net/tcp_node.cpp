@@ -10,8 +10,9 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
-#include <cstring>
 #include <cstddef>
+#include <cstring>
+#include <limits>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -114,6 +115,14 @@ int pollSockets(std::vector<PollDescriptor> &poll_fds) {
   return WSAPoll(poll_fds.data(), static_cast<ULONG>(poll_fds.size()), kPollTimeoutMs);
 }
 
+int connectSocket(const SocketHandle fd, const sockaddr *address, const std::size_t address_size) {
+  if (address_size > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+    WSASetLastError(WSAEFAULT);
+    return SOCKET_ERROR;
+  }
+  return ::connect(fd, address, static_cast<int>(address_size));
+}
+
 #else
 using PollDescriptor = pollfd;
 using SocketAddressSize = socklen_t;
@@ -184,6 +193,11 @@ SocketIoResult sendSocket(const SocketHandle fd, const std::uint8_t *data,
 
 int pollSockets(std::vector<PollDescriptor> &poll_fds) {
   return poll(poll_fds.data(), poll_fds.size(), kPollTimeoutMs);
+}
+
+int connectSocket(const SocketHandle fd, const sockaddr *address,
+                  const SocketAddressSize address_size) {
+  return ::connect(fd, address, address_size);
 }
 #endif
 
@@ -504,7 +518,7 @@ void TcpNode::connect(const std::string &host, const std::uint16_t port) {
       continue;
     }
     setReuseAddress(fd);
-    if (::connect(fd, entry->ai_addr, entry->ai_addrlen) == 0) {
+    if (connectSocket(fd, entry->ai_addr, entry->ai_addrlen) == 0) {
       break;
     }
     closeFd(fd);

@@ -61,6 +61,11 @@ add_custom_command(
 add_custom_target(aster_rust_runtime DEPENDS "${ASTER_RUST_LIBRARY}")
 add_library(aster_runtime STATIC IMPORTED GLOBAL)
 set_target_properties(aster_runtime PROPERTIES IMPORTED_LOCATION "${ASTER_RUST_LIBRARY}")
+if(WIN32)
+  set_target_properties(aster_runtime PROPERTIES
+    INTERFACE_LINK_LIBRARIES "Advapi32;Bcrypt;Ntdll;Userenv;Ws2_32"
+  )
+endif()
 add_dependencies(aster_runtime aster_rust_runtime)
 
 file(GLOB_RECURSE ASTER_SOURCES CONFIGURE_DEPENDS
