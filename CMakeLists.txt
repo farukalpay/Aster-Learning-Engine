@@ -84,6 +84,53 @@ elseif(WIN32)
 else()
   list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_macos.mm")
   list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_windows.cpp")
+
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
+  pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols)
+  pkg_get_variable(WAYLAND_PROTOCOLS_PKGDATADIR wayland-protocols pkgdatadir)
+  find_program(WAYLAND_SCANNER_EXECUTABLE wayland-scanner REQUIRED)
+  if(NOT WAYLAND_PROTOCOLS_PKGDATADIR)
+    message(FATAL_ERROR "wayland-protocols did not report a pkgdatadir.")
+  endif()
+
+  set(ASTER_WAYLAND_PROTOCOL_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/wayland")
+  file(MAKE_DIRECTORY "${ASTER_WAYLAND_PROTOCOL_DIR}")
+
+  function(aster_generate_wayland_protocol protocol_name protocol_xml)
+    if(NOT EXISTS "${protocol_xml}")
+      message(FATAL_ERROR "Missing Wayland protocol XML: ${protocol_xml}")
+    endif()
+    set(protocol_header "${ASTER_WAYLAND_PROTOCOL_DIR}/${protocol_name}-client-protocol.h")
+    set(protocol_code "${ASTER_WAYLAND_PROTOCOL_DIR}/${protocol_name}-protocol.c")
+    add_custom_command(
+      OUTPUT "${protocol_header}"
+      COMMAND "${WAYLAND_SCANNER_EXECUTABLE}" client-header "${protocol_xml}" "${protocol_header}"
+      DEPENDS "${protocol_xml}"
+      VERBATIM
+    )
+    add_custom_command(
+      OUTPUT "${protocol_code}"
+      COMMAND "${WAYLAND_SCANNER_EXECUTABLE}" private-code "${protocol_xml}" "${protocol_code}"
+      DEPENDS "${protocol_xml}"
+      VERBATIM
+    )
+    list(APPEND ASTER_SOURCES "${protocol_code}" "${protocol_header}")
+    set(ASTER_SOURCES "${ASTER_SOURCES}" PARENT_SCOPE)
+  endfunction()
+
+  aster_generate_wayland_protocol(
+    xdg-shell
+    "${WAYLAND_PROTOCOLS_PKGDATADIR}/stable/xdg-shell/xdg-shell.xml"
+  )
+  aster_generate_wayland_protocol(
+    relative-pointer-unstable-v1
+    "${WAYLAND_PROTOCOLS_PKGDATADIR}/unstable/relative-pointer/relative-pointer-unstable-v1.xml"
+  )
+  aster_generate_wayland_protocol(
+    pointer-constraints-unstable-v1
+    "${WAYLAND_PROTOCOLS_PKGDATADIR}/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml"
+  )
 endif()
 
 list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/kernel/kernel.cpp")
@@ -95,8 +142,14 @@ add_dependencies(aster_engine_internal aster_rust_runtime)
 target_include_directories(aster_engine_internal PUBLIC
   ${PROJECT_SOURCE_DIR}/include
 )
+if(UNIX AND NOT APPLE)
+  target_include_directories(aster_engine_internal PRIVATE ${ASTER_WAYLAND_PROTOCOL_DIR})
+endif()
 
 target_link_libraries(aster_engine_internal PUBLIC Threads::Threads aster_runtime)
+if(UNIX AND NOT APPLE)
+  target_link_libraries(aster_engine_internal PRIVATE PkgConfig::WAYLAND_CLIENT)
+endif()
 
 if(APPLE)
   target_link_libraries(aster_engine_internal PUBLIC

@@ -85,7 +85,9 @@ Prerequisites:
 - CMake 3.24+
 - A C++20 compiler
 - Rust 1.88+ with Cargo
-- macOS with Cocoa and Metal, or Linux with a local X server
+- macOS with Cocoa and Metal, Linux with Wayland development packages exposing
+  `wayland-client`, `wayland-scanner`, and `wayland-protocols` and/or a local X
+  server for fallback, or Windows with the Win32 desktop SDK
 
 Configure, build, and test:
 
@@ -125,6 +127,13 @@ measuring raw throughput or debugging the render loop.
 
 Set `ASTER_FORCE_SOFTWARE_RENDERER=1` on macOS to use the deterministic
 software fallback.
+
+On Linux, Aster prefers Wayland when `WAYLAND_DISPLAY` is available and falls
+back to the raw X11 adapter when only `DISPLAY` is set. Use
+`ASTER_FORCE_WAYLAND=1` or `ASTER_FORCE_X11=1` to select a backend explicitly.
+Wayland builds generate their `xdg-shell`, `relative-pointer`, and
+`pointer-constraints` bindings from the installed `wayland-protocols` XML files
+at configure time.
 
 ## Checks
 
@@ -209,16 +218,22 @@ that accepts numbered PPM frames.
 
 ## Platform Targets
 
-Aster v1 has shipping desktop paths for macOS and Linux, plus an initial
-Windows configuration skeleton for core/test work.
+Aster v1 has native desktop paths for macOS, Linux, and Windows behind the same
+`aster::Window` contract.
 
 - macOS uses a native Cocoa adapter for windows, events, cursor state, and
   Metal presentation.
-- Linux uses a raw X11 protocol adapter over POSIX sockets; no desktop client
-  library is linked.
-- Windows currently provides a minimal `aster::Window` adapter so core support
-  can grow behind the same contract.
-- Wayland is not implemented yet.
+- Linux prefers Wayland. The adapter owns `wl_display`/registry discovery,
+  stable `xdg-shell` toplevels, double-buffered `wl_shm` software presentation,
+  seat keyboard/pointer input, ARGB cursor surfaces, and optional
+  relative-pointer plus persistent pointer-lock support when the compositor
+  advertises those protocols. A raw X11 protocol adapter over POSIX sockets
+  remains as fallback.
+- Windows uses a native Win32 adapter for the window/event loop, DPI awareness,
+  keyboard and mouse state, raw mouse deltas while the cursor is disabled,
+  cursor clipping/visibility, GDI/DIB software presentation, and waitable-timer
+  frame pacing. Native Windows GPU rendering is still future work; the software
+  renderer is the Windows presentation path today.
 
 ## Authorship
 

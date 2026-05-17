@@ -68,10 +68,9 @@ lightweight CPU trace sink with scope timing, an in-memory ring, and text export
 
 `include/aster/platform`
 
-`aster::Window` owns the native platform boundary. macOS, Linux, and the
-Windows skeleton have separate source files; all native handles stay inside
-those files. Engine and app code receive viewport sizes and `ControlSnapshot`
-values.
+`aster::Window` owns the native platform boundary. macOS, Linux, and Windows
+have separate source files; all native handles stay inside those files. Engine
+and app code receive viewport sizes and `ControlSnapshot` values.
 
 `include/aster/render`
 
@@ -168,12 +167,18 @@ Native platform code is isolated by operating system:
 
 - `src/platform/window_macos.mm` owns the Cocoa window, event pump, cursor modes,
   Metal layer presentation, and software framebuffer fallback presentation.
-- `src/platform/window_linux.cpp` owns the raw X11 socket protocol path,
-  including setup, window creation, input events, close protocol, cursor hiding,
-  pointer recentering, and framebuffer presentation.
-- `src/platform/window_windows.cpp` is a minimal configuration skeleton. It
-  keeps Windows support behind the same adapter while native desktop
-  presentation is developed.
+- `src/platform/window_linux.cpp` owns both Linux desktop paths. Wayland is
+  preferred when available and uses `libwayland-client` behind the platform
+  adapter for registry discovery, stable xdg-shell toplevels, wl_shm software
+  buffers, buffer-release ownership, seat keyboard/pointer input, ARGB cursor
+  surfaces, and optional relative pointer plus persistent pointer lock. The raw
+  X11 socket protocol path remains the fallback, including setup, window
+  creation, input events, close protocol, cursor hiding, pointer recentering,
+  and framebuffer presentation.
+- `src/platform/window_windows.cpp` owns the Win32 window, message pump, DPI
+  awareness, keyboard and mouse state, raw mouse deltas for disabled-cursor
+  mode, cursor clipping/visibility, GDI/DIB software presentation, and
+  waitable-timer frame pacing.
 
 No public header exposes native window handles. New platform work should extend
 the adapter behind `aster::Window` rather than adding product-level branches.
@@ -231,13 +236,17 @@ use deterministic fixed timing so generated media stays reproducible.
 
 CMake builds `aster_engine_internal` for repository apps/tests and
 `aster_kernel` as the exported ABI facade. Platform source selection is based on
-the host OS. Cargo is a required build dependency and builds the Rust
-`aster_runtime` static library before linking the internal engine target.
-Windows support starts as a core-build skeleton behind the platform adapter;
-Wayland remains outside the current platform set.
+the host OS. Linux builds require `wayland-client`, `wayland-protocols`, and
+`wayland-scanner`; CMake generates the xdg-shell, relative-pointer, and
+pointer-constraints protocol bindings into the build tree. Cargo is a required
+build dependency and builds the Rust `aster_runtime` static library before
+linking the internal engine target. Windows builds link the Win32 platform
+libraries required by the adapter.
 
-The engine and sample should build without fetching source code or linking
-desktop client libraries. Direct OS interaction belongs only in platform
+The engine and sample should build without fetching source code at configure or
+build time. Linux's `libwayland-client` dependency is an explicit platform
+adapter dependency; app, renderer, UI, sample, and kernel headers must not
+include Wayland or X11 types. Direct OS interaction belongs only in platform
 adapters.
 
 ## Test Policy
@@ -254,12 +263,17 @@ contract.
 
 ## Known Compromises
 
-- Linux presentation targets raw X11 first. Wayland can be added through the same
-  `aster::Window` contract without changing app, game, renderer, or UI code.
-- Linux currently presents software frames; GPU shader rendering is only
-  implemented for macOS Metal.
-- Windows currently configures through a minimal adapter. Real native window and
-  presentation support should extend that file without changing app contracts.
+- Linux now prefers Wayland and falls back to raw X11, but both Linux paths
+  present software frames. GPU shader rendering is only implemented for macOS
+  Metal today.
+- Wayland disabled-cursor mode uses relative-pointer and pointer-constraints
+  when the compositor advertises them. If a compositor omits those optional
+  protocols, Aster keeps the cursor hidden and reports deltas derived from
+  focused absolute pointer motion instead of silently inventing unsupported
+  pointer warping.
+- Windows has a native Win32 window/input/software presentation path. Native
+  Windows GPU rendering is still future work behind `RenderDevice`; app code
+  should not branch on that backend.
 - The scene importer supports the subset of JSON scene data exercised by
   generated tests and engine-authored scenes. Expanding file-format coverage
   should extend that importer without

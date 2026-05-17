@@ -6,6 +6,15 @@
 #include "aster/input/input_codes.hpp"
 #include "aster/render/software_framebuffer.hpp"
 
+#include "pointer-constraints-unstable-v1-client-protocol.h"
+#include "relative-pointer-unstable-v1-client-protocol.h"
+#include "xdg-shell-client-protocol.h"
+
+#include <wayland-client.h>
+
+#include <fcntl.h>
+#include <poll.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -13,6 +22,7 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -317,6 +327,71 @@ int mouseButtonFromX11Detail(const std::uint8_t detail) {
   }
 }
 
+int keyFromWaylandKeycode(const std::uint32_t keycode) {
+  switch (keycode) {
+  case 1:
+    return aster::code(aster::Key::Escape);
+  case 2:
+    return aster::code(aster::Key::Num1);
+  case 3:
+    return aster::code(aster::Key::Num2);
+  case 4:
+    return aster::code(aster::Key::Num3);
+  case 5:
+    return aster::code(aster::Key::Num4);
+  case 6:
+    return aster::code(aster::Key::Num5);
+  case 7:
+    return aster::code(aster::Key::Num6);
+  case 15:
+    return aster::code(aster::Key::Tab);
+  case 16:
+    return aster::code(aster::Key::Q);
+  case 17:
+    return aster::code(aster::Key::W);
+  case 18:
+    return aster::code(aster::Key::E);
+  case 19:
+    return aster::code(aster::Key::R);
+  case 30:
+    return aster::code(aster::Key::A);
+  case 31:
+    return aster::code(aster::Key::S);
+  case 32:
+    return aster::code(aster::Key::D);
+  case 42:
+  case 54:
+    return aster::code(aster::Key::LeftShift);
+  case 57:
+    return aster::code(aster::Key::Space);
+  case 103:
+    return aster::code(aster::Key::Up);
+  case 105:
+    return aster::code(aster::Key::Left);
+  case 106:
+    return aster::code(aster::Key::Right);
+  case 108:
+    return aster::code(aster::Key::Down);
+  case 125:
+    return aster::code(aster::Key::LeftSuper);
+  case 126:
+    return aster::code(aster::Key::RightSuper);
+  default:
+    return -1;
+  }
+}
+
+int mouseButtonFromWaylandButton(const std::uint32_t button) {
+  switch (button) {
+  case 0x110:
+    return aster::code(aster::MouseButton::Left);
+  case 0x111:
+    return aster::code(aster::MouseButton::Right);
+  default:
+    return -1;
+  }
+}
+
 void addUnique(std::vector<int> &values, const int value) {
   if (std::find(values.begin(), values.end(), value) == values.end()) {
     values.push_back(value);
@@ -356,6 +431,883 @@ std::uint32_t colorToMask(const std::uint8_t value, const std::uint32_t mask) {
   const std::uint32_t scaled =
       (static_cast<std::uint32_t>(value) * max_value + 127u) / 255u;
   return (scaled << static_cast<unsigned>(maskShift(mask))) & mask;
+}
+
+int createAnonymousFile(const std::size_t size) {
+  const char *runtime_dir = std::getenv("XDG_RUNTIME_DIR");
+  if (runtime_dir == nullptr || *runtime_dir == '\0') {
+    return -1;
+  }
+
+  std::string path = std::string(runtime_dir) + "/aster-wayland-buffer-XXXXXX";
+  std::vector<char> writable_path(path.begin(), path.end());
+  writable_path.push_back('\0');
+
+  const int fd = ::mkstemp(writable_path.data());
+  if (fd < 0) {
+    return -1;
+  }
+  (void)::unlink(writable_path.data());
+  if (::ftruncate(fd, static_cast<off_t>(size)) != 0) {
+    ::close(fd);
+    return -1;
+  }
+  return fd;
+}
+
+struct WaylandConnection;
+
+struct WaylandBuffer {
+  wl_buffer *buffer = nullptr;
+  void *memory = nullptr;
+  std::size_t size = 0;
+  int width = 0;
+  int height = 0;
+  int stride = 0;
+  bool busy = false;
+
+  WaylandBuffer() = default;
+  WaylandBuffer(const WaylandBuffer &) = delete;
+  WaylandBuffer &operator=(const WaylandBuffer &) = delete;
+
+  WaylandBuffer(WaylandBuffer &&other) noexcept {
+    *this = std::move(other);
+  }
+
+  WaylandBuffer &operator=(WaylandBuffer &&other) noexcept {
+    if (this == &other) {
+      return *this;
+    }
+    release();
+    buffer = std::exchange(other.buffer, nullptr);
+    memory = std::exchange(other.memory, nullptr);
+    size = std::exchange(other.size, 0u);
+    width = std::exchange(other.width, 0);
+    height = std::exchange(other.height, 0);
+    stride = std::exchange(other.stride, 0);
+    busy = std::exchange(other.busy, false);
+    return *this;
+  }
+
+  ~WaylandBuffer() {
+    release();
+  }
+
+  void release() {
+    if (buffer != nullptr) {
+      wl_buffer_destroy(buffer);
+      buffer = nullptr;
+    }
+    if (memory != nullptr && size > 0u) {
+      (void)::munmap(memory, size);
+      memory = nullptr;
+    }
+    size = 0u;
+    width = 0;
+    height = 0;
+    stride = 0;
+    busy = false;
+  }
+};
+
+void handleWaylandBufferRelease(void *data, wl_buffer *) {
+  auto *buffer = static_cast<WaylandBuffer *>(data);
+  if (buffer != nullptr) {
+    buffer->busy = false;
+  }
+}
+
+constexpr wl_buffer_listener kWaylandBufferListener{handleWaylandBufferRelease};
+
+struct WaylandConnection {
+  wl_display *display = nullptr;
+  wl_registry *registry = nullptr;
+  wl_compositor *compositor = nullptr;
+  wl_shm *shm = nullptr;
+  wl_seat *seat = nullptr;
+  wl_pointer *pointer = nullptr;
+  wl_keyboard *keyboard = nullptr;
+  wl_surface *surface = nullptr;
+  wl_surface *cursor_surface = nullptr;
+  xdg_wm_base *wm_base = nullptr;
+  xdg_surface *xdg_surface = nullptr;
+  xdg_toplevel *xdg_toplevel = nullptr;
+  zwp_relative_pointer_manager_v1 *relative_pointer_manager = nullptr;
+  zwp_relative_pointer_v1 *relative_pointer = nullptr;
+  zwp_pointer_constraints_v1 *pointer_constraints = nullptr;
+  zwp_locked_pointer_v1 *locked_pointer = nullptr;
+  std::array<WaylandBuffer, 2> frame_buffers;
+  WaylandBuffer cursor_buffer;
+  std::size_t next_frame_buffer = 0;
+  int width = 1;
+  int height = 1;
+  int configured_width = 0;
+  int configured_height = 0;
+  bool configured = false;
+  bool open = true;
+  bool supports_xrgb8888 = false;
+  bool supports_argb8888 = false;
+  bool has_pointer_focus = false;
+  bool has_last_pointer = false;
+  bool pointer_locked = false;
+  bool locked_pointer_listener_installed = false;
+  std::uint32_t pointer_enter_serial = 0;
+  aster::Vec2 last_pointer{};
+  aster::Vec2 virtual_pointer{};
+  aster::ControlSnapshot input;
+  aster::CursorMode cursor_mode = aster::CursorMode::Normal;
+
+  WaylandConnection() = default;
+  WaylandConnection(const WaylandConnection &) = delete;
+  WaylandConnection &operator=(const WaylandConnection &) = delete;
+
+  WaylandConnection(WaylandConnection &&other) noexcept {
+    *this = std::move(other);
+  }
+
+  WaylandConnection &operator=(WaylandConnection &&other) noexcept {
+    if (this == &other) {
+      return *this;
+    }
+    release();
+    display = std::exchange(other.display, nullptr);
+    registry = std::exchange(other.registry, nullptr);
+    compositor = std::exchange(other.compositor, nullptr);
+    shm = std::exchange(other.shm, nullptr);
+    seat = std::exchange(other.seat, nullptr);
+    pointer = std::exchange(other.pointer, nullptr);
+    keyboard = std::exchange(other.keyboard, nullptr);
+    surface = std::exchange(other.surface, nullptr);
+    cursor_surface = std::exchange(other.cursor_surface, nullptr);
+    wm_base = std::exchange(other.wm_base, nullptr);
+    xdg_surface = std::exchange(other.xdg_surface, nullptr);
+    xdg_toplevel = std::exchange(other.xdg_toplevel, nullptr);
+    relative_pointer_manager = std::exchange(other.relative_pointer_manager, nullptr);
+    relative_pointer = std::exchange(other.relative_pointer, nullptr);
+    pointer_constraints = std::exchange(other.pointer_constraints, nullptr);
+    locked_pointer = std::exchange(other.locked_pointer, nullptr);
+    frame_buffers = std::move(other.frame_buffers);
+    cursor_buffer = std::move(other.cursor_buffer);
+    next_frame_buffer = other.next_frame_buffer;
+    width = other.width;
+    height = other.height;
+    configured_width = other.configured_width;
+    configured_height = other.configured_height;
+    configured = other.configured;
+    open = other.open;
+    supports_xrgb8888 = other.supports_xrgb8888;
+    supports_argb8888 = other.supports_argb8888;
+    has_pointer_focus = other.has_pointer_focus;
+    has_last_pointer = other.has_last_pointer;
+    pointer_locked = other.pointer_locked;
+    locked_pointer_listener_installed = other.locked_pointer_listener_installed;
+    pointer_enter_serial = other.pointer_enter_serial;
+    last_pointer = other.last_pointer;
+    virtual_pointer = other.virtual_pointer;
+    input = std::move(other.input);
+    cursor_mode = other.cursor_mode;
+    return *this;
+  }
+
+  ~WaylandConnection() {
+    release();
+  }
+
+  void release() {
+    if (locked_pointer != nullptr) {
+      zwp_locked_pointer_v1_destroy(locked_pointer);
+      locked_pointer = nullptr;
+    }
+    if (relative_pointer != nullptr) {
+      zwp_relative_pointer_v1_destroy(relative_pointer);
+      relative_pointer = nullptr;
+    }
+    for (WaylandBuffer &buffer : frame_buffers) {
+      buffer.release();
+    }
+    cursor_buffer.release();
+    if (xdg_toplevel != nullptr) {
+      xdg_toplevel_destroy(xdg_toplevel);
+      xdg_toplevel = nullptr;
+    }
+    if (xdg_surface != nullptr) {
+      xdg_surface_destroy(xdg_surface);
+      xdg_surface = nullptr;
+    }
+    if (surface != nullptr) {
+      wl_surface_destroy(surface);
+      surface = nullptr;
+    }
+    if (cursor_surface != nullptr) {
+      wl_surface_destroy(cursor_surface);
+      cursor_surface = nullptr;
+    }
+    if (pointer != nullptr) {
+      wl_pointer_destroy(pointer);
+      pointer = nullptr;
+    }
+    if (keyboard != nullptr) {
+      wl_keyboard_destroy(keyboard);
+      keyboard = nullptr;
+    }
+    if (seat != nullptr) {
+      wl_seat_destroy(seat);
+      seat = nullptr;
+    }
+    if (pointer_constraints != nullptr) {
+      zwp_pointer_constraints_v1_destroy(pointer_constraints);
+      pointer_constraints = nullptr;
+    }
+    if (relative_pointer_manager != nullptr) {
+      zwp_relative_pointer_manager_v1_destroy(relative_pointer_manager);
+      relative_pointer_manager = nullptr;
+    }
+    if (wm_base != nullptr) {
+      xdg_wm_base_destroy(wm_base);
+      wm_base = nullptr;
+    }
+    if (shm != nullptr) {
+      wl_shm_destroy(shm);
+      shm = nullptr;
+    }
+    if (compositor != nullptr) {
+      wl_compositor_destroy(compositor);
+      compositor = nullptr;
+    }
+    if (registry != nullptr) {
+      wl_registry_destroy(registry);
+      registry = nullptr;
+    }
+    if (display != nullptr) {
+      wl_display_disconnect(display);
+      display = nullptr;
+    }
+  }
+};
+
+bool createWaylandBuffer(WaylandConnection &connection, WaylandBuffer &target, const int width,
+                         const int height, const std::uint32_t format) {
+  if (connection.shm == nullptr || width <= 0 || height <= 0) {
+    return false;
+  }
+  target.release();
+  target.width = width;
+  target.height = height;
+  target.stride = width * 4;
+  target.size = static_cast<std::size_t>(target.stride) * static_cast<std::size_t>(height);
+
+  const int fd = createAnonymousFile(target.size);
+  if (fd < 0) {
+    target.release();
+    return false;
+  }
+  target.memory = ::mmap(nullptr, target.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (target.memory == MAP_FAILED) {
+    target.memory = nullptr;
+    ::close(fd);
+    target.release();
+    return false;
+  }
+
+  wl_shm_pool *pool = wl_shm_create_pool(connection.shm, fd, static_cast<int>(target.size));
+  if (pool == nullptr) {
+    ::close(fd);
+    target.release();
+    return false;
+  }
+  target.buffer = wl_shm_pool_create_buffer(pool, 0, width, height, target.stride, format);
+  wl_shm_pool_destroy(pool);
+  ::close(fd);
+  if (target.buffer == nullptr) {
+    target.release();
+    return false;
+  }
+  wl_buffer_add_listener(target.buffer, &kWaylandBufferListener, &target);
+  return true;
+}
+
+WaylandBuffer *nextWaylandFrameBuffer(WaylandConnection &connection, const int width,
+                                      const int height) {
+  for (std::size_t attempt = 0; attempt < connection.frame_buffers.size(); ++attempt) {
+    const std::size_t index =
+        (connection.next_frame_buffer + attempt) % connection.frame_buffers.size();
+    WaylandBuffer &buffer = connection.frame_buffers[index];
+    if (buffer.busy) {
+      continue;
+    }
+    if (buffer.buffer == nullptr || buffer.width != width || buffer.height != height) {
+      if (!createWaylandBuffer(connection, buffer, width, height, WL_SHM_FORMAT_XRGB8888)) {
+        continue;
+      }
+    }
+    if (buffer.memory != nullptr) {
+      connection.next_frame_buffer = (index + 1u) % connection.frame_buffers.size();
+      return &buffer;
+    }
+  }
+  return nullptr;
+}
+
+void fillWaylandCursorBuffer(WaylandBuffer &buffer) {
+  auto *pixels = static_cast<std::uint32_t *>(buffer.memory);
+  if (pixels == nullptr) {
+    return;
+  }
+  std::fill(pixels, pixels + static_cast<std::size_t>(buffer.width * buffer.height), 0x00000000u);
+  for (int y = 0; y < buffer.height; ++y) {
+    for (int x = 0; x <= y / 2 && x < buffer.width; ++x) {
+      const bool edge = x == 0 || x == y / 2 || y == 0;
+      pixels[static_cast<std::size_t>(y * buffer.width + x)] = edge ? 0xff101010u : 0xffffffffu;
+    }
+  }
+}
+
+void applyWaylandCursor(WaylandConnection &connection) {
+  if (connection.pointer == nullptr || !connection.has_pointer_focus) {
+    return;
+  }
+  if (connection.cursor_mode != aster::CursorMode::Normal) {
+    wl_pointer_set_cursor(connection.pointer, connection.pointer_enter_serial, nullptr, 0, 0);
+    return;
+  }
+  if (connection.cursor_surface == nullptr) {
+    connection.cursor_surface = wl_compositor_create_surface(connection.compositor);
+  }
+  if (connection.cursor_surface == nullptr) {
+    return;
+  }
+  if (connection.cursor_buffer.buffer == nullptr && connection.supports_argb8888 &&
+      createWaylandBuffer(connection, connection.cursor_buffer, 24, 24, WL_SHM_FORMAT_ARGB8888)) {
+    fillWaylandCursorBuffer(connection.cursor_buffer);
+  }
+  if (connection.cursor_buffer.buffer == nullptr) {
+    wl_pointer_set_cursor(connection.pointer, connection.pointer_enter_serial, nullptr, 0, 0);
+    return;
+  }
+  wl_surface_attach(connection.cursor_surface, connection.cursor_buffer.buffer, 0, 0);
+  wl_surface_damage(connection.cursor_surface, 0, 0, connection.cursor_buffer.width,
+                    connection.cursor_buffer.height);
+  wl_surface_commit(connection.cursor_surface);
+  wl_pointer_set_cursor(connection.pointer, connection.pointer_enter_serial,
+                        connection.cursor_surface, 0, 0);
+}
+
+void destroyWaylandPointerLock(WaylandConnection &connection) {
+  if (connection.locked_pointer != nullptr) {
+    zwp_locked_pointer_v1_destroy(connection.locked_pointer);
+    connection.locked_pointer = nullptr;
+  }
+  connection.pointer_locked = false;
+  connection.locked_pointer_listener_installed = false;
+}
+
+void handleWaylandLockedPointerLocked(void *data, zwp_locked_pointer_v1 *);
+void handleWaylandLockedPointerUnlocked(void *data, zwp_locked_pointer_v1 *);
+
+constexpr zwp_locked_pointer_v1_listener kWaylandLockedPointerListener{
+    handleWaylandLockedPointerLocked, handleWaylandLockedPointerUnlocked};
+
+void updateWaylandPointerLock(WaylandConnection &connection) {
+  if (connection.cursor_mode != aster::CursorMode::Disabled || connection.pointer == nullptr ||
+      connection.pointer_constraints == nullptr || connection.surface == nullptr ||
+      !connection.has_pointer_focus) {
+    if (connection.cursor_mode != aster::CursorMode::Disabled) {
+      destroyWaylandPointerLock(connection);
+    }
+    return;
+  }
+  if (connection.locked_pointer != nullptr) {
+    return;
+  }
+  connection.locked_pointer = zwp_pointer_constraints_v1_lock_pointer(
+      connection.pointer_constraints, connection.surface, connection.pointer, nullptr,
+      ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
+  if (connection.locked_pointer != nullptr && !connection.locked_pointer_listener_installed) {
+    zwp_locked_pointer_v1_add_listener(connection.locked_pointer, &kWaylandLockedPointerListener,
+                                       &connection);
+    connection.locked_pointer_listener_installed = true;
+  }
+}
+
+void handleWaylandWmPing(void *data, xdg_wm_base *wm_base, const std::uint32_t serial) {
+  (void)data;
+  xdg_wm_base_pong(wm_base, serial);
+}
+
+constexpr xdg_wm_base_listener kWaylandWmBaseListener{handleWaylandWmPing};
+
+void handleWaylandShmFormat(void *data, wl_shm *, const std::uint32_t format) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection == nullptr) {
+    return;
+  }
+  if (format == WL_SHM_FORMAT_XRGB8888) {
+    connection->supports_xrgb8888 = true;
+  } else if (format == WL_SHM_FORMAT_ARGB8888) {
+    connection->supports_argb8888 = true;
+  }
+}
+
+constexpr wl_shm_listener kWaylandShmListener{handleWaylandShmFormat};
+
+void handleWaylandToplevelConfigure(void *data, xdg_toplevel *, const std::int32_t width,
+                                    const std::int32_t height, wl_array *) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection == nullptr) {
+    return;
+  }
+  if (width > 0) {
+    connection->configured_width = width;
+  }
+  if (height > 0) {
+    connection->configured_height = height;
+  }
+}
+
+void handleWaylandToplevelClose(void *data, xdg_toplevel *) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection != nullptr) {
+    connection->open = false;
+  }
+}
+
+constexpr xdg_toplevel_listener kWaylandToplevelListener{handleWaylandToplevelConfigure,
+                                                         handleWaylandToplevelClose};
+
+void handleWaylandSurfaceConfigure(void *data, xdg_surface *surface, const std::uint32_t serial) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  xdg_surface_ack_configure(surface, serial);
+  if (connection == nullptr) {
+    return;
+  }
+  if (connection->configured_width > 0) {
+    connection->width = connection->configured_width;
+  }
+  if (connection->configured_height > 0) {
+    connection->height = connection->configured_height;
+  }
+  connection->configured = true;
+}
+
+constexpr xdg_surface_listener kWaylandSurfaceListener{handleWaylandSurfaceConfigure};
+
+void handleWaylandPointerEnter(void *data, wl_pointer *, const std::uint32_t serial,
+                               wl_surface *, const wl_fixed_t surface_x,
+                               const wl_fixed_t surface_y) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection == nullptr) {
+    return;
+  }
+  connection->has_pointer_focus = true;
+  connection->pointer_enter_serial = serial;
+  connection->last_pointer = {static_cast<float>(wl_fixed_to_double(surface_x)),
+                              static_cast<float>(wl_fixed_to_double(surface_y))};
+  connection->has_last_pointer = true;
+  if (connection->cursor_mode != aster::CursorMode::Disabled) {
+    connection->input.pointer = connection->last_pointer;
+  }
+  applyWaylandCursor(*connection);
+  updateWaylandPointerLock(*connection);
+}
+
+void handleWaylandPointerLeave(void *data, wl_pointer *, std::uint32_t, wl_surface *) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection != nullptr) {
+    connection->has_pointer_focus = false;
+    connection->has_last_pointer = false;
+    destroyWaylandPointerLock(*connection);
+  }
+}
+
+void handleWaylandPointerMotion(void *data, wl_pointer *, std::uint32_t,
+                                const wl_fixed_t surface_x, const wl_fixed_t surface_y) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection == nullptr) {
+    return;
+  }
+  const aster::Vec2 pointer{static_cast<float>(wl_fixed_to_double(surface_x)),
+                            static_cast<float>(wl_fixed_to_double(surface_y))};
+  if (connection->cursor_mode == aster::CursorMode::Disabled) {
+    if (connection->has_last_pointer) {
+      connection->virtual_pointer =
+          connection->virtual_pointer + (pointer - connection->last_pointer);
+      connection->input.pointer = connection->virtual_pointer;
+    }
+  } else {
+    connection->input.pointer = pointer;
+  }
+  connection->last_pointer = pointer;
+  connection->has_last_pointer = true;
+}
+
+void handleWaylandPointerButton(void *data, wl_pointer *, std::uint32_t, std::uint32_t,
+                                const std::uint32_t button, const std::uint32_t state) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection == nullptr) {
+    return;
+  }
+  const int mapped = mouseButtonFromWaylandButton(button);
+  if (mapped < 0) {
+    return;
+  }
+  if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+    addUnique(connection->input.pressed_mouse_buttons, mapped);
+  } else {
+    removeValue(connection->input.pressed_mouse_buttons, mapped);
+  }
+}
+
+void handleWaylandPointerAxis(void *data, wl_pointer *, std::uint32_t, const std::uint32_t axis,
+                              const wl_fixed_t value) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection == nullptr || axis != WL_POINTER_AXIS_VERTICAL_SCROLL) {
+    return;
+  }
+  const double amount = wl_fixed_to_double(value);
+  if (std::abs(amount) > 0.0001) {
+    connection->input.scroll.y += amount > 0.0 ? -1.0f : 1.0f;
+  }
+}
+
+constexpr wl_pointer_listener kWaylandPointerListener{handleWaylandPointerEnter,
+                                                      handleWaylandPointerLeave,
+                                                      handleWaylandPointerMotion,
+                                                      handleWaylandPointerButton,
+                                                      handleWaylandPointerAxis};
+
+void handleWaylandKeyboardKeymap(void *, wl_keyboard *, std::uint32_t, int fd, std::uint32_t) {
+  if (fd >= 0) {
+    ::close(fd);
+  }
+}
+
+void handleWaylandKeyboardEnter(void *, wl_keyboard *, std::uint32_t, wl_surface *, wl_array *) {}
+
+void handleWaylandKeyboardLeave(void *data, wl_keyboard *, std::uint32_t, wl_surface *) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection != nullptr) {
+    connection->input.pressed_keys.clear();
+  }
+}
+
+void handleWaylandKeyboardKey(void *data, wl_keyboard *, std::uint32_t, std::uint32_t,
+                              const std::uint32_t key, const std::uint32_t state) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection == nullptr) {
+    return;
+  }
+  const int mapped = keyFromWaylandKeycode(key);
+  if (mapped < 0) {
+    return;
+  }
+  if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+    addUnique(connection->input.pressed_keys, mapped);
+  } else {
+    removeValue(connection->input.pressed_keys, mapped);
+  }
+}
+
+void handleWaylandKeyboardModifiers(void *, wl_keyboard *, std::uint32_t, std::uint32_t,
+                                    std::uint32_t, std::uint32_t, std::uint32_t) {}
+
+constexpr wl_keyboard_listener kWaylandKeyboardListener{
+    handleWaylandKeyboardKeymap, handleWaylandKeyboardEnter, handleWaylandKeyboardLeave,
+    handleWaylandKeyboardKey, handleWaylandKeyboardModifiers};
+
+void destroyWaylandPointer(WaylandConnection &connection) {
+  destroyWaylandPointerLock(connection);
+  if (connection.relative_pointer != nullptr) {
+    zwp_relative_pointer_v1_destroy(connection.relative_pointer);
+    connection.relative_pointer = nullptr;
+  }
+  if (connection.pointer != nullptr) {
+    wl_pointer_destroy(connection.pointer);
+    connection.pointer = nullptr;
+  }
+  connection.has_pointer_focus = false;
+  connection.has_last_pointer = false;
+  connection.input.pressed_mouse_buttons.clear();
+}
+
+void handleWaylandRelativeMotion(void *data, zwp_relative_pointer_v1 *, std::uint32_t,
+                                 std::uint32_t, wl_fixed_t, wl_fixed_t,
+                                 const wl_fixed_t dx_unaccel,
+                                 const wl_fixed_t dy_unaccel) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection == nullptr || connection->cursor_mode != aster::CursorMode::Disabled) {
+    return;
+  }
+  connection->virtual_pointer =
+      connection->virtual_pointer +
+      aster::Vec2{static_cast<float>(wl_fixed_to_double(dx_unaccel)),
+                  static_cast<float>(wl_fixed_to_double(dy_unaccel))};
+  connection->input.pointer = connection->virtual_pointer;
+}
+
+constexpr zwp_relative_pointer_v1_listener kWaylandRelativePointerListener{
+    handleWaylandRelativeMotion};
+
+void createWaylandRelativePointer(WaylandConnection &connection) {
+  if (connection.pointer == nullptr || connection.relative_pointer != nullptr ||
+      connection.relative_pointer_manager == nullptr) {
+    return;
+  }
+  connection.relative_pointer =
+      zwp_relative_pointer_manager_v1_get_relative_pointer(connection.relative_pointer_manager,
+                                                           connection.pointer);
+  if (connection.relative_pointer != nullptr) {
+    zwp_relative_pointer_v1_add_listener(connection.relative_pointer,
+                                         &kWaylandRelativePointerListener, &connection);
+  }
+}
+
+void handleWaylandLockedPointerLocked(void *data, zwp_locked_pointer_v1 *) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection != nullptr) {
+    connection->pointer_locked = true;
+  }
+}
+
+void handleWaylandLockedPointerUnlocked(void *data, zwp_locked_pointer_v1 *) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection != nullptr) {
+    connection->pointer_locked = false;
+  }
+}
+
+void createWaylandPointer(WaylandConnection &connection) {
+  if (connection.seat == nullptr || connection.pointer != nullptr) {
+    return;
+  }
+  connection.pointer = wl_seat_get_pointer(connection.seat);
+  if (connection.pointer != nullptr) {
+    wl_pointer_add_listener(connection.pointer, &kWaylandPointerListener, &connection);
+  }
+  createWaylandRelativePointer(connection);
+}
+
+void handleWaylandSeatCapabilities(void *data, wl_seat *, const std::uint32_t capabilities) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection == nullptr) {
+    return;
+  }
+  if ((capabilities & WL_SEAT_CAPABILITY_POINTER) != 0u) {
+    createWaylandPointer(*connection);
+  } else {
+    destroyWaylandPointer(*connection);
+  }
+  if ((capabilities & WL_SEAT_CAPABILITY_KEYBOARD) != 0u) {
+    if (connection->keyboard == nullptr) {
+      connection->keyboard = wl_seat_get_keyboard(connection->seat);
+      if (connection->keyboard != nullptr) {
+        wl_keyboard_add_listener(connection->keyboard, &kWaylandKeyboardListener, connection);
+      }
+    }
+  } else if (connection->keyboard != nullptr) {
+    wl_keyboard_destroy(connection->keyboard);
+    connection->keyboard = nullptr;
+    connection->input.pressed_keys.clear();
+  }
+}
+
+void handleWaylandSeatName(void *, wl_seat *, const char *) {}
+
+constexpr wl_seat_listener kWaylandSeatListener{handleWaylandSeatCapabilities,
+                                                handleWaylandSeatName};
+
+void handleWaylandRegistryGlobal(void *data, wl_registry *registry, const std::uint32_t name,
+                                 const char *interface, const std::uint32_t version) {
+  auto *connection = static_cast<WaylandConnection *>(data);
+  if (connection == nullptr || interface == nullptr) {
+    return;
+  }
+  const std::string_view id(interface);
+  if (id == wl_compositor_interface.name) {
+    connection->compositor = static_cast<wl_compositor *>(wl_registry_bind(
+        registry, name, &wl_compositor_interface, std::min<std::uint32_t>(version, 4u)));
+  } else if (id == wl_shm_interface.name) {
+    connection->shm = static_cast<wl_shm *>(
+        wl_registry_bind(registry, name, &wl_shm_interface, std::min<std::uint32_t>(version, 1u)));
+    if (connection->shm != nullptr) {
+      wl_shm_add_listener(connection->shm, &kWaylandShmListener, connection);
+    }
+  } else if (id == wl_seat_interface.name) {
+    connection->seat = static_cast<wl_seat *>(
+        wl_registry_bind(registry, name, &wl_seat_interface, std::min<std::uint32_t>(version, 5u)));
+    if (connection->seat != nullptr) {
+      wl_seat_add_listener(connection->seat, &kWaylandSeatListener, connection);
+    }
+  } else if (id == xdg_wm_base_interface.name) {
+    connection->wm_base = static_cast<xdg_wm_base *>(wl_registry_bind(
+        registry, name, &xdg_wm_base_interface, std::min<std::uint32_t>(version, 3u)));
+    if (connection->wm_base != nullptr) {
+      xdg_wm_base_add_listener(connection->wm_base, &kWaylandWmBaseListener, connection);
+    }
+  } else if (id == zwp_relative_pointer_manager_v1_interface.name) {
+    connection->relative_pointer_manager =
+        static_cast<zwp_relative_pointer_manager_v1 *>(wl_registry_bind(
+            registry, name, &zwp_relative_pointer_manager_v1_interface, 1u));
+    createWaylandRelativePointer(*connection);
+  } else if (id == zwp_pointer_constraints_v1_interface.name) {
+    connection->pointer_constraints = static_cast<zwp_pointer_constraints_v1 *>(wl_registry_bind(
+        registry, name, &zwp_pointer_constraints_v1_interface, 1u));
+  }
+}
+
+void handleWaylandRegistryRemove(void *, wl_registry *, std::uint32_t) {}
+
+constexpr wl_registry_listener kWaylandRegistryListener{handleWaylandRegistryGlobal,
+                                                        handleWaylandRegistryRemove};
+
+std::optional<WaylandConnection> openWayland(const aster::EngineConfig &config) {
+  WaylandConnection connection;
+  connection.display = wl_display_connect(nullptr);
+  if (connection.display == nullptr) {
+    return std::nullopt;
+  }
+
+  connection.registry = wl_display_get_registry(connection.display);
+  if (connection.registry == nullptr) {
+    return std::nullopt;
+  }
+  wl_registry_add_listener(connection.registry, &kWaylandRegistryListener, &connection);
+  if (wl_display_roundtrip(connection.display) < 0 || wl_display_roundtrip(connection.display) < 0) {
+    return std::nullopt;
+  }
+  if (connection.compositor == nullptr || connection.shm == nullptr ||
+      connection.wm_base == nullptr || !connection.supports_xrgb8888) {
+    return std::nullopt;
+  }
+
+  connection.width = std::max(config.initial_width, 1);
+  connection.height = std::max(config.initial_height, 1);
+  connection.surface = wl_compositor_create_surface(connection.compositor);
+  if (connection.surface == nullptr) {
+    return std::nullopt;
+  }
+  connection.xdg_surface = xdg_wm_base_get_xdg_surface(connection.wm_base, connection.surface);
+  if (connection.xdg_surface == nullptr) {
+    return std::nullopt;
+  }
+  xdg_surface_add_listener(connection.xdg_surface, &kWaylandSurfaceListener, &connection);
+  connection.xdg_toplevel = xdg_surface_get_toplevel(connection.xdg_surface);
+  if (connection.xdg_toplevel == nullptr) {
+    return std::nullopt;
+  }
+  xdg_toplevel_add_listener(connection.xdg_toplevel, &kWaylandToplevelListener, &connection);
+  xdg_toplevel_set_title(connection.xdg_toplevel, config.application_name);
+  xdg_toplevel_set_app_id(connection.xdg_toplevel, "aster-learning-engine");
+  wl_surface_commit(connection.surface);
+  if (wl_display_flush(connection.display) < 0 && errno != EAGAIN) {
+    return std::nullopt;
+  }
+  while (!connection.configured) {
+    if (wl_display_dispatch(connection.display) < 0) {
+      return std::nullopt;
+    }
+  }
+  return connection;
+}
+
+void presentWaylandFramebuffer(WaylandConnection &connection) {
+  const aster::SoftwareFrameBuffer &framebuffer = aster::activeFrameBuffer();
+  if (framebuffer.empty() || connection.surface == nullptr || !connection.configured) {
+    return;
+  }
+  if (wl_display_dispatch_pending(connection.display) < 0) {
+    connection.open = false;
+    return;
+  }
+
+  const int width = framebuffer.width();
+  const int height = framebuffer.height();
+  WaylandBuffer *target = nextWaylandFrameBuffer(connection, width, height);
+  if (target == nullptr || target->memory == nullptr) {
+    return;
+  }
+
+  const std::span<const std::uint8_t> rgba = framebuffer.rgba8();
+  auto *pixels = static_cast<std::uint32_t *>(target->memory);
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const std::size_t src =
+          (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
+           static_cast<std::size_t>(x)) *
+          4u;
+      pixels[static_cast<std::size_t>(y * width + x)] =
+          0xff000000u | (static_cast<std::uint32_t>(rgba[src]) << 16u) |
+          (static_cast<std::uint32_t>(rgba[src + 1u]) << 8u) |
+          static_cast<std::uint32_t>(rgba[src + 2u]);
+    }
+  }
+
+  wl_surface_attach(connection.surface, target->buffer, 0, 0);
+  if (wl_surface_get_version(connection.surface) >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION) {
+    wl_surface_damage_buffer(connection.surface, 0, 0, width, height);
+  } else {
+    wl_surface_damage(connection.surface, 0, 0, width, height);
+  }
+  wl_surface_commit(connection.surface);
+  target->busy = true;
+  if (wl_display_flush(connection.display) < 0 && errno != EAGAIN) {
+    connection.open = false;
+  }
+}
+
+void pollWaylandEvents(WaylandConnection &connection) {
+  connection.input.scroll = {};
+  while (wl_display_prepare_read(connection.display) != 0) {
+    if (wl_display_dispatch_pending(connection.display) < 0) {
+      connection.open = false;
+      return;
+    }
+  }
+  if (wl_display_flush(connection.display) < 0 && errno != EAGAIN) {
+    wl_display_cancel_read(connection.display);
+    connection.open = false;
+    return;
+  }
+
+  pollfd fd{};
+  fd.fd = wl_display_get_fd(connection.display);
+  fd.events = POLLIN;
+  const int ready = ::poll(&fd, 1, 0);
+  if (ready > 0 && (fd.revents & POLLIN) != 0) {
+    if (wl_display_read_events(connection.display) < 0) {
+      connection.open = false;
+      return;
+    }
+  } else {
+    wl_display_cancel_read(connection.display);
+    if (ready < 0 && errno != EINTR) {
+      connection.open = false;
+      return;
+    }
+  }
+  if (fd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+    connection.open = false;
+    return;
+  }
+  if (wl_display_dispatch_pending(connection.display) < 0) {
+    connection.open = false;
+  }
+}
+
+void applyWaylandCursorMode(WaylandConnection &connection, const aster::CursorMode mode) {
+  connection.cursor_mode = mode;
+  if (mode == aster::CursorMode::Disabled) {
+    connection.virtual_pointer =
+        connection.has_last_pointer
+            ? connection.last_pointer
+            : aster::Vec2{static_cast<float>(connection.width) * 0.5f,
+                          static_cast<float>(connection.height) * 0.5f};
+    connection.input.pointer = connection.virtual_pointer;
+  }
+  applyWaylandCursor(connection);
+  updateWaylandPointerLock(connection);
+  if (wl_display_flush(connection.display) < 0 && errno != EAGAIN) {
+    connection.open = false;
+  }
 }
 
 struct X11Connection {
@@ -986,19 +1938,28 @@ struct WindowImpl {
   int height = 1;
   bool open = true;
   ControlSnapshot input;
+  std::optional<WaylandConnection> wayland;
   std::optional<X11Connection> x11;
 };
 
 Window::Window(const EngineConfig &config) : impl_(std::make_unique<WindowImpl>()) {
   scale_framebuffer_to_display_ = config.scale_framebuffer_to_display;
-  impl_->x11 = openX11(config);
-  if (!impl_->x11.has_value()) {
-    throw std::runtime_error(
-        "Aster could not open a raw X11 display. Set DISPLAY to a local X server for the Linux "
-        "desktop backend.");
+  const bool force_x11 = std::getenv("ASTER_FORCE_X11") != nullptr;
+  const bool force_wayland = std::getenv("ASTER_FORCE_WAYLAND") != nullptr;
+  if (!force_x11) {
+    impl_->wayland = openWayland(config);
   }
-  impl_->width = impl_->x11->width;
-  impl_->height = impl_->x11->height;
+  if (!impl_->wayland.has_value() && !force_wayland) {
+    impl_->x11 = openX11(config);
+  }
+  if (!impl_->wayland.has_value() && !impl_->x11.has_value()) {
+    throw std::runtime_error(
+        "Aster could not open a Linux desktop display. Set WAYLAND_DISPLAY for Wayland or DISPLAY "
+        "for the raw X11 fallback. Use ASTER_FORCE_WAYLAND=1 or ASTER_FORCE_X11=1 to select a "
+        "specific backend.");
+  }
+  impl_->width = impl_->wayland.has_value() ? impl_->wayland->width : impl_->x11->width;
+  impl_->height = impl_->wayland.has_value() ? impl_->wayland->height : impl_->x11->height;
 }
 
 Window::~Window() = default;
@@ -1013,14 +1974,24 @@ void Window::pollEvents() {
   if (impl_ == nullptr) {
     return;
   }
-  pollX11Events(*impl_->x11, impl_->open);
-  impl_->width = impl_->x11->width;
-  impl_->height = impl_->x11->height;
-  impl_->input = impl_->x11->input;
+  if (impl_->wayland.has_value()) {
+    pollWaylandEvents(*impl_->wayland);
+    impl_->open = impl_->wayland->open;
+    impl_->width = impl_->wayland->width;
+    impl_->height = impl_->wayland->height;
+    impl_->input = impl_->wayland->input;
+  } else if (impl_->x11.has_value()) {
+    pollX11Events(*impl_->x11, impl_->open);
+    impl_->width = impl_->x11->width;
+    impl_->height = impl_->x11->height;
+    impl_->input = impl_->x11->input;
+  }
 }
 
 void Window::swapBuffers() {
-  if (impl_ != nullptr) {
+  if (impl_ != nullptr && impl_->wayland.has_value()) {
+    presentWaylandFramebuffer(*impl_->wayland);
+  } else if (impl_ != nullptr && impl_->x11.has_value()) {
     presentFramebuffer(*impl_->x11);
   }
 }
@@ -1030,7 +2001,10 @@ void Window::setVsync(const bool enabled) {
 }
 
 void Window::setCursorMode(const CursorMode mode) {
-  if (impl_ != nullptr) {
+  if (impl_ != nullptr && impl_->wayland.has_value()) {
+    applyWaylandCursorMode(*impl_->wayland, mode);
+    impl_->input = impl_->wayland->input;
+  } else if (impl_ != nullptr && impl_->x11.has_value()) {
     applyCursorMode(*impl_->x11, mode);
     impl_->input = impl_->x11->input;
   }
