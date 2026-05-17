@@ -102,8 +102,8 @@ engine contracts from papers that were useful as background context.
 - Reusable generated-scenery assembly for grouped scene objects, sockets, and
   collision proxies
 - Terrain-fitted cave entrance generation, continuous portal formation geometry,
-  sealed portal/throat geometry, procedural cave formations, engine-native
-  voxel cave streaming, fixture-driven cave lighting, and mineral-accent
+  sealed portal/throat geometry, procedural cave formations, authored deep-cave
+  sections, fixture-driven cave lighting, and mineral-accent
   placements driven by the cave tunnel profile
 - Closed-loop work budgeting with measured class costs, backlog telemetry, and
   starvation-aware selection for interactive streaming work
@@ -114,13 +114,9 @@ engine contracts from papers that were useful as background context.
 - Stable dynamic mesh resource ids/generations, renderer visibility classes,
   LOD policy fields, and frame-report counters for LOD culls, visibility hints,
   dynamic mesh usage, and dynamic mesh cache size
-- Camera/view visibility probes and velocity lookahead for voxel cave streaming,
-  with unload retention tied to active viewer/probe cells so fast traversal does
-  not expose blank chunk frames
-- Path-aware cave streaming probes for procedural tunnels, so chunk prefetch
-  follows winding cave frames instead of assuming a straight-line forward vector
-- Coarse-proxy retirement batches with opacity transition into full voxel meshes,
-  reducing visible chunk publication pops
+- Static cave section sampling, lighting probes, collision meshes, and support
+  surfaces share the authored tunnel profile so traversal does not depend on
+  runtime chunk publication order
 - Geometry-evidence interaction targets with explicit hit distance and occlusion
   state, used by Lumen Run to avoid stale proximity targets behind cave webs
 - HUD visibility policy for gameplay, pause, inventory, and defeat overlays
@@ -138,4 +134,4 @@ engine contracts from papers that were useful as background context.
 - Lumen Run gameplay loop
 - Native framebuffer screenshots and deterministic cave-entry sequence capture
 - Scripted frame reports for default gameplay, cave entry, deep cave,
-  voxel-mining stress, cave-streaming stress, and Studio UI
+  deep-cave stress, and Studio UI

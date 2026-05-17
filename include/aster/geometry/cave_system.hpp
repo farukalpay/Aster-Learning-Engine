@@ -53,6 +53,7 @@ struct CaveTunnelProfile {
   float wall_noise = 0.18f;
   float visible_wall_start_t = 0.12f;
   float collision_start_t = 0.10f;
+  float collision_end_t = 1.0f;
   float ore_start_t = 0.24f;
   float chest_t = 0.56f;
   float chamber_t = 0.62f;
@@ -225,7 +226,11 @@ struct CaveWallFixturePlacement {
 
 [[nodiscard]] Vec3 evaluateCaveTunnelCenter(const CaveTunnelProfile &profile, float t);
 [[nodiscard]] Vec3 evaluateCaveTunnelTangent(const CaveTunnelProfile &profile, float t);
+[[nodiscard]] float estimateCaveTunnelLength(const CaveTunnelProfile &profile, float start_t = 0.0f,
+                                             float end_t = 1.0f);
 [[nodiscard]] CaveTunnelFrame sampleCaveTunnelFrame(const CaveTunnelProfile &profile, float t);
+[[nodiscard]] CaveTunnelFrame sampleCaveTunnelFrameAtDistance(const CaveTunnelProfile &profile,
+                                                              float distance);
 [[nodiscard]] CaveInteriorSample sampleCaveInteriorVolume(const CaveTunnelProfile &profile,
                                                           Vec3 position);
 [[nodiscard]] CaveTraversalConstraint

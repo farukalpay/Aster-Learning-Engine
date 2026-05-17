@@ -64,8 +64,8 @@ constexpr double kFramePacingSchedulerGuardSeconds = 0.0012;
 constexpr double kFramePacingYieldThresholdSeconds = 0.00018;
 constexpr std::size_t kMaxSimulationStepsPerFrame = 4;
 constexpr float kGameplayCameraYaw = 0.0f;
-constexpr float kCaveStreamingStressStartProgress = 10.0f;
-constexpr float kCaveStreamingStressMetersPerSecond = 10.0f;
+constexpr float kDeepCaveStressStartProgress = 10.0f;
+constexpr float kDeepCaveStressMetersPerSecond = 10.0f;
 const float kGameplayCameraPitch = aster::radians(22.0f);
 
 bool hasArgument(const int argc, char **argv, const std::string_view value) {
@@ -139,6 +139,92 @@ void sleepForFrameCap(const aster::Clock &clock, const double frame_start_second
 aster::Vec3 mixVec(const aster::Vec3 a, const aster::Vec3 b, const float t) {
   const float amount = std::clamp(t, 0.0f, 1.0f);
   return a + (b - a) * amount;
+}
+
+struct RenderEnvironmentBaseline {
+  aster::LightRig light_rig{};
+  aster::DirectionalLight sun_light{};
+  float ambient_strength = 0.0f;
+  float ambient_floor = 0.0f;
+  aster::Vec3 sky_ambient_color{};
+  aster::Vec3 ground_ambient_color{};
+  aster::AtmosphereSettings atmosphere{};
+  aster::Vec3 clear_color{};
+  float exposure = 1.0f;
+};
+
+float caveCameraLookBlend(const aster::CaveLightingState &light) {
+  return std::clamp(light.interior + light.entrance_light * 0.35f, 0.0f, 1.0f);
+}
+
+aster::ThirdPersonFollowSettings cameraFollowSettings(const float target_response,
+                                                      const float cave_look_blend) {
+  const float blend = std::clamp(cave_look_blend, 0.0f, 1.0f);
+  return {.yaw_sensitivity = 0.0038f,
+          .pitch_sensitivity = 0.0032f,
+          .min_pitch = std::lerp(aster::radians(10.0f), aster::radians(-14.0f), blend),
+          .max_pitch = std::lerp(aster::radians(54.0f), aster::radians(74.0f), blend),
+          .target_response = target_response};
+}
+
+void restoreRenderEnvironment(aster::RendererSettings &settings,
+                              const RenderEnvironmentBaseline &baseline) {
+  settings.light_rig = baseline.light_rig;
+  settings.sun_light = baseline.sun_light;
+  settings.ambient_strength = baseline.ambient_strength;
+  settings.ambient_floor = baseline.ambient_floor;
+  settings.sky_ambient_color = baseline.sky_ambient_color;
+  settings.ground_ambient_color = baseline.ground_ambient_color;
+  settings.atmosphere = baseline.atmosphere;
+  settings.pipeline.clear_color = baseline.clear_color;
+  settings.exposure = baseline.exposure;
+}
+
+void applyCaveRenderEnvironment(aster::RendererSettings &settings,
+                                const RenderEnvironmentBaseline &baseline,
+                                const aster::CaveLightingState &light) {
+  if (light.interior <= 0.001f) {
+    return;
+  }
+
+  const float interior = std::clamp(light.interior, 0.0f, 1.0f);
+  const float cave_depth = std::clamp(light.depth, 0.0f, 1.0f);
+  const float chamber_fill = std::clamp(light.chamber, 0.0f, 1.0f);
+  const float source_fill = std::clamp(light.wall_light, 0.0f, 1.0f);
+  const aster::Vec3 warm_ambient = mixVec({0.026f, 0.023f, 0.020f},
+                                         light.wall_light_color * 0.032f, source_fill * 0.45f);
+  const aster::Vec3 cave_sky_tint = mixVec({0.018f, 0.018f, 0.017f}, warm_ambient, source_fill);
+  const aster::Vec3 cave_ground_tint =
+      mixVec({0.016f, 0.015f, 0.014f}, warm_ambient * 0.72f, source_fill);
+
+  settings.ambient_strength =
+      std::lerp(baseline.ambient_strength,
+                0.020f + source_fill * 0.008f + chamber_fill * 0.008f - cave_depth * 0.006f,
+                interior);
+  settings.ambient_floor =
+      std::lerp(baseline.ambient_floor, 0.007f + source_fill * 0.003f + chamber_fill * 0.003f,
+                interior);
+  settings.sky_ambient_color = mixVec(baseline.sky_ambient_color, cave_sky_tint, interior);
+  settings.ground_ambient_color = mixVec(baseline.ground_ambient_color, cave_ground_tint, interior);
+  settings.pipeline.clear_color = mixVec(baseline.clear_color, {0.005f, 0.005f, 0.005f}, interior);
+  settings.exposure =
+      std::lerp(baseline.exposure, 0.74f + source_fill * 0.05f + chamber_fill * 0.020f, interior);
+  settings.atmosphere.fog_color =
+      mixVec(baseline.atmosphere.fog_color, {0.022f, 0.021f, 0.020f}, interior);
+  settings.atmosphere.fog_start = std::lerp(baseline.atmosphere.fog_start, 2.0f, interior);
+  settings.atmosphere.fog_end =
+      std::lerp(baseline.atmosphere.fog_end, 9.4f + source_fill * 2.2f + chamber_fill * 2.0f,
+                interior);
+  settings.atmosphere.fog_strength =
+      std::lerp(baseline.atmosphere.fog_strength, 0.48f + cave_depth * 0.18f, interior);
+  settings.atmosphere.saturation =
+      std::lerp(baseline.atmosphere.saturation, 0.58f + source_fill * 0.04f, interior);
+  settings.atmosphere.contrast = std::lerp(baseline.atmosphere.contrast, 1.20f, interior);
+  settings.sun_light.intensity =
+      std::lerp(baseline.sun_light.intensity, baseline.sun_light.intensity * 0.006f, interior);
+  for (std::size_t i = 0; i < settings.light_rig.size(); ++i) {
+    settings.light_rig[i].intensity *= std::lerp(1.0f, 0.018f, interior);
+  }
 }
 
 void printFrameSummary(const char *label, const aster::FrameTimeSummary &summary) {
@@ -468,8 +554,7 @@ int main(int argc, char **argv) {
         scripted_frame_report_route ? frame_report_route : capture_route;
     const bool cave_entry_capture = playback_route == "cave-entry";
     const bool deep_cave_capture = playback_route == "deep-cave";
-    const bool voxel_mining_stress_capture = playback_route == "voxel-mining-stress";
-    const bool cave_streaming_stress_capture = playback_route == "cave-streaming-stress";
+    const bool deep_cave_stress_capture = playback_route == "deep-cave-stress";
     const bool scripted_capture =
         !screenshot_path.empty() || sequence_capture || scripted_frame_report_route;
     const bool unlocked = hasArgument(argc, argv, "--unlocked");
@@ -514,12 +599,11 @@ int main(int argc, char **argv) {
       const aster::Vec3 crate = game.supplyCratePosition();
       game.relocatePlayer(crate + aster::Vec3{1.10f, 0.0f, 1.00f},
                           aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", 180.0f)));
-    } else if ((deep_cave_capture || voxel_mining_stress_capture || cave_streaming_stress_capture) &&
+    } else if ((deep_cave_capture || deep_cave_stress_capture) &&
                !player_position_override) {
       game.relocatePlayer(
-          game.voxelCaveFrameReportPosition(
-              cave_streaming_stress_capture ? kCaveStreamingStressStartProgress
-                                            : (voxel_mining_stress_capture ? 18.0f : 34.0f)),
+          game.caveFrameReportPosition(deep_cave_stress_capture ? kDeepCaveStressStartProgress
+                                                                 : 34.0f),
           aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", 0.0f)));
     } else if (player_at_prism_relay_for_capture) {
       const aster::Vec3 base = game.prismRelayBasePosition();
@@ -558,39 +642,28 @@ int main(int argc, char **argv) {
     aster::Vec3 scripted_camera_target = {2.25f, 0.48f, -0.95f};
     if (scripted_capture) {
       const aster::Vec3 player = game.playerPosition();
-      scripted_camera_target = cave_entry_capture
-                                   ? caveEntryCameraTarget(player, 0.0f)
-                                   : ((deep_cave_capture || voxel_mining_stress_capture ||
-                                       cave_streaming_stress_capture)
-                                          ? player + aster::Vec3{0.0f, 0.32f, 0.0f}
-                                          : aster::Vec3{
-                                                argumentFloat(argc, argv, "--camera-target-x",
-                                                              2.25f),
-                                                argumentFloat(argc, argv, "--camera-target-y",
-                                                              0.48f),
-                                                argumentFloat(argc, argv, "--camera-target-z",
-                                                              -0.95f)});
+      scripted_camera_target =
+          cave_entry_capture
+              ? caveEntryCameraTarget(player, 0.0f)
+              : ((deep_cave_capture || deep_cave_stress_capture)
+                     ? player + aster::Vec3{0.0f, 0.32f, 0.0f}
+                     : aster::Vec3{argumentFloat(argc, argv, "--camera-target-x", 2.25f),
+                                   argumentFloat(argc, argv, "--camera-target-y", 0.48f),
+                                   argumentFloat(argc, argv, "--camera-target-z", -0.95f)});
       camera.pitch = aster::radians(argumentFloat(
           argc, argv, "--camera-pitch-deg",
           cave_entry_capture
               ? 12.0f
-              : ((deep_cave_capture || voxel_mining_stress_capture ||
-                  cave_streaming_stress_capture)
-                     ? 10.0f
-                     : 28.0f)));
+              : ((deep_cave_capture || deep_cave_stress_capture) ? 10.0f : 28.0f)));
       camera.yaw = aster::radians(argumentFloat(
           argc, argv, "--camera-yaw-deg",
           cave_entry_capture
               ? 0.0f
-              : ((deep_cave_capture || voxel_mining_stress_capture ||
-                  cave_streaming_stress_capture)
-                     ? 0.0f
-                     : -31.0f)));
+              : ((deep_cave_capture || deep_cave_stress_capture) ? 0.0f : -31.0f)));
       camera.radius =
           argumentFloat(argc, argv, "--camera-radius",
                         cave_entry_capture ? 7.2f
-                                           : ((deep_cave_capture || voxel_mining_stress_capture ||
-                                               cave_streaming_stress_capture)
+                                           : ((deep_cave_capture || deep_cave_stress_capture)
                                                   ? 4.8f
                                                   : 7.8f));
       camera.vertical_fov = aster::radians(std::clamp(
@@ -643,15 +716,16 @@ int main(int argc, char **argv) {
     settings.atmosphere.shadow_tint_strength = 0.16f;
     settings.atmosphere.highlight_tint = {1.10f, 1.02f, 0.82f};
     settings.atmosphere.highlight_tint_strength = 0.10f;
-    const aster::LightRig base_light_rig = settings.light_rig;
-    const aster::DirectionalLight base_sun_light = settings.sun_light;
-    const float base_ambient_strength = settings.ambient_strength;
-    const aster::Vec3 base_sky_ambient = settings.sky_ambient_color;
-    const aster::Vec3 base_ground_ambient = settings.ground_ambient_color;
-    const float base_ambient_floor = settings.ambient_floor;
-    const aster::AtmosphereSettings base_atmosphere = settings.atmosphere;
-    const aster::Vec3 base_clear_color = settings.pipeline.clear_color;
-    const float base_exposure = settings.exposure;
+    const RenderEnvironmentBaseline base_render_environment{
+        .light_rig = settings.light_rig,
+        .sun_light = settings.sun_light,
+        .ambient_strength = settings.ambient_strength,
+        .ambient_floor = settings.ambient_floor,
+        .sky_ambient_color = settings.sky_ambient_color,
+        .ground_ambient_color = settings.ground_ambient_color,
+        .atmosphere = settings.atmosphere,
+        .clear_color = settings.pipeline.clear_color,
+        .exposure = settings.exposure};
 
     aster::HudLayer hud;
     hud.initialize();
@@ -689,7 +763,6 @@ int main(int argc, char **argv) {
     aster::Vec2 previous_pointer{};
     bool have_previous_pointer = false;
     aster::CursorMode applied_cursor_mode = aster::CursorMode::Normal;
-    std::uint32_t voxel_mining_stress_edits = 0u;
     if (!pause_open && !inventory_open && !scripted_capture) {
       window.setCursorMode(aster::CursorMode::Disabled);
       applied_cursor_mode = aster::CursorMode::Disabled;
@@ -820,8 +893,7 @@ int main(int argc, char **argv) {
           axis = caveEntryAxis(static_cast<float>(elapsed));
           run = caveEntryRun(static_cast<float>(elapsed));
           jump = false;
-        } else if (deep_cave_capture || voxel_mining_stress_capture ||
-                   cave_streaming_stress_capture) {
+        } else if (deep_cave_capture || deep_cave_stress_capture) {
           axis = {};
           run = false;
           jump = false;
@@ -833,11 +905,12 @@ int main(int argc, char **argv) {
         jump_buffered = false;
       }
 
-      game.setVoxelStreamingView(camera.position(), camera.target - camera.position());
       const aster::Vec3 pre_update_player = game.playerPosition();
+      const aster::CaveLightingState pre_update_cave_light =
+          game.caveLightingStateAt(pre_update_player);
       camera_follow_pose = aster::updateThirdPersonFollow(
           camera_follow_state,
-          {.yaw_sensitivity = 0.0038f, .pitch_sensitivity = 0.0032f, .target_response = 0.0f},
+          cameraFollowSettings(0.0f, caveCameraLookBlend(pre_update_cave_light)),
           {.active = camera_follow_active,
            .has_pointer_delta = camera_pointer_delta_valid,
            .pointer_delta = pointer_delta,
@@ -847,17 +920,13 @@ int main(int argc, char **argv) {
           static_cast<float>(frame_dt));
 
       if (scripted_capture) {
-        if (cave_streaming_stress_capture) {
+        if (deep_cave_stress_capture) {
           const float progress =
-              kCaveStreamingStressStartProgress +
-              static_cast<float>(elapsed) * kCaveStreamingStressMetersPerSecond;
+              kDeepCaveStressStartProgress +
+              static_cast<float>(elapsed) * kDeepCaveStressMetersPerSecond;
           game.relocatePlayer(
-              game.voxelCaveFrameReportPosition(progress),
+              game.caveFrameReportPosition(progress),
               aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", 0.0f)));
-        }
-        if ((voxel_mining_stress_capture || cave_streaming_stress_capture) &&
-            rendered_frames % (cave_streaming_stress_capture ? 6 : 4) == 0) {
-          game.enqueueVoxelCaveStressEdit(voxel_mining_stress_edits++);
         }
         game.update(static_cast<float>(frame_dt), axis, run, jump);
       } else if (!pause_open) {
@@ -883,15 +952,14 @@ int main(int argc, char **argv) {
       const aster::Vec3 player = game.playerRenderPosition();
       if (cave_entry_capture) {
         scripted_camera_target = caveEntryCameraTarget(player, static_cast<float>(elapsed));
-      } else if (deep_cave_capture || voxel_mining_stress_capture ||
-                 cave_streaming_stress_capture) {
+      } else if (deep_cave_capture || deep_cave_stress_capture) {
         scripted_camera_target = player + aster::Vec3{0.0f, 0.32f, 0.0f};
       }
       const aster::CaveLightingState cave_light =
           game.caveLightingStateAt(scripted_capture ? scripted_camera_target : player);
       camera_follow_pose = aster::updateThirdPersonFollow(
           camera_follow_state,
-          {.yaw_sensitivity = 0.0038f, .pitch_sensitivity = 0.0032f, .target_response = 16.0f},
+          cameraFollowSettings(16.0f, caveCameraLookBlend(cave_light)),
           {.active = camera_follow_active,
            .has_pointer_delta = false,
            .pointer_delta = {},
@@ -919,8 +987,7 @@ int main(int argc, char **argv) {
           camera.target = camera_follow_pose.camera_target;
           camera.pitch = camera_follow_pose.camera_pitch;
           camera.yaw = camera_follow_pose.camera_yaw;
-          const float cave_camera_blend =
-              std::clamp(cave_light.interior + cave_light.entrance_light * 0.35f, 0.0f, 1.0f);
+          const float cave_camera_blend = caveCameraLookBlend(cave_light);
           const float desired_radius = std::lerp(gameplay_camera_radius, 2.85f, cave_camera_blend);
           camera.radius =
               game.resolveCameraRadius(camera.target, camera.yaw, camera.pitch, desired_radius);
@@ -956,15 +1023,7 @@ int main(int argc, char **argv) {
         game.updateInteractionFocus(camera.position(), {0.0f, -1.0f, 0.0f},
                                     static_cast<float>(frame_dt));
       }
-      settings.light_rig = base_light_rig;
-      settings.sun_light = base_sun_light;
-      settings.ambient_strength = base_ambient_strength;
-      settings.ambient_floor = base_ambient_floor;
-      settings.sky_ambient_color = base_sky_ambient;
-      settings.ground_ambient_color = base_ground_ambient;
-      settings.atmosphere = base_atmosphere;
-      settings.pipeline.clear_color = base_clear_color;
-      settings.exposure = base_exposure;
+      restoreRenderEnvironment(settings, base_render_environment);
       if (const std::optional<aster::DynamicPointLight> light = game.pondAccentLight();
           light.has_value() && light->active) {
         settings.light_rig[2] = {light->position, light->color, light->intensity,
@@ -975,49 +1034,7 @@ int main(int argc, char **argv) {
         settings.light_rig[1] = {light->position, light->color, light->intensity,
                                  light->source_radius};
       }
-      if (cave_light.interior > 0.001f) {
-        const float cave_depth = std::clamp(cave_light.depth, 0.0f, 1.0f);
-        const float chamber_fill = std::clamp(cave_light.chamber, 0.0f, 1.0f);
-        const float source_fill = std::clamp(cave_light.wall_light, 0.0f, 1.0f);
-        const aster::Vec3 cave_sky_tint = mixVec(
-            {0.024f, 0.020f, 0.017f}, cave_light.wall_light_color * 0.105f, source_fill);
-        const aster::Vec3 cave_ground_tint =
-            mixVec({0.020f, 0.017f, 0.014f}, cave_light.wall_light_color * 0.075f, source_fill);
-        settings.ambient_strength =
-            std::lerp(base_ambient_strength,
-                      0.030f + source_fill * 0.018f + chamber_fill * 0.009f -
-                          cave_depth * 0.004f,
-                      cave_light.interior);
-        settings.ambient_floor =
-            std::lerp(base_ambient_floor, 0.011f + source_fill * 0.008f + chamber_fill * 0.006f,
-                      cave_light.interior);
-        settings.sky_ambient_color = mixVec(base_sky_ambient, cave_sky_tint, cave_light.interior);
-        settings.ground_ambient_color =
-            mixVec(base_ground_ambient, cave_ground_tint, cave_light.interior);
-        settings.pipeline.clear_color =
-            mixVec(base_clear_color, {0.006f, 0.006f, 0.005f}, cave_light.interior);
-        settings.exposure = std::lerp(base_exposure,
-                                      1.02f + source_fill * 0.14f + chamber_fill * 0.045f,
-                                      cave_light.interior);
-        settings.atmosphere.fog_color =
-            mixVec(base_atmosphere.fog_color, {0.030f, 0.025f, 0.020f}, cave_light.interior);
-        settings.atmosphere.fog_start =
-            std::lerp(base_atmosphere.fog_start, 2.4f, cave_light.interior);
-        settings.atmosphere.fog_end =
-            std::lerp(base_atmosphere.fog_end, 10.8f + source_fill * 3.0f + chamber_fill * 2.2f,
-                      cave_light.interior);
-        settings.atmosphere.fog_strength = std::lerp(
-            base_atmosphere.fog_strength, 0.38f + cave_depth * 0.20f, cave_light.interior);
-        settings.atmosphere.saturation =
-            std::lerp(base_atmosphere.saturation, 0.76f + source_fill * 0.08f, cave_light.interior);
-        settings.atmosphere.contrast =
-            std::lerp(base_atmosphere.contrast, 1.10f, cave_light.interior);
-        settings.sun_light.intensity = std::lerp(
-            base_sun_light.intensity, base_sun_light.intensity * 0.010f, cave_light.interior);
-        for (std::size_t i = 0; i < settings.light_rig.size(); ++i) {
-          settings.light_rig[i].intensity *= std::lerp(1.0f, 0.025f, cave_light.interior);
-        }
-      }
+      applyCaveRenderEnvironment(settings, base_render_environment, cave_light);
       if (!cave_light.wall_lights.empty()) {
         const std::size_t wall_light_count =
             std::min<std::size_t>(cave_light.wall_lights.size(), settings.light_rig.size() - 1u);

@@ -34,7 +34,7 @@ The images below are generated from the current build.
 - A deterministic software renderer used for fallback, capture, preview, and
   renderer diagnostics.
 - Lumen Run, a playable sample that exercises terrain, castle geometry, cave
-  traversal, sealed cave portals, streaming cave continuation, fixture-driven
+  traversal, sealed cave portals, authored deep-cave continuation, fixture-driven
   cave lighting, mineral formations, procedural ground detail, water,
   vegetation, avatar animation, inventory, HUD, interaction, physics,
   particles, and capture automation.
@@ -63,7 +63,7 @@ The images below are generated from the current build.
 - Added a continuous procedural cave-mouth formation, reusable ground-detail
   scatter, cached cave fixture state, and deterministic cave-entry capture and
   benchmark routes.
-- Added sealed cave portal/throat geometry, engine-native voxel cave streaming,
+- Added sealed cave portal/throat geometry, authored deep-cave continuation,
   and industrial wall-light placement for darker cave traversal.
 - Expanded analytic procedural material controls across terrain, grass, rock,
   cave stone, water, and avatar surfaces.

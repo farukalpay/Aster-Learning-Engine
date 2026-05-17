@@ -33,8 +33,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -84,18 +82,13 @@ constexpr std::uint32_t kLumenCaveSeed = 0x9f2a51u;
 constexpr aster::Vec3 kCaveEntrancePlanar{31.0f, 0.0f, -59.0f};
 constexpr aster::Vec3 kCaveInwardPlanar{-0.16f, 0.0f, -1.0f};
 constexpr float kCaveApproachPathWidth = 0.74f;
-constexpr float kProceduralCaveWallFixtureSpacing = 5.8f;
-constexpr int kProceduralCaveWallFixtureBehind = 1;
-constexpr int kProceduralCaveWallFixtureAhead = 2;
-constexpr std::size_t kProceduralCaveWallFixtureVisualPoolSize = 8u;
 constexpr std::size_t kMiningFractureShardVisualPoolSize = 28u;
-constexpr aster::Vec3 kCaveIndustrialRed{1.0f, 0.10f, 0.055f};
+constexpr aster::Vec3 kCaveIndustrialWarmLight{1.0f, 0.42f, 0.24f};
+constexpr float kAuthoredCaveFixtureIntensity = 42.0f;
+constexpr float kAuthoredCaveFixtureSourceRadius = 2.15f;
 constexpr float kOreInteractionDistance = 2.35f;
-constexpr float kVoxelMiningInteractionDistance = 3.45f;
 constexpr float kCaveWebInteractionDistance = 3.10f;
 constexpr float kCaveWebSlowScale = 0.18f;
-constexpr float kCaveTransitionConnectorLength = 7.20f;
-constexpr float kCaveTransitionInteractionGuardScale = 1.12f;
 constexpr int kCaveSkitterEncounterCount = 3;
 constexpr float kCaveSkitterInteractionDistance = 2.85f;
 constexpr int kCaveSkitterMaxHealth = 3;
@@ -1369,6 +1362,7 @@ aster::CaveTunnelProfile lumenCaveTunnelProfile(const float floor_y) {
           .wall_noise = 0.30f,
           .visible_wall_start_t = 0.0f,
           .collision_start_t = 0.0f,
+          .collision_end_t = 0.965f,
           .ore_start_t = 0.24f,
           .chest_t = 0.78f,
           .chamber_t = 0.74f,
@@ -1466,59 +1460,102 @@ aster::CaveWallFixtureProfile lumenCaveSecondaryWallFixtureProfile() {
   return profile;
 }
 
-aster::VoxelCaveInteriorProbe lumenVoxelCaveInteriorProbe() {
-  return {.density_feather_cells = 1.5f,
-          .entrance_light_distance = 3.4f,
-          .depth_reference_distance = 72.0f};
-}
-
-aster::VoxelCaveFixtureProfile lumenVoxelCaveFixtureProfile() {
-  return {.start_distance = 0.0f,
-          .end_distance = 0.0f,
-          .target_spacing = kProceduralCaveWallFixtureSpacing,
-          .max_count = static_cast<int>(kProceduralCaveWallFixtureVisualPoolSize),
-          .procedural_behind = kProceduralCaveWallFixtureBehind,
-          .procedural_ahead = kProceduralCaveWallFixtureAhead,
-          .side_mode = aster::VoxelCaveFixtureSideMode::Alternating,
-          .wall_inset = 0.24f,
-          .mount_height = 0.10f,
-          .normal_up_bias = -0.10f,
-          .lens_offset = 0.095f,
-          .light_offset = 0.22f};
-}
-
-aster::VoxelCaveFixtureProfile lumenVoxelCaveProceduralFixtureProfile() {
-  aster::VoxelCaveFixtureProfile fixture = lumenVoxelCaveFixtureProfile();
-  return fixture;
-}
-
-aster::VoxelCaveFixtureLightProbe lumenVoxelCaveFixtureLightProbe() {
-  return {.progress_window = kProceduralCaveWallFixtureSpacing,
-          .minimum_progress_gain = 0.70f,
-          .distance_score_weight = 0.55f,
-          .progress_score_weight = 1.30f};
-}
-
-aster::CaveWallFixturePlacement
-caveWallFixtureFromVoxel(const aster::VoxelCaveFixturePlacement &fixture) {
-  return {.position = fixture.position,
-          .mount_position = fixture.mount_position,
-          .lens_position = fixture.lens_position,
-          .light_position = fixture.light_position,
-          .light_color = fixture.light_color,
-          .normal = fixture.normal,
-          .tangent = fixture.tangent,
-          .up = fixture.up,
-          .t = fixture.progress_normalized};
-}
-
-aster::Vec3 voxelCaveTunnelCenter(const aster::CaveTunnelFrame &frame) {
+aster::Vec3 caveTunnelBodyCenter(const aster::CaveTunnelFrame &frame) {
   const float radius = std::min(frame.half_width * 0.92f, frame.height * 0.52f);
   return frame.floor_center + frame.up * radius;
 }
 
-float voxelCaveTunnelRadius(const aster::CaveTunnelFrame &frame) {
+float caveTunnelBodyRadius(const aster::CaveTunnelFrame &frame) {
   return std::min(frame.half_width * 0.92f, frame.height * 0.52f);
+}
+
+aster::CaveTunnelProfile lumenDeepCaveTunnelProfile(const aster::CaveTunnelProfile &entry) {
+  const aster::CaveTunnelFrame gate = sampleCaveTunnelFrame(entry, 1.0f);
+  const aster::Vec3 forward =
+      aster::length(gate.tangent) > 0.0001f ? aster::normalize(gate.tangent)
+                                            : aster::Vec3{0.0f, 0.0f, -1.0f};
+  const aster::Vec3 side = aster::length(gate.side) > 0.0001f
+                               ? aster::normalize(gate.side)
+                               : aster::Vec3{1.0f, 0.0f, 0.0f};
+  const aster::Vec3 up = aster::length(gate.up) > 0.0001f
+                             ? aster::normalize(gate.up)
+                             : aster::Vec3{0.0f, 1.0f, 0.0f};
+  const float body_radius = std::max(caveTunnelBodyRadius(gate), 0.80f);
+  const float entry_length = estimateCaveTunnelLength(entry);
+  const float span = std::max(entry_length * 1.35f, body_radius * 30.0f);
+  const aster::Vec3 start = gate.floor_center;
+  return {.seed = kLumenCaveSeed + 6121u,
+          .start = start,
+          .control = start + forward * (span * 0.30f) + side * (body_radius * 1.25f) -
+                     up * (body_radius * 0.55f),
+          .control_b = start + forward * (span * 0.68f) - side * (body_radius * 2.10f) -
+                       up * (body_radius * 2.25f),
+          .end = start + forward * span + side * (body_radius * 0.70f) -
+                 up * (body_radius * 3.20f),
+          .length_segments = std::max(entry.length_segments + entry.length_segments / 2, 144),
+          .radial_segments = entry.radial_segments,
+          .half_width = entry.half_width * 1.04f,
+          .wall_height = entry.wall_height * 1.02f,
+          .floor_width = entry.floor_width * 1.04f,
+          .floor_crown = entry.floor_crown,
+          .floor_edge_raise = entry.floor_edge_raise,
+          .wall_noise = entry.wall_noise,
+          .visible_wall_start_t = 0.0f,
+          .collision_start_t = 0.0f,
+          .collision_end_t = 1.0f,
+          .ore_start_t = 0.10f,
+          .chest_t = 0.54f,
+          .chamber_t = 0.52f,
+          .chamber_falloff = 0.24f,
+          .chamber_width_scale = 2.10f,
+          .chamber_height_scale = 1.42f,
+          .end_constraint_enabled = true};
+}
+
+aster::CaveComplexSpec lumenDeepCaveComplexSpec(const aster::CaveTunnelProfile &entry) {
+  aster::CaveComplexSpec spec;
+  spec.tunnel = lumenDeepCaveTunnelProfile(entry);
+  spec.ore = {.seed = kLumenCaveSeed + 6211u,
+              .candidates = 160,
+              .max_nodes = 18,
+              .field_frequency_a = 0.40f,
+              .field_frequency_b = 0.82f,
+              .intersection_threshold_a = 0.28f,
+              .intersection_threshold_b = 0.24f,
+              .wall_inset = 0.045f,
+              .min_spacing = 1.05f};
+  spec.features = {.seed = kLumenCaveSeed + 6421u,
+                   .candidates = 210,
+                   .max_features = 54,
+                   .start_t = 0.04f,
+                   .end_t = 0.96f,
+                   .min_spacing = 0.86f,
+                   .wall_inset = 0.13f,
+                   .ceiling_fraction = 0.34f,
+                   .column_fraction = 0.08f,
+                   .shelf_fraction = 0.22f,
+                   .mineral_fraction = 0.30f};
+  return spec;
+}
+
+aster::CaveWallFixtureProfile lumenDeepCaveWallFixtureProfile() {
+  aster::CaveWallFixtureProfile profile = lumenCaveWallFixtureProfile();
+  profile.start_t = 0.08f;
+  profile.end_t = 0.94f;
+  profile.target_spacing = 5.2f;
+  profile.max_count = 9;
+  profile.wall_side = -1.0f;
+  return profile;
+}
+
+aster::CaveWallFixtureProfile lumenDeepCaveSecondaryWallFixtureProfile() {
+  aster::CaveWallFixtureProfile profile = lumenDeepCaveWallFixtureProfile();
+  profile.start_t = 0.16f;
+  profile.end_t = 0.88f;
+  profile.target_spacing = 7.0f;
+  profile.max_count = 6;
+  profile.wall_side = 1.0f;
+  return profile;
 }
 
 struct LumenCaveWebPlacement {
@@ -1534,256 +1571,14 @@ struct LumenCaveWebPlacement {
 LumenCaveWebPlacement lumenCaveWebPlacement(const float floor_y) {
   const aster::CaveTunnelProfile tunnel = lumenCaveTunnelProfile(floor_y);
   const aster::CaveTunnelFrame end_frame = sampleCaveTunnelFrame(tunnel, 1.0f);
-  const float end_radius = voxelCaveTunnelRadius(end_frame);
-  return {.center = voxelCaveTunnelCenter(end_frame) + end_frame.tangent * 0.75f,
+  const float end_radius = caveTunnelBodyRadius(end_frame);
+  return {.center = caveTunnelBodyCenter(end_frame) + end_frame.tangent * 0.75f,
           .normal = end_frame.tangent,
           .side = end_frame.side,
           .up = end_frame.up,
           .radius_x = std::max(end_frame.half_width * 1.08f, end_radius * 1.18f),
           .radius_y = std::max(end_frame.height * 0.58f, end_radius * 1.04f),
           .thickness = std::max(0.34f, end_radius * 0.30f)};
-}
-
-aster::CpuMesh makeCaveTransitionShellMesh(const aster::CaveTunnelFrame &frame,
-                                           const float length) {
-  constexpr int kRows = 20;
-  constexpr int kRingSegments = 42;
-  const aster::Vec3 tangent =
-      aster::length(frame.tangent) > 0.0001f ? aster::normalize(frame.tangent)
-                                             : aster::Vec3{0.0f, 0.0f, -1.0f};
-  const aster::Vec3 side =
-      aster::length(frame.side) > 0.0001f ? aster::normalize(frame.side) : aster::Vec3{1.0f, 0.0f, 0.0f};
-  const aster::Vec3 up =
-      aster::length(frame.up) > 0.0001f ? aster::normalize(frame.up) : aster::Vec3{0.0f, 1.0f, 0.0f};
-  const float radius_x = std::max(frame.half_width * 1.05f, 0.30f);
-  const float radius_up = std::max(frame.height * 0.66f, 0.30f);
-  const float radius_down = std::max(frame.height * 0.55f, 0.24f);
-  const float ring_center_height = std::max(frame.height * 0.55f, 0.18f);
-  aster::CpuMesh mesh;
-  mesh.vertices.reserve(static_cast<std::size_t>((kRows + 1) * (kRingSegments + 1)));
-  mesh.indices.reserve(static_cast<std::size_t>(kRows * kRingSegments * 6));
-  for (int row = 0; row <= kRows; ++row) {
-    const float along = static_cast<float>(row) / static_cast<float>(kRows);
-    const float station = std::max(length, 0.0f) * along;
-    const float taper = 1.0f + 0.035f * std::sin(along * kPi);
-    const aster::Vec3 center = frame.floor_center + tangent * station + up * ring_center_height;
-    for (int segment = 0; segment <= kRingSegments; ++segment) {
-      const float fill = static_cast<float>(segment) / static_cast<float>(kRingSegments);
-      const float angle = fill * kPi * 2.0f;
-      const float cos_angle = std::cos(angle);
-      const float sin_angle = std::sin(angle);
-      const float vertical_radius = sin_angle >= 0.0f ? radius_up : radius_down;
-      const float breakup =
-          1.0f + 0.020f * std::sin(station * 1.7f + angle * 3.1f) +
-          0.014f * std::sin(station * 0.9f - angle * 5.3f);
-      const aster::Vec3 radial =
-          side * (cos_angle * radius_x * taper * breakup) +
-          up * (sin_angle * vertical_radius * taper * breakup);
-      aster::Vec3 inward =
-          aster::normalize(side * (-cos_angle / radius_x) +
-                           up * (-sin_angle / std::max(vertical_radius, 0.001f)));
-      if (aster::length(inward) <= 0.0001f) {
-        inward = up * -1.0f;
-      }
-      aster::Vertex vertex{center + radial, inward, {along * 2.0f, fill * 4.0f}};
-      vertex.ambient_occlusion = 0.72f + 0.18f * std::max(sin_angle, 0.0f);
-      mesh.vertices.push_back(vertex);
-    }
-  }
-  const auto indexAt = [](const int row, const int segment) {
-    return static_cast<std::uint32_t>(row * (kRingSegments + 1) + segment);
-  };
-  for (int row = 0; row < kRows; ++row) {
-    for (int segment = 0; segment < kRingSegments; ++segment) {
-      const std::uint32_t a = indexAt(row, segment);
-      const std::uint32_t b = indexAt(row + 1, segment);
-      const std::uint32_t c = indexAt(row + 1, segment + 1);
-      const std::uint32_t d = indexAt(row, segment + 1);
-      mesh.indices.insert(mesh.indices.end(), {a, c, b, a, d, c});
-    }
-  }
-  return mesh;
-}
-
-aster::CpuMesh makeCaveTransitionFloorMesh(const aster::CaveTunnelFrame &frame,
-                                           const float length) {
-  constexpr int kRows = 18;
-  constexpr int kColumns = 10;
-  const aster::Vec3 tangent =
-      aster::length(frame.tangent) > 0.0001f ? aster::normalize(frame.tangent)
-                                             : aster::Vec3{0.0f, 0.0f, -1.0f};
-  const aster::Vec3 side =
-      aster::length(frame.side) > 0.0001f ? aster::normalize(frame.side) : aster::Vec3{1.0f, 0.0f, 0.0f};
-  const aster::Vec3 up =
-      aster::length(frame.up) > 0.0001f ? aster::normalize(frame.up) : aster::Vec3{0.0f, 1.0f, 0.0f};
-  const float half_width =
-      std::max(std::max(frame.floor_half_width, frame.half_width * 0.56f), 0.28f);
-  aster::CpuMesh mesh;
-  mesh.vertices.reserve(static_cast<std::size_t>((kRows + 1) * (kColumns + 1)));
-  mesh.indices.reserve(static_cast<std::size_t>(kRows * kColumns * 6));
-  for (int row = 0; row <= kRows; ++row) {
-    const float along = static_cast<float>(row) / static_cast<float>(kRows);
-    const float station = std::max(length, 0.0f) * along;
-    const float width = half_width * (1.0f + 0.10f * along);
-    for (int column = 0; column <= kColumns; ++column) {
-      const float lateral_fill = static_cast<float>(column) / static_cast<float>(kColumns);
-      const float lateral = lateral_fill * 2.0f - 1.0f;
-      const float crown = (1.0f - std::abs(lateral)) * 0.030f;
-      const aster::Vec3 position =
-          frame.floor_center + tangent * station + side * (lateral * width) + up * crown;
-      aster::Vertex vertex{position, up, {lateral_fill, along * 3.0f}};
-      vertex.ambient_occlusion = 0.82f + 0.12f * (1.0f - std::abs(lateral));
-      mesh.vertices.push_back(vertex);
-    }
-  }
-  const auto indexAt = [](const int row, const int column) {
-    return static_cast<std::uint32_t>(row * (kColumns + 1) + column);
-  };
-  for (int row = 0; row < kRows; ++row) {
-    for (int column = 0; column < kColumns; ++column) {
-      const std::uint32_t a = indexAt(row, column);
-      const std::uint32_t b = indexAt(row, column + 1);
-      const std::uint32_t c = indexAt(row + 1, column + 1);
-      const std::uint32_t d = indexAt(row + 1, column);
-      mesh.indices.insert(mesh.indices.end(), {a, b, c, a, c, d});
-    }
-  }
-  return mesh;
-}
-
-aster::VoxelCaveSpec lumenVoxelCaveSpec(const float floor_y) {
-  const aster::CaveTunnelProfile tunnel = lumenCaveTunnelProfile(floor_y);
-  const aster::CaveTunnelFrame end_frame = sampleCaveTunnelFrame(tunnel, 1.0f);
-  const aster::Vec3 end_center = voxelCaveTunnelCenter(end_frame);
-  aster::VoxelCaveSpec spec;
-  spec.seed = kLumenCaveSeed + 1709u;
-  spec.origin = end_center - aster::Vec3{18.0f, 9.0f, 18.0f};
-  spec.cell_size = 0.40f;
-  spec.chunk_cells = 10;
-  spec.coarse_proxy_cells = 4;
-  spec.stream_radius = 2;
-  spec.unload_radius = 4;
-  spec.path_prefetch_ahead_chunks = 3;
-  spec.path_prefetch_behind_chunks = 1;
-  spec.path_prefetch_radius = 0;
-  spec.path_prefetch_spacing_chunks = 0.72f;
-  spec.chunk_transition_seconds = 0.34f;
-  spec.structural_surface_mode = aster::VoxelCaveStructuralSurfaceMode::RenderAndCollide;
-  spec.authored_fixture_light_color = kCaveIndustrialRed;
-  spec.procedural_fixture_light_color = kCaveIndustrialRed;
-  spec.material_profiles = {{.material = aster::VoxelCaveMaterial::Rock,
-                             .seed = kLumenCaveSeed + 1811u,
-                             .display_name = "Rock",
-                             .visual_material_id = "rock",
-                             .hardness = 3.25f,
-                             .resource_item_id = "stone",
-                             .resource_quantity = 1},
-                            {.material = aster::VoxelCaveMaterial::Coal,
-                             .seed = kLumenCaveSeed + 2213u,
-                             .display_name = "Coal",
-                             .visual_material_id = "coal",
-                             .min_tool_tier = 0,
-                             .hardness = 3.80f,
-                             .resource_item_id = "coal",
-                             .resource_quantity = 2,
-                             .vein_frequency = 0.15f,
-                             .vein_radius = 0.22f,
-                             .rarity = 0.70f,
-                             .warp_frequency = 0.13f,
-                             .warp_strength = 0.74f,
-                             .surface_relief = 0.12f,
-                             .surface_exposure_threshold = 0.0f,
-                             .surface_coverage = 0.64f},
-                            {.material = aster::VoxelCaveMaterial::Copper,
-                             .seed = kLumenCaveSeed + 2399u,
-                             .display_name = "Copper",
-                             .visual_material_id = "copper",
-                             .min_tool_tier = 0,
-                             .hardness = 4.85f,
-                             .resource_item_id = "copper_ore",
-                             .resource_quantity = 1,
-                             .vein_frequency = 0.12f,
-                             .vein_radius = 0.18f,
-                             .rarity = 0.78f,
-                             .warp_frequency = 0.10f,
-                             .warp_strength = 0.68f,
-                             .surface_relief = 0.18f,
-                             .surface_exposure_threshold = 0.0f,
-                             .surface_coverage = 0.58f},
-                            {.material = aster::VoxelCaveMaterial::Iron,
-                             .seed = kLumenCaveSeed + 2617u,
-                             .display_name = "Ironstone",
-                             .visual_material_id = "ironstone",
-                             .hardness = 6.40f,
-                             .resource_item_id = "iron_ore",
-                             .resource_quantity = 1,
-                             .vein_frequency = 0.0f,
-                             .vein_radius = 0.0f,
-                             .surface_relief = 0.30f,
-                             .surface_exposure_threshold = 0.0f,
-                             .surface_coverage = 0.84f}};
-
-  const float end_radius = voxelCaveTunnelRadius(end_frame);
-  const aster::Vec3 terminal_center = end_center + end_frame.tangent * 9.0f;
-  spec.chambers.push_back({terminal_center, {4.25f, 2.10f, 4.80f}});
-  spec.tunnels.push_back({end_center, terminal_center, end_radius * 1.05f});
-  spec.procedural_fields.push_back({.enabled = true,
-                                    .seed = kLumenCaveSeed + 4211u,
-                                    .start = terminal_center,
-                                    .forward = end_frame.tangent,
-                                    .up = end_frame.up,
-                                    .backtrack_distance = 2.0f,
-                                    .tunnel_radius = end_radius * 1.03f,
-                                    .vertical_radius = end_radius * 0.86f,
-                                    .radius_variation = 0.26f,
-                                    .wander_frequency = 0.052f,
-                                    .side_wander = 2.15f,
-                                    .vertical_wander = 0.58f,
-                                    .macro_wander_frequency = 0.014f,
-                                    .macro_side_wander = 4.80f,
-                                    .macro_vertical_wander = 0.72f,
-                                    .path_sample_steps = 0,
-                                    .path_sample_spacing = end_radius * 1.15f,
-                                    .frame_derivative_step = end_radius * 0.82f,
-                                    .chamber_spacing = 14.5f,
-                                    .chamber_radius = 4.35f,
-                                    .chamber_vertical_radius = 2.18f,
-                                    .chamber_radius_variation = 0.32f,
-                                    .chamber_jitter = 0.42f});
-  return spec;
-}
-
-const char *voxelChunkBatchName(const aster::VoxelCaveMaterial material) {
-  switch (material) {
-  case aster::VoxelCaveMaterial::Air:
-    return "Air voxel cave surface";
-  case aster::VoxelCaveMaterial::Rock:
-    return "Rock voxel cave surface";
-  case aster::VoxelCaveMaterial::Coal:
-    return "Coal voxel cave surface";
-  case aster::VoxelCaveMaterial::Copper:
-    return "Copper voxel cave surface";
-  case aster::VoxelCaveMaterial::Iron:
-    return "Ironstone voxel cave surface";
-  }
-  return "Rock voxel cave surface";
-}
-
-std::uint64_t voxelDynamicMeshId(const aster::VoxelChunkCoord coord,
-                                 const aster::VoxelChunkRenderBatchKind kind,
-                                 const aster::VoxelCaveMaterial material) {
-  auto append = [](std::uint64_t hash, const std::uint64_t value) {
-    hash ^= value;
-    hash *= 1099511628211ull;
-    return hash;
-  };
-  std::uint64_t hash = 1469598103934665603ull;
-  hash = append(hash, static_cast<std::uint32_t>(coord.x));
-  hash = append(hash, static_cast<std::uint32_t>(coord.y));
-  hash = append(hash, static_cast<std::uint32_t>(coord.z));
-  hash = append(hash, static_cast<std::uint32_t>(kind));
-  hash = append(hash, static_cast<std::uint32_t>(material));
-  return hash == 0u ? 1u : hash;
 }
 
 std::shared_ptr<const aster::CpuMesh> grassTuftMesh() {
@@ -2190,16 +1985,9 @@ void LumenRun::reset() {
   coal_ores_.clear();
   cave_webs_.clear();
   cave_skitters_.clear();
-  cave_collision_mesh_.reset();
+  cave_sections_.clear();
+  cave_collision_meshes_.clear();
   cave_viewer_cull_volume_ = {};
-  voxel_cave_.clear();
-  voxel_chunk_visuals_.clear();
-  voxel_chunk_colliders_.clear();
-  voxel_streaming_view_position_ = {};
-  voxel_streaming_view_direction_ = {0.0f, 0.0f, -1.0f};
-  voxel_streaming_view_valid_ = false;
-  focused_voxel_hit_ = {};
-  focused_voxel_hit_valid_ = false;
   focused_cave_web_index_ = 0;
   focused_cave_web_valid_ = false;
   mining_.reset();
@@ -2263,17 +2051,6 @@ void LumenRun::reset() {
   rebuildScene();
 }
 
-void LumenRun::setVoxelStreamingView(const Vec3 position, Vec3 direction) {
-  direction = normalize(direction);
-  if (length(direction) <= 0.0001f) {
-    voxel_streaming_view_valid_ = false;
-    return;
-  }
-  voxel_streaming_view_position_ = position;
-  voxel_streaming_view_direction_ = direction;
-  voxel_streaming_view_valid_ = true;
-}
-
 void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
                       const bool jump_requested) {
   ASTER_PROFILE_SCOPE("LumenRun::update");
@@ -2303,7 +2080,6 @@ void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
 
   updatePlayerPhysics(step, move_axis, run_requested, jump_requested);
   enforceWorldBounds();
-  updateVoxelCave(step);
   updateChestInteractionState();
   updatePrismRelay(step);
   updateCrocodile(step);
@@ -2353,40 +2129,15 @@ Vec3 LumenRun::prismRelayFocusPosition() const {
   return prism_relay_base_ + Vec3{0.0f, kPrismRelayCoreHeight, 0.0f};
 }
 
-Vec3 LumenRun::voxelCaveFrameReportPosition(const float progress_distance) const {
-  const VoxelCaveSpec &spec = voxel_cave_.spec();
-  if (!spec.procedural_fields.empty()) {
-    const VoxelCaveProceduralFrame frame =
-        sampleVoxelCaveProceduralFrameAt(spec.procedural_fields.front(),
-                                         std::max(progress_distance, 0.0f));
-    if (frame.valid) {
-      return frame.center + frame.up * 0.34f;
-    }
+Vec3 LumenRun::caveFrameReportPosition(const float progress_distance) const {
+  if (cave_sections_.empty()) {
+    return player_position_;
   }
-  if (cave_tunnel_valid_) {
-    const CaveTunnelFrame terminal = sampleCaveTunnelFrame(cave_tunnel_, 1.0f);
-    return voxelCaveTunnelCenter(terminal) + Vec3{0.0f, playerSupportExtent(), 0.0f};
-  }
-  return player_position_;
-}
-
-void LumenRun::enqueueVoxelCaveStressEdit(const std::uint32_t edit_index) {
-  const VoxelCaveSpec &spec = voxel_cave_.spec();
-  if (spec.procedural_fields.empty()) {
-    return;
-  }
-  const float progress = 18.0f + static_cast<float>(edit_index % 12u) * 0.48f;
-  const VoxelCaveProceduralFrame frame =
-      sampleVoxelCaveProceduralFrameAt(spec.procedural_fields.front(), progress);
-  if (!frame.valid) {
-    return;
-  }
-  const float side_step = (static_cast<float>(edit_index % 5u) - 2.0f) * 0.22f;
-  const float up_step = (static_cast<float>((edit_index / 5u) % 3u) - 1.0f) * 0.16f;
-  const Vec3 center = frame.center + frame.side * side_step + frame.up * (0.30f + up_step);
-  (void)voxel_cave_.applyEdit({.center = center, .radius = 0.54f},
-                              VoxelEditRebuildMode::Deferred);
-  invalidateSceneReports();
+  const AuthoredCaveSection &section =
+      cave_sections_.size() > 1u ? cave_sections_[1u] : cave_sections_.front();
+  const CaveTunnelFrame frame =
+      sampleCaveTunnelFrameAtDistance(section.tunnel, std::max(progress_distance, 0.0f));
+  return frame.floor_center + frame.up * playerSupportExtent();
 }
 
 void LumenRun::relocatePlayer(Vec3 position, const float facing_yaw) {
@@ -2436,8 +2187,8 @@ float LumenRun::resolveCameraRadius(const Vec3 target, const float yaw, const fl
   if (desired_radius <= 0.0f) {
     return desired_radius;
   }
-  const CaveInteriorSample cave_target =
-      cave_tunnel_valid_ ? sampleCaveInteriorVolume(cave_tunnel_, target) : CaveInteriorSample{};
+  CaveInteriorSample cave_target{};
+  const AuthoredCaveSection *cave_section = caveSectionAt(target, &cave_target);
   const bool cave_visibility_camera = cave_target.interior > 0.045f;
   const float minimum_radius =
       cave_visibility_camera
@@ -2466,9 +2217,10 @@ float LumenRun::resolveCameraRadius(const Vec3 target, const float yaw, const fl
     lower_bound = cave_visibility_camera ? minimum_radius : collision_minimum_radius;
     resolved_radius = std::clamp(hit.distance - hit_clearance, lower_bound, desired_radius);
   }
-  if (cave_visibility_camera) {
+  if (cave_section != nullptr && cave_visibility_camera) {
     const CaveViewConstraint view_constraint =
-        constrainCaveViewSegment(cave_tunnel_, target, target + offset_for_radius(resolved_radius),
+        constrainCaveViewSegment(cave_section->tunnel, target,
+                                 target + offset_for_radius(resolved_radius),
                                  {.samples = 36,
                                   .minimum_radius = minimum_radius,
                                   .interior_threshold = 0.045f,
@@ -2638,7 +2390,6 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                      .proximity_distance = kPrismRelayInteractionDistance,
                      .enabled = player_near_relay});
 
-  focused_voxel_hit_ = {};
   focused_cave_web_index_ = 0;
   focused_cave_web_valid_ = false;
   const float ray_length = length(ray_direction);
@@ -2673,55 +2424,34 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
         continue;
       }
       const std::optional<std::pair<float, Vec3>> hit = webRayHit(web);
-      if (hit.has_value() && hit->first > 0.02f &&
-          hit->first < std::max(target_distance - 0.02f, 0.0f)) {
-        const Vec3 to_target = target - ray_origin;
-        if (dot(normalize(to_target), ray_direction_unit) > 0.92f) {
-          return true;
-        }
+      if (!hit.has_value() || hit->first <= 0.02f) {
+        continue;
+      }
+      const Vec3 to_target = target - ray_origin;
+      if (dot(normalize(to_target), ray_direction_unit) <= 0.92f) {
+        continue;
+      }
+
+      const Vec3 web_offset = target - web.center;
+      const float web_plane = dot(web_offset, web.normal);
+      const float web_x = dot(web_offset, web.side) / std::max(web.radius_x, 0.001f);
+      const float web_y = dot(web_offset, web.up) / std::max(web.radius_y, 0.001f);
+      const bool inside_web_span = web_x * web_x + web_y * web_y <= 1.08f;
+      const float attached_depth = std::max(web.thickness * 1.8f, 0.20f);
+      const bool attached_to_web =
+          inside_web_span && std::abs(web_plane) <= attached_depth &&
+          hit->first <= target_distance + attached_depth;
+      const bool behind_web = hit->first < std::max(target_distance - 0.02f, 0.0f);
+      if (behind_web || attached_to_web) {
+        return true;
       }
     }
     return false;
   };
-  const VoxelCaveInteriorProbe cave_probe = lumenVoxelCaveInteriorProbe();
-  const VoxelCaveInteriorSample player_cave_sample =
-      voxel_cave_.sampleInterior(player_position_, cave_probe);
-  const Vec3 cave_entrance = caveEntrancePlanar();
-  const float cave_entrance_distance =
-      length(Vec2{player_position_.x - cave_entrance.x, player_position_.z - cave_entrance.z});
-  const bool voxel_interaction_relevant =
-      player_cave_sample.interior > 0.001f ||
-      cave_entrance_distance <= std::max(cave_probe.entrance_light_distance, 0.1f) * 3.0f;
-  if (ray_length > 0.0001f && voxel_interaction_relevant) {
-    focused_voxel_hit_ = voxel_cave_.raycast(ray_origin, ray_direction_unit, 4.4f);
-  }
   const ItemStack &equipped = equipment_.equipped();
   const ItemDefinition *equipped_definition = item_registry_.find(equipped.item_id);
   const bool pickaxe_equipped =
       equipped_definition != nullptr && equipped_definition->has_mining_tool;
-  const MiningToolStats tool = activePickaxeStats();
-  const float mining_reach = std::max(tool.reach, kVoxelMiningInteractionDistance);
-  focused_voxel_hit_valid_ =
-      focused_voxel_hit_.hit && length(player_position_ - focused_voxel_hit_.point) <= mining_reach;
-  if (focused_voxel_hit_valid_ && focused_voxel_hit_.material == VoxelCaveMaterial::Rock) {
-    for (const CaveWebObstacle &web : cave_webs_) {
-      const Vec3 offset = focused_voxel_hit_.point - web.center;
-      const float plane = dot(offset, web.normal);
-      if (plane < -std::max(web.thickness * 2.0f, 0.10f) ||
-          plane > kCaveTransitionConnectorLength) {
-        continue;
-      }
-      const float x = dot(offset, web.side) /
-                      std::max(web.radius_x * kCaveTransitionInteractionGuardScale, 0.001f);
-      const float y = dot(offset, web.up) /
-                      std::max(web.radius_y * kCaveTransitionInteractionGuardScale, 0.001f);
-      if (x * x + y * y <= 1.0f) {
-        focused_voxel_hit_valid_ = false;
-        focused_voxel_hit_ = {};
-        break;
-      }
-    }
-  }
   for (std::size_t i = 0; i < coal_ores_.size(); ++i) {
     const CoalOreNode &ore = coal_ores_[i];
     if (ore.collected) {
@@ -2784,23 +2514,6 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                        .enabled = distance <= kCaveSkitterInteractionDistance});
   }
 
-  if (focused_voxel_hit_valid_) {
-    const VoxelMaterialProfile *profile = voxel_cave_.profileFor(focused_voxel_hit_.material);
-    const std::string subject =
-        profile != nullptr && !profile->display_name.empty() ? profile->display_name : "Cave Surface";
-    const bool tier_allowed = profile != nullptr && tool.tier >= profile->min_tool_tier;
-    targets.push_back({.id = "voxel:mine",
-                       .kind = InteractionTargetKind::Item,
-                       .action_label = pickaxe_equipped && tier_allowed ? "Strike" : "Need",
-                       .subject_label = pickaxe_equipped
-                                            ? (tier_allowed ? subject : "Better Pickaxe")
-                                            : "Pickaxe",
-                       .position = focused_voxel_hit_.point,
-                       .radius = 0.46f,
-                       .max_distance = 14.0f,
-                       .enabled = true});
-  }
-
   interaction_.update(targets, ray_origin, ray_direction, player_position_, dt);
 }
 
@@ -2836,10 +2549,6 @@ void LumenRun::interactFocused() {
   }
   if (focus.kind == InteractionTargetKind::Item && focus.target_id.rfind("skitter:", 0u) == 0u) {
     (void)mineFocusedCaveSkitter(focus.target_id);
-    return;
-  }
-  if (focus.kind == InteractionTargetKind::Item && focus.target_id == "voxel:mine") {
-    (void)mineFocusedVoxel(focus.target_id);
   }
 }
 
@@ -2866,11 +2575,6 @@ void LumenRun::secondaryInteractFocused(const Vec3 ray_origin, const Vec3 ray_di
   if (focus.visible && focus.kind == InteractionTargetKind::Item &&
       focus.target_id.rfind("skitter:", 0u) == 0u) {
     (void)mineFocusedCaveSkitter(focus.target_id);
-    return;
-  }
-  if (focus.visible && focus.kind == InteractionTargetKind::Item &&
-      focus.target_id == "voxel:mine") {
-    (void)mineFocusedVoxel(focus.target_id);
   }
 }
 
@@ -3065,15 +2769,29 @@ CaveLightingState LumenRun::caveLightingState() const {
   return caveLightingStateAt(player_position_);
 }
 
+const LumenRun::AuthoredCaveSection *
+LumenRun::caveSectionAt(const Vec3 position, CaveInteriorSample *sample) const {
+  const AuthoredCaveSection *best_section = nullptr;
+  CaveInteriorSample best_sample{};
+  for (const AuthoredCaveSection &section : cave_sections_) {
+    const CaveInteriorSample candidate = sampleCaveInteriorVolume(section.tunnel, position);
+    if (best_section == nullptr || candidate.interior > best_sample.interior) {
+      best_section = &section;
+      best_sample = candidate;
+    }
+  }
+  if (sample != nullptr) {
+    *sample = best_sample;
+  }
+  return best_section;
+}
+
 CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
-  if (!cave_tunnel_valid_) {
+  if (cave_sections_.empty()) {
     return {};
   }
-  const CaveInteriorSample authored_sample = sampleCaveInteriorVolume(cave_tunnel_, position);
-  const VoxelCaveInteriorSample voxel_sample =
-      voxel_cave_.sampleInterior(position, lumenVoxelCaveInteriorProbe());
-  std::vector<VoxelCaveFixturePlacement> procedural_fixtures = placeVoxelCaveProceduralFixturesNear(
-      voxel_cave_.spec(), position, lumenVoxelCaveProceduralFixtureProfile());
+  CaveInteriorSample best_sample{};
+  (void)caveSectionAt(position, &best_sample);
 
   struct LightCandidate {
     CaveWallLightSample sample{};
@@ -3081,42 +2799,38 @@ CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
     float score = 0.0f;
   };
   std::vector<LightCandidate> candidates;
-  candidates.reserve(cave_wall_fixtures_.size() + cave_secondary_wall_fixtures_.size() +
-                     procedural_fixtures.size());
+  candidates.reserve(24u);
 
-  const auto append_authored_fixtures = [&](const std::vector<CaveWallFixturePlacement> &fixtures) {
+  const auto append_authored_fixtures = [&](const CaveInteriorSample &section_sample,
+                                            const std::vector<CaveWallFixturePlacement> &fixtures,
+                                            const float path_length) {
     constexpr float kProgressWindow = 0.18f;
     constexpr float kMinimumProgressGain = 0.62f;
     for (const CaveWallFixturePlacement &fixture : fixtures) {
       const float distance = length(fixture.light_position - position);
-      const float progress_delta = std::abs(fixture.t - authored_sample.tunnel_t);
+      const float progress_delta = std::abs(fixture.t - section_sample.tunnel_t);
       const float progress_gain = 1.0f - (1.0f - kMinimumProgressGain) *
                                              clamp(progress_delta / kProgressWindow, 0.0f, 1.0f);
-      const float weight = clamp(authored_sample.interior * progress_gain, 0.0f, 1.0f);
+      const float weight = clamp(section_sample.interior * progress_gain, 0.0f, 1.0f);
       candidates.push_back(
           {.sample = {.position = fixture.light_position,
                       .color = fixture.light_color,
-                      .intensity = 76.0f * weight,
-                      .source_radius = 1.45f,
+                      .intensity = kAuthoredCaveFixtureIntensity * weight,
+                      .source_radius = kAuthoredCaveFixtureSourceRadius,
                       .tunnel_t = fixture.t},
            .distance = distance,
-           .score = distance * 0.55f + progress_delta * kProceduralCaveWallFixtureSpacing * 1.30f});
+           .score = distance * 0.55f + progress_delta * std::max(path_length, 1.0f) * 0.10f});
     }
   };
-  append_authored_fixtures(cave_wall_fixtures_);
-  append_authored_fixtures(cave_secondary_wall_fixtures_);
-
-  const std::vector<VoxelCaveFixtureLightSample> ranked_procedural_lights =
-      rankVoxelCaveFixtureLights(position, voxel_sample, procedural_fixtures,
-                                 lumenVoxelCaveFixtureLightProbe());
-  for (const VoxelCaveFixtureLightSample &ranked : ranked_procedural_lights) {
-    candidates.push_back({.sample = {.position = ranked.placement.light_position,
-                                     .color = ranked.placement.light_color,
-                                     .intensity = 92.0f * ranked.weight,
-                                     .source_radius = 1.72f,
-                                     .tunnel_t = ranked.placement.progress_normalized},
-                          .distance = ranked.distance,
-                          .score = ranked.score});
+  float entrance_light = 0.0f;
+  for (const AuthoredCaveSection &section : cave_sections_) {
+    const CaveInteriorSample section_sample = sampleCaveInteriorVolume(section.tunnel, position);
+    const float path_length = estimateCaveTunnelLength(section.tunnel);
+    if (section.contributes_entrance_light) {
+      entrance_light = std::max(entrance_light, section_sample.entrance_light);
+    }
+    append_authored_fixtures(section_sample, section.wall_fixtures, path_length);
+    append_authored_fixtures(section_sample, section.secondary_wall_fixtures, path_length);
   }
 
   std::sort(
@@ -3124,7 +2838,7 @@ CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
       [](const LightCandidate &lhs, const LightCandidate &rhs) { return lhs.score < rhs.score; });
 
   Vec3 wall_light_position = cave_entrance_light_position_;
-  Vec3 wall_light_color = kCaveIndustrialRed;
+  Vec3 wall_light_color = kCaveIndustrialWarmLight;
   std::vector<CaveWallLightSample> wall_lights;
   wall_lights.reserve(candidates.size());
   for (const LightCandidate &candidate : candidates) {
@@ -3135,8 +2849,8 @@ CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
     wall_lights.push_back(candidate.sample);
   }
 
-  const float interior = std::max(authored_sample.interior, voxel_sample.interior);
-  float wall_light = authored_sample.entrance_light * 0.20f;
+  const float interior = best_sample.interior;
+  float wall_light = entrance_light * 0.20f;
   for (const LightCandidate &candidate : candidates) {
     const float distance_sq =
         std::max(dot(candidate.sample.position - position, candidate.sample.position - position),
@@ -3147,10 +2861,9 @@ CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
   }
   wall_light = clamp(wall_light, 0.0f, 1.0f);
   return {.interior = interior,
-          .entrance_light = authored_sample.entrance_light,
-          .depth = std::max(authored_sample.depth * authored_sample.interior, voxel_sample.depth),
-          .chamber =
-              std::max(authored_sample.chamber * authored_sample.interior, voxel_sample.chamber),
+          .entrance_light = entrance_light,
+          .depth = best_sample.depth * best_sample.interior,
+          .chamber = best_sample.chamber * best_sample.interior,
           .entrance_light_position = cave_entrance_light_position_,
           .wall_light = wall_light,
           .wall_light_position = wall_light_position,
@@ -3167,13 +2880,9 @@ void LumenRun::rebuildScene() {
   ASTER_PROFILE_SCOPE("LumenRun::rebuildScene");
   scene_.objects().clear();
   pond_accent_light_valid_ = false;
-  cave_tunnel_valid_ = false;
-  cave_wall_fixtures_.clear();
-  cave_secondary_wall_fixtures_.clear();
+  cave_sections_.clear();
   cave_entrance_light_position_ = {};
-  voxel_cave_.clear();
-  voxel_chunk_visuals_.clear();
-  voxel_chunk_colliders_.clear();
+  cave_collision_meshes_.clear();
   cave_webs_.clear();
   scenery_collision_boxes_.clear();
   mining_fracture_shards_.clear();
@@ -3182,7 +2891,6 @@ void LumenRun::rebuildScene() {
   prism_relay_ring_objects_.clear();
   prism_relay_conduit_objects_.clear();
   prism_relay_node_objects_.clear();
-  procedural_cave_wall_fixture_visuals_.clear();
   const CastleCourse &course = castleCourse();
   const Vec3 castle_origin = castleOrigin();
   const TerrainMeshClipEllipse bird_grove_clip = birdGroveClip(castle_bird_nest_position_);
@@ -3434,7 +3142,7 @@ void LumenRun::rebuildScene() {
   industrial_red_lens.double_sided = true;
   industrial_red_lens.alpha_mode = MaterialAlphaMode::Blend;
   industrial_red_lens.depth_write = MaterialDepthWrite::Disabled;
-  applyIndustrialLensColor(industrial_red_lens, kCaveIndustrialRed);
+  applyIndustrialLensColor(industrial_red_lens, kCaveIndustrialWarmLight);
   Material teddy_fur =
       material({0.39f, 0.255f, 0.155f}, {0.0f, 0.0f, 0.0f}, 0.99f, 0.0f, 0.0f, 1.08f, 18.0f, 0.035f,
                0.86f, SurfacePattern::FurFibers, {9.5f, 18.0f}, 0.060f, 0.92f, 0.08f);
@@ -3937,8 +3645,8 @@ void LumenRun::rebuildScene() {
   const float cave_floor_y = (cave_ground.valid ? cave_ground.height : 0.0f) + 0.030f;
   const CaveComplexSpec cave_spec = lumenTerrainCoveredCaveComplexSpec(terrain_, cave_floor_y);
   CaveComplex cave_complex = buildCaveComplex(cave_spec);
-  cave_tunnel_ = cave_spec.tunnel;
-  voxel_cave_.configure(lumenVoxelCaveSpec(cave_floor_y));
+  const CaveComplexSpec deep_cave_spec = lumenDeepCaveComplexSpec(cave_spec.tunnel);
+  CaveComplex deep_cave_complex = buildCaveComplex(deep_cave_spec);
   const LumenCaveWebPlacement web_placement = lumenCaveWebPlacement(cave_floor_y);
   CaveWebObstacle cave_web;
   cave_web.id = "cave_web:0";
@@ -4017,16 +3725,27 @@ void LumenRun::rebuildScene() {
                                                   {0.0f, skitter.state.facing_yaw, 0.0f},
                                                   cave_skitter_material);
     enableContactShadow(skitter.object_index, 0.42f, 0.82f);
-    cave_skitters_.push_back(skitter);
+  cave_skitters_.push_back(skitter);
   }
-  cave_wall_fixtures_ = placeCaveWallFixtures(cave_tunnel_, lumenCaveWallFixtureProfile());
-  cave_secondary_wall_fixtures_ =
-      placeCaveWallFixtures(cave_tunnel_, lumenCaveSecondaryWallFixtureProfile());
+  cave_sections_.push_back({.tunnel = cave_spec.tunnel,
+                            .wall_fixtures =
+                                placeCaveWallFixtures(cave_spec.tunnel,
+                                                      lumenCaveWallFixtureProfile()),
+                            .secondary_wall_fixtures = placeCaveWallFixtures(
+                                cave_spec.tunnel, lumenCaveSecondaryWallFixtureProfile()),
+                            .contributes_entrance_light = true});
+  cave_sections_.push_back(
+      {.tunnel = deep_cave_spec.tunnel,
+       .wall_fixtures =
+           placeCaveWallFixtures(deep_cave_spec.tunnel, lumenDeepCaveWallFixtureProfile()),
+       .secondary_wall_fixtures = placeCaveWallFixtures(deep_cave_spec.tunnel,
+                                                        lumenDeepCaveSecondaryWallFixtureProfile()),
+       .contributes_entrance_light = false});
   cave_entrance_light_position_ = caveEntranceLightPosition(cave_floor_y);
-  cave_tunnel_valid_ = true;
   cave_viewer_cull_volume_ = viewerCullVolumeForMesh(cave_complex.collision_mesh, 0.20f,
                                                      FaceCullMode::Back, FaceCullMode::Back);
-  cave_collision_mesh_ = makeSharedMesh(std::move(cave_complex.collision_mesh));
+  cave_collision_meshes_.push_back(makeSharedMesh(std::move(cave_complex.collision_mesh)));
+  cave_collision_meshes_.push_back(makeSharedMesh(std::move(deep_cave_complex.collision_mesh)));
 
   chest_base_ = cave_complex.chest_position;
   chest_yaw_ = cave_complex.chest_yaw;
@@ -4590,149 +4309,73 @@ void LumenRun::rebuildScene() {
                          {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, cave_floor);
   support_surfaces_.addMesh({cave_floor_mesh, {}, 0.36f});
   decorative_ground_surfaces.addMesh({cave_floor_mesh, {}, 0.36f});
-  const CaveTunnelFrame cave_terminal_frame = sampleCaveTunnelFrame(cave_tunnel_, 1.0f);
-  Material cave_connector_wall = cave_wall;
-  cave_connector_wall.double_sided = true;
-  cave_connector_wall.cull_mode = FaceCullMode::None;
-  cave_connector_wall.camera_occlusion = CameraOcclusionPolicy::Solid;
-  const std::shared_ptr<const CpuMesh> cave_transition_shell =
-      makeSharedMesh(makeCaveTransitionShellMesh(cave_terminal_frame,
-                                                 kCaveTransitionConnectorLength));
-  appendGeneratedStructuralScenery("Continuous streaming cave connector shell",
-                                   cave_transition_shell, {0.0f, 0.0f, 0.0f},
-                                   {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f},
-                                   cave_connector_wall);
-  const std::shared_ptr<const CpuMesh> cave_transition_floor =
-      makeSharedMesh(makeCaveTransitionFloorMesh(cave_terminal_frame,
-                                                 kCaveTransitionConnectorLength));
-  appendGeneratedScenery("Walkable streaming cave connector floor", cave_transition_floor,
-                         {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f},
-                         cave_floor);
-  support_surfaces_.addMesh({cave_transition_floor, {}, 0.38f});
-  decorative_ground_surfaces.addMesh({cave_transition_floor, {}, 0.38f});
+  const std::shared_ptr<const CpuMesh> deep_cave_floor_mesh =
+      makeSharedMesh(std::move(deep_cave_complex.floor_mesh));
+  appendGeneratedScenery("Walkable deep cave floor", deep_cave_floor_mesh, {0.0f, 0.0f, 0.0f},
+                         {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, cave_floor);
+  support_surfaces_.addMesh({deep_cave_floor_mesh, {}, 0.36f});
+  decorative_ground_surfaces.addMesh({deep_cave_floor_mesh, {}, 0.36f});
   std::size_t cave_chunk_index = 0;
   for (CpuMesh &chunk : cave_complex.tunnel_chunks) {
     const Material &chunk_material = cave_chunk_index < 2u ? cave_entrance_wall : cave_wall;
     const std::size_t chunk_index = appendGeneratedStructuralScenery(
-        "Chunked procedural cave interior", makeSharedMesh(std::move(chunk)), {0.0f, 0.0f, 0.0f},
+        "Authored cave interior", makeSharedMesh(std::move(chunk)), {0.0f, 0.0f, 0.0f},
         {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, chunk_material);
     scene_.objects()[chunk_index].viewer_cull_volume = cave_viewer_cull_volume_;
     ++cave_chunk_index;
   }
-  for (const CaveWallFixturePlacement &fixture : cave_wall_fixtures_) {
-    appendIndustrialWallLight(fixture, industrial_light_metal, industrial_red_lens);
+  for (CpuMesh &chunk : deep_cave_complex.tunnel_chunks) {
+    appendGeneratedStructuralScenery("Authored deep cave interior", makeSharedMesh(std::move(chunk)),
+                                     {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f},
+                                     {0.0f, 0.0f, 0.0f}, cave_wall);
   }
-  for (const CaveWallFixturePlacement &fixture : cave_secondary_wall_fixtures_) {
-    appendIndustrialWallLight(fixture, industrial_light_metal, industrial_red_lens);
+  for (const AuthoredCaveSection &section : cave_sections_) {
+    for (const CaveWallFixturePlacement &fixture : section.wall_fixtures) {
+      appendIndustrialWallLight(fixture, industrial_light_metal, industrial_red_lens);
+    }
+    for (const CaveWallFixturePlacement &fixture : section.secondary_wall_fixtures) {
+      appendIndustrialWallLight(fixture, industrial_light_metal, industrial_red_lens);
+    }
   }
 
-  Material voxel_rock_material = cave_wall;
-  voxel_rock_material.double_sided = false;
-  voxel_rock_material.cull_mode = FaceCullMode::Back;
-  voxel_rock_material.camera_occlusion = CameraOcclusionPolicy::Solid;
-  voxel_chunk_visuals_.clear();
-  const int voxel_stream_width = voxel_cave_.spec().unload_radius * 2 + 1;
-  const std::size_t voxel_chunk_capacity =
-      static_cast<std::size_t>(voxel_stream_width * voxel_stream_width * voxel_stream_width);
-  struct VoxelVisualTemplate {
-    VoxelChunkRenderBatchKind kind = VoxelChunkRenderBatchKind::StructuralSurface;
-    VoxelCaveMaterial material = VoxelCaveMaterial::Rock;
-    Material render_material{};
+  const auto appendCaveFeatures = [&](const std::vector<CaveFeaturePlacement> &features,
+                                      const CaveFeatureProfile &profile) {
+    const float mineral_cutoff = 1.0f - std::clamp(profile.mineral_fraction, 0.0f, 1.0f);
+    for (const CaveFeaturePlacement &feature : features) {
+      const bool mineral_accent = feature.mineral >= mineral_cutoff;
+      const Material &feature_material = mineral_accent ? cave_mouth_stone : cave_calcite;
+      constexpr MeshPrimitive primitive = MeshPrimitive::Rock;
+      Vec3 position = feature.position;
+      Vec3 rotation{};
+      Vec3 scale = feature.scale;
+      const char *name = "Cave calcite formation";
+      switch (feature.kind) {
+      case CaveFeatureKind::Stalactite:
+        name = mineral_accent ? "Cave iron-stained stalactite" : "Cave calcite stalactite";
+        position = feature.position + feature.normal * (feature.scale.y * 0.88f);
+        rotation = segmentRotation(feature.position, feature.position + feature.normal);
+        break;
+      case CaveFeatureKind::Stalagmite:
+        name = mineral_accent ? "Cave iron-stained stalagmite" : "Cave calcite stalagmite";
+        position = feature.position + feature.normal * (feature.scale.y * 0.88f);
+        rotation = segmentRotation(feature.position, feature.position + feature.normal);
+        break;
+      case CaveFeatureKind::Column:
+        name = mineral_accent ? "Cave iron-stained column" : "Cave calcite column";
+        rotation = segmentRotation(feature.position, feature.position + feature.normal);
+        scale.x *= 1.12f;
+        scale.z *= 1.12f;
+        break;
+      case CaveFeatureKind::WallShelf:
+        name = mineral_accent ? "Cave iron-stained wall shelf" : "Cave flowstone wall shelf";
+        rotation = {0.0f, std::atan2(feature.normal.x, feature.normal.z), 0.0f};
+        break;
+      }
+      keepCameraSolid(appendScenery(name, primitive, position, scale, rotation, feature_material));
+    }
   };
-  const std::array<VoxelVisualTemplate, 5> voxel_visual_templates{
-      VoxelVisualTemplate{.kind = VoxelChunkRenderBatchKind::CoarseProxySurface,
-                          .material = VoxelCaveMaterial::Rock,
-                          .render_material = voxel_rock_material},
-      VoxelVisualTemplate{.kind = VoxelChunkRenderBatchKind::StructuralSurface,
-                          .material = VoxelCaveMaterial::Rock,
-                          .render_material = voxel_rock_material},
-      VoxelVisualTemplate{.kind = VoxelChunkRenderBatchKind::MaterialSurface,
-                          .material = VoxelCaveMaterial::Coal,
-                          .render_material = coal_ore_material},
-      VoxelVisualTemplate{.kind = VoxelChunkRenderBatchKind::MaterialSurface,
-                          .material = VoxelCaveMaterial::Copper,
-                          .render_material = cave_mineral_glow},
-      VoxelVisualTemplate{.kind = VoxelChunkRenderBatchKind::MaterialSurface,
-                          .material = VoxelCaveMaterial::Iron,
-                          .render_material = ironstone_ore_material}};
-  const std::size_t voxel_visual_capacity =
-      voxel_chunk_capacity * voxel_visual_templates.size();
-  voxel_chunk_visuals_.reserve(voxel_visual_capacity);
-  for (std::size_t i = 0; i < voxel_chunk_capacity; ++i) {
-    for (const VoxelVisualTemplate &visual_template : voxel_visual_templates) {
-      const std::size_t object_index =
-          appendScenery(voxelChunkBatchName(visual_template.material), MeshPrimitive::Box,
-                        {0.0f, -24.0f, 0.0f}, {0.001f, 0.001f, 0.001f}, {},
-                        visual_template.render_material);
-      RenderObject &object = scene_.objects()[object_index];
-      object.camera_occlusion_fade = false;
-      object.custom_mesh.reset();
-      voxel_chunk_visuals_.push_back({.kind = visual_template.kind,
-                                      .material = visual_template.material,
-                                      .object_index = object_index});
-    }
-  }
-  {
-    VoxelCaveUpdateOptions warmup_options;
-    warmup_options.override_rebuild_budget = true;
-    warmup_options.rebuild_budget = voxelCaveRebuildItemBudget(8u);
-    const Vec3 warmup_focus =
-        cave_web.center +
-        cave_web.normal * std::max(voxelCaveTunnelRadius(cave_terminal_frame), 1.0f);
-    for (int step = 0; step < 5; ++step) {
-      warmup_options.viewer_velocity = cave_web.normal * (2.0f + static_cast<float>(step));
-      voxel_cave_.updateStreaming(warmup_focus, 0.0f, warmup_options);
-    }
-  }
-  syncVoxelChunkVisuals();
-
-  procedural_cave_wall_fixture_visuals_.clear();
-  procedural_cave_wall_fixture_visuals_.reserve(kProceduralCaveWallFixtureVisualPoolSize);
-  for (std::size_t i = 0; i < kProceduralCaveWallFixtureVisualPoolSize; ++i) {
-    CaveWallFixturePlacement hidden_fixture;
-    hidden_fixture.position = {0.0f, -24.0f, 0.0f};
-    hidden_fixture.mount_position = hidden_fixture.position;
-    hidden_fixture.lens_position = hidden_fixture.position;
-    hidden_fixture.light_position = hidden_fixture.position;
-    procedural_cave_wall_fixture_visuals_.push_back(
-        appendIndustrialWallLight(hidden_fixture, industrial_light_metal, industrial_red_lens));
-    applyCaveWallFixtureVisual(procedural_cave_wall_fixture_visuals_.back(),
-                               CaveWallFixturePlacement{}, false);
-  }
-
-  const float mineral_cutoff = 1.0f - std::clamp(cave_spec.features.mineral_fraction, 0.0f, 1.0f);
-  for (const CaveFeaturePlacement &feature : cave_complex.features) {
-    const bool mineral_accent = feature.mineral >= mineral_cutoff;
-    const Material &feature_material = mineral_accent ? cave_mouth_stone : cave_calcite;
-    constexpr MeshPrimitive primitive = MeshPrimitive::Rock;
-    Vec3 position = feature.position;
-    Vec3 rotation{};
-    Vec3 scale = feature.scale;
-    const char *name = "Cave calcite formation";
-    switch (feature.kind) {
-    case CaveFeatureKind::Stalactite:
-      name = mineral_accent ? "Cave iron-stained stalactite" : "Cave calcite stalactite";
-      position = feature.position + feature.normal * (feature.scale.y * 0.88f);
-      rotation = segmentRotation(feature.position, feature.position + feature.normal);
-      break;
-    case CaveFeatureKind::Stalagmite:
-      name = mineral_accent ? "Cave iron-stained stalagmite" : "Cave calcite stalagmite";
-      position = feature.position + feature.normal * (feature.scale.y * 0.88f);
-      rotation = segmentRotation(feature.position, feature.position + feature.normal);
-      break;
-    case CaveFeatureKind::Column:
-      name = mineral_accent ? "Cave iron-stained column" : "Cave calcite column";
-      rotation = segmentRotation(feature.position, feature.position + feature.normal);
-      scale.x *= 1.12f;
-      scale.z *= 1.12f;
-      break;
-    case CaveFeatureKind::WallShelf:
-      name = mineral_accent ? "Cave iron-stained wall shelf" : "Cave flowstone wall shelf";
-      rotation = {0.0f, std::atan2(feature.normal.x, feature.normal.z), 0.0f};
-      break;
-    }
-    keepCameraSolid(appendScenery(name, primitive, position, scale, rotation, feature_material));
-  }
+  appendCaveFeatures(cave_complex.features, cave_spec.features);
+  appendCaveFeatures(deep_cave_complex.features, deep_cave_spec.features);
 
   Vec3 sign_base = {cave_entrance.x - 1.78f, cave_floor_y + 0.72f, cave_entrance.z + 1.32f};
   if (const TerrainSurfaceSample sign_ground = groundDrapeSurface({sign_base.x, sign_base.z});
@@ -4862,17 +4505,21 @@ void LumenRun::rebuildScene() {
                          {0.0f, 0.0f, 0.0f}, cave_talus);
 
   coal_ores_.clear();
-  coal_ores_.reserve(cave_complex.ore_nodes.size());
-  for (const CaveOreNodePlacement &ore : cave_complex.ore_nodes) {
-    const float yaw = std::atan2(ore.normal.x, ore.normal.z);
-    const Vec3 ore_position = ore.position + ore.normal * 0.105f;
-    const Vec3 ore_scale = ore.scale * 1.24f;
-    const std::size_t index =
-        keepCameraSolid(appendScenery("Coal ore vein node", MeshPrimitive::Rock, ore_position,
-                                      ore_scale, {0.0f, yaw, 0.0f}, coal_ore_material));
-    coal_ores_.push_back({ore_position, ore.normal, ore_scale, ore.radius * 1.18f,
-                          kCoalOreMaxHealth, kCoalOreMaxHealth, 2, index, false, 0.0f});
-  }
+  coal_ores_.reserve(cave_complex.ore_nodes.size() + deep_cave_complex.ore_nodes.size());
+  const auto appendCaveOreNodes = [&](const std::vector<CaveOreNodePlacement> &ore_nodes) {
+    for (const CaveOreNodePlacement &ore : ore_nodes) {
+      const float yaw = std::atan2(ore.normal.x, ore.normal.z);
+      const Vec3 ore_position = ore.position + ore.normal * std::max(ore.radius * 0.16f, 0.035f);
+      const Vec3 ore_scale = ore.scale * 0.92f;
+      const std::size_t index =
+          keepCameraSolid(appendScenery("Coal ore vein node", MeshPrimitive::Rock, ore_position,
+                                        ore_scale, {0.0f, yaw, 0.0f}, coal_ore_material));
+      coal_ores_.push_back({ore_position, ore.normal, ore_scale, ore.radius, kCoalOreMaxHealth,
+                            kCoalOreMaxHealth, 2, index, false, 0.0f});
+    }
+  };
+  appendCaveOreNodes(cave_complex.ore_nodes);
+  appendCaveOreNodes(deep_cave_complex.ore_nodes);
 
   const PathRibbonMeshSpec underpass_path_spec = castleUnderpassPathSpec();
   appendPathShoulders("Mounded verge through underpass", underpass_path_spec, 0.34f, 0.052f);
@@ -5232,7 +4879,7 @@ void LumenRun::rebuildScene() {
                         .mount_position = mount_position,
                         .lens_position = lens_position,
                         .light_position = light_position,
-                        .light_color = kCaveIndustrialRed,
+                        .light_color = kCaveIndustrialWarmLight,
                         .normal = normal,
                         .tangent = tangent,
                         .up = up,
@@ -5461,7 +5108,7 @@ void LumenRun::rebuildPhysicsWorld() {
   addStaticBox({0.0f, 1.0f, -boundary}, {boundary, 2.0f, 0.30f});
   addStaticBox({boundary, 1.0f, 0.0f}, {0.30f, 2.0f, boundary});
   addStaticBox({-boundary, 1.0f, 0.0f}, {0.30f, 2.0f, boundary});
-  addStaticBox(chest_base_ + Vec3{0.0f, 0.25f, 0.0f}, {0.40f, 0.25f, 0.30f});
+  addStaticBox(chest_base_ + Vec3{0.0f, 0.23f, 0.0f}, {0.30f, 0.23f, 0.22f});
   addStaticBox(climbable_tree_.base + Vec3{0.0f, climbable_tree_.height * 0.5f, 0.0f},
                {climbable_tree_.radius * 0.82f, climbable_tree_.height * 0.5f,
                 climbable_tree_.radius * 0.82f});
@@ -5471,11 +5118,14 @@ void LumenRun::rebuildPhysicsWorld() {
   for (PlacedResourceRock &rock : placed_rocks_) {
     rock.body = addPlacedRockPhysics(rock);
   }
-  if (cave_collision_mesh_ != nullptr) {
+  for (const std::shared_ptr<const CpuMesh> &cave_collision_mesh : cave_collision_meshes_) {
+    if (cave_collision_mesh == nullptr) {
+      continue;
+    }
     PhysicsBodyDesc cave_body;
     cave_body.type = PhysicsBodyType::Static;
     cave_body.shape = PhysicsShapeType::TriangleMesh;
-    cave_body.mesh = cave_collision_mesh_;
+    cave_body.mesh = cave_collision_mesh;
     cave_body.mesh_transform = {};
     cave_body.material = {0.74f, 0.0f};
     cave_body.filter = {kPhysicsLayerWorld, kPhysicsLayerPlayer};
@@ -5542,20 +5192,20 @@ SceneCoherenceProblem LumenRun::buildSceneCoherenceProblem() const {
     const std::string route_label = "cave path " + std::to_string(++cave_route_index);
     addRoute(route_label.c_str(), segment);
   }
-  {
-    const CaveTunnelProfile &tunnel = cave_tunnel_;
-    if (cave_tunnel_valid_) {
-      addRoute("cave passage", {.segments = 64,
-                                .width = tunnel.floor_width,
-                                .width_variation = 0.0f,
-                                .crown_height = tunnel.floor_crown,
-                                .surface_noise = 0.0f,
-                                .endpoint_taper = 0.08f,
-                                .start = tunnel.start,
-                                .control = tunnel.control,
-                                .control_b = tunnel.control_b,
-                                .end = tunnel.end});
-    }
+  for (std::size_t section_index = 0; section_index < cave_sections_.size(); ++section_index) {
+    const CaveTunnelProfile &tunnel = cave_sections_[section_index].tunnel;
+    const std::string label =
+        section_index == 0u ? "cave passage" : "deep cave passage " + std::to_string(section_index);
+    addRoute(label.c_str(), {.segments = 64,
+                             .width = tunnel.floor_width,
+                             .width_variation = 0.0f,
+                             .crown_height = tunnel.floor_crown,
+                             .surface_noise = 0.0f,
+                             .endpoint_taper = 0.08f,
+                             .start = tunnel.start,
+                             .control = tunnel.control,
+                             .control_b = tunnel.control_b,
+                             .end = tunnel.end});
   }
   problem.material_fields.push_back(std::move(route_material));
 
@@ -5815,6 +5465,40 @@ void LumenRun::rebuildSceneTraceReport() const {
   scene_trace_dirty_ = false;
 }
 
+void LumenRun::applyCaveWebTraversalGates(PhysicsBody &body) {
+  for (const CaveWebObstacle &web : cave_webs_) {
+    if (web.broken) {
+      continue;
+    }
+    const Vec3 normal =
+        length(web.normal) > 0.0001f ? normalize(web.normal) : Vec3{0.0f, 0.0f, -1.0f};
+    const Vec3 side =
+        length(web.side) > 0.0001f ? normalize(web.side) : Vec3{1.0f, 0.0f, 0.0f};
+    const Vec3 up = length(web.up) > 0.0001f ? normalize(web.up) : Vec3{0.0f, 1.0f, 0.0f};
+    const Vec3 offset = body.position - web.center;
+    const float radius_x = std::max(web.radius_x + tuning_.player_radius * 0.80f, 0.001f);
+    const float radius_y = std::max(web.radius_y + playerSupportExtent() * 0.38f, 0.001f);
+    const float x = dot(offset, side) / radius_x;
+    const float y = dot(offset, up) / radius_y;
+    if (x * x + y * y > 1.0f) {
+      continue;
+    }
+
+    const float approach = dot(offset, normal);
+    const float clearance =
+        tuning_.player_radius + std::max(web.thickness * 0.50f, tuning_.player_radius * 0.25f);
+    if (approach <= -clearance) {
+      continue;
+    }
+    body.position = body.position - normal * (approach + clearance);
+    const float forward_speed = dot(body.velocity, normal);
+    if (forward_speed > 0.0f) {
+      body.velocity = body.velocity - normal * forward_speed;
+    }
+    physics_.wakeBody(player_body_);
+  }
+}
+
 void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const bool run_requested,
                                    const bool jump_requested) {
   ASTER_PROFILE_SCOPE("LumenRun::updatePlayerPhysics");
@@ -5954,10 +5638,16 @@ void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const b
   }
   if (!player_swimming_ && !player_climbing_ && physics_.valid(player_body_)) {
     PhysicsBody &body = physics_.body(player_body_);
-    const CaveTraversalConstraint cave_constraint =
-        cave_tunnel_valid_
-            ? constrainCaveTraversalPosition(cave_tunnel_, body.position, tuning_.player_radius)
-            : CaveTraversalConstraint{};
+    CaveTraversalConstraint cave_constraint{};
+    for (const AuthoredCaveSection &section : cave_sections_) {
+      const CaveTraversalConstraint candidate =
+          constrainCaveTraversalPosition(section.tunnel, body.position, tuning_.player_radius);
+      if (candidate.active &&
+          (!cave_constraint.active ||
+           length(candidate.correction) > length(cave_constraint.correction))) {
+        cave_constraint = candidate;
+      }
+    }
     if (cave_constraint.active && length(cave_constraint.correction) > 0.0001f) {
       const Vec3 correction_direction = normalize(cave_constraint.correction);
       const float outward_speed = dot(body.velocity, correction_direction);
@@ -5967,6 +5657,7 @@ void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const b
       }
       physics_.wakeBody(player_body_);
     }
+    applyCaveWebTraversalGates(body);
   }
 
   player_position_ = physics_.body(player_body_).position;
@@ -6339,328 +6030,6 @@ void LumenRun::updateCaveVisuals(const float dt) {
     object.material.emission_strength = 0.035f + web.hit_flash * 0.18f;
     object.material.opacity = 0.74f + web.hit_flash * 0.10f;
   }
-  updateProceduralCaveWallFixtureVisuals();
-}
-
-std::vector<CaveWallFixturePlacement>
-LumenRun::proceduralCaveWallFixturePlacements(const Vec3 viewer) const {
-  std::vector<CaveWallFixturePlacement> placements;
-  const std::vector<VoxelCaveFixturePlacement> voxel_fixtures =
-      placeVoxelCaveProceduralFixturesNear(voxel_cave_.spec(), viewer,
-                                           lumenVoxelCaveProceduralFixtureProfile());
-  placements.reserve(voxel_fixtures.size());
-  for (const VoxelCaveFixturePlacement &fixture : voxel_fixtures) {
-    placements.push_back(caveWallFixtureFromVoxel(fixture));
-  }
-  return placements;
-}
-
-void LumenRun::applyCaveWallFixtureVisual(const CaveWallFixtureVisual &visual,
-                                          const CaveWallFixturePlacement &placement,
-                                          const bool visible) {
-  auto &objects = scene_.objects();
-  const auto hideObject = [&](const std::size_t index) {
-    if (index >= objects.size()) {
-      return;
-    }
-    RenderObject &object = objects[index];
-    object.transform.position = {0.0f, -24.0f, 0.0f};
-    object.transform.scale = {0.001f, 0.001f, 0.001f};
-  };
-  if (!visible) {
-    hideObject(visual.backplate);
-    hideObject(visual.lens);
-    for (const std::size_t index : visual.vertical_guards) {
-      hideObject(index);
-    }
-    for (const std::size_t index : visual.horizontal_guards) {
-      hideObject(index);
-    }
-    return;
-  }
-
-  const Vec3 normal =
-      length(placement.normal) > 0.0001f ? normalize(placement.normal) : Vec3{0.0f, 0.0f, 1.0f};
-  const Vec3 up = length(placement.up) > 0.0001f ? normalize(placement.up) : Vec3{0.0f, 1.0f, 0.0f};
-  Vec3 right = normalize(cross(up, normal));
-  if (length(right) <= 0.0001f) {
-    right = {1.0f, 0.0f, 0.0f};
-  }
-  const float yaw = std::atan2(normal.x, normal.z);
-  const Vec3 rotation{0.0f, yaw, 0.0f};
-  const Vec3 base = placement.mount_position;
-
-  const auto placeBox = [&](const std::size_t index, const Vec3 position, const Vec3 scale,
-                            const Vec3 object_rotation) {
-    if (index >= objects.size()) {
-      return;
-    }
-    RenderObject &object = objects[index];
-    object.transform.position = position;
-    object.transform.scale = scale;
-    object.transform.rotation = object_rotation;
-  };
-  const auto placeBeam = [&](const std::size_t index, const Vec3 from, const Vec3 to,
-                             const float radius) {
-    const float beam_length = std::max(length(to - from), 0.05f);
-    placeBox(index, (from + to) * 0.5f, {radius, beam_length, radius}, segmentRotation(from, to));
-  };
-
-  placeBox(visual.backplate, base + normal * 0.018f, {0.48f, 0.30f, 0.036f}, rotation);
-  placeBox(visual.lens, placement.lens_position, {0.36f, 0.19f, 0.032f}, rotation);
-  if (visual.lens < objects.size()) {
-    applyIndustrialLensColor(objects[visual.lens].material, placement.light_color);
-  }
-
-  constexpr std::array<float, 5> kVerticalOffsets{-0.30f, -0.15f, 0.0f, 0.15f, 0.30f};
-  for (std::size_t i = 0; i < visual.vertical_guards.size(); ++i) {
-    const Vec3 rib_center = base + normal * 0.105f + right * kVerticalOffsets[i];
-    placeBeam(visual.vertical_guards[i], rib_center - up * 0.235f, rib_center + up * 0.235f,
-              0.018f);
-  }
-
-  constexpr std::array<float, 3> kHorizontalOffsets{-0.17f, 0.0f, 0.17f};
-  for (std::size_t i = 0; i < visual.horizontal_guards.size(); ++i) {
-    const Vec3 rib_center = base + normal * 0.125f + up * kHorizontalOffsets[i];
-    placeBeam(visual.horizontal_guards[i], rib_center - right * 0.385f, rib_center + right * 0.385f,
-              0.016f);
-  }
-}
-
-void LumenRun::updateProceduralCaveWallFixtureVisuals() {
-  const std::vector<CaveWallFixturePlacement> placements =
-      proceduralCaveWallFixturePlacements(player_position_);
-  for (std::size_t i = 0; i < procedural_cave_wall_fixture_visuals_.size(); ++i) {
-    const bool visible = i < placements.size();
-    applyCaveWallFixtureVisual(procedural_cave_wall_fixture_visuals_[i],
-                               visible ? placements[i] : CaveWallFixturePlacement{}, visible);
-  }
-}
-
-void LumenRun::updateVoxelCave(const float dt) {
-  ASTER_PROFILE_SCOPE("LumenRun::updateVoxelCave");
-  Vec3 streaming_focus = player_position_;
-  if (cave_tunnel_valid_ && !cave_webs_.empty()) {
-    const CaveWebObstacle &web = cave_webs_.front();
-    const Vec3 offset = player_position_ - web.center;
-    const float approach = dot(offset, web.normal);
-    const float lateral_x = dot(offset, web.side) / std::max(web.radius_x, 0.001f);
-    const float lateral_y = dot(offset, web.up) / std::max(web.radius_y, 0.001f);
-    const bool within_connector_aperture =
-        lateral_x * lateral_x + lateral_y * lateral_y <= 2.25f;
-    const bool authored_side_near_transition =
-        approach < 0.0f && std::abs(approach) <= kCaveTransitionConnectorLength &&
-        within_connector_aperture;
-    if (authored_side_near_transition) {
-      const CaveTunnelFrame terminal_frame = sampleCaveTunnelFrame(cave_tunnel_, 1.0f);
-      streaming_focus =
-          web.center + web.normal * std::max(voxelCaveTunnelRadius(terminal_frame), 1.0f);
-    }
-  }
-  VoxelCaveUpdateOptions update_options;
-  update_options.viewer_velocity = player_velocity_;
-  if (voxel_streaming_view_valid_) {
-    const float chunk_size =
-        voxel_cave_.spec().cell_size * static_cast<float>(voxel_cave_.spec().chunk_cells);
-    update_options.visibility_probes.push_back(voxel_streaming_view_position_);
-    update_options.visibility_probes.push_back(voxel_streaming_view_position_ +
-                                               voxel_streaming_view_direction_ * chunk_size * 1.5f);
-  }
-  voxel_cave_.updateStreaming(streaming_focus, dt, update_options);
-  syncVoxelChunkVisuals();
-  syncVoxelChunkPhysics();
-}
-
-void LumenRun::syncVoxelChunkVisuals() {
-  ASTER_PROFILE_SCOPE("LumenRun::syncVoxelChunkVisuals");
-  auto &objects = scene_.objects();
-  for (VoxelChunkVisual &visual : voxel_chunk_visuals_) {
-    visual.assigned = false;
-  }
-
-  const auto batchMatchesSnapshot = [&](const VoxelChunkSnapshot &chunk,
-                                        const VoxelChunkRenderBatch &batch) {
-    if (batch.mesh == nullptr || batch.mesh->vertices.empty()) {
-      return false;
-    }
-    const float chunk_world_size =
-        voxel_cave_.spec().cell_size * static_cast<float>(voxel_cave_.spec().chunk_cells);
-    const float lease_radius = std::max(chunk_world_size * 1.85f, 0.50f);
-    return chunk.surface_stats.surface_vertices == 0u ||
-           length(chunk.bounds_center - chunk.center) <= lease_radius;
-  };
-
-  const auto findVisual = [&](const VoxelChunkCoord coord, const VoxelChunkRenderBatchKind kind,
-                              const VoxelCaveMaterial material) -> VoxelChunkVisual * {
-    for (VoxelChunkVisual &visual : voxel_chunk_visuals_) {
-      if (!visual.assigned && visual.coord == coord && visual.kind == kind &&
-          visual.material == material) {
-        return &visual;
-      }
-    }
-    for (VoxelChunkVisual &visual : voxel_chunk_visuals_) {
-      if (!visual.assigned && visual.kind == kind && visual.material == material) {
-        return &visual;
-      }
-    }
-    return nullptr;
-  };
-
-  for (const VoxelChunkSnapshot &chunk : voxel_cave_.activeChunks()) {
-    for (const VoxelChunkRenderBatch &batch : chunk.batches) {
-      if (batch.mesh == nullptr || batch.mesh->vertices.empty() || batch.mesh->indices.empty()) {
-        continue;
-      }
-      if (!batchMatchesSnapshot(chunk, batch)) {
-        continue;
-      }
-      VoxelChunkVisual *visual = findVisual(batch.coord, batch.kind, batch.material);
-      if (visual == nullptr || visual->object_index >= objects.size()) {
-        continue;
-      }
-      visual->coord = batch.coord;
-      visual->kind = batch.kind;
-      visual->material = batch.material;
-      visual->mesh_generation = chunk.mesh_generation;
-      visual->assigned = true;
-
-      RenderObject &object = objects[visual->object_index];
-      object.name = batch.label.empty() ? voxelChunkBatchName(batch.material) : batch.label;
-      object.primitive = MeshPrimitive::Box;
-      object.custom_mesh = batch.mesh;
-      object.transform.position = {};
-      object.transform.rotation = {};
-      object.transform.scale = {1.0f, 1.0f, 1.0f};
-      object.material.opacity = std::clamp(batch.opacity, 0.0f, 1.0f);
-      object.camera_occlusion_fade = false;
-      object.viewer_cull_volume = {};
-      object.visibility_hint = {.visibility_class = RenderVisibilityClass::DynamicVoxel,
-                                .cell = {static_cast<float>(batch.coord.x),
-                                         static_cast<float>(batch.coord.y),
-                                         static_cast<float>(batch.coord.z)},
-                                .portal_depth = length(chunk.center - player_position_)};
-      object.lod = {};
-      object.dynamic_mesh = {.id = voxelDynamicMeshId(batch.coord, batch.kind, batch.material),
-                             .generation = chunk.mesh_generation};
-    }
-  }
-
-  for (VoxelChunkVisual &visual : voxel_chunk_visuals_) {
-    if (visual.assigned || visual.object_index >= objects.size()) {
-      continue;
-    }
-    RenderObject &object = objects[visual.object_index];
-    object.custom_mesh.reset();
-    object.material.opacity = 1.0f;
-    object.transform.position = {0.0f, -24.0f, 0.0f};
-    object.viewer_cull_volume = {};
-    object.visibility_hint = {};
-    object.lod = {};
-    object.dynamic_mesh = {};
-    visual.coord = {};
-    visual.mesh_generation = 0u;
-  }
-}
-
-void LumenRun::syncVoxelChunkPhysics() {
-  ASTER_PROFILE_SCOPE("LumenRun::syncVoxelChunkPhysics");
-  std::unordered_map<VoxelChunkCoord, const VoxelChunkSnapshot *, VoxelChunkCoordHash>
-      active_chunks;
-  active_chunks.reserve(voxel_cave_.activeChunks().size());
-  for (const VoxelChunkSnapshot &chunk : voxel_cave_.activeChunks()) {
-    active_chunks[chunk.coord] = &chunk;
-  }
-
-  voxel_chunk_colliders_.erase(std::remove_if(voxel_chunk_colliders_.begin(),
-                                              voxel_chunk_colliders_.end(),
-                                              [&](const VoxelChunkCollider &collider) {
-                                                const auto active =
-                                                    active_chunks.find(collider.coord);
-                                                if (active != active_chunks.end() &&
-                                                    active->second->mesh_generation ==
-                                                        collider.mesh_generation &&
-                                                    active->second->collision_mesh != nullptr &&
-                                                    !active->second->collision_mesh->vertices.empty() &&
-                                                    !active->second->collision_mesh->indices.empty()) {
-                                                  return false;
-                                                }
-                                                if (physics_.valid(collider.body)) {
-                                                  physics_.removeBody(collider.body);
-                                                }
-                                                return true;
-                                              }),
-                               voxel_chunk_colliders_.end());
-
-  std::unordered_map<VoxelChunkCoord, std::size_t, VoxelChunkCoordHash> collider_indices;
-  const auto rebuildColliderIndex = [&]() {
-    collider_indices.clear();
-    collider_indices.reserve(voxel_chunk_colliders_.size());
-    for (std::size_t index = 0; index < voxel_chunk_colliders_.size(); ++index) {
-      collider_indices[voxel_chunk_colliders_[index].coord] = index;
-    }
-  };
-  rebuildColliderIndex();
-  const auto removeColliderAt = [&](const std::size_t index) {
-    if (index >= voxel_chunk_colliders_.size()) {
-      return;
-    }
-    if (physics_.valid(voxel_chunk_colliders_[index].body)) {
-      physics_.removeBody(voxel_chunk_colliders_[index].body);
-    }
-    voxel_chunk_colliders_.erase(voxel_chunk_colliders_.begin() +
-                                 static_cast<std::ptrdiff_t>(index));
-    rebuildColliderIndex();
-  };
-  const auto addCollider = [&](const VoxelChunkSnapshot &chunk) {
-    if (chunk.collision_mesh == nullptr || chunk.collision_mesh->vertices.empty() ||
-        chunk.collision_mesh->indices.empty()) {
-      return;
-    }
-    PhysicsBodyDesc body;
-    body.type = PhysicsBodyType::Static;
-    body.shape = PhysicsShapeType::TriangleMesh;
-    body.mesh = chunk.collision_mesh;
-    body.mesh_transform = {};
-    body.material = {0.74f, 0.0f};
-    body.filter = {kPhysicsLayerWorld, kPhysicsLayerPlayer};
-    body.mesh_double_sided = false;
-    voxel_chunk_colliders_.push_back(
-        {chunk.coord, physics_.addBody(body), chunk.mesh_generation});
-    collider_indices[chunk.coord] = voxel_chunk_colliders_.size() - 1u;
-  };
-
-  std::vector<const VoxelChunkSnapshot *> collision_updates;
-  collision_updates.reserve(voxel_cave_.changedChunks().size());
-  std::unordered_set<VoxelChunkCoord, VoxelChunkCoordHash> queued_updates;
-  queued_updates.reserve(voxel_cave_.changedChunks().size() + voxel_cave_.activeChunks().size());
-  for (const VoxelChunkSnapshot &chunk : voxel_cave_.changedChunks()) {
-    if (chunk.collision_dirty) {
-      collision_updates.push_back(&chunk);
-      queued_updates.insert(chunk.coord);
-    }
-  }
-  for (const VoxelChunkSnapshot &chunk : voxel_cave_.activeChunks()) {
-    if (chunk.collision_dirty && !queued_updates.contains(chunk.coord)) {
-      collision_updates.push_back(&chunk);
-      queued_updates.insert(chunk.coord);
-    }
-  }
-
-  for (const VoxelChunkSnapshot *pending_chunk : collision_updates) {
-    VoxelChunkSnapshot chunk = *pending_chunk;
-    if (std::optional<VoxelChunkSnapshot> dirty = voxel_cave_.consumeDirtyChunk(chunk.coord)) {
-      chunk = *dirty;
-    }
-    const auto collider = collider_indices.find(chunk.coord);
-    if (collider != collider_indices.end() &&
-        voxel_chunk_colliders_[collider->second].mesh_generation == chunk.mesh_generation) {
-      continue;
-    }
-    if (collider != collider_indices.end()) {
-      removeColliderAt(collider->second);
-    }
-    addCollider(chunk);
-  }
 }
 
 float LumenRun::caveWebSlowScaleAt(const Vec3 position) const {
@@ -6685,50 +6054,8 @@ float LumenRun::caveWebSlowScaleAt(const Vec3 position) const {
   return slow_scale;
 }
 
-TerrainSurfaceSample LumenRun::sampleVoxelCaveSupport(const SurfaceSupportQuery &query,
-                                                      const float min_normal_y) const {
-  ASTER_PROFILE_SCOPE("LumenRun::sampleVoxelCaveSupport");
-  TerrainSurfaceSample best;
-  const float horizontal_margin = std::max(voxel_cave_.spec().cell_size * 1.5f, 0.05f);
-  const bool has_reference_y = std::isfinite(query.reference_y);
-  const float min_y =
-      has_reference_y && std::isfinite(query.max_below) ? query.reference_y - query.max_below
-                                                        : -std::numeric_limits<float>::infinity();
-  const float max_y =
-      has_reference_y && std::isfinite(query.max_above) ? query.reference_y + query.max_above
-                                                        : std::numeric_limits<float>::infinity();
-  for (const VoxelChunkSnapshot &chunk : voxel_cave_.activeChunks()) {
-    if (chunk.collision_mesh == nullptr || chunk.collision_mesh->vertices.empty() ||
-        chunk.collision_mesh->indices.empty()) {
-      continue;
-    }
-    if (chunk.surface_stats.surface_vertices > 0u) {
-      const Vec3 min = chunk.surface_stats.bounds_min;
-      const Vec3 max = chunk.surface_stats.bounds_max;
-      if (query.world_position.x < min.x - horizontal_margin ||
-          query.world_position.x > max.x + horizontal_margin ||
-          query.world_position.y < min.z - horizontal_margin ||
-          query.world_position.y > max.z + horizontal_margin || max.y < min_y ||
-          min.y > max_y) {
-        continue;
-      }
-    }
-    const TerrainSurfaceSample sample =
-        sampleMeshSupport(*chunk.collision_mesh, {}, query, min_normal_y);
-    if (sample.valid && (!best.valid || sample.height > best.height)) {
-      best = sample;
-    }
-  }
-  return best;
-}
-
 TerrainSurfaceSample LumenRun::sampleWorldSupport(const SurfaceSupportQuery &query) const {
-  TerrainSurfaceSample best = support_surfaces_.sample(query);
-  const TerrainSurfaceSample voxel = sampleVoxelCaveSupport(query, 0.26f);
-  if (voxel.valid && (!best.valid || voxel.height > best.height)) {
-    best = voxel;
-  }
-  return best;
+  return support_surfaces_.sample(query);
 }
 
 void LumenRun::updateFishingVisual() {
@@ -7304,14 +6631,15 @@ void LumenRun::enforceWorldBounds() {
   const bool invalid_position = !std::isfinite(player_position_.x) ||
                                 !std::isfinite(player_position_.y) ||
                                 !std::isfinite(player_position_.z);
-  const bool inside_streaming_cave =
-      !invalid_position &&
-      voxel_cave_.sampleInterior(player_position_, lumenVoxelCaveInteriorProbe()).interior > 0.08f;
+  CaveInteriorSample cave_sample{};
+  const bool inside_authored_cave =
+      !invalid_position && caveSectionAt(player_position_, &cave_sample) != nullptr &&
+      cave_sample.interior > 0.08f;
   const bool outside_radius =
-      !inside_streaming_cave &&
+      !inside_authored_cave &&
       length(planar) > std::max(tuning_.playable_radius, tuning_.arena_radius * 2.0f);
   const bool below_recovery_floor =
-      !inside_streaming_cave && player_position_.y < tuning_.recovery_floor_y;
+      !inside_authored_cave && player_position_.y < tuning_.recovery_floor_y;
   if (!invalid_position && !outside_radius && !below_recovery_floor) {
     return;
   }
@@ -7532,10 +6860,6 @@ bool LumenRun::placeEquippedResource(const Vec3 ray_origin, Vec3 ray_direction) 
     hit = true;
   };
 
-  if (focused_voxel_hit_valid_ && focused_voxel_hit_.distance <= reach + 0.10f) {
-    considerHit(focused_voxel_hit_.point, focused_voxel_hit_.normal, focused_voxel_hit_.distance);
-  }
-
   PhysicsRayHit physics_hit;
   PhysicsRay ray;
   ray.origin = ray_origin;
@@ -7646,80 +6970,6 @@ bool LumenRun::placeEquippedResource(const Vec3 ray_origin, Vec3 ray_direction) 
   return true;
 }
 
-bool LumenRun::mineFocusedVoxel(const std::string_view target_id) {
-  ASTER_PROFILE_SCOPE("LumenRun::mineFocusedVoxel");
-  if (target_id != "voxel:mine" || !focused_voxel_hit_valid_) {
-    return false;
-  }
-  const ItemStack &equipped = equipment_.equipped();
-  const ItemDefinition *equipped_definition = item_registry_.find(equipped.item_id);
-  if (equipped_definition == nullptr || !equipped_definition->has_mining_tool) {
-    return false;
-  }
-  const MiningToolStats tool = activePickaxeStats();
-  const float mining_reach = std::max(tool.reach, kVoxelMiningInteractionDistance);
-  if (length(player_position_ - focused_voxel_hit_.point) > mining_reach) {
-    return false;
-  }
-  const VoxelMaterialProfile *profile = voxel_cave_.profileFor(focused_voxel_hit_.material);
-  if (profile == nullptr || tool.tier < profile->min_tool_tier) {
-    return false;
-  }
-
-  MiningFeedback feedback = mining_.tryMine({.now_seconds = status_.elapsed_seconds,
-                                             .hit = focused_voxel_hit_,
-                                             .tool = tool,
-                                             .material_hardness = profile->hardness,
-                                             .resource_item_id = profile->resource_item_id,
-                                             .resource_quantity = profile->resource_quantity});
-  if (!feedback.accepted) {
-    return false;
-  }
-
-  setAvatarPointTarget(feedback.impact_point);
-  if (!feedback.carved) {
-    const ItemDefinition *chip_resource =
-        profile->resource_item_id.empty() ? nullptr
-                                          : item_registry_.find(profile->resource_item_id);
-    Material chip_material = lumenPlacedResourceMaterial(chip_resource);
-    chip_material.surface_pattern = SurfacePattern::CaveRock;
-    chip_material.emission_color = {0.70f, 0.48f, 0.30f};
-    chip_material.emission_strength = 0.035f + feedback.crack_fraction * 0.075f;
-    const float crack_scale = std::clamp(0.42f + feedback.crack_fraction * 0.35f, 0.35f, 0.82f);
-    spawnMiningFractureEffect(
-        feedback.impact_point - feedback.impact_normal * 0.055f, feedback.impact_normal,
-        {tool.carve_radius * 0.40f * crack_scale, tool.carve_radius * 0.25f * crack_scale,
-         tool.carve_radius * 0.18f * crack_scale},
-        chip_material, fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 7601u),
-        4 + static_cast<int>(std::ceil(feedback.crack_fraction * 4.0f)));
-    return true;
-  }
-
-  if (!feedback.resource_item_id.empty() && feedback.resource_quantity > 0) {
-    const ItemDefinition *resource = item_registry_.find(feedback.resource_item_id);
-    if (resource != nullptr && !storeMinedResource(*resource, feedback.resource_quantity)) {
-      return false;
-    }
-  }
-  const ItemDefinition *fracture_resource =
-      feedback.resource_item_id.empty() ? nullptr : item_registry_.find(feedback.resource_item_id);
-  Material fracture_material = lumenPlacedResourceMaterial(fracture_resource);
-  fracture_material.surface_pattern = SurfacePattern::CaveRock;
-  spawnMiningFractureEffect(feedback.impact_point - feedback.impact_normal * 0.08f,
-                            feedback.impact_normal,
-                            {feedback.edit.radius * 0.98f, feedback.edit.radius * 0.72f,
-                             feedback.edit.radius * 0.56f},
-                            fracture_material,
-                            fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 8009u), 16);
-  const VoxelEditResult edit_result =
-      voxel_cave_.applyEdit(feedback.edit, VoxelEditRebuildMode::Deferred);
-  if (!edit_result.accepted) {
-    return false;
-  }
-  invalidateSceneReports();
-  return true;
-}
-
 bool LumenRun::mineFocusedCaveWeb(const std::string_view target_id) {
   constexpr std::string_view prefix = "web:";
   const ItemStack &equipped = equipment_.equipped();
@@ -7751,8 +7001,7 @@ bool LumenRun::mineFocusedCaveWeb(const std::string_view target_id) {
                                               : web.id,
                             .point = web.center,
                             .normal = hit_normal,
-                            .material = VoxelCaveMaterial::Rock,
-                            .cell = voxel_cave_.cellCoordFor(web.center)};
+                            .material = VoxelCaveMaterial::Rock};
   const MineableAttempt mine_attempt{.now_seconds = status_.elapsed_seconds,
                                      .hit = web_hit,
                                      .tool = tool,
@@ -7815,6 +7064,7 @@ bool LumenRun::mineFocusedCaveWeb(const std::string_view target_id) {
     skitter.health = 0;
   }
   focused_cave_web_valid_ = false;
+  interaction_.clear();
   invalidateSceneReports();
   return true;
 }
@@ -7851,8 +7101,7 @@ bool LumenRun::mineFocusedCaveSkitter(const std::string_view target_id) {
                                                   : skitter.id,
                                 .point = skitter.state.position + Vec3{0.0f, 0.08f, 0.0f},
                                 .normal = hit_normal,
-                                .material = VoxelCaveMaterial::Rock,
-                                .cell = voxel_cave_.cellCoordFor(skitter.state.position)};
+                                .material = VoxelCaveMaterial::Rock};
   const MiningFeedback feedback =
       mining_.tryMine({.now_seconds = status_.elapsed_seconds,
                        .hit = skitter_hit,
@@ -7894,6 +7143,7 @@ bool LumenRun::mineFocusedCaveSkitter(const std::string_view target_id) {
                               fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 8829u), 18);
     hideRenderObject(scene_.objects()[skitter.object_index]);
   }
+  interaction_.clear();
   invalidateSceneReports();
   return true;
 }
@@ -7921,14 +7171,12 @@ bool LumenRun::mineFocusedOre(const std::string_view target_id) {
   }
 
   const MiningToolStats tool = activePickaxeStats();
-  VoxelCaveHit ore_hit;
+  MineableHit ore_hit;
   ore_hit.hit = true;
+  ore_hit.target_key = "ore:" + std::to_string(ore_index);
   ore_hit.point = ore.position;
   ore_hit.normal = length(ore.normal) > 0.0001f ? normalize(ore.normal) : Vec3{0.0f, 1.0f, 0.0f};
-  ore_hit.distance = length(player_position_ - ore.position);
   ore_hit.material = VoxelCaveMaterial::Coal;
-  ore_hit.chunk = voxel_cave_.chunkCoordFor(ore.position);
-  ore_hit.cell = voxel_cave_.cellCoordFor(ore.position);
   MiningFeedback feedback = mining_.tryMine({.now_seconds = status_.elapsed_seconds,
                                              .hit = ore_hit,
                                              .tool = tool,

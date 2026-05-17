@@ -14,7 +14,6 @@
 #include "aster/game/particle_system.hpp"
 #include "aster/geometry/cave_system.hpp"
 #include "aster/geometry/terrain_mesh.hpp"
-#include "aster/geometry/voxel_cave.hpp"
 #include "aster/math/vec.hpp"
 #include "aster/physics/climb_locomotion.hpp"
 #include "aster/physics/physics_world.hpp"
@@ -91,7 +90,6 @@ public:
 
   void reset();
   void update(float dt, Vec2 move_axis, bool run_requested, bool jump_requested);
-  void setVoxelStreamingView(Vec3 position, Vec3 direction);
 
   [[nodiscard]] const Scene &scene() const;
   [[nodiscard]] const SceneCoherenceReport &sceneCoherenceReport() const;
@@ -102,8 +100,7 @@ public:
   [[nodiscard]] Vec3 prismRelayBasePosition() const;
   [[nodiscard]] Vec3 prismRelayFocusPosition() const;
   void relocatePlayer(Vec3 position, float facing_yaw = 0.0f);
-  [[nodiscard]] Vec3 voxelCaveFrameReportPosition(float progress_distance) const;
-  void enqueueVoxelCaveStressEdit(std::uint32_t edit_index);
+  [[nodiscard]] Vec3 caveFrameReportPosition(float progress_distance) const;
   [[nodiscard]] float resolveCameraRadius(Vec3 target, float yaw, float pitch,
                                           float desired_radius) const;
   void updateRenderInterpolation(float alpha);
@@ -247,19 +244,11 @@ private:
     std::array<std::size_t, 3> horizontal_guards{};
   };
 
-  struct VoxelChunkVisual {
-    VoxelChunkCoord coord{};
-    VoxelChunkRenderBatchKind kind = VoxelChunkRenderBatchKind::StructuralSurface;
-    VoxelCaveMaterial material = VoxelCaveMaterial::Rock;
-    std::size_t object_index = 0;
-    std::uint64_t mesh_generation = 0u;
-    bool assigned = false;
-  };
-
-  struct VoxelChunkCollider {
-    VoxelChunkCoord coord{};
-    PhysicsBodyHandle body{};
-    std::uint64_t mesh_generation = 0u;
+  struct AuthoredCaveSection {
+    CaveTunnelProfile tunnel{};
+    std::vector<CaveWallFixturePlacement> wall_fixtures;
+    std::vector<CaveWallFixturePlacement> secondary_wall_fixtures;
+    bool contributes_entrance_light = false;
   };
 
   struct CoalOreNode {
@@ -330,14 +319,6 @@ private:
   void updatePrismRelay(float dt);
   void updatePrismRelayVisuals(float dt);
   void updateCaveVisuals(float dt);
-  [[nodiscard]] std::vector<CaveWallFixturePlacement>
-  proceduralCaveWallFixturePlacements(Vec3 viewer) const;
-  void applyCaveWallFixtureVisual(const CaveWallFixtureVisual &visual,
-                                  const CaveWallFixturePlacement &placement, bool visible);
-  void updateProceduralCaveWallFixtureVisuals();
-  void updateVoxelCave(float dt);
-  void syncVoxelChunkVisuals();
-  void syncVoxelChunkPhysics();
   [[nodiscard]] float caveWebSlowScaleAt(Vec3 position) const;
   [[nodiscard]] bool applyPlayerDamage(int hit_points, Vec3 impact_origin);
   void spawnBloodBurst(Vec3 center, Vec3 impact_origin, float intensity);
@@ -347,12 +328,12 @@ private:
   void triggerPlayerDeath(Vec3 impact_origin);
   void respawnPlayer();
   void enforceWorldBounds();
+  void applyCaveWebTraversalGates(PhysicsBody &body);
   [[nodiscard]] bool isSwimmableWater(Vec3 support_position) const;
-  [[nodiscard]] TerrainSurfaceSample sampleVoxelCaveSupport(const SurfaceSupportQuery &query,
-                                                            float min_normal_y) const;
   [[nodiscard]] TerrainSurfaceSample sampleWorldSupport(const SurfaceSupportQuery &query) const;
+  [[nodiscard]] const AuthoredCaveSection *caveSectionAt(Vec3 position,
+                                                         CaveInteriorSample *sample = nullptr) const;
   [[nodiscard]] bool mineFocusedOre(std::string_view target_id);
-  [[nodiscard]] bool mineFocusedVoxel(std::string_view target_id);
   [[nodiscard]] bool mineFocusedCaveWeb(std::string_view target_id);
   [[nodiscard]] bool mineFocusedCaveSkitter(std::string_view target_id);
   [[nodiscard]] bool placeEquippedResource(Vec3 ray_origin, Vec3 ray_direction);
@@ -429,26 +410,14 @@ private:
   std::vector<CoalOreNode> coal_ores_;
   std::vector<CaveWebObstacle> cave_webs_;
   std::vector<CaveSkitter> cave_skitters_;
-  CaveTunnelProfile cave_tunnel_{};
-  std::vector<CaveWallFixturePlacement> cave_wall_fixtures_;
-  std::vector<CaveWallFixturePlacement> cave_secondary_wall_fixtures_;
+  std::vector<AuthoredCaveSection> cave_sections_;
   Vec3 cave_entrance_light_position_{};
-  bool cave_tunnel_valid_ = false;
-  std::shared_ptr<const CpuMesh> cave_collision_mesh_{};
+  std::vector<std::shared_ptr<const CpuMesh>> cave_collision_meshes_;
   ViewerCullVolume cave_viewer_cull_volume_{};
-  VoxelCaveState voxel_cave_;
-  std::vector<VoxelChunkVisual> voxel_chunk_visuals_;
-  std::vector<VoxelChunkCollider> voxel_chunk_colliders_;
-  Vec3 voxel_streaming_view_position_{};
-  Vec3 voxel_streaming_view_direction_{0.0f, 0.0f, -1.0f};
-  bool voxel_streaming_view_valid_ = false;
-  VoxelCaveHit focused_voxel_hit_{};
-  bool focused_voxel_hit_valid_ = false;
   std::size_t focused_cave_web_index_ = 0;
   bool focused_cave_web_valid_ = false;
   MiningState mining_;
   std::uint64_t placed_resource_serial_ = 1u;
-  std::vector<CaveWallFixtureVisual> procedural_cave_wall_fixture_visuals_;
   PhysicsWorld physics_;
   mutable SceneCoherenceReport scene_coherence_;
   mutable SceneTraceValidationReport scene_trace_;

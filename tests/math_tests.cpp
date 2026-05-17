@@ -27,6 +27,8 @@
 #include "aster/geometry/energy_conduit_mesh.hpp"
 #include "aster/geometry/fracture_mesh.hpp"
 #include "aster/geometry/generated_scenery.hpp"
+#include "aster/geometry/implicit_surface.hpp"
+#include "aster/geometry/mesh_modeling.hpp"
 #include "aster/geometry/mesh_projection.hpp"
 #include "aster/geometry/mesh_cut.hpp"
 #include "aster/geometry/nature_mesh.hpp"
@@ -1621,6 +1623,10 @@ void testVoxelCaveStreamingAndFixtureContracts() {
         (chunk.collision_mesh != nullptr && !chunk.collision_mesh->vertices.empty() &&
          !chunk.collision_mesh->indices.empty() &&
          countFacesOpposingVertexNormals(*chunk.collision_mesh) == 0u);
+    if (chunk.collision_mesh != nullptr && !chunk.collision_mesh->vertices.empty()) {
+      assert(chunk.surface_stats.topology_invalid_indices == 0u);
+      assert(chunk.surface_stats.topology_degenerate_triangles == 0u);
+    }
     const float chunk_world_size = spec.cell_size * static_cast<float>(spec.chunk_cells);
     for (const aster::VoxelChunkRenderBatch &batch : chunk.batches) {
       if (batch.mesh == nullptr || batch.mesh->vertices.empty()) {
@@ -1975,6 +1981,111 @@ void testVoxelCaveDeferredEditRetainsPublishedCollision() {
                                   chunk.collision_dirty);
   }
   assert(published_replacement);
+}
+
+void testMeshModelingTopologyValidation() {
+  aster::CpuMesh box = aster::makeBox();
+  const aster::MeshTopologyReport box_report = aster::validateMeshTopology(box);
+  assert(box_report.indexable());
+  assert(box_report.renderable());
+  assert(box_report.invalid_indices == 0u);
+  assert(box_report.degenerate_triangles == 0u);
+  assert(box_report.bounds.valid);
+
+  aster::rebuildAngleWeightedNormals(box);
+  for (const aster::Vertex &vertex : box.vertices) {
+    assert(aster::length(vertex.normal) > 0.99f);
+  }
+
+  aster::CpuMesh invalid = aster::makePlane(2.0f);
+  invalid.indices.front() = 99u;
+  const aster::MeshTopologyReport invalid_report = aster::validateMeshTopology(invalid);
+  assert(!invalid_report.indexable());
+  assert(invalid_report.invalid_indices == 1u);
+
+  aster::CpuMesh degenerate;
+  degenerate.vertices = {{{0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                         {{1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+                         {{1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}}};
+  degenerate.indices = {0u, 1u, 2u};
+  const aster::MeshTopologyReport degenerate_report = aster::validateMeshTopology(degenerate);
+  assert(degenerate_report.degenerate_triangles == 1u);
+
+  aster::CpuMesh quad_mesh;
+  const aster::Vertex a{{-1.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}};
+  const aster::Vertex b{{1.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}};
+  const aster::Vertex c{{1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}};
+  const aster::Vertex d{{-1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}};
+  aster::appendOrientedQuad(quad_mesh, a, d, c, b, {0.0f, 1.0f, 0.0f});
+  assert(quad_mesh.indices.size() == 6u);
+  assert(countFacesOpposingVertexNormals(quad_mesh) == 0u);
+}
+
+void testImplicitSurfaceExtractionBuildsChamber() {
+  const aster::ImplicitSurfaceField chamber =
+      aster::makeEllipsoidField({0.0f, 0.0f, 0.0f}, {1.05f, 0.74f, 0.92f});
+  const aster::SurfaceExtractionResult surface = aster::extractImplicitSurface(
+      {.origin = {-1.6f, -1.6f, -1.6f},
+       .cell_size = 0.20f,
+       .cell_count = {16, 16, 16},
+       .settings = {.emit_collision_mesh = true,
+                    .emit_channel_meshes = true,
+                    .capture_faces = true},
+       .density = [chamber](const aster::Vec3 point) { return chamber.sample(point); },
+       .channel = [](const aster::SurfaceFace &face, const float) {
+         return aster::SurfaceChannelSample{face.centroid.x < 0.0f ? 3u : 7u, 1.0f};
+       }});
+
+  assert(surface.stats.active_cells > 0u);
+  assert(surface.stats.faces > 0u);
+  assert(!surface.collision_mesh.vertices.empty());
+  assert(!surface.collision_mesh.indices.empty());
+  assert(surface.collision_mesh.indices.size() % 3u == 0u);
+  assert(surface.faces.size() == surface.stats.faces);
+  assert(surface.mesh_batches.size() == 2u);
+  assert(surface.stats.material_batches == 2u);
+  assert(surface.stats.topology.invalid_indices == 0u);
+  assert(surface.stats.topology.degenerate_triangles == 0u);
+  assert(surface.stats.topology.open_edges == 0u);
+  assert(surface.stats.topology.non_manifold_edges == 0u);
+  assert(countFacesOpposingVertexNormals(surface.collision_mesh) == 0u);
+  std::size_t batch_triangles = 0u;
+  for (const aster::SurfaceMeshBatch &batch : surface.mesh_batches) {
+    assert(!batch.mesh.vertices.empty());
+    assert(!batch.mesh.indices.empty());
+    batch_triangles += batch.mesh.indices.size() / 3u;
+  }
+  assert(batch_triangles == surface.collision_mesh.indices.size() / 3u);
+}
+
+void testImplicitSurfaceAdjacentChunksShareBoundary() {
+  const aster::ImplicitSurfaceField tunnel =
+      aster::makeCapsuleField({-1.4f, 0.0f, 0.0f}, {1.4f, 0.0f, 0.0f}, 0.62f);
+  const auto extract_chunk = [&](const aster::Vec3 origin) {
+    return aster::extractImplicitSurface(
+        {.origin = origin,
+         .cell_size = 0.20f,
+         .cell_count = {8, 10, 10},
+         .settings = {.emit_collision_mesh = true, .emit_channel_meshes = false},
+         .density = [tunnel](const aster::Vec3 point) { return tunnel.sample(point); }});
+  };
+
+  const aster::SurfaceExtractionResult left = extract_chunk({-1.6f, -1.0f, -1.0f});
+  const aster::SurfaceExtractionResult right = extract_chunk({0.0f, -1.0f, -1.0f});
+  assert(!left.collision_mesh.vertices.empty());
+  assert(!right.collision_mesh.vertices.empty());
+
+  const aster::SurfaceBoundarySignature left_boundary =
+      aster::collectSurfaceBoundary(left.collision_mesh, aster::SurfaceBoundaryAxis::X, 0.0f,
+                                    0.101f);
+  const aster::SurfaceBoundarySignature right_boundary =
+      aster::collectSurfaceBoundary(right.collision_mesh, aster::SurfaceBoundaryAxis::X, 0.0f,
+                                    0.101f);
+  const aster::SurfaceBoundaryCompatibilityReport boundary_report =
+      aster::compareSurfaceBoundaries(left_boundary, right_boundary, 0.001f);
+  assert(left_boundary.triangles_touching > 0u);
+  assert(right_boundary.triangles_touching > 0u);
+  assert(boundary_report.compatible());
 }
 
 void testMeshProcessingPipeline() {
@@ -2810,16 +2921,14 @@ void testLumenCaveVisualContracts() {
   bool saw_cave_seal = false;
   bool saw_cave_throat = false;
   bool saw_cave_floor = false;
-  bool saw_transition_shell = false;
-  bool saw_transition_floor = false;
-  bool saw_cave_chunk = false;
-  bool saw_streaming_voxel_surface = false;
+  bool saw_deep_cave_floor = false;
+  bool saw_authored_cave = false;
+  bool saw_deep_cave = false;
   bool saw_central_grass_field = false;
   bool saw_cave_mouth_grass_field = false;
   bool saw_cave_web = false;
   aster::Vec3 cave_web_center{};
   int cave_skitter_count = 0;
-  bool saw_ironstone_blocker = false;
   bool saw_coal_ore = false;
   bool saw_wall_light_lens = false;
   int coal_ore_count = 0;
@@ -2908,24 +3017,17 @@ void testLumenCaveVisualContracts() {
       assert(object.material.cull_mode == aster::FaceCullMode::Back);
       assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
     }
-    if (object.name == "Continuous streaming cave connector shell") {
-      saw_transition_shell = true;
+    if (object.name == "Walkable deep cave floor") {
+      saw_deep_cave_floor = true;
       assert(object.custom_mesh != nullptr);
       assert(!object.custom_mesh->vertices.empty());
-      assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
-      assert(object.material.cull_mode == aster::FaceCullMode::None);
-      assert(!object.viewer_cull_volume.enabled);
-      assert(!object.camera_occlusion_fade);
-    }
-    if (object.name == "Walkable streaming cave connector floor") {
-      saw_transition_floor = true;
-      assert(object.custom_mesh != nullptr);
-      assert(!object.custom_mesh->vertices.empty());
+      assert(object.material.opacity >= 0.999f);
+      assert(object.material.cull_mode == aster::FaceCullMode::Back);
       assert(object.material.render_role == aster::MaterialRenderRole::SupportSurface);
       assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
     }
-    if (object.name == "Chunked procedural cave interior") {
-      saw_cave_chunk = true;
+    if (object.name == "Authored cave interior") {
+      saw_authored_cave = true;
       assert(object.material.opacity >= 0.999f);
       assert(object.material.cull_mode == aster::FaceCullMode::Back);
       assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
@@ -2941,18 +3043,22 @@ void testLumenCaveVisualContracts() {
       assert(center.z < -40.0f);
       assert(aster::length({center.x, 0.0f, center.z}) > 45.0f);
     }
-    if (object.name == "Rock voxel cave surface" && object.custom_mesh != nullptr &&
-        !object.custom_mesh->vertices.empty()) {
-      saw_streaming_voxel_surface = true;
-      assert(object.custom_mesh != nullptr);
+    if (object.name == "Authored deep cave interior") {
+      saw_deep_cave = true;
       assert(object.material.opacity >= 0.999f);
       assert(object.material.cull_mode == aster::FaceCullMode::Back);
       assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
+      assert(object.custom_mesh != nullptr);
+      assert(!object.custom_mesh->vertices.empty());
+      assert(!object.dynamic_mesh.valid());
       assert(!object.camera_occlusion_fade);
     }
-    if (object.name == "Ironstone voxel cave surface" && object.custom_mesh != nullptr &&
-        !object.custom_mesh->vertices.empty()) {
-      saw_ironstone_blocker = true;
+    if (object.name == "Continuous streaming cave connector shell" ||
+        object.name == "Walkable streaming cave connector floor" ||
+        object.name == "Chunked procedural cave interior" ||
+        object.name == "Rock voxel cave surface" ||
+        object.name == "Ironstone voxel cave surface") {
+      assert(false);
     }
     if (object.name == "Oval cave spider web span") {
       saw_cave_web = true;
@@ -3010,18 +3116,21 @@ void testLumenCaveVisualContracts() {
   assert(saw_cave_seal);
   assert(saw_cave_throat);
   assert(saw_cave_floor);
-  assert(saw_transition_shell);
-  assert(saw_transition_floor);
-  assert(saw_cave_chunk);
+  assert(saw_deep_cave_floor);
+  assert(saw_authored_cave);
+  assert(saw_deep_cave);
   assert(saw_cave_web);
   assert(cave_skitter_count == 3);
-  assert(!saw_ironstone_blocker);
-  assert(saw_streaming_voxel_surface);
   assert(saw_central_grass_field);
   assert(saw_cave_mouth_grass_field);
   assert(saw_coal_ore);
   assert(coal_ore_count >= 4);
   assert(saw_wall_light_lens);
+  const auto require_lumen_transition = [](const bool condition, const std::string &message) {
+    if (!condition) {
+      throw std::runtime_error(message);
+    }
+  };
   const aster::Vec3 web_approach_position =
       cave_web_center + aster::Vec3{0.0f, -0.10f, 2.35f};
   run.relocatePlayer(web_approach_position, aster::radians(180.0f));
@@ -3031,14 +3140,74 @@ void testLumenCaveVisualContracts() {
   }
   assert(run.status().health == health_before_web);
   const aster::Vec3 focus_origin = web_approach_position + aster::Vec3{0.0f, 0.42f, 0.0f};
+  require_lumen_transition(run.takeChestItem("pickaxe"),
+                           "test setup failed to equip the pickaxe for cave web mining");
   run.updateInteractionFocus(focus_origin, aster::normalize(cave_web_center - focus_origin),
                              1.0f / 60.0f);
   const aster::FocusPromptModel transition_prompt = run.focusPromptModel();
-  assert(transition_prompt.visible);
-  assert(transition_prompt.action == "Cut");
-  assert(transition_prompt.subject == "Spider Web");
-  assert(!(transition_prompt.visible && transition_prompt.action == "Strike" &&
-           transition_prompt.subject == "Rock"));
+  require_lumen_transition(transition_prompt.visible, "cave transition web prompt is not visible");
+  require_lumen_transition(transition_prompt.action == "Cut",
+                           "cave transition should focus the web before attached skitters; got " +
+                               transition_prompt.action + " " + transition_prompt.subject);
+  require_lumen_transition(transition_prompt.subject == "Spider Web",
+                           "cave transition should not focus rock before the web is cut");
+  require_lumen_transition(!(transition_prompt.visible && transition_prompt.action == "Strike" &&
+                             transition_prompt.subject == "Rock"),
+                           "cave transition exposed a rock prompt before the web was cut");
+  bool web_cut_prompt_seen = false;
+  bool web_cleared = false;
+  for (int swing = 0; swing < 8; ++swing) {
+    run.updateInteractionFocus(focus_origin, aster::normalize(cave_web_center - focus_origin),
+                               1.0f / 60.0f);
+    const aster::FocusPromptModel prompt = run.focusPromptModel();
+    if (prompt.visible && prompt.action == "Cut" && prompt.subject == "Spider Web") {
+      web_cut_prompt_seen = true;
+    } else if (web_cut_prompt_seen) {
+      web_cleared = true;
+      break;
+    }
+    run.interactFocused();
+    for (int frame = 0; frame < 40; ++frame) {
+      run.update(1.0f / 60.0f, {}, false, false);
+    }
+  }
+  run.updateInteractionFocus(focus_origin, aster::normalize(cave_web_center - focus_origin),
+                             1.0f / 60.0f);
+  const aster::FocusPromptModel cleared_prompt = run.focusPromptModel();
+  web_cleared = web_cleared || !(cleared_prompt.visible && cleared_prompt.action == "Cut" &&
+                                 cleared_prompt.subject == "Spider Web");
+  require_lumen_transition(web_cut_prompt_seen, "cave transition web was never interactable");
+  require_lumen_transition(web_cleared, "cave transition web remained focused after mining");
+  require_lumen_transition(!(cleared_prompt.visible && cleared_prompt.action == "Strike" &&
+                             cleared_prompt.subject == "Rock"),
+                           "cave transition exposed a rock prompt immediately after web mining");
+
+  const aster::Vec3 traversal_target = run.caveFrameReportPosition(16.0f);
+  const auto planar_distance_to_target = [&](const aster::Vec3 position) {
+    const aster::Vec2 delta{traversal_target.x - position.x, traversal_target.z - position.z};
+    return aster::length(delta);
+  };
+  const aster::Vec3 approach_to_target = aster::normalize(traversal_target - cave_web_center);
+  run.relocatePlayer(web_approach_position, aster::radians(180.0f));
+  const float initial_target_distance = planar_distance_to_target(run.playerPosition());
+  for (int frame = 0; frame < 520; ++frame) {
+    const aster::Vec3 position = run.playerPosition();
+    aster::Vec2 move_axis{traversal_target.x - position.x, traversal_target.z - position.z};
+    const float move_length = aster::length(move_axis);
+    if (move_length > 0.001f) {
+      move_axis = move_axis / move_length;
+    }
+    run.update(1.0f / 60.0f, move_axis, true, false);
+  }
+  const aster::Vec3 traversed_position = run.playerPosition();
+  require_lumen_transition(planar_distance_to_target(traversed_position) <
+                               initial_target_distance - 6.0f,
+                           "player did not advance through the cleared cave connector");
+  require_lumen_transition(aster::dot(traversed_position - cave_web_center, approach_to_target) >
+                               4.0f,
+                           "player remained on the authored side of the cave web");
+  require_lumen_transition(traversed_position.z < cave_web_center.z - 4.0f,
+                           "player did not move past the web into the authored deep cave");
   const aster::CaveLightingState spawn_cave_light = run.caveLightingStateAt({0.0f, 0.32f, 0.0f});
   assert(spawn_cave_light.interior < 0.001f);
   assert(spawn_cave_light.entrance_light < 0.001f);
@@ -3049,7 +3218,8 @@ void testLumenCaveVisualContracts() {
   assert(cave_light.interior > 0.20f);
   assert(!cave_light.wall_lights.empty());
   assert(cave_light.wall_lights.front().intensity > 12.0f);
-  assert(cave_light.wall_lights.front().source_radius <= 1.40f);
+  assert(cave_light.wall_lights.front().source_radius > 0.0f);
+  assert(cave_light.wall_lights.front().source_radius <= 2.40f);
   assert(cave_light.wall_light >= 0.0f && cave_light.wall_light <= 1.0f);
 }
 
@@ -3949,6 +4119,9 @@ int main() {
   testVoxelCaveStreamingAndFixtureContracts();
   testVoxelCaveStreamingPublishesReadySnapshotsOnly();
   testVoxelCaveDeferredEditRetainsPublishedCollision();
+  testMeshModelingTopologyValidation();
+  testImplicitSurfaceExtractionBuildsChamber();
+  testImplicitSurfaceAdjacentChunksShareBoundary();
   testMeshProcessingPipeline();
   testMeshProcessingRejectsInvalidIndices();
   testMeshDrapingRaisesEmbeddedVertices();

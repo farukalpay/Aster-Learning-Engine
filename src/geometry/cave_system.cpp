@@ -958,15 +958,24 @@ std::vector<aster::CaveOreNodePlacement> makeOreNodes(const aster::CaveTunnelPro
     tunnelBasis(tunnel, t, side, up);
     const float side_sign = hashGrid(i, 3, 7, vein.seed + 11u) < 0.5f ? -1.0f : 1.0f;
     const float vertical = -0.22f + hashGrid(i, 13, 23, vein.seed + 29u) * 0.72f;
-    const aster::Vec3 radial = aster::normalize(side * side_sign + up * vertical);
+    const float radial_length = std::max(std::sqrt(1.0f + vertical * vertical), 0.001f);
+    const float side_component = side_sign / radial_length;
+    const float up_component = vertical / radial_length;
     const float width_scale = tunnelWidthScale(tunnel, t);
     const float height_scale = tunnelHeightScale(tunnel, t);
-    const float wall_radius =
-        tunnel.half_width * width_scale * (0.96f + hashGrid(i, 17, 31, vein.seed + 37u) * 0.18f);
-    const aster::Vec3 position =
-        center + up * (tunnel.wall_height * height_scale * (0.54f + vertical * 0.24f)) +
-        radial * (wall_radius - std::max(vein.wall_inset, 0.0f));
-    const aster::Vec3 field_point = position;
+    const float horizontal_radius =
+        tunnel.half_width * width_scale * (0.98f + hashGrid(i, 17, 31, vein.seed + 37u) * 0.08f);
+    const float vertical_radius = tunnel.wall_height * height_scale *
+                                  (up_component >= 0.0f ? 0.66f : 0.55f);
+    const aster::Vec3 ring_center = center + up * (tunnel.wall_height * height_scale * 0.55f);
+    const aster::Vec3 surface_point = ring_center + side * (side_component * horizontal_radius) +
+                                      up * (up_component * vertical_radius);
+    aster::Vec3 inward = aster::normalize(side * (-side_component / std::max(horizontal_radius, 0.001f)) +
+                                          up * (-up_component / std::max(vertical_radius, 0.001f)));
+    if (aster::length(inward) <= 0.0001f) {
+      inward = aster::normalize(ring_center - surface_point);
+    }
+    const aster::Vec3 field_point = surface_point;
     const float field_a =
         std::abs(fbm3(field_point * vein.field_frequency_a, vein.seed + 101u, 5) - 0.5f) * 2.0f;
     const float field_b =
@@ -975,10 +984,12 @@ std::vector<aster::CaveOreNodePlacement> makeOreNodes(const aster::CaveTunnelPro
                         field_b / std::max(vein.intersection_threshold_b, 0.001f);
     const float strength = 1.0f - aster::clamp(score * 0.30f, 0.0f, 0.78f);
     const float radius = 0.24f + strength * 0.16f;
+    const aster::Vec3 position =
+        surface_point + inward * (std::max(vein.wall_inset, 0.0f) + radius * 0.24f);
     candidates.push_back(
         {score,
          {position,
-          radial * -1.0f,
+          inward,
           {radius * (1.28f + strength * 0.35f), radius * (0.88f + strength * 0.22f),
            radius * (0.70f + strength * 0.18f)},
           radius}});
@@ -1127,6 +1138,11 @@ Vec3 evaluateCaveTunnelTangent(const CaveTunnelProfile &profile, const float t) 
   return cubicTangent(profile, clamp(t, 0.0f, 1.0f));
 }
 
+float estimateCaveTunnelLength(const CaveTunnelProfile &profile, const float start_t,
+                               const float end_t) {
+  return tunnelPathLength(profile, start_t, end_t);
+}
+
 CaveTunnelFrame sampleCaveTunnelFrame(const CaveTunnelProfile &profile, const float t) {
   const float clamped_t = clamp(t, 0.0f, 1.0f);
   CaveTunnelFrame frame;
@@ -1138,6 +1154,34 @@ CaveTunnelFrame sampleCaveTunnelFrame(const CaveTunnelProfile &profile, const fl
   frame.height = profile.wall_height * tunnelHeightScale(profile, clamped_t);
   frame.floor_half_width = profile.floor_width * tunnelWidthScale(profile, clamped_t) * 0.5f;
   return frame;
+}
+
+CaveTunnelFrame sampleCaveTunnelFrameAtDistance(const CaveTunnelProfile &profile,
+                                                const float distance) {
+  const float target_distance = std::max(distance, 0.0f);
+  if (target_distance <= 0.0f) {
+    return sampleCaveTunnelFrame(profile, 0.0f);
+  }
+
+  const int samples = std::max(profile.length_segments, 8);
+  Vec3 previous = cubicPoint(profile, 0.0f);
+  float accumulated = 0.0f;
+  for (int i = 1; i <= samples; ++i) {
+    const float t = static_cast<float>(i) / static_cast<float>(samples);
+    const Vec3 next = cubicPoint(profile, t);
+    const float segment_length = length(next - previous);
+    if (accumulated + segment_length >= target_distance) {
+      const float segment_t =
+          segment_length > 0.0001f ? (target_distance - accumulated) / segment_length : 0.0f;
+      return sampleCaveTunnelFrame(
+          profile, (static_cast<float>(i - 1) + clamp(segment_t, 0.0f, 1.0f)) /
+                       static_cast<float>(samples));
+    }
+    accumulated += segment_length;
+    previous = next;
+  }
+
+  return sampleCaveTunnelFrame(profile, 1.0f);
 }
 
 CaveInteriorSample sampleCaveInteriorVolume(const CaveTunnelProfile &profile, const Vec3 position) {
@@ -1396,9 +1440,13 @@ CaveComplex buildCaveComplex(const CaveComplexSpec &spec) {
       std::clamp(static_cast<int>(std::floor(clamp(spec.tunnel.collision_start_t, 0.0f, 0.95f) *
                                              static_cast<float>(spec.tunnel.length_segments))),
                  0, spec.tunnel.length_segments - 1);
+  const int last_collision_segment =
+      std::clamp(static_cast<int>(std::ceil(clamp(spec.tunnel.collision_end_t, 0.05f, 1.0f) *
+                                            static_cast<float>(spec.tunnel.length_segments))),
+                 first_collision_segment + 1, spec.tunnel.length_segments);
   complex.collision_mesh =
-      makeTunnelChunk(spec.tunnel, first_collision_segment, spec.tunnel.length_segments);
-  if (spec.tunnel.end_constraint_enabled) {
+      makeTunnelChunk(spec.tunnel, first_collision_segment, last_collision_segment);
+  if (spec.tunnel.end_constraint_enabled && last_collision_segment >= spec.tunnel.length_segments) {
     appendMesh(complex.collision_mesh, makeTunnelEndCap(spec.tunnel));
   }
 
@@ -1426,8 +1474,12 @@ CaveComplex buildCaveComplex(const CaveComplexSpec &spec) {
   Vec3 up{};
   tunnelBasis(spec.tunnel, chest_t, side, up);
   const Vec3 tangent = evaluateCaveTunnelTangent(spec.tunnel, chest_t);
+  const float floor_half_width =
+      spec.tunnel.floor_width * tunnelWidthScale(spec.tunnel, chest_t) * 0.5f;
+  const float chest_side_offset =
+      std::clamp(floor_half_width - 0.58f, floor_half_width * 0.52f, floor_half_width * 0.86f);
   complex.chest_position =
-      evaluateCaveTunnelCenter(spec.tunnel, chest_t) + side * -0.38f + up * 0.06f;
+      evaluateCaveTunnelCenter(spec.tunnel, chest_t) + side * -chest_side_offset + up * 0.06f;
   complex.chest_yaw = std::atan2(-tangent.x, -tangent.z);
   return complex;
 }

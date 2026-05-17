@@ -1,6 +1,7 @@
 #include "aster/geometry/voxel_cave.hpp"
 
 #include "aster/core/profiler.hpp"
+#include "aster/geometry/mesh_modeling.hpp"
 
 #include <algorithm>
 #include <array>
@@ -499,13 +500,6 @@ float densityAtSpec(const aster::VoxelCaveSpec &spec, const aster::Vec3 position
   return density;
 }
 
-std::uint32_t appendVertex(aster::CpuMesh &mesh, const aster::Vec3 position,
-                           const aster::Vec3 normal, const aster::Vec2 uv) {
-  const std::uint32_t index = static_cast<std::uint32_t>(mesh.vertices.size());
-  mesh.vertices.push_back({position, normal, uv});
-  return index;
-}
-
 bool usesVeinField(const aster::VoxelMaterialProfile &profile) {
   return profile.material != aster::VoxelCaveMaterial::Air &&
          profile.material != aster::VoxelCaveMaterial::Rock && profile.vein_radius > 0.0f &&
@@ -586,44 +580,21 @@ struct SurfaceNetCell {
   aster::Vec3 normal{0.0f, 1.0f, 0.0f};
 };
 
+aster::Vertex meshVertex(const SurfaceNetCell &cell) {
+  return {cell.position, cell.normal, {cell.position.x * 0.12f, cell.position.z * 0.12f}};
+}
+
 void appendSurfaceTriangle(aster::CpuMesh &mesh, const SurfaceNetCell &a, const SurfaceNetCell &b,
                            const SurfaceNetCell &c, aster::Vec3 preferred_normal) {
-  preferred_normal = aster::normalize(preferred_normal);
-  if (aster::length(preferred_normal) <= 0.0001f) {
-    preferred_normal = aster::normalize(a.normal + b.normal + c.normal);
-  }
-  if (aster::length(preferred_normal) <= 0.0001f) {
-    preferred_normal = {0.0f, 1.0f, 0.0f};
-  }
-  const aster::Vec3 face_normal =
-      aster::normalize(aster::cross(b.position - a.position, c.position - a.position));
-  if (aster::length(face_normal) <= 0.0001f) {
-    return;
-  }
-  if (aster::dot(face_normal, preferred_normal) < 0.0f) {
-    const std::uint32_t ia =
-        appendVertex(mesh, a.position, a.normal, {a.position.x * 0.12f, a.position.z * 0.12f});
-    const std::uint32_t ib =
-        appendVertex(mesh, c.position, c.normal, {c.position.x * 0.12f, c.position.z * 0.12f});
-    const std::uint32_t ic =
-        appendVertex(mesh, b.position, b.normal, {b.position.x * 0.12f, b.position.z * 0.12f});
-    mesh.indices.insert(mesh.indices.end(), {ia, ib, ic});
-    return;
-  }
-  const std::uint32_t ia =
-      appendVertex(mesh, a.position, a.normal, {a.position.x * 0.12f, a.position.z * 0.12f});
-  const std::uint32_t ib =
-      appendVertex(mesh, b.position, b.normal, {b.position.x * 0.12f, b.position.z * 0.12f});
-  const std::uint32_t ic =
-      appendVertex(mesh, c.position, c.normal, {c.position.x * 0.12f, c.position.z * 0.12f});
-  mesh.indices.insert(mesh.indices.end(), {ia, ib, ic});
+  aster::appendOrientedTriangle(mesh, meshVertex(a), meshVertex(b), meshVertex(c),
+                                preferred_normal);
 }
 
 void appendSurfaceQuad(aster::CpuMesh &mesh, const SurfaceNetCell &a, const SurfaceNetCell &b,
                        const SurfaceNetCell &c, const SurfaceNetCell &d,
                        const aster::Vec3 preferred_normal) {
-  appendSurfaceTriangle(mesh, a, b, d, preferred_normal);
-  appendSurfaceTriangle(mesh, b, c, d, preferred_normal);
+  aster::appendOrientedQuad(mesh, meshVertex(a), meshVertex(b), meshVertex(c), meshVertex(d),
+                            preferred_normal);
 }
 
 aster::CpuMesh &
@@ -637,6 +608,20 @@ meshForMaterial(std::vector<std::pair<aster::VoxelCaveMaterial, aster::CpuMesh>>
   }
   meshes.push_back({material, {}});
   return meshes.back().second;
+}
+
+aster::SurfaceMeshIndexCache &
+cacheForMaterial(std::vector<std::pair<aster::VoxelCaveMaterial, aster::SurfaceMeshIndexCache>>
+                     &caches,
+                 const aster::VoxelCaveMaterial material) {
+  const auto found = std::find_if(caches.begin(), caches.end(), [material](const auto &entry) {
+    return entry.first == material;
+  });
+  if (found != caches.end()) {
+    return found->second;
+  }
+  caches.push_back({material, {}});
+  return caches.back().second;
 }
 
 const aster::VoxelMaterialProfile *
@@ -655,6 +640,52 @@ std::string materialSurfaceLabel(const std::vector<aster::VoxelMaterialProfile> 
     return profile->display_name + " voxel cave surface";
   }
   return "Voxel cave surface";
+}
+
+void applyMeshBoundsToStats(aster::VoxelChunkSurfaceStats &stats, const aster::CpuMesh &mesh) {
+  const aster::MeshBounds bounds = aster::calculateMeshBounds(mesh);
+  if (!bounds.valid) {
+    return;
+  }
+  stats.bounds_min = bounds.min;
+  stats.bounds_max = bounds.max;
+}
+
+void appendMaterialStats(aster::VoxelChunkSurfaceStats &stats,
+                         const aster::VoxelCaveMaterial material, const aster::CpuMesh &mesh) {
+  if (mesh.vertices.empty() || mesh.indices.empty()) {
+    return;
+  }
+  stats.materials.push_back({material, static_cast<std::uint32_t>(mesh.vertices.size()),
+                             static_cast<std::uint32_t>(mesh.indices.size() / 3u)});
+}
+
+void applyTopologyToStats(aster::VoxelChunkSurfaceStats &stats, const aster::CpuMesh &mesh) {
+  const aster::MeshTopologyReport topology = aster::validateMeshTopology(mesh);
+  stats.topology_invalid_indices = static_cast<std::uint32_t>(topology.invalid_indices);
+  stats.topology_degenerate_triangles = static_cast<std::uint32_t>(topology.degenerate_triangles);
+  stats.topology_open_edges = static_cast<std::uint32_t>(topology.open_edges);
+  stats.topology_non_manifold_edges = static_cast<std::uint32_t>(topology.non_manifold_edges);
+  stats.topology_inconsistent_winding_edges =
+      static_cast<std::uint32_t>(topology.inconsistent_winding_edges);
+}
+
+SurfaceNetCell caveSurfaceCell(const aster::SurfaceVertex &vertex) {
+  return {.active = true, .position = vertex.position, .normal = vertex.normal};
+}
+
+std::array<SurfaceNetCell, 4> caveSurfaceCorners(const aster::SurfaceFace &face) {
+  return {caveSurfaceCell(face.corners[0]), caveSurfaceCell(face.corners[1]),
+          caveSurfaceCell(face.corners[2]), caveSurfaceCell(face.corners[3])};
+}
+
+float surfaceExposureFor(const aster::VoxelMaterialProfile &profile, const float strength) {
+  const float denominator = std::max(1.0f - profile.surface_exposure_threshold, 0.001f);
+  return aster::clamp((strength - profile.surface_exposure_threshold) / denominator, 0.0f, 1.0f);
+}
+
+bool hasVisibleSurfaceExposure(const aster::VoxelMaterialProfile &profile, const float strength) {
+  return profile.surface_relief > 0.0001f && surfaceExposureFor(profile, strength) > 0.0f;
 }
 
 SurfaceNetCell offsetSurfaceCell(SurfaceNetCell cell, const aster::Vec3 offset) {
@@ -679,16 +710,13 @@ SurfaceNetCell lerpSurfaceCell(const SurfaceNetCell &a, const SurfaceNetCell &b,
   return cell;
 }
 
-void appendMaterialInterfaceQuad(aster::CpuMesh &collision_mesh, aster::CpuMesh &rock_mesh,
+void appendMaterialInterfaceQuad(aster::CpuMesh &rock_mesh,
                                  aster::CpuMesh &material_mesh, const SurfaceNetCell &a,
                                  const SurfaceNetCell &b, const SurfaceNetCell &c,
                                  const SurfaceNetCell &d, const aster::Vec3 preferred_normal,
                                  const aster::VoxelMaterialProfile &profile, const float strength) {
-  const float denominator = std::max(1.0f - profile.surface_exposure_threshold, 0.001f);
-  const float exposure =
-      aster::clamp((strength - profile.surface_exposure_threshold) / denominator, 0.0f, 1.0f);
+  const float exposure = surfaceExposureFor(profile, strength);
   if (exposure <= 0.0f || profile.surface_relief <= 0.0001f) {
-    appendSurfaceQuad(collision_mesh, a, b, c, d, preferred_normal);
     appendSurfaceQuad(rock_mesh, a, b, c, d, preferred_normal);
     return;
   }
@@ -729,8 +757,6 @@ void appendMaterialInterfaceQuad(aster::CpuMesh &collision_mesh, aster::CpuMesh 
     appendSurfaceTriangle(mesh, i3, i0, center, preferred_normal);
   };
 
-  append_rock_ring(collision_mesh);
-  append_ore_lens(collision_mesh);
   append_rock_ring(rock_mesh);
   append_ore_lens(material_mesh);
 }
@@ -1089,10 +1115,14 @@ sampleSurfaceVeinMaterial(const aster::VoxelCaveSpec &spec, const aster::Vec3 su
       continue;
     }
     const aster::VoxelMaterialProfile *profile = profileForMaterial(profiles, plug_sample.material);
-    if (profile != nullptr && plug_sample.strength >= sample.strength) {
+    const float depth_contact =
+        1.0f - aster::clamp(depth / std::max(plug_depth, 0.001f), 0.0f, 1.0f);
+    const float surface_strength = plug_sample.strength * depth_contact;
+    if (profile != nullptr && hasVisibleSurfaceExposure(*profile, surface_strength) &&
+        surface_strength >= sample.strength) {
       sample.profile = profile;
       sample.material = plug_sample.material;
-      sample.strength = plug_sample.strength;
+      sample.strength = surface_strength;
     }
   }
   for (const aster::VoxelMaterialProfile &profile : profiles) {
@@ -1109,10 +1139,12 @@ sampleSurfaceVeinMaterial(const aster::VoxelCaveSpec &spec, const aster::Vec3 su
     for (int index = 0; index <= sample_count; ++index) {
       const float depth =
           max_depth * (static_cast<float>(index) / static_cast<float>(sample_count));
+      const float depth_contact =
+          1.0f - aster::clamp(depth / std::max(max_depth, 0.001f), 0.0f, 1.0f);
       const float strength =
           veinStrengthAt(surface_point + solid_direction * depth, spec.origin, profile) *
-          progress_weight;
-      if (strength > sample.strength) {
+          progress_weight * depth_contact;
+      if (hasVisibleSurfaceExposure(profile, strength) && strength > sample.strength) {
         sample.profile = &profile;
         sample.material = profile.material;
         sample.strength = strength;
@@ -1551,176 +1583,34 @@ void VoxelCaveState::rebuildCoarseProxy(ChunkState &chunk) {
       spec_.origin + Vec3{static_cast<float>(chunk.coord.x) * chunk_size,
                           static_cast<float>(chunk.coord.y) * chunk_size,
                           static_cast<float>(chunk.coord.z) * chunk_size};
-  const int cell_grid = n + 1;
-  const int density_grid = n + 2;
-  constexpr int cube_offsets[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
-                                      {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
-  constexpr int cube_edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
-                                     {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
 
-  const auto cellIndex = [cell_grid](const int x, const int y, const int z) {
-    return static_cast<std::size_t>((z * cell_grid + y) * cell_grid + x);
-  };
-  const auto densityIndex = [density_grid](const int x, const int y, const int z) {
-    return static_cast<std::size_t>((z * density_grid + y) * density_grid + x);
-  };
-  const auto gridPoint = [&](const int x, const int y, const int z) {
-    return chunk_origin + Vec3{static_cast<float>(x) * s, static_cast<float>(y) * s,
-                               static_cast<float>(z) * s};
-  };
+  SurfaceExtractionSettings settings = spec_.surface_extraction;
+  settings.emit_collision_mesh = true;
+  settings.emit_channel_meshes = false;
+  settings.capture_faces = false;
+  SurfaceExtractionResult surface = extractImplicitSurface(
+      {.origin = chunk_origin,
+       .cell_size = s,
+       .cell_count = {n, n, n},
+       .settings = settings,
+       .density = [this](const Vec3 point) { return densityAt(point); },
+       .reject_face = [this](const SurfaceFace &face) {
+         return insideAnySurfaceOpening(spec_, face.centroid);
+       }});
 
-  std::vector<float> density_samples(
-      static_cast<std::size_t>(density_grid * density_grid * density_grid), 0.0f);
-  for (int z = 0; z < density_grid; ++z) {
-    for (int y = 0; y < density_grid; ++y) {
-      for (int x = 0; x < density_grid; ++x) {
-        density_samples[densityIndex(x, y, z)] = densityAt(gridPoint(x, y, z));
-      }
-    }
-  }
-  const auto densitySample = [&](const int x, const int y, const int z) {
-    return density_samples[densityIndex(x, y, z)];
-  };
-  const auto edgeCrossesSurface = [&](const int ax, const int ay, const int az, const int bx,
-                                      const int by, const int bz) {
-    const float da = densitySample(ax, ay, az);
-    const float db = densitySample(bx, by, bz);
-    return (da > 0.0f) != (db > 0.0f);
-  };
-
-  std::vector<SurfaceNetCell> cells(static_cast<std::size_t>(cell_grid * cell_grid * cell_grid));
-  for (int z = 0; z <= n; ++z) {
-    for (int y = 0; y <= n; ++y) {
-      for (int x = 0; x <= n; ++x) {
-        std::array<Vec3, 8> p{};
-        std::array<float, 8> d{};
-        for (int i = 0; i < 8; ++i) {
-          p[i] = gridPoint(x + cube_offsets[i][0], y + cube_offsets[i][1],
-                           z + cube_offsets[i][2]);
-          d[i] = densitySample(x + cube_offsets[i][0], y + cube_offsets[i][1],
-                               z + cube_offsets[i][2]);
-        }
-        const bool all_solid =
-            std::all_of(d.begin(), d.end(), [](const float value) { return value > 0.0f; });
-        const bool all_air =
-            std::all_of(d.begin(), d.end(), [](const float value) { return value <= 0.0f; });
-        if (all_solid || all_air) {
-          continue;
-        }
-
-        Vec3 intersection_sum{};
-        int intersection_count = 0;
-        for (const auto &edge : cube_edges) {
-          const int a = edge[0];
-          const int b = edge[1];
-          const bool solid_a = d[a] > 0.0f;
-          const bool solid_b = d[b] > 0.0f;
-          if (solid_a == solid_b) {
-            continue;
-          }
-          const float denom = d[a] - d[b];
-          const float t = std::abs(denom) > kEpsilon ? clamp(d[a] / denom, 0.0f, 1.0f) : 0.5f;
-          intersection_sum = intersection_sum + p[a] + (p[b] - p[a]) * t;
-          ++intersection_count;
-        }
-        if (intersection_count <= 0) {
-          continue;
-        }
-
-        SurfaceNetCell cell;
-        cell.active = true;
-        cell.position = intersection_sum / static_cast<float>(intersection_count);
-        const float e = s * 0.35f;
-        Vec3 normal{densityAt(cell.position - Vec3{e, 0.0f, 0.0f}) -
-                        densityAt(cell.position + Vec3{e, 0.0f, 0.0f}),
-                    densityAt(cell.position - Vec3{0.0f, e, 0.0f}) -
-                        densityAt(cell.position + Vec3{0.0f, e, 0.0f}),
-                    densityAt(cell.position - Vec3{0.0f, 0.0f, e}) -
-                        densityAt(cell.position + Vec3{0.0f, 0.0f, e})};
-        normal = normalize(normal);
-        cell.normal = length(normal) > 0.0001f ? normal : Vec3{0.0f, 1.0f, 0.0f};
-        cells[cellIndex(x, y, z)] = cell;
-        ++chunk.surface_stats.active_cells;
-      }
-    }
-  }
-
-  CpuMesh proxy_mesh;
-  const auto activeCell = [&](const int x, const int y, const int z) -> const SurfaceNetCell * {
-    if (x < 0 || y < 0 || z < 0 || x > n || y > n || z > n) {
-      return nullptr;
-    }
-    const SurfaceNetCell &cell = cells[cellIndex(x, y, z)];
-    return cell.active ? &cell : nullptr;
-  };
-  const auto appendFace = [&](const SurfaceNetCell *a, const SurfaceNetCell *b,
-                              const SurfaceNetCell *c, const SurfaceNetCell *d) {
-    if (a == nullptr || b == nullptr || c == nullptr || d == nullptr) {
-      return;
-    }
-    Vec3 preferred = normalize(a->normal + b->normal + c->normal + d->normal);
-    if (length(preferred) <= 0.0001f) {
-      preferred = {0.0f, 1.0f, 0.0f};
-    }
-    const Vec3 centroid = (a->position + b->position + c->position + d->position) * 0.25f;
-    if (insideAnySurfaceOpening(spec_, centroid)) {
-      return;
-    }
-    appendSurfaceQuad(proxy_mesh, *a, *b, *c, *d, preferred);
-  };
-
-  for (int z = 1; z <= n; ++z) {
-    for (int y = 1; y <= n; ++y) {
-      for (int x = 0; x < n; ++x) {
-        if (edgeCrossesSurface(x, y, z, x + 1, y, z)) {
-          appendFace(activeCell(x, y - 1, z - 1), activeCell(x, y, z - 1), activeCell(x, y, z),
-                     activeCell(x, y - 1, z));
-        }
-      }
-    }
-  }
-  for (int z = 1; z <= n; ++z) {
-    for (int y = 0; y < n; ++y) {
-      for (int x = 1; x <= n; ++x) {
-        if (edgeCrossesSurface(x, y, z, x, y + 1, z)) {
-          appendFace(activeCell(x - 1, y, z - 1), activeCell(x - 1, y, z), activeCell(x, y, z),
-                     activeCell(x, y, z - 1));
-        }
-      }
-    }
-  }
-  for (int z = 0; z < n; ++z) {
-    for (int y = 1; y <= n; ++y) {
-      for (int x = 1; x <= n; ++x) {
-        if (edgeCrossesSurface(x, y, z, x, y, z + 1)) {
-          appendFace(activeCell(x - 1, y - 1, z), activeCell(x, y - 1, z), activeCell(x, y, z),
-                     activeCell(x - 1, y, z));
-        }
-      }
-    }
-  }
+  CpuMesh proxy_mesh = std::move(surface.collision_mesh);
 
   if (proxy_mesh.vertices.empty() || proxy_mesh.indices.empty()) {
     return;
   }
 
+  chunk.surface_stats.active_cells = surface.stats.active_cells;
   chunk.surface_stats.surface_vertices = static_cast<std::uint32_t>(proxy_mesh.vertices.size());
   chunk.surface_stats.surface_triangles =
       static_cast<std::uint32_t>(proxy_mesh.indices.size() / 3u);
-  chunk.surface_stats.bounds_min = proxy_mesh.vertices.front().position;
-  chunk.surface_stats.bounds_max = proxy_mesh.vertices.front().position;
-  for (const Vertex &vertex : proxy_mesh.vertices) {
-    chunk.surface_stats.bounds_min.x = std::min(chunk.surface_stats.bounds_min.x, vertex.position.x);
-    chunk.surface_stats.bounds_min.y = std::min(chunk.surface_stats.bounds_min.y, vertex.position.y);
-    chunk.surface_stats.bounds_min.z = std::min(chunk.surface_stats.bounds_min.z, vertex.position.z);
-    chunk.surface_stats.bounds_max.x = std::max(chunk.surface_stats.bounds_max.x, vertex.position.x);
-    chunk.surface_stats.bounds_max.y = std::max(chunk.surface_stats.bounds_max.y, vertex.position.y);
-    chunk.surface_stats.bounds_max.z = std::max(chunk.surface_stats.bounds_max.z, vertex.position.z);
-  }
-  chunk.surface_stats.materials.push_back({VoxelCaveMaterial::Rock,
-                                           static_cast<std::uint32_t>(proxy_mesh.vertices.size()),
-                                           static_cast<std::uint32_t>(proxy_mesh.indices.size() /
-                                                                      3u)});
+  applyMeshBoundsToStats(chunk.surface_stats, proxy_mesh);
+  applyTopologyToStats(chunk.surface_stats, proxy_mesh);
+  appendMaterialStats(chunk.surface_stats, VoxelCaveMaterial::Rock, proxy_mesh);
   chunk.surface_stats.material_batches = 1u;
   ++chunk.mesh_generation;
   chunk.coarse_proxy = true;
@@ -2160,132 +2050,50 @@ void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
   ++chunk.mesh_generation;
 
   CpuMesh collision_mesh;
+  SurfaceMeshIndexCache collision_cache;
   std::vector<std::pair<VoxelCaveMaterial, CpuMesh>> render_meshes;
+  std::vector<std::pair<VoxelCaveMaterial, SurfaceMeshIndexCache>> render_caches;
   const int n = spec_.chunk_cells;
   const float s = spec_.cell_size;
   const VoxelCellCoord base{chunk.coord.x * n, chunk.coord.y * n, chunk.coord.z * n};
-  const int cell_grid = n + 1;
-  const int density_grid = n + 2;
-  constexpr int cube_offsets[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
-                                      {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
-  constexpr int cube_edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
-                                     {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+  const Vec3 chunk_origin =
+      spec_.origin + Vec3{static_cast<float>(base.x) * s, static_cast<float>(base.y) * s,
+                          static_cast<float>(base.z) * s};
 
-  const auto cellIndex = [cell_grid](const int x, const int y, const int z) {
-    return static_cast<std::size_t>((z * cell_grid + y) * cell_grid + x);
-  };
-  const auto densityIndex = [density_grid](const int x, const int y, const int z) {
-    return static_cast<std::size_t>((z * density_grid + y) * density_grid + x);
-  };
-  const auto gridPoint = [&](const int x, const int y, const int z) {
-    return spec_.origin + Vec3{static_cast<float>(base.x + x) * s,
-                               static_cast<float>(base.y + y) * s,
-                               static_cast<float>(base.z + z) * s};
-  };
-  std::vector<float> density_samples(
-      static_cast<std::size_t>(density_grid * density_grid * density_grid), 0.0f);
+  SurfaceExtractionResult surface;
   {
-    ASTER_PROFILE_SCOPE("VoxelCaveState::chunkDensity");
-    for (int z = 0; z < density_grid; ++z) {
-      for (int y = 0; y < density_grid; ++y) {
-        for (int x = 0; x < density_grid; ++x) {
-          density_samples[densityIndex(x, y, z)] = densityAt(gridPoint(x, y, z));
-        }
-      }
-    }
+    ASTER_PROFILE_SCOPE("VoxelCaveState::chunkSurfaceExtract");
+    SurfaceExtractionSettings settings = spec_.surface_extraction;
+    settings.emit_collision_mesh = false;
+    settings.emit_channel_meshes = false;
+    settings.capture_faces = true;
+    surface = extractImplicitSurface(
+        {.origin = chunk_origin,
+         .cell_size = s,
+         .cell_count = {n, n, n},
+         .settings = settings,
+         .density = [this](const Vec3 point) { return densityAt(point); },
+         .reject_face = [this](const SurfaceFace &face) {
+           return insideAnySurfaceOpening(spec_, face.centroid);
+         }});
   }
-  const auto densitySample = [&](const int x, const int y, const int z) {
-    return density_samples[densityIndex(x, y, z)];
-  };
-  const auto edgeCrossesSurface = [&](const int ax, const int ay, const int az, const int bx,
-                                      const int by, const int bz) {
-    const float da = densitySample(ax, ay, az);
-    const float db = densitySample(bx, by, bz);
-    return (da > 0.0f) != (db > 0.0f);
-  };
 
   ASTER_PROFILE_SCOPE("VoxelCaveState::chunkMeshBuild");
-  std::vector<SurfaceNetCell> cells(static_cast<std::size_t>(cell_grid * cell_grid * cell_grid));
-  for (int z = 0; z <= n; ++z) {
-    for (int y = 0; y <= n; ++y) {
-      for (int x = 0; x <= n; ++x) {
-        std::array<Vec3, 8> p{};
-        std::array<float, 8> d{};
-        for (int i = 0; i < 8; ++i) {
-          const Vec3 cell{static_cast<float>(base.x + x + cube_offsets[i][0]) * s,
-                          static_cast<float>(base.y + y + cube_offsets[i][1]) * s,
-                          static_cast<float>(base.z + z + cube_offsets[i][2]) * s};
-          p[i] = spec_.origin + cell;
-          d[i] = densitySample(x + cube_offsets[i][0], y + cube_offsets[i][1],
-                               z + cube_offsets[i][2]);
-        }
-        const bool all_solid =
-            std::all_of(d.begin(), d.end(), [](const float value) { return value > 0.0f; });
-        const bool all_air =
-            std::all_of(d.begin(), d.end(), [](const float value) { return value <= 0.0f; });
-        if (all_solid || all_air) {
-          continue;
-        }
-
-        Vec3 intersection_sum{};
-        int intersection_count = 0;
-        for (const auto &edge : cube_edges) {
-          const int a = edge[0];
-          const int b = edge[1];
-          const bool solid_a = d[a] > 0.0f;
-          const bool solid_b = d[b] > 0.0f;
-          if (solid_a == solid_b) {
-            continue;
-          }
-          const float denom = d[a] - d[b];
-          const float t = std::abs(denom) > kEpsilon ? clamp(d[a] / denom, 0.0f, 1.0f) : 0.5f;
-          intersection_sum = intersection_sum + p[a] + (p[b] - p[a]) * t;
-          ++intersection_count;
-        }
-        if (intersection_count <= 0) {
-          continue;
-        }
-
-        SurfaceNetCell cell;
-        cell.active = true;
-        cell.position = intersection_sum / static_cast<float>(intersection_count);
-        const float e = s * 0.35f;
-        Vec3 normal{densityAt(cell.position - Vec3{e, 0.0f, 0.0f}) -
-                        densityAt(cell.position + Vec3{e, 0.0f, 0.0f}),
-                    densityAt(cell.position - Vec3{0.0f, e, 0.0f}) -
-                        densityAt(cell.position + Vec3{0.0f, e, 0.0f}),
-                    densityAt(cell.position - Vec3{0.0f, 0.0f, e}) -
-                        densityAt(cell.position + Vec3{0.0f, 0.0f, e})};
-        normal = normalize(normal);
-        cell.normal = length(normal) > 0.0001f ? normal : Vec3{0.0f, 1.0f, 0.0f};
-        cells[cellIndex(x, y, z)] = cell;
-        ++chunk.surface_stats.active_cells;
-      }
+  chunk.surface_stats.active_cells = surface.stats.active_cells;
+  for (const SurfaceFace &face : surface.faces) {
+    appendSurfaceFace(collision_mesh, face, spec_.surface_extraction.uv_scale, &collision_cache);
+    if (face.corner_count == 3) {
+      appendSurfaceFace(meshForMaterial(render_meshes, VoxelCaveMaterial::Rock), face,
+                        spec_.surface_extraction.uv_scale,
+                        &cacheForMaterial(render_caches, VoxelCaveMaterial::Rock));
+      continue;
     }
-  }
-
-  const auto activeCell = [&](const int x, const int y, const int z) -> const SurfaceNetCell * {
-    if (x < 0 || y < 0 || z < 0 || x > n || y > n || z > n) {
-      return nullptr;
+    if (face.corner_count != 4) {
+      continue;
     }
-    const SurfaceNetCell &cell = cells[cellIndex(x, y, z)];
-    return cell.active ? &cell : nullptr;
-  };
-  const auto appendFace = [&](const SurfaceNetCell *a, const SurfaceNetCell *b,
-                              const SurfaceNetCell *c, const SurfaceNetCell *d) {
-    if (a == nullptr || b == nullptr || c == nullptr || d == nullptr) {
-      return;
-    }
-    Vec3 preferred = normalize(a->normal + b->normal + c->normal + d->normal);
-    if (length(preferred) <= 0.0001f) {
-      preferred = {0.0f, 1.0f, 0.0f};
-    }
-    const Vec3 centroid = (a->position + b->position + c->position + d->position) * 0.25f;
-    if (insideAnySurfaceOpening(spec_, centroid)) {
-      return;
-    }
-    const VeinMaterialSample material_sample =
-        sampleSurfaceVeinMaterial(spec_, centroid, preferred * -1.0f, s, spec_.material_profiles);
+    const std::array<SurfaceNetCell, 4> corners = caveSurfaceCorners(face);
+    const VeinMaterialSample material_sample = sampleSurfaceVeinMaterial(
+        spec_, face.centroid, face.preferred_normal * -1.0f, s, spec_.material_profiles);
     const VoxelCaveMaterial material =
         material_sample.profile != nullptr ? material_sample.material : VoxelCaveMaterial::Rock;
     if (material_sample.profile != nullptr && material != VoxelCaveMaterial::Rock) {
@@ -2293,74 +2101,22 @@ void VoxelCaveState::rebuildChunk(ChunkState &chunk) {
       meshForMaterial(render_meshes, material);
       CpuMesh &rock_mesh = meshForMaterial(render_meshes, VoxelCaveMaterial::Rock);
       CpuMesh &material_mesh = meshForMaterial(render_meshes, material);
-      appendMaterialInterfaceQuad(collision_mesh, rock_mesh, material_mesh, *a, *b, *c, *d,
-                                  preferred, *material_sample.profile,
+      appendMaterialInterfaceQuad(rock_mesh, material_mesh, corners[0], corners[1], corners[2],
+                                  corners[3], face.preferred_normal, *material_sample.profile,
                                   clamp(material_sample.strength, 0.0f, 1.0f));
-      return;
+      continue;
     }
-    appendSurfaceQuad(collision_mesh, *a, *b, *c, *d, preferred);
-    appendSurfaceQuad(meshForMaterial(render_meshes, material), *a, *b, *c, *d, preferred);
-  };
-
-  for (int z = 1; z <= n; ++z) {
-    for (int y = 1; y <= n; ++y) {
-      for (int x = 0; x < n; ++x) {
-        if (edgeCrossesSurface(x, y, z, x + 1, y, z)) {
-          appendFace(activeCell(x, y - 1, z - 1), activeCell(x, y, z - 1), activeCell(x, y, z),
-                     activeCell(x, y - 1, z));
-        }
-      }
-    }
-  }
-  for (int z = 1; z <= n; ++z) {
-    for (int y = 0; y < n; ++y) {
-      for (int x = 1; x <= n; ++x) {
-        if (edgeCrossesSurface(x, y, z, x, y + 1, z)) {
-          appendFace(activeCell(x - 1, y, z - 1), activeCell(x - 1, y, z), activeCell(x, y, z),
-                     activeCell(x, y, z - 1));
-        }
-      }
-    }
-  }
-  for (int z = 0; z < n; ++z) {
-    for (int y = 1; y <= n; ++y) {
-      for (int x = 1; x <= n; ++x) {
-        if (edgeCrossesSurface(x, y, z, x, y, z + 1)) {
-          appendFace(activeCell(x - 1, y - 1, z), activeCell(x, y - 1, z), activeCell(x, y, z),
-                     activeCell(x - 1, y, z));
-        }
-      }
-    }
+    appendSurfaceFace(meshForMaterial(render_meshes, material), face, spec_.surface_extraction.uv_scale,
+                      &cacheForMaterial(render_caches, material));
   }
 
   chunk.surface_stats.surface_vertices = static_cast<std::uint32_t>(collision_mesh.vertices.size());
   chunk.surface_stats.surface_triangles =
       static_cast<std::uint32_t>(collision_mesh.indices.size() / 3u);
-  if (!collision_mesh.vertices.empty()) {
-    chunk.surface_stats.bounds_min = collision_mesh.vertices.front().position;
-    chunk.surface_stats.bounds_max = collision_mesh.vertices.front().position;
-    for (const Vertex &vertex : collision_mesh.vertices) {
-      chunk.surface_stats.bounds_min.x =
-          std::min(chunk.surface_stats.bounds_min.x, vertex.position.x);
-      chunk.surface_stats.bounds_min.y =
-          std::min(chunk.surface_stats.bounds_min.y, vertex.position.y);
-      chunk.surface_stats.bounds_min.z =
-          std::min(chunk.surface_stats.bounds_min.z, vertex.position.z);
-      chunk.surface_stats.bounds_max.x =
-          std::max(chunk.surface_stats.bounds_max.x, vertex.position.x);
-      chunk.surface_stats.bounds_max.y =
-          std::max(chunk.surface_stats.bounds_max.y, vertex.position.y);
-      chunk.surface_stats.bounds_max.z =
-          std::max(chunk.surface_stats.bounds_max.z, vertex.position.z);
-    }
-  }
+  applyMeshBoundsToStats(chunk.surface_stats, collision_mesh);
+  applyTopologyToStats(chunk.surface_stats, collision_mesh);
   for (const auto &entry : render_meshes) {
-    if (entry.second.vertices.empty() || entry.second.indices.empty()) {
-      continue;
-    }
-    chunk.surface_stats.materials.push_back(
-        {entry.first, static_cast<std::uint32_t>(entry.second.vertices.size()),
-         static_cast<std::uint32_t>(entry.second.indices.size() / 3u)});
+    appendMaterialStats(chunk.surface_stats, entry.first, entry.second);
   }
   chunk.surface_stats.material_batches =
       static_cast<std::uint32_t>(chunk.surface_stats.materials.size());

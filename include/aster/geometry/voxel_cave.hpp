@@ -1,6 +1,7 @@
 #pragma once
 
 #include "aster/core/work_budget.hpp"
+#include "aster/geometry/implicit_surface.hpp"
 #include "aster/math/vec.hpp"
 #include "aster/render/mesh.hpp"
 
@@ -314,6 +315,7 @@ struct VoxelCaveSpec {
   int path_prefetch_radius = 0;
   float path_prefetch_spacing_chunks = 0.85f;
   float chunk_transition_seconds = 0.28f;
+  SurfaceExtractionSettings surface_extraction{};
   VoxelCaveStructuralSurfaceMode structural_surface_mode =
       VoxelCaveStructuralSurfaceMode::RenderAndCollide;
   Vec3 authored_fixture_light_color{1.0f, 0.16f, 0.08f};
@@ -399,6 +401,11 @@ struct VoxelChunkSurfaceStats {
   std::uint32_t surface_vertices = 0u;
   std::uint32_t surface_triangles = 0u;
   std::uint32_t material_batches = 0u;
+  std::uint32_t topology_invalid_indices = 0u;
+  std::uint32_t topology_degenerate_triangles = 0u;
+  std::uint32_t topology_open_edges = 0u;
+  std::uint32_t topology_non_manifold_edges = 0u;
+  std::uint32_t topology_inconsistent_winding_edges = 0u;
   Vec3 bounds_min{};
   Vec3 bounds_max{};
   std::vector<VoxelMaterialSurfaceStats> materials;
