@@ -105,20 +105,21 @@ struct RuntimeDiagnostics {
   double rust_plan_seconds = 0.0;
 };
 
-struct RuntimeFramePlan {
+struct RuntimeFramePlanBuffers {
   RuntimeDrawInstance *instances = nullptr;
+  std::size_t instance_capacity = 0;
   std::size_t instance_count = 0;
   RuntimeDrawGroup *groups = nullptr;
+  std::size_t group_capacity = 0;
   std::size_t group_count = 0;
-  RuntimeDiagnostics diagnostics{};
+  RuntimeDiagnostics *diagnostics = nullptr;
 };
 
 extern "C" std::uint32_t
-aster_runtime_build_frame_plan_v2(const RuntimeRenderObject *objects, std::size_t object_count,
+aster_runtime_build_frame_plan_v3(const RuntimeRenderObject *objects, std::size_t object_count,
                                   const RuntimeCamera *camera,
                                   const RuntimePlanOptions *options,
-                                  RuntimeFramePlan *out_plan);
-extern "C" void aster_runtime_free_frame_plan_v2(RuntimeFramePlan *plan);
+                                  RuntimeFramePlanBuffers *buffers);
 
 RuntimeVec3 runtimeVec(const Vec3 value) {
   return {value.x, value.y, value.z};
@@ -246,24 +247,6 @@ std::uint64_t dynamicMeshValue(const DynamicMeshResourceKey key) {
 FrameRenderPass passFromValue(const std::uint32_t value) {
   return value == 1u ? FrameRenderPass::Transparent : FrameRenderPass::Opaque;
 }
-
-class RuntimePlanHandle {
-public:
-  explicit RuntimePlanHandle(RuntimeFramePlan plan) : plan_(plan) {}
-  ~RuntimePlanHandle() {
-    aster_runtime_free_frame_plan_v2(&plan_);
-  }
-
-  RuntimePlanHandle(const RuntimePlanHandle &) = delete;
-  RuntimePlanHandle &operator=(const RuntimePlanHandle &) = delete;
-
-  [[nodiscard]] const RuntimeFramePlan &get() const {
-    return plan_;
-  }
-
-private:
-  RuntimeFramePlan plan_{};
-};
 
 } // namespace
 
@@ -439,32 +422,36 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
                                      .aspect_ratio = aspect,
                                      .near_plane = camera.near_plane,
                                      .far_plane = camera.far_plane};
-  RuntimeFramePlan raw_plan;
-  const std::uint32_t plan_ok = aster_runtime_build_frame_plan_v2(
+  FrameRenderPlan plan;
+  std::vector<RuntimeDrawInstance> runtime_instances(runtime_objects.size());
+  std::vector<RuntimeDrawGroup> runtime_groups(runtime_objects.size());
+  RuntimeDiagnostics diagnostics;
+  RuntimeFramePlanBuffers buffers{
+      .instances = runtime_instances.empty() ? nullptr : runtime_instances.data(),
+      .instance_capacity = runtime_instances.size(),
+      .instance_count = 0,
+      .groups = runtime_groups.empty() ? nullptr : runtime_groups.data(),
+      .group_capacity = runtime_groups.size(),
+      .group_count = 0,
+      .diagnostics = &diagnostics};
+  const std::uint32_t plan_ok = aster_runtime_build_frame_plan_v3(
       runtime_objects.empty() ? nullptr : runtime_objects.data(), runtime_objects.size(),
-      &runtime_camera, &options, &raw_plan);
+      &runtime_camera, &options, &buffers);
   if (plan_ok == 0u) {
     throw std::runtime_error("Rust render planner failed.");
   }
-  RuntimePlanHandle handle(raw_plan);
-  const RuntimeFramePlan &runtime_plan = handle.get();
-  if ((runtime_plan.instance_count > 0 && runtime_plan.instances == nullptr) ||
-      (runtime_plan.group_count > 0 && runtime_plan.groups == nullptr)) {
-    throw std::runtime_error("Rust render planner returned invalid buffers.");
-  }
 
-  FrameRenderPlan plan;
-  plan.instances.reserve(runtime_plan.instance_count);
-  for (std::size_t i = 0; i < runtime_plan.instance_count; ++i) {
-    const RuntimeDrawInstance &instance = runtime_plan.instances[i];
+  plan.instances.reserve(buffers.instance_count);
+  for (std::size_t i = 0; i < buffers.instance_count; ++i) {
+    const RuntimeDrawInstance &instance = runtime_instances[i];
     plan.instances.push_back({.object_index = instance.object_index,
                               .opacity = instance.opacity,
                               .sort_distance_sq = instance.sort_distance_sq,
                               .flags = instance.flags});
   }
-  plan.groups.reserve(runtime_plan.group_count);
-  for (std::size_t i = 0; i < runtime_plan.group_count; ++i) {
-    const RuntimeDrawGroup &group = runtime_plan.groups[i];
+  plan.groups.reserve(buffers.group_count);
+  for (std::size_t i = 0; i < buffers.group_count; ++i) {
+    const RuntimeDrawGroup &group = runtime_groups[i];
     plan.groups.push_back({.mesh = {group.mesh_key},
                            .material = {group.material_key},
                            .render_queue = materialQueueFromValue(group.render_queue),
@@ -472,18 +459,17 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
                            .first_instance = group.first_instance,
                            .instance_count = group.instance_count});
   }
-  plan.diagnostics = {.object_count = runtime_plan.diagnostics.object_count,
-                      .visible_objects = runtime_plan.diagnostics.visible_objects,
-                      .culled_objects = runtime_plan.diagnostics.culled_objects,
-                      .opaque_groups = runtime_plan.diagnostics.opaque_groups,
-                      .transparent_groups = runtime_plan.diagnostics.transparent_groups,
-                      .instance_groups = runtime_plan.diagnostics.instance_groups,
-                      .planned_instances = runtime_plan.diagnostics.planned_instances,
-                      .lod_culled_objects = runtime_plan.diagnostics.lod_culled_objects,
-                      .visibility_hint_objects =
-                          runtime_plan.diagnostics.visibility_hint_objects,
-                      .dynamic_mesh_objects = runtime_plan.diagnostics.dynamic_mesh_objects,
-                      .rust_plan_seconds = runtime_plan.diagnostics.rust_plan_seconds};
+  plan.diagnostics = {.object_count = diagnostics.object_count,
+                      .visible_objects = diagnostics.visible_objects,
+                      .culled_objects = diagnostics.culled_objects,
+                      .opaque_groups = diagnostics.opaque_groups,
+                      .transparent_groups = diagnostics.transparent_groups,
+                      .instance_groups = diagnostics.instance_groups,
+                      .planned_instances = diagnostics.planned_instances,
+                      .lod_culled_objects = diagnostics.lod_culled_objects,
+                      .visibility_hint_objects = diagnostics.visibility_hint_objects,
+                      .dynamic_mesh_objects = diagnostics.dynamic_mesh_objects,
+                      .rust_plan_seconds = diagnostics.rust_plan_seconds};
   return plan;
 }
 

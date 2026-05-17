@@ -129,6 +129,17 @@ impl Default for AsterRuntimeFramePlan {
     }
 }
 
+#[repr(C)]
+pub struct AsterRuntimeFramePlanBuffers {
+    pub instances: *mut AsterRuntimeDrawInstance,
+    pub instance_capacity: usize,
+    pub instance_count: usize,
+    pub groups: *mut AsterRuntimeDrawGroup,
+    pub group_capacity: usize,
+    pub group_count: usize,
+    pub diagnostics: *mut AsterRuntimeRenderDiagnostics,
+}
+
 #[derive(Clone, Copy)]
 struct PlannedObject {
     object: AsterRuntimeRenderObject,
@@ -573,6 +584,38 @@ fn write_frame_plan(
     1
 }
 
+fn diagnostics_from_output(
+    output: &PlannerOutput,
+    started: Instant,
+) -> AsterRuntimeRenderDiagnostics {
+    AsterRuntimeRenderDiagnostics {
+        object_count: output.summary.object_count,
+        visible_objects: output.summary.visible_objects,
+        culled_objects: output.summary.culled_objects,
+        opaque_groups: output.summary.opaque_groups,
+        transparent_groups: output.summary.transparent_groups,
+        instance_groups: output.summary.instance_groups,
+        planned_instances: output.summary.planned_instances,
+        lod_culled_objects: output.summary.lod_culled_objects,
+        visibility_hint_objects: output.summary.visibility_hint_objects,
+        dynamic_mesh_objects: output.summary.dynamic_mesh_objects,
+        rust_plan_seconds: started.elapsed().as_secs_f64(),
+    }
+}
+
+fn object_slice_from_abi<'a>(
+    objects: *const AsterRuntimeRenderObject,
+    object_count: usize,
+) -> Option<&'a [AsterRuntimeRenderObject]> {
+    if objects.is_null() && object_count > 0 {
+        None
+    } else if object_count == 0 {
+        Some(&[])
+    } else {
+        Some(unsafe { slice::from_raw_parts(objects, object_count) })
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn aster_runtime_build_frame_plan(
     objects: *const AsterRuntimeRenderObject,
@@ -607,6 +650,62 @@ pub extern "C" fn aster_runtime_build_frame_plan_v2(
         unsafe { &*options },
         out_plan,
     )
+}
+
+#[no_mangle]
+pub extern "C" fn aster_runtime_build_frame_plan_v3(
+    objects: *const AsterRuntimeRenderObject,
+    object_count: usize,
+    camera: *const AsterRuntimeCamera,
+    options: *const AsterRuntimeRenderPlanOptions,
+    buffers: *mut AsterRuntimeFramePlanBuffers,
+) -> u32 {
+    let started = Instant::now();
+    if camera.is_null() || options.is_null() || buffers.is_null() {
+        return 0;
+    }
+    let Some(object_slice) = object_slice_from_abi(objects, object_count) else {
+        return 0;
+    };
+
+    let output = build_frame_plan(object_slice, unsafe { *camera }, unsafe { *options });
+    let buffers = unsafe { &mut *buffers };
+    buffers.instance_count = output.instances.len();
+    buffers.group_count = output.groups.len();
+
+    if !buffers.diagnostics.is_null() {
+        unsafe {
+            *buffers.diagnostics = diagnostics_from_output(&output, started);
+        }
+    }
+
+    if output.instances.len() > buffers.instance_capacity
+        || output.groups.len() > buffers.group_capacity
+        || (output.instances.len() > 0 && buffers.instances.is_null())
+        || (output.groups.len() > 0 && buffers.groups.is_null())
+    {
+        return 0;
+    }
+
+    if !output.instances.is_empty() {
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                output.instances.as_ptr(),
+                buffers.instances,
+                output.instances.len(),
+            );
+        }
+    }
+    if !output.groups.is_empty() {
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                output.groups.as_ptr(),
+                buffers.groups,
+                output.groups.len(),
+            );
+        }
+    }
+    1
 }
 
 #[no_mangle]
