@@ -599,6 +599,36 @@ public:
     return Result<AsterFrameStats>(std::move(stats));
   }
 
+  [[nodiscard]] Result<AsterFrameForensicsCounts> frameForensicsCounts() const noexcept {
+    AsterFrameForensicsCounts counts{sizeof(AsterFrameForensicsCounts),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_frame_forensics_counts(handle_, &counts));
+    if (!status) {
+      return Result<AsterFrameForensicsCounts>(status);
+    }
+    return Result<AsterFrameForensicsCounts>(std::move(counts));
+  }
+
+  [[nodiscard]] Result<AsterFramePassStats> framePassStats(const size_t index) const noexcept {
+    AsterFramePassStats stats{sizeof(AsterFramePassStats), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_frame_pass_stats(handle_, index, &stats));
+    if (!status) {
+      return Result<AsterFramePassStats>(status);
+    }
+    return Result<AsterFramePassStats>(std::move(stats));
+  }
+
+  [[nodiscard]] Result<AsterFrameDiagnosticEvent> frameDiagnostic(
+      const size_t index) const noexcept {
+    AsterFrameDiagnosticEvent event{sizeof(AsterFrameDiagnosticEvent),
+                                    ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_frame_diagnostic(handle_, index, &event));
+    if (!status) {
+      return Result<AsterFrameDiagnosticEvent>(status);
+    }
+    return Result<AsterFrameDiagnosticEvent>(std::move(event));
+  }
+
   [[nodiscard]] AsterRendererHandle get() const noexcept {
     return handle_;
   }

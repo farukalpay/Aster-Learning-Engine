@@ -193,7 +193,7 @@ if(APPLE)
     "-framework QuartzCore"
   )
 elseif(WIN32)
-  target_link_libraries(aster_engine_internal PUBLIC User32 Gdi32 Ws2_32 D3D12 DXGI)
+  target_link_libraries(aster_engine_internal PUBLIC User32 Gdi32 Ws2_32 D3D12 DXGI D3DCompiler)
 endif()
 
 target_compile_definitions(aster_engine_internal PUBLIC
@@ -354,6 +354,19 @@ if(ASTER_BUILD_TESTS)
   )
     add_test(NAME aster_render_scene_tests.${render_scene_case}
              COMMAND aster_render_scene_tests ${render_scene_case})
+  endforeach()
+
+  add_executable(aster_render_backend_conformance_tests
+    tests/render_backend_conformance_tests.cpp)
+  target_link_libraries(aster_render_backend_conformance_tests PRIVATE aster_engine_internal)
+  target_include_directories(aster_render_backend_conformance_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/tests)
+  foreach(render_backend_conformance_case
+      software_deterministic_hash_and_forensics
+      native_backend_conforms_when_available
+  )
+    add_test(NAME aster_render_backend_conformance_tests.${render_backend_conformance_case}
+             COMMAND aster_render_backend_conformance_tests ${render_backend_conformance_case})
   endforeach()
 
   add_executable(aster_material_shader_system_tests tests/material_shader_system_tests.cpp)

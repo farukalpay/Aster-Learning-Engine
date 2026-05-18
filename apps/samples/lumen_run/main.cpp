@@ -910,6 +910,10 @@ int main(int argc, char **argv) {
     double visibility_hint_object_sum = 0.0;
     double dynamic_mesh_object_sum = 0.0;
     double dynamic_mesh_cache_entry_sum = 0.0;
+    double pipeline_switch_sum = 0.0;
+    double material_permutation_sum = 0.0;
+    double material_cache_hit_sum = 0.0;
+    double material_cache_miss_sum = 0.0;
     double rust_plan_seconds_sum = 0.0;
     double render_encode_seconds_sum = 0.0;
     aster::FixedTimestep simulation_clock(
@@ -1279,6 +1283,10 @@ int main(int argc, char **argv) {
         dynamic_mesh_object_sum += static_cast<double>(render_stats.dynamic_mesh_objects);
         dynamic_mesh_cache_entry_sum +=
             static_cast<double>(render_stats.dynamic_mesh_cache_entries);
+        pipeline_switch_sum += static_cast<double>(render_stats.pipeline_switches);
+        material_permutation_sum += static_cast<double>(render_stats.material_permutations);
+        material_cache_hit_sum += static_cast<double>(render_stats.material_variant_cache_hits);
+        material_cache_miss_sum += static_cast<double>(render_stats.material_variant_cache_misses);
         rust_plan_seconds_sum += render_stats.rust_plan_seconds;
         render_encode_seconds_sum += render_stats.render_encode_seconds;
       }
@@ -1384,6 +1392,10 @@ int main(int argc, char **argv) {
                   << " visibility_hints_mean=" << visibility_hint_object_sum / samples
                   << " dynamic_meshes_mean=" << dynamic_mesh_object_sum / samples
                   << " dynamic_mesh_cache_mean=" << dynamic_mesh_cache_entry_sum / samples
+                  << " pipeline_switches_mean=" << pipeline_switch_sum / samples
+                  << " material_permutations_mean=" << material_permutation_sum / samples
+                  << " material_cache_hits_mean=" << material_cache_hit_sum / samples
+                  << " material_cache_misses_mean=" << material_cache_miss_sum / samples
                   << " rust_plan_ms_mean="
                   << secondsToMilliseconds(rust_plan_seconds_sum / samples)
                   << " render_encode_ms_mean="

@@ -39,9 +39,9 @@ The checked-in images are generated from the current build.
 - A macOS native Metal renderer with depth, translucent sorting, procedural
   material shading, contact shadows, fog, tonemapping, frame pacing, and UI
   composition.
-- A renderer ABI 2.0 spine: the public kernel can create windows, renderers,
+- A renderer ABI 2.1 spine: the public kernel can create windows, renderers,
   scenes, meshes, materials, shader artifacts, render pipelines, captures, and
-  frame stats while `RenderDevice` remains the source-level compatibility
+  frame stats/forensics while `RenderDevice` remains the source-level compatibility
   facade over the shared renderer core.
 - A render quality profile contract for production/cinematic material,
   texture, shadow, environment lighting, post-process, fog, reflection probe,
@@ -70,7 +70,7 @@ The checked-in images are generated from the current build.
 
 | Path | Purpose |
 | --- | --- |
-| `include/aster/kernel/` | Stable public engine kernel ABI, renderer ABI 2.0 descriptors, and C++ RAII wrappers |
+| `include/aster/kernel/` | Stable public engine kernel ABI, renderer ABI 2.1 descriptors, diagnostics, and C++ RAII wrappers |
 | `include/aster/game_sdk/` | Public source SDK for project/scene/prefab/component/action authoring |
 | `include/aster/rhi` and `include/aster/framegraph` | Internal graphics-core contracts for resource handles, registry state, pass/resource graph compilation, and validation |
 | `include/aster/*` except `kernel` | Internal engine source headers used by repository targets |

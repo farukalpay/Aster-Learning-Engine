@@ -30,7 +30,8 @@ public:
                             const OrbitCamera &camera, const RendererSettings &settings,
                             const FixedRenderGraph &graph,
                             const PreparedRenderMeshes &meshes, int framebuffer_width,
-                            int framebuffer_height, double frame_seconds) = 0;
+                            int framebuffer_height, double frame_seconds,
+                            FrameForensics *forensics) = 0;
   [[nodiscard]] virtual const char *backendName() const = 0;
   [[nodiscard]] virtual RenderBackendCapabilities capabilities() const = 0;
 };

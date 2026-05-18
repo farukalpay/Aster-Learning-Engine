@@ -40,7 +40,8 @@ public:
                            const aster::RendererSettings &settings,
                            const aster::FixedRenderGraph &graph,
                            const aster::PreparedRenderMeshes &meshes, const int framebuffer_width,
-                           const int framebuffer_height, const double frame_seconds) override {
+                           const int framebuffer_height, const double frame_seconds,
+                           aster::FrameForensics *forensics) override {
     (void)scene;
     (void)plan;
     (void)camera;
@@ -63,6 +64,16 @@ public:
     const auto encode_end = std::chrono::steady_clock::now();
     stats.render_encode_seconds =
         std::chrono::duration<double>(encode_end - encode_start).count();
+    if (forensics != nullptr) {
+      forensics->passes.push_back({.pass = aster::RenderGraphPass::SceneColorDepth,
+                                   .name = "null-clear",
+                                   .encode_seconds = stats.render_encode_seconds});
+      forensics->events.push_back(
+          {.kind = aster::FrameDiagnosticKind::BackendFallback,
+           .severity = aster::FrameDiagnosticSeverity::Warning,
+           .label = "null-renderer",
+           .message = "Null renderer produced a transparent frame without scene drawing."});
+    }
     return stats;
   }
 

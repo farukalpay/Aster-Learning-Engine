@@ -165,6 +165,10 @@ void drawFramePanel(aster::UiCanvas &canvas, const aster::UiRect panel,
   std::snprintf(buffer, sizeof(buffer), "Groups %zu Rust %.3f ms", stats.instance_groups,
                 stats.rust_plan_seconds * 1000.0);
   canvas.text(buffer, {x, y}, kText, 1.45f);
+  y += 22.0f;
+  std::snprintf(buffer, sizeof(buffer), "Pipelines %zu materials %zu", stats.pipeline_switches,
+                stats.material_permutations);
+  canvas.text(buffer, {x, y}, kText, 1.45f);
 }
 
 void drawCameraPanel(aster::UiCanvas &canvas, const aster::UiRect panel,
@@ -305,7 +309,7 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
   if (viewport.x >= 900.0f) {
     const float side_width = 324.0f;
     const float side_x = viewport.x - side_width - kPanelMargin;
-    const UiRect frame_panel{side_x, kPanelMargin, side_width, 184.0f};
+    const UiRect frame_panel{side_x, kPanelMargin, side_width, 206.0f};
     drawFramePanel(canvas_, frame_panel, stats);
     const UiRect camera_panel{side_x, frame_panel.y + frame_panel.height + 14.0f, side_width,
                               198.0f};

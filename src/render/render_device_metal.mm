@@ -923,7 +923,8 @@ public:
                            const aster::RendererSettings &settings,
                            const aster::FixedRenderGraph &graph,
                            const aster::PreparedRenderMeshes &meshes, const int framebuffer_width,
-                           const int framebuffer_height, const double frame_seconds) override {
+                           const int framebuffer_height, const double frame_seconds,
+                           aster::FrameForensics *forensics) override {
     ASTER_PROFILE_SCOPE("MetalNativeRenderBackend::render");
     aster::FrameStats stats;
     stats.frame_seconds = frame_seconds;
@@ -1138,6 +1139,8 @@ public:
 
     (void)aster::executeFixedRenderGraph(
         graph, [&](const aster::RenderGraphPassInvocation &invocation) {
+          const auto pass_start = std::chrono::steady_clock::now();
+          const std::size_t draws_before = stats.draw_calls;
           switch (invocation.semantic) {
           case aster::RenderGraphPass::Opaque:
             for (const aster::FrameRenderDrawGroup &group : plan.groups) {
@@ -1160,6 +1163,17 @@ public:
           case aster::RenderGraphPass::UiComposite:
           case aster::RenderGraphPass::Capture:
             break;
+          }
+          const auto pass_end = std::chrono::steady_clock::now();
+          if (forensics != nullptr) {
+            forensics->passes.push_back(
+                {.pass = invocation.semantic,
+                 .name = invocation.pass == nullptr
+                             ? std::string(aster::renderGraphPassName(invocation.semantic))
+                             : invocation.pass->name,
+                 .draw_calls = stats.draw_calls - draws_before,
+                 .encode_seconds =
+                     std::chrono::duration<double>(pass_end - pass_start).count()});
           }
         });
     [encoder endEncoding];

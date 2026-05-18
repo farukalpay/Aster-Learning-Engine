@@ -144,4 +144,30 @@ std::string materialPipelineTag(const CompiledMaterial &material) {
   return tag;
 }
 
+MaterialPermutationArtifact materialPermutationArtifactFor(
+    const CompiledMaterial &material, const std::string_view backend_name,
+    const std::string_view shader_variant_tag, const std::string_view fallback_reason) {
+  MaterialPermutationArtifact artifact;
+  artifact.permutation_key = material.permutation_key;
+  artifact.permutation_flags = material.permutation_flags;
+  artifact.pipeline_tag = material.pipeline_tag;
+  artifact.shader_variant_tag = shader_variant_tag;
+  artifact.backend_name = backend_name;
+  artifact.fallback_reason = fallback_reason;
+
+  std::uint64_t source_hash = 1469598103934665603ull;
+  appendU64(source_hash, material.permutation_key);
+  appendKey(source_hash, material.permutation_flags);
+  appendString(source_hash, material.pipeline_tag);
+  appendString(source_hash, shader_variant_tag);
+  artifact.source_hash = source_hash;
+
+  std::uint64_t artifact_hash = 1469598103934665603ull;
+  appendU64(artifact_hash, artifact.source_hash);
+  appendString(artifact_hash, backend_name);
+  appendString(artifact_hash, fallback_reason);
+  artifact.artifact_hash = artifact_hash;
+  return artifact;
+}
+
 } // namespace aster

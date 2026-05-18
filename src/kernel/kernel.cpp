@@ -254,6 +254,55 @@ AsterKernelShaderResourceKind shaderResourceKind(const aster::ShaderResourceKind
   }
 }
 
+AsterKernelRenderGraphPass renderGraphPass(const aster::RenderGraphPass pass) {
+  switch (pass) {
+  case aster::RenderGraphPass::Opaque:
+    return ASTER_KERNEL_RENDER_PASS_OPAQUE;
+  case aster::RenderGraphPass::ContactShadow:
+    return ASTER_KERNEL_RENDER_PASS_CONTACT_SHADOW;
+  case aster::RenderGraphPass::Transparent:
+    return ASTER_KERNEL_RENDER_PASS_TRANSPARENT;
+  case aster::RenderGraphPass::UiComposite:
+    return ASTER_KERNEL_RENDER_PASS_UI_COMPOSITE;
+  case aster::RenderGraphPass::Capture:
+    return ASTER_KERNEL_RENDER_PASS_CAPTURE;
+  case aster::RenderGraphPass::SceneColorDepth:
+  default:
+    return ASTER_KERNEL_RENDER_PASS_SCENE_COLOR_DEPTH;
+  }
+}
+
+AsterKernelFrameDiagnosticSeverity
+diagnosticSeverity(const aster::FrameDiagnosticSeverity severity) {
+  switch (severity) {
+  case aster::FrameDiagnosticSeverity::Warning:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_WARNING;
+  case aster::FrameDiagnosticSeverity::Error:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR;
+  case aster::FrameDiagnosticSeverity::Info:
+  default:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_INFO;
+  }
+}
+
+AsterKernelFrameDiagnosticKind diagnosticKind(const aster::FrameDiagnosticKind kind) {
+  switch (kind) {
+  case aster::FrameDiagnosticKind::MaterialVariantFallback:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_MATERIAL_VARIANT_FALLBACK;
+  case aster::FrameDiagnosticKind::TranslucentSortChanged:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_TRANSLUCENT_SORT_CHANGED;
+  case aster::FrameDiagnosticKind::NearPlaneClipping:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_NEAR_PLANE_CLIPPING;
+  case aster::FrameDiagnosticKind::ResourceLifetimeHazard:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_RESOURCE_LIFETIME_HAZARD;
+  case aster::FrameDiagnosticKind::CapabilityMismatch:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_CAPABILITY_MISMATCH;
+  case aster::FrameDiagnosticKind::BackendFallback:
+  default:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_BACKEND_FALLBACK;
+  }
+}
+
 void setForceRendererEnvironment(const std::uint32_t flags) {
   if ((flags & ASTER_KERNEL_RENDERER_FLAG_FORCE_SOFTWARE) != 0u) {
 #if defined(_WIN32)
@@ -681,6 +730,69 @@ AsterStatus aster_kernel_renderer_last_stats(const AsterRendererHandle renderer,
     return makeStatus(ASTER_STATUS_ABI_MISMATCH, "frame stats struct version is not supported");
   }
   *out_stats = renderer->last_stats;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_frame_forensics_counts(
+    const AsterRendererHandle renderer, AsterFrameForensicsCounts *out_counts) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_counts)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame forensics counts struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  out_counts->pass_count = forensics.passes.size();
+  out_counts->event_count = forensics.events.size();
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_frame_pass_stats(const AsterRendererHandle renderer,
+                                                   const std::size_t index,
+                                                   AsterFramePassStats *out_stats) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_stats)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame pass stats struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.passes.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame pass stats index is out of range");
+  }
+  const aster::FramePassStats &pass = forensics.passes[index];
+  out_stats->pass = renderGraphPass(pass.pass);
+  out_stats->name = viewFromString(pass.name);
+  out_stats->draw_calls = pass.draw_calls;
+  out_stats->pipeline_switches = pass.pipeline_switches;
+  out_stats->material_permutations = pass.material_permutations;
+  out_stats->encode_seconds = pass.encode_seconds;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_frame_diagnostic(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterFrameDiagnosticEvent *out_event) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_event)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame diagnostic event struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.events.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame diagnostic index is out of range");
+  }
+  const aster::FrameDiagnosticEvent &event = forensics.events[index];
+  out_event->kind = diagnosticKind(event.kind);
+  out_event->severity = diagnosticSeverity(event.severity);
+  out_event->pass = viewFromString(event.pass);
+  out_event->label = viewFromString(event.label);
+  out_event->message = viewFromString(event.message);
+  out_event->value = event.value;
   return aster_kernel_status_ok();
 }
 

@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 2u
-#define ASTER_KERNEL_ABI_MINOR 0u
+#define ASTER_KERNEL_ABI_MINOR 1u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -111,6 +111,30 @@ typedef enum AsterKernelMaterialAlphaMode {
   ASTER_KERNEL_MATERIAL_ALPHA_DITHERED_COVERAGE = 2,
   ASTER_KERNEL_MATERIAL_ALPHA_BLEND = 3
 } AsterKernelMaterialAlphaMode;
+
+typedef enum AsterKernelRenderGraphPass {
+  ASTER_KERNEL_RENDER_PASS_SCENE_COLOR_DEPTH = 0,
+  ASTER_KERNEL_RENDER_PASS_OPAQUE = 1,
+  ASTER_KERNEL_RENDER_PASS_CONTACT_SHADOW = 2,
+  ASTER_KERNEL_RENDER_PASS_TRANSPARENT = 3,
+  ASTER_KERNEL_RENDER_PASS_UI_COMPOSITE = 4,
+  ASTER_KERNEL_RENDER_PASS_CAPTURE = 5
+} AsterKernelRenderGraphPass;
+
+typedef enum AsterKernelFrameDiagnosticSeverity {
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_INFO = 0,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_WARNING = 1,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR = 2
+} AsterKernelFrameDiagnosticSeverity;
+
+typedef enum AsterKernelFrameDiagnosticKind {
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_BACKEND_FALLBACK = 0,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_MATERIAL_VARIANT_FALLBACK = 1,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_TRANSLUCENT_SORT_CHANGED = 2,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_NEAR_PLANE_CLIPPING = 3,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_RESOURCE_LIFETIME_HAZARD = 4,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_CAPABILITY_MISMATCH = 5
+} AsterKernelFrameDiagnosticKind;
 
 enum {
   ASTER_KERNEL_WINDOW_FLAG_HEADLESS = 1u << 0u,
@@ -316,6 +340,35 @@ typedef struct AsterFrameStats {
   double render_encode_seconds;
 } AsterFrameStats;
 
+typedef struct AsterFrameForensicsCounts {
+  size_t size;
+  uint32_t version;
+  size_t pass_count;
+  size_t event_count;
+} AsterFrameForensicsCounts;
+
+typedef struct AsterFramePassStats {
+  size_t size;
+  uint32_t version;
+  AsterKernelRenderGraphPass pass;
+  AsterStringView name;
+  size_t draw_calls;
+  size_t pipeline_switches;
+  size_t material_permutations;
+  double encode_seconds;
+} AsterFramePassStats;
+
+typedef struct AsterFrameDiagnosticEvent {
+  size_t size;
+  uint32_t version;
+  AsterKernelFrameDiagnosticKind kind;
+  AsterKernelFrameDiagnosticSeverity severity;
+  AsterStringView pass;
+  AsterStringView label;
+  AsterStringView message;
+  uint64_t value;
+} AsterFrameDiagnosticEvent;
+
 typedef struct AsterCaptureDesc {
   size_t size;
   uint32_t version;
@@ -365,6 +418,14 @@ ASTER_KERNEL_API AsterStatus aster_kernel_renderer_capture(AsterRendererHandle r
                                                            const AsterCaptureDesc *desc);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_last_stats(AsterRendererHandle renderer,
                                                               AsterFrameStats *out_stats);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_forensics_counts(
+    AsterRendererHandle renderer, AsterFrameForensicsCounts *out_counts);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_renderer_frame_pass_stats(AsterRendererHandle renderer, size_t index,
+                                       AsterFramePassStats *out_stats);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_renderer_frame_diagnostic(AsterRendererHandle renderer, size_t index,
+                                       AsterFrameDiagnosticEvent *out_event);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_destroy(AsterRendererHandle renderer);
 
 ASTER_KERNEL_API AsterStatus aster_kernel_mesh_create(AsterEngineHandle engine,

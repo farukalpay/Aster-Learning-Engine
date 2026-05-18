@@ -37,6 +37,9 @@ static_assert(std::is_standard_layout_v<AsterSceneObjectDesc>);
 static_assert(std::is_standard_layout_v<AsterCameraDesc>);
 static_assert(std::is_standard_layout_v<AsterRendererSettings>);
 static_assert(std::is_standard_layout_v<AsterFrameStats>);
+static_assert(std::is_standard_layout_v<AsterFrameForensicsCounts>);
+static_assert(std::is_standard_layout_v<AsterFramePassStats>);
+static_assert(std::is_standard_layout_v<AsterFrameDiagnosticEvent>);
 static_assert(std::is_standard_layout_v<AsterCaptureDesc>);
 static_assert(sizeof(AsterStatusCode) == sizeof(std::int32_t));
 static_assert(offsetof(AsterStatus, size) == 0u);
@@ -87,6 +90,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 2u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
+  assert(version.minor == 1u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -207,6 +211,15 @@ void testRendererAbi2Lifecycle() {
   assert(stats.framebuffer_width == 64u);
   assert(stats.framebuffer_height == 48u);
   assert(stats.graph_passes >= 1u);
+  AsterFrameForensicsCounts forensics_counts{sizeof(AsterFrameForensicsCounts),
+                                             ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_forensics_counts(renderer, &forensics_counts).code ==
+         ASTER_STATUS_OK);
+  assert(forensics_counts.pass_count >= 1u);
+  AsterFramePassStats pass_stats{sizeof(AsterFramePassStats), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_pass_stats(renderer, 0u, &pass_stats).code ==
+         ASTER_STATUS_OK);
+  assert(pass_stats.name.size > 0u);
 
   const std::filesystem::path capture_path =
       std::filesystem::temp_directory_path() / "aster_kernel_renderer_abi2.ppm";
@@ -302,6 +315,9 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_renderer_present",
       "aster_kernel_renderer_capture",
       "aster_kernel_renderer_last_stats",
+      "aster_kernel_renderer_frame_forensics_counts",
+      "aster_kernel_renderer_frame_pass_stats",
+      "aster_kernel_renderer_frame_diagnostic",
       "aster_kernel_renderer_destroy",
       "aster_kernel_mesh_create",
       "aster_kernel_mesh_destroy",
@@ -343,6 +359,9 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_renderer_present;
   (void)&aster_kernel_renderer_capture;
   (void)&aster_kernel_renderer_last_stats;
+  (void)&aster_kernel_renderer_frame_forensics_counts;
+  (void)&aster_kernel_renderer_frame_pass_stats;
+  (void)&aster_kernel_renderer_frame_diagnostic;
   (void)&aster_kernel_renderer_destroy;
   (void)&aster_kernel_mesh_create;
   (void)&aster_kernel_mesh_destroy;

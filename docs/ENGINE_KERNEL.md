@@ -47,10 +47,10 @@ plain C and compiling C++ wrappers in the consuming toolchain.
 
 Kernel resources are opaque handles. A handle returned by a kernel creation
 function is owned by the caller until it is passed to the matching destroy
-function. ABI 2.0 makes the renderer path constructible through the public
+function. ABI 2.1 makes the renderer path constructible and inspectable through the public
 kernel: engine, window, scene, mesh, material, renderer, shader artifact, and
 render pipeline handles can be created and destroyed through fixed-layout C
-descriptors:
+descriptors, with additive frame-forensics queries for the last rendered frame:
 
 - `AsterEngineHandle` -> `aster_kernel_engine_destroy`
 - `AsterWindowHandle` -> `aster_kernel_window_destroy`

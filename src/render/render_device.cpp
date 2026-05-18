@@ -11,12 +11,14 @@
 #include "aster/render/render_graph_executor.hpp"
 #include "aster/scene/scene.hpp"
 #include "native_render_backend.hpp"
+#include "render_backend_common.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <iterator>
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
@@ -1091,6 +1093,114 @@ RenderBackendCapabilities softwareCapabilities() {
           .graph_resource_mask = graph_resources};
 }
 
+struct MaterialFrameSummary {
+  std::size_t pipeline_switches = 0u;
+  std::size_t material_permutations = 0u;
+  std::size_t material_variant_cache_hits = 0u;
+  std::size_t material_variant_cache_misses = 0u;
+  std::vector<std::size_t> transparent_order;
+  std::vector<FrameDiagnosticEvent> events;
+};
+
+std::string shaderVariantTagFor(const Material &material) {
+  if (!material.asset_id.empty()) {
+    return material.asset_id;
+  }
+  if (material.shader_variant_key != 0u) {
+    return "shader:" + std::to_string(material.shader_variant_key);
+  }
+  return {};
+}
+
+MaterialFrameSummary analyzeMaterialFrame(
+    const Scene &scene, const FrameRenderPlan &plan, const RenderBackendCapabilities &capabilities,
+    std::unordered_map<std::uint64_t, MaterialPermutationArtifact> &artifact_cache,
+    const std::vector<std::size_t> &previous_transparent_order) {
+  MaterialFrameSummary summary;
+  std::unordered_set<std::uint64_t> unique_permutations;
+  std::unordered_set<std::uint64_t> reported_fallbacks;
+  std::string previous_pipeline;
+  bool has_previous_pipeline = false;
+
+  for (const FrameRenderDrawGroup &group : plan.groups) {
+    if (group.instance_count == 0u || group.first_instance >= plan.instances.size()) {
+      continue;
+    }
+    const FrameRenderInstance &first_instance = plan.instances[group.first_instance];
+    if (first_instance.object_index >= scene.objects().size()) {
+      continue;
+    }
+    const RenderObject &first_object = scene.objects()[first_instance.object_index];
+    const bool has_texture_dependencies =
+        !first_object.material.asset_id.empty() || first_object.material.shader_variant_key != 0u;
+    const CompiledMaterial compiled =
+        compileMaterialForRendering(first_object.material, has_texture_dependencies,
+                                    first_object.material.asset_id);
+    if (!has_previous_pipeline || compiled.pipeline_tag != previous_pipeline) {
+      if (has_previous_pipeline) {
+        ++summary.pipeline_switches;
+      }
+      previous_pipeline = compiled.pipeline_tag;
+      has_previous_pipeline = true;
+    }
+
+    for (std::size_t i = 0; i < group.instance_count; ++i) {
+      const std::size_t plan_index = group.first_instance + i;
+      if (plan_index >= plan.instances.size()) {
+        break;
+      }
+      const FrameRenderInstance &instance = plan.instances[plan_index];
+      if (instance.object_index >= scene.objects().size()) {
+        continue;
+      }
+      if (group.pass == FrameRenderPass::Transparent) {
+        summary.transparent_order.push_back(instance.object_index);
+      }
+      const RenderObject &object = scene.objects()[instance.object_index];
+      const bool object_has_texture_dependencies =
+          !object.material.asset_id.empty() || object.material.shader_variant_key != 0u;
+      const CompiledMaterial object_compiled =
+          compileMaterialForRendering(object.material, object_has_texture_dependencies,
+                                      object.material.asset_id);
+      unique_permutations.insert(object_compiled.permutation_key);
+      const bool shader_variant =
+          (object_compiled.permutation_flags &
+           materialPermutationFlagBit(MaterialPermutationFlag::ShaderVariant)) != 0u;
+      const bool fallback = shader_variant && !capabilities.supports_shader_materials;
+      if (fallback && reported_fallbacks.insert(object_compiled.permutation_key).second) {
+        summary.events.push_back(
+            {.kind = FrameDiagnosticKind::MaterialVariantFallback,
+             .severity = FrameDiagnosticSeverity::Warning,
+             .pass = group.pass == FrameRenderPass::Transparent ? "transparent" : "opaque",
+             .label = object.name.empty() ? object.material.asset_id : object.name,
+             .message = "Backend does not support shader materials for this material variant.",
+             .value = object_compiled.permutation_key});
+      }
+      const MaterialPermutationArtifact artifact = materialPermutationArtifactFor(
+          object_compiled, capabilities.name, shaderVariantTagFor(object.material),
+          fallback ? "backend-missing-shader-materials" : "");
+      if (artifact_cache.contains(artifact.permutation_key)) {
+        ++summary.material_variant_cache_hits;
+      } else {
+        artifact_cache.emplace(artifact.permutation_key, artifact);
+        ++summary.material_variant_cache_misses;
+      }
+    }
+  }
+
+  summary.material_permutations = unique_permutations.size();
+  if (!previous_transparent_order.empty() &&
+      previous_transparent_order != summary.transparent_order) {
+    summary.events.push_back({.kind = FrameDiagnosticKind::TranslucentSortChanged,
+                              .severity = FrameDiagnosticSeverity::Info,
+                              .pass = "transparent",
+                              .label = "transparent-order",
+                              .message = "Transparent draw order changed from the previous frame.",
+                              .value = summary.transparent_order.size()});
+  }
+  return summary;
+}
+
 } // namespace
 
 const CpuMesh &RenderDevice::meshForPrimitive(const MeshPrimitive primitive) const {
@@ -1278,6 +1388,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                                 const RendererSettings &settings, const int framebuffer_width,
                                 const int framebuffer_height, const double frame_seconds) {
   ASTER_PROFILE_SCOPE("RenderDevice::render");
+  last_forensics_ = {};
   FrameStats stats;
   stats.frame_seconds = frame_seconds;
   stats.framebuffer_width = framebuffer_width;
@@ -1299,6 +1410,15 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   const FrameRenderPlan plan =
       buildFrameRenderPlan(render_scene_, camera, settings.line_of_sight_fade, framebuffer_width,
                            framebuffer_height);
+  const RenderBackendCapabilities active_capabilities =
+      native_backend_ != nullptr ? native_backend_->capabilities() : softwareCapabilities();
+  MaterialFrameSummary material_summary =
+      analyzeMaterialFrame(scene, plan, active_capabilities, material_artifact_cache_,
+                           previous_transparent_order_);
+  previous_transparent_order_ = material_summary.transparent_order;
+  last_forensics_.events.insert(last_forensics_.events.end(),
+                                std::make_move_iterator(material_summary.events.begin()),
+                                std::make_move_iterator(material_summary.events.end()));
   stats.visible_objects = plan.diagnostics.visible_objects;
   stats.culled_objects = plan.diagnostics.culled_objects;
   stats.instance_groups = plan.diagnostics.instance_groups;
@@ -1307,6 +1427,10 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.dynamic_mesh_objects = plan.diagnostics.dynamic_mesh_objects;
   stats.dynamic_mesh_cache_entries =
       custom_mesh_cache_.size() + custom_mesh_resource_cache_.size();
+  stats.pipeline_switches = material_summary.pipeline_switches;
+  stats.material_permutations = material_summary.material_permutations;
+  stats.material_variant_cache_hits = material_summary.material_variant_cache_hits;
+  stats.material_variant_cache_misses = material_summary.material_variant_cache_misses;
   stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
   stats.graph_compile_seconds = graph_compile_seconds_;
   stats.backend_kind_value =
@@ -1330,7 +1454,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     framebuffer.clearTransparent();
     FrameStats native_stats = native_backend_->render(scene, plan, camera, settings, render_graph_, meshes,
                                                       framebuffer_width, framebuffer_height,
-                                                      frame_seconds);
+                                                      frame_seconds, &last_forensics_);
     native_stats.visible_objects = plan.diagnostics.visible_objects;
     native_stats.culled_objects = plan.diagnostics.culled_objects;
     native_stats.instance_groups = plan.diagnostics.instance_groups;
@@ -1339,6 +1463,10 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     native_stats.dynamic_mesh_objects = plan.diagnostics.dynamic_mesh_objects;
     native_stats.dynamic_mesh_cache_entries =
         custom_mesh_cache_.size() + custom_mesh_resource_cache_.size();
+    native_stats.pipeline_switches = material_summary.pipeline_switches;
+    native_stats.material_permutations = material_summary.material_permutations;
+    native_stats.material_variant_cache_hits = material_summary.material_variant_cache_hits;
+    native_stats.material_variant_cache_misses = material_summary.material_variant_cache_misses;
     native_stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
     native_stats.graph_passes = render_graph_.passes.size();
     native_stats.graph_resources = render_graph_.resources.size();
@@ -1347,6 +1475,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     const rhi::ResourceRegistryStats registry_stats = resource_registry_.stats();
     native_stats.registry_live_resources = registry_stats.live_resources;
     native_stats.registry_retired_resources = registry_stats.retired_resources;
+    native_stats.resource_lifetime_warnings = registry_stats.retired_resources;
     native_stats.backend_feature_mask = native_backend_->capabilities().graph_resource_mask;
     native_stats.backend_kind_value =
         static_cast<std::uint32_t>(native_backend_->capabilities().kind);
@@ -1390,6 +1519,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   };
 
   (void)executeFixedRenderGraph(render_graph_, [&](const RenderGraphPassInvocation &invocation) {
+    const auto pass_start = std::chrono::steady_clock::now();
+    const std::size_t draws_before = stats.draw_calls;
     switch (invocation.semantic) {
     case RenderGraphPass::Opaque:
       for (const FrameRenderDrawGroup &group : plan.groups) {
@@ -1413,6 +1544,19 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     case RenderGraphPass::Capture:
       break;
     }
+    const auto pass_end = std::chrono::steady_clock::now();
+    last_forensics_.passes.push_back(
+        {.pass = invocation.semantic,
+         .name = invocation.pass == nullptr ? std::string(renderGraphPassName(invocation.semantic))
+                                            : invocation.pass->name,
+         .draw_calls = stats.draw_calls - draws_before,
+         .pipeline_switches = invocation.semantic == RenderGraphPass::Opaque
+                                  ? material_summary.pipeline_switches
+                                  : 0u,
+         .material_permutations = invocation.semantic == RenderGraphPass::Opaque
+                                      ? material_summary.material_permutations
+                                      : 0u,
+         .encode_seconds = std::chrono::duration<double>(pass_end - pass_start).count()});
   });
   const auto encode_end = std::chrono::steady_clock::now();
   stats.render_encode_seconds = std::chrono::duration<double>(encode_end - encode_start).count();
@@ -1421,6 +1565,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   const rhi::ResourceRegistryStats registry_stats = resource_registry_.stats();
   stats.registry_live_resources = registry_stats.live_resources;
   stats.registry_retired_resources = registry_stats.retired_resources;
+  stats.resource_lifetime_warnings = registry_stats.retired_resources;
   stats.graph_compile_seconds = graph_compile_seconds_;
 
   return stats;
@@ -1442,6 +1587,10 @@ RenderBackendCapabilities RenderDevice::backendCapabilities() const {
 
 const FixedRenderGraph &RenderDevice::renderGraph() const {
   return render_graph_;
+}
+
+const FrameForensics &RenderDevice::lastFrameForensics() const {
+  return last_forensics_;
 }
 
 } // namespace aster

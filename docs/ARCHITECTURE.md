@@ -48,9 +48,10 @@ fully driven by SDK documents.
 Stable public ABI and C++ wrappers. Kernel headers must not include broad engine
 headers, STL containers in ABI structs, native platform types, renderer backend
 types, or sample-owned state. Public resources cross this boundary only as
-opaque handles with matching destroy functions. ABI 2.0 includes a public
+opaque handles with matching destroy functions. ABI 2.1 includes a public
 renderer path for windows, renderer instances, scenes, meshes, materials, shader
-artifacts, render pipelines, captures, frame stats, and backend capabilities.
+artifacts, render pipelines, captures, frame stats, frame forensics, and backend
+capabilities.
 
 `include/aster/game_sdk`
 

@@ -5,6 +5,7 @@
 
 #include "aster/math/vec.hpp"
 #include "aster/render/camera.hpp"
+#include "aster/render/material_compiler.hpp"
 #include "aster/render/mesh.hpp"
 #include "aster/render/render_graph.hpp"
 #include "aster/render/render_scene.hpp"
@@ -16,6 +17,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace aster {
 
@@ -163,11 +165,54 @@ struct FrameStats {
   std::size_t registry_retired_resources = 0;
   std::size_t timestamp_query_slots = 0;
   std::size_t queue_waits = 0;
+  std::size_t pipeline_switches = 0;
+  std::size_t material_permutations = 0;
+  std::size_t material_variant_cache_hits = 0;
+  std::size_t material_variant_cache_misses = 0;
+  std::size_t resource_lifetime_warnings = 0;
   std::uint32_t backend_feature_mask = 0u;
   std::uint32_t backend_kind_value = 0u;
   double rust_plan_seconds = 0.0;
   double graph_compile_seconds = 0.0;
   double render_encode_seconds = 0.0;
+};
+
+struct FramePassStats {
+  RenderGraphPass pass = RenderGraphPass::SceneColorDepth;
+  std::string name;
+  std::size_t draw_calls = 0u;
+  std::size_t pipeline_switches = 0u;
+  std::size_t material_permutations = 0u;
+  double encode_seconds = 0.0;
+};
+
+enum class FrameDiagnosticSeverity : std::uint32_t {
+  Info,
+  Warning,
+  Error,
+};
+
+enum class FrameDiagnosticKind : std::uint32_t {
+  BackendFallback,
+  MaterialVariantFallback,
+  TranslucentSortChanged,
+  NearPlaneClipping,
+  ResourceLifetimeHazard,
+  CapabilityMismatch,
+};
+
+struct FrameDiagnosticEvent {
+  FrameDiagnosticKind kind = FrameDiagnosticKind::BackendFallback;
+  FrameDiagnosticSeverity severity = FrameDiagnosticSeverity::Info;
+  std::string pass;
+  std::string label;
+  std::string message;
+  std::uint64_t value = 0u;
+};
+
+struct FrameForensics {
+  std::vector<FramePassStats> passes;
+  std::vector<FrameDiagnosticEvent> events;
 };
 
 class RenderDevice {
@@ -186,6 +231,7 @@ public:
   [[nodiscard]] const char *backendName() const;
   [[nodiscard]] RenderBackendCapabilities backendCapabilities() const;
   [[nodiscard]] const FixedRenderGraph &renderGraph() const;
+  [[nodiscard]] const FrameForensics &lastFrameForensics() const;
 
 private:
   [[nodiscard]] const CpuMesh &meshForPrimitive(MeshPrimitive primitive) const;
@@ -217,6 +263,9 @@ private:
   std::unordered_map<const CpuMesh *, rhi::BufferHandle> custom_mesh_resource_handles_;
   std::unordered_map<DynamicMeshResourceKey, rhi::BufferHandle, DynamicMeshResourceKeyHash>
       dynamic_mesh_resource_handles_;
+  std::unordered_map<std::uint64_t, MaterialPermutationArtifact> material_artifact_cache_;
+  std::vector<std::size_t> previous_transparent_order_;
+  FrameForensics last_forensics_;
 };
 
 [[nodiscard]] std::string_view renderBackendKindName(RenderBackendKind kind);
