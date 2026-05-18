@@ -166,10 +166,11 @@ bool LumenRun::placeEquippedResource(const Vec3 ray_origin, Vec3 ray_direction) 
     return false;
   }
 
-  ray_direction = normalize(ray_direction);
-  if (length(ray_direction) <= 0.0001f) {
+  const MathResult<Vec3> ray_direction_result = safeNormalize(ray_direction);
+  if (!ray_direction_result) {
     return false;
   }
+  ray_direction = ray_direction_result.value;
 
   const float reach = std::max(definition->placement_reach, 0.1f);
   Vec3 hit_point{};

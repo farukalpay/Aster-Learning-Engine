@@ -168,6 +168,9 @@ RenderObject contactShadowObjectFor(const RenderObject &object,
   shadow.material.surface_pattern = SurfacePattern::ContactShadow;
   shadow.material.alpha_mode = MaterialAlphaMode::Blend;
   shadow.material.depth_write = MaterialDepthWrite::Disabled;
+  shadow.material.depth_policy = {.layer = RenderDepthLayer::ContactShadow,
+                                  .constant_bias = 0.00008f,
+                                  .slope_bias = 0.00012f};
   shadow.material.camera_occlusion = CameraOcclusionPolicy::Solid;
   shadow.material.double_sided = true;
   shadow.casts_contact_shadow = false;

@@ -7,6 +7,7 @@
 #include "aster/rhi/pipeline_layout.hpp"
 #include "aster/rhi/shader.hpp"
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -234,6 +235,10 @@ namespace detail {
   return hash;
 }
 
+[[nodiscard]] inline std::uint64_t fnv1aAppendFloat(std::uint64_t hash, const float value) {
+  return fnv1aAppend(hash, static_cast<std::uint64_t>(std::bit_cast<std::uint32_t>(value)));
+}
+
 } // namespace detail
 
 [[nodiscard]] inline std::uint64_t graphicsPipelineCacheKey(const GraphicsPipelineDesc &desc) {
@@ -251,6 +256,8 @@ namespace detail {
   hash = detail::fnv1aAppend(hash, static_cast<std::uint64_t>(desc.rasterizer.polygon_mode));
   hash = detail::fnv1aAppend(hash, desc.rasterizer.depth_clamp_enabled ? 1u : 0u);
   hash = detail::fnv1aAppend(hash, desc.rasterizer.depth_bias_enabled ? 1u : 0u);
+  hash = detail::fnv1aAppendFloat(hash, desc.rasterizer.depth_bias_constant);
+  hash = detail::fnv1aAppendFloat(hash, desc.rasterizer.depth_bias_slope);
   hash = detail::fnv1aAppend(hash, desc.multisample.sample_count);
   hash = detail::fnv1aAppend(hash, desc.multisample.sample_mask);
   hash = detail::fnv1aAppend(hash, desc.multisample.alpha_to_coverage_enabled ? 1u : 0u);

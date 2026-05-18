@@ -7,10 +7,27 @@
 #include "aster/rhi/resource_barrier.hpp"
 
 #include <cstring>
+#include <cstdlib>
 #include <span>
 #include <unordered_set>
 
+#if defined(_WIN32)
+#include <stdlib.h>
+#endif
+
 namespace {
+
+void setEnvFlag(const char *name, const bool enabled) {
+#if defined(_WIN32)
+  (void)_putenv_s(name, enabled ? "1" : "");
+#else
+  if (enabled) {
+    (void)setenv(name, "1", 1);
+  } else {
+    (void)unsetenv(name);
+  }
+#endif
+}
 
 void testFramebufferOriginContract() {
   aster::SoftwareFrameBuffer framebuffer;
@@ -202,6 +219,233 @@ void testSoftwarePreviewRendererProducesImage() {
   assert(has_non_black_pixel);
 }
 
+void testSoftwareDepthPolicySeparatesCoplanarAttachments() {
+  aster::SoftwareFrameBuffer framebuffer;
+  framebuffer.resize(32, 32);
+  const aster::FrameVertex a{4.0f, 4.0f, 0.50f, {16u, 32u, 220u, 255u}};
+  const aster::FrameVertex b{28.0f, 4.0f, 0.50f, {16u, 32u, 220u, 255u}};
+  const aster::FrameVertex c{4.0f, 28.0f, 0.50f, {16u, 32u, 220u, 255u}};
+  const aster::FrameVertex decal_a{4.0f, 4.0f, 0.50f, {240u, 20u, 16u, 255u}};
+  const aster::FrameVertex decal_b{28.0f, 4.0f, 0.50f, {240u, 20u, 16u, 255u}};
+  const aster::FrameVertex decal_c{4.0f, 28.0f, 0.50f, {240u, 20u, 16u, 255u}};
+  const auto pixel = [&framebuffer](const int x, const int y) {
+    const std::span<const std::uint8_t> rgba = framebuffer.rgba8();
+    return rgba.data() + (static_cast<std::size_t>(y * framebuffer.width() + x) * 4u);
+  };
+
+  framebuffer.clear({0.0f, 0.0f, 0.0f});
+  framebuffer.drawTriangle(a, b, c, true, true, false);
+  framebuffer.drawTriangle(decal_a, decal_b, decal_c, true, false, false);
+  assert(pixel(10, 10)[0] == 16u);
+  assert(pixel(10, 10)[2] == 220u);
+
+  framebuffer.clear({0.0f, 0.0f, 0.0f});
+  framebuffer.drawTriangle(a, b, c, true, true, false);
+  framebuffer.drawTriangle(decal_a, decal_b, decal_c, true, false, false, 0.010f, 0.0f);
+  assert(pixel(10, 10)[0] == 240u);
+  assert(pixel(10, 10)[1] == 20u);
+}
+
+void testSoftwareDepthPolicyIsStableAcrossObjectOrder() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+
+  auto make_scene = [](const bool decal_first) {
+    aster::RenderObject base;
+    base.name = "coplanar base";
+    base.primitive = aster::MeshPrimitive::Plane;
+    base.material = aster::makeMaterial({.base_color = {0.02f, 0.04f, 0.42f},
+                                         .emission_color = {0.02f, 0.04f, 0.42f},
+                                         .emission_strength = 0.35f,
+                                         .roughness = 1.0f});
+
+    aster::RenderObject decal;
+    decal.name = "coplanar red decal";
+    decal.primitive = aster::MeshPrimitive::Plane;
+    decal.material = aster::makeMaterial({.base_color = {1.0f, 0.04f, 0.02f},
+                                          .emission_color = {1.0f, 0.04f, 0.02f},
+                                          .emission_strength = 0.55f,
+                                          .opacity = 1.0f,
+                                          .alpha_mode = aster::MaterialAlphaMode::Blend,
+                                          .depth_write = aster::MaterialDepthWrite::Disabled,
+                                          .double_sided = true});
+    decal.material.depth_policy = {.layer = aster::RenderDepthLayer::Decal,
+                                   .constant_bias = 0.0025f,
+                                   .slope_bias = 0.0f};
+
+    aster::Scene scene;
+    if (decal_first) {
+      scene.objects().push_back(decal);
+      scene.objects().push_back(base);
+    } else {
+      scene.objects().push_back(base);
+      scene.objects().push_back(decal);
+    }
+    return scene;
+  };
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.0f, 0.0f};
+  camera.yaw = aster::radians(42.0f);
+  camera.pitch = aster::radians(60.0f);
+  camera.radius = 4.0f;
+  camera.vertical_fov = aster::radians(44.0f);
+
+  aster::RendererSettings settings;
+  settings.pipeline.clear_color = {0.0f, 0.0f, 0.0f};
+  settings.atmosphere.enabled = false;
+  settings.sun_light.enabled = false;
+  settings.ambient_strength = 0.10f;
+  settings.ambient_floor = 0.01f;
+
+  auto render = [&](const aster::Scene &scene) {
+    aster::RenderDevice renderer;
+    assert(renderer.initialize());
+    renderer.prepareScene(scene);
+    (void)renderer.render(scene, camera, settings, 48, 48, 0.0);
+    return std::vector<std::uint8_t>(aster::activeFrameBuffer().rgba8().begin(),
+                                     aster::activeFrameBuffer().rgba8().end());
+  };
+
+  const std::vector<std::uint8_t> base_first = render(make_scene(false));
+  const std::vector<std::uint8_t> decal_first = render(make_scene(true));
+  assert(base_first == decal_first);
+
+  std::size_t red_pixels = 0u;
+  for (std::size_t i = 0; i + 3u < base_first.size(); i += 4u) {
+    if (base_first[i + 0u] > base_first[i + 2u] * 2u && base_first[i + 0u] > 80u) {
+      ++red_pixels;
+    }
+  }
+  assert(red_pixels > 120u);
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
+std::size_t countForegroundPixels(const aster::SoftwareFrameBuffer &framebuffer) {
+  const std::span<const std::uint8_t> rgba = framebuffer.rgba8();
+  if (rgba.size() < 4u) {
+    return 0u;
+  }
+  const std::uint8_t bg_r = rgba[0u];
+  const std::uint8_t bg_g = rgba[1u];
+  const std::uint8_t bg_b = rgba[2u];
+  std::size_t foreground = 0u;
+  for (std::size_t i = 0; i + 3u < rgba.size(); i += 4u) {
+    const int dr = std::abs(static_cast<int>(rgba[i + 0u]) - static_cast<int>(bg_r));
+    const int dg = std::abs(static_cast<int>(rgba[i + 1u]) - static_cast<int>(bg_g));
+    const int db = std::abs(static_cast<int>(rgba[i + 2u]) - static_cast<int>(bg_b));
+    foreground += dr + dg + db > 32 ? 1u : 0u;
+  }
+  return foreground;
+}
+
+void testPrepareSceneInvalidatesCustomMeshCache() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+
+  auto mesh = std::make_shared<aster::CpuMesh>(aster::makeBox());
+  aster::RenderObject object;
+  object.name = "cache invalidation probe";
+  object.custom_mesh = mesh;
+  object.transform.position = {0.0f, 0.55f, 0.0f};
+  object.transform.scale = {1.0f, 1.0f, 1.0f};
+  object.material = aster::makeMaterial({.base_color = {0.92f, 0.18f, 0.10f},
+                                         .roughness = 0.6f,
+                                         .double_sided = true});
+
+  aster::Scene scene;
+  scene.objects().push_back(object);
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.55f, 0.0f};
+  camera.yaw = aster::radians(36.0f);
+  camera.pitch = aster::radians(8.0f);
+  camera.radius = 4.0f;
+  camera.vertical_fov = aster::radians(42.0f);
+
+  aster::RendererSettings settings;
+  settings.pipeline.clear_color = {0.002f, 0.002f, 0.002f};
+  settings.sun_light.enabled = true;
+  settings.sun_light.intensity = 2.0f;
+  settings.sun_light.direction_to_light = {-0.4f, 0.8f, 0.3f};
+  settings.ambient_strength = 0.35f;
+  settings.ambient_floor = 0.04f;
+  settings.atmosphere.enabled = false;
+
+  renderer.prepareScene(scene);
+  (void)renderer.render(scene, camera, settings, 72, 48, 0.0);
+  const std::size_t visible_before = countForegroundPixels(aster::activeFrameBuffer());
+  assert(visible_before > 80u);
+
+  *mesh = {};
+  renderer.prepareScene(scene);
+  (void)renderer.render(scene, camera, settings, 72, 48, 1.0 / 60.0);
+  const std::size_t visible_after = countForegroundPixels(aster::activeFrameBuffer());
+  assert(visible_after < visible_before / 8u);
+
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
+void testFrameMathDiagnostics() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+
+  aster::RenderObject object;
+  object.name = "math diagnostic probe";
+  object.primitive = aster::MeshPrimitive::Box;
+  object.transform.position = {0.0f, 0.5f, 0.0f};
+  object.transform.scale = {-1.0f, 0.0000001f, 1.0f};
+  object.material = aster::makeMaterial({.base_color = {0.4f, 0.7f, 0.9f}});
+
+  aster::Scene scene;
+  scene.objects().push_back(object);
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.5f, 0.0f};
+  camera.yaw = aster::radians(42.0f);
+  camera.pitch = aster::radians(14.0f);
+  camera.radius = 5.0f;
+  camera.vertical_fov = aster::radians(44.0f);
+
+  aster::RendererSettings settings;
+  settings.atmosphere.enabled = false;
+  settings.sun_light.enabled = true;
+  settings.sun_light.direction_to_light = {-0.2f, 1.0f, 0.1f};
+
+  aster::clearMathDiagnostics();
+  (void)aster::normalizeOr(aster::Vec3{0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
+  (void)renderer.render(scene, camera, settings, 48, 32, 0.0);
+
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  assert(forensics.evidence.schema_id != 0u);
+  assert(forensics.evidence.render_ir_hash != 0u);
+  assert(forensics.evidence.visibility_plan_hash != 0u);
+  assert(forensics.evidence.draw_signature_count > 0u);
+  bool saw_math_contract = false;
+  bool saw_singular_normal = false;
+  bool saw_negative_scale = false;
+  for (const aster::FrameDiagnosticEvent &event : forensics.events) {
+    saw_math_contract =
+        saw_math_contract || event.kind == aster::FrameDiagnosticKind::MathContract;
+    saw_singular_normal =
+        saw_singular_normal || event.kind == aster::FrameDiagnosticKind::SingularNormalMatrix;
+    saw_negative_scale =
+        saw_negative_scale || event.kind == aster::FrameDiagnosticKind::NegativeScaleTangentFlip;
+  }
+  assert(saw_math_contract);
+  assert(saw_singular_normal);
+  assert(saw_negative_scale);
+  assert(aster::mathDiagnosticCount() == 0u);
+
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
 aster::OrbitCamera retroStyleTestCamera() {
   aster::OrbitCamera camera;
   camera.target = {0.0f, 0.55f, 0.0f};
@@ -307,6 +551,7 @@ void testRetroStyleSoftwarePreviewEffects() {
   const PixelStats retro_stats = measurePixels(retro_frame);
   assert(retro_stats.mean_r > retro_stats.mean_g);
   assert(retro_stats.mean_r > retro_stats.mean_b);
+  assert(retro_stats.mean_luma > neutral_stats.mean_luma * 0.20);
   assert(retro_stats.unique_rgb < neutral_stats.unique_rgb);
 }
 
@@ -532,6 +777,15 @@ void testRhiExplicitGpuContracts() {
   pipeline.depth_test = false;
   const std::uint64_t no_depth_key = aster::rhi::graphicsPipelineCacheKey(pipeline);
   assert(no_depth_key != solid_key);
+  pipeline.depth_test = true;
+  pipeline.rasterizer.depth_bias_enabled = true;
+  pipeline.rasterizer.depth_bias_constant = 1.0f;
+  pipeline.rasterizer.depth_bias_slope = 0.5f;
+  const std::uint64_t biased_key = aster::rhi::graphicsPipelineCacheKey(pipeline);
+  assert(biased_key != solid_key);
+  pipeline.rasterizer.depth_bias_constant = 2.0f;
+  const std::uint64_t biased_constant_key = aster::rhi::graphicsPipelineCacheKey(pipeline);
+  assert(biased_constant_key != biased_key);
 
   aster::rhi::FramebufferDesc framebuffer;
   framebuffer.width = 128u;
@@ -675,6 +929,17 @@ void testMaterialCompilerContract() {
           aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::Transparent)) != 0u);
   assert((translucent_compiled.permutation_flags &
           aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::DoubleSided)) != 0u);
+
+  aster::Material decal = translucent;
+  decal.depth_policy = {.layer = aster::RenderDepthLayer::Decal,
+                        .constant_bias = 0.00008f,
+                        .slope_bias = 0.00012f};
+  const aster::CompiledMaterial decal_compiled =
+      aster::compileMaterialForRendering(decal, false, "material.decal");
+  assert((decal_compiled.permutation_flags &
+          aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::DepthBias)) != 0u);
+  assert(decal_compiled.permutation_key != translucent_compiled.permutation_key);
+  assert(decal_compiled.pipeline_tag.find(".depth-bias") != std::string::npos);
 }
 
 void testRustRenderFramePlanContracts() {
@@ -712,6 +977,8 @@ void testRustRenderFramePlanContracts() {
 
   aster::RenderScene render_scene;
   render_scene.rebuild(scene);
+  assert(render_scene.ir().content_hash != 0u);
+  assert(render_scene.ir().objects.size() == scene.objects().size());
   const aster::FrameRenderPlan plan =
       aster::buildFrameRenderPlan(render_scene, camera, {}, 800, 600);
   const aster::FrameRenderPlan repeated_plan =
@@ -723,6 +990,9 @@ void testRustRenderFramePlanContracts() {
   assert(plan.diagnostics.opaque_groups == 1u);
   assert(plan.diagnostics.transparent_groups == 1u);
   assert(plan.diagnostics.planned_instances == 4u);
+  assert(plan.source_ir_hash == render_scene.ir().content_hash);
+  assert(!plan.groups.empty());
+  assert(plan.groups.front().signature.key.value != 0u);
 
   const auto transparent_group =
       std::find_if(plan.groups.begin(), plan.groups.end(), [](const aster::FrameRenderDrawGroup &group) {
@@ -994,6 +1264,10 @@ constexpr TestCase kTestCases[] = {
     {"industrial_pipe_scene", testIndustrialPipeSceneContract},
     {"showcase_lab_scenes", testShowcaseLabSceneContracts},
     {"software_preview_renderer", testSoftwarePreviewRendererProducesImage},
+    {"software_depth_policy_coplanar", testSoftwareDepthPolicySeparatesCoplanarAttachments},
+    {"software_depth_policy_object_order", testSoftwareDepthPolicyIsStableAcrossObjectOrder},
+    {"prepare_scene_custom_mesh_cache", testPrepareSceneInvalidatesCustomMeshCache},
+    {"frame_math_diagnostics", testFrameMathDiagnostics},
     {"retro_style_neutral_preview", testRetroStyleNeutralSoftwarePreviewMatchesDefault},
     {"retro_style_preview_effects", testRetroStyleSoftwarePreviewEffects},
     {"retro_style_emissive_gain", testRetroStyleEmissiveSoftwarePreviewGain},

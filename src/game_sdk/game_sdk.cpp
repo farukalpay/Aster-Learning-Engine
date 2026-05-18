@@ -688,6 +688,7 @@ readPathMap(const Json &object, const char *key, std::vector<Diagnostic> &diagno
       readFloatOr(value, "normal_up_bias", diagnostics, source, path, out.normal_up_bias);
   out.lens_offset = readFloatOr(value, "lens_offset", diagnostics, source, path, out.lens_offset);
   out.light_offset = readFloatOr(value, "light_offset", diagnostics, source, path, out.light_offset);
+  out.light_color = readVec3Or(value, "light_color", diagnostics, source, path, out.light_color);
   return out;
 }
 

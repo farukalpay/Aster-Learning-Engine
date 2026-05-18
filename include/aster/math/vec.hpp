@@ -555,7 +555,17 @@ template <typename T, std::size_t N>
 [[nodiscard]] inline MathResult<Vec<T, N>> safeNormalize(const Vec<T, N> value,
                                                          const T epsilon =
                                                              ScalarTraits<T>::defaultAbsoluteEpsilon()) {
+  for (std::size_t i = 0; i < N; ++i) {
+    if (!isFiniteScalar(value[i])) {
+      return MathResult<Vec<T, N>>::failure(MathError::NonFiniteInput,
+                                            "Cannot normalize a non-finite vector.");
+    }
+  }
   const T len = length(value);
+  if (!isFiniteScalar(len)) {
+    return MathResult<Vec<T, N>>::failure(MathError::NonFiniteInput,
+                                          "Cannot normalize a vector with non-finite length.");
+  }
   if (len <= epsilon) {
     return MathResult<Vec<T, N>>::failure(MathError::DegenerateInput,
                                           "Cannot normalize a near-zero vector.");
@@ -568,12 +578,26 @@ template <typename T, std::size_t N>
                                            const T epsilon =
                                                ScalarTraits<T>::defaultAbsoluteEpsilon()) {
   const MathResult<Vec<T, N>> result = safeNormalize(value, epsilon);
+  if (!result) {
+    MathPolicy policy = currentMathPolicy();
+    policy.absolute_epsilon = static_cast<float>(epsilon);
+    recordMathDiagnostic(MathDiagnosticOperation::NormalizeFallback,
+                         MathDiagnosticSource::MathCore, result.diagnostics, policy, true);
+  }
   return result ? result.value : fallback;
 }
 
 template <typename T, std::size_t N>
 [[nodiscard]] inline Vec<T, N> normalize(const Vec<T, N> value) {
-  return normalizeOr(value, {});
+  const MathPolicy policy = currentMathPolicy();
+  const MathResult<Vec<T, N>> result =
+      safeNormalize(value, static_cast<T>(policy.absolute_epsilon));
+  if (!result) {
+    handleMathContractFailure(MathDiagnosticOperation::Normalize,
+                              MathDiagnosticSource::MathCore, result.diagnostics, policy, false);
+    return {};
+  }
+  return result.value;
 }
 
 inline Vec2 normalize(const Vec2 value) {
@@ -902,7 +926,13 @@ struct Sphere3 {
 }
 
 [[nodiscard]] inline Plane3 planeFromPointNormal(const Vec3 point, const Vec3 normal) {
-  const Vec3 safe_normal = normalizeOr(normal, {0.0f, 1.0f, 0.0f});
+  const MathResult<Vec3> normal_result = safeNormalize(normal);
+  if (!normal_result) {
+    recordMathDiagnostic(MathDiagnosticOperation::PlaneConstruction,
+                         MathDiagnosticSource::Geometry, normal_result.diagnostics,
+                         currentMathPolicy(), true);
+  }
+  const Vec3 safe_normal = normal_result ? normal_result.value : Vec3{0.0f, 1.0f, 0.0f};
   return {safe_normal, -dot(safe_normal, point)};
 }
 

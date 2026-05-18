@@ -1388,6 +1388,10 @@ void testMeshProcessingPipeline() {
   assert(diagnostics.degenerate_triangles == 1u);
   assert(diagnostics.invalid_normals == 4u);
   assert(diagnostics.generated_tangents == 6u);
+  const aster::MeshMeasure measure = aster::measureMeshForAuthoring(prepared);
+  assert(measure.surface_area > 3.99f && measure.surface_area < 4.01f);
+  assert(measure.min_triangle_quality > 0.0f);
+  assert(measure.max_uv_stretch > 0.0f);
   for (const aster::Vertex &vertex : prepared.vertices) {
     assert(aster::length(vertex.normal) > 0.99f);
     assert(aster::length({vertex.tangent.x, vertex.tangent.y, vertex.tangent.z}) > 0.99f);

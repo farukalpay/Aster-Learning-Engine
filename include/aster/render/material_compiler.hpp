@@ -19,6 +19,7 @@ enum class MaterialPermutationFlag : std::uint32_t {
   DepthWrite = 1u << 4u,
   ContactShadow = 1u << 5u,
   ShaderVariant = 1u << 6u,
+  DepthBias = 1u << 7u,
 };
 
 struct CompiledMaterial {

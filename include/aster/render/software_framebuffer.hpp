@@ -36,7 +36,8 @@ public:
   void replaceRgba8(int width, int height, std::span<const std::uint8_t> pixels);
 
   void drawTriangle(FrameVertex a, FrameVertex b, FrameVertex c, bool depth_test, bool depth_write,
-                    bool alpha_blend);
+                    bool alpha_blend, float depth_bias_constant = 0.0f,
+                    float depth_bias_slope = 0.0f);
   void drawUiTriangle(FrameVertex a, FrameVertex b, FrameVertex c);
   void fillUiRect(float x, float y, float width, float height, FrameColor color);
 

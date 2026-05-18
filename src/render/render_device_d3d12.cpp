@@ -86,6 +86,12 @@ std::size_t alignTo(const std::size_t value, const std::size_t alignment) {
   return (value + alignment - 1u) & ~(alignment - 1u);
 }
 
+bool depthPolicyUsesBias(const aster::RenderDepthPolicy policy) {
+  return policy.layer != aster::RenderDepthLayer::BaseSurface ||
+         std::abs(policy.constant_bias) > 0.0f || std::abs(policy.slope_bias) > 0.0f ||
+         std::abs(policy.normal_offset) > 0.0f;
+}
+
 D3D12_HEAP_PROPERTIES heapProperties(const D3D12_HEAP_TYPE type) {
   D3D12_HEAP_PROPERTIES props{};
   props.Type = type;
@@ -521,7 +527,10 @@ public:
       const bool transparent =
           opacity < 0.999f || aster::classifyMaterialRenderQueue(object.material) ==
                                   aster::MaterialRenderQueue::Translucent;
-      command_list_->SetPipelineState(transparent ? transparent_pso_.Get() : opaque_pso_.Get());
+      const bool biased = depthPolicyUsesBias(object.material.depth_policy);
+      command_list_->SetPipelineState(
+          transparent ? (biased ? transparent_biased_pso_.Get() : transparent_pso_.Get())
+                      : (biased ? opaque_biased_pso_.Get() : opaque_pso_.Get()));
       command_list_->SetGraphicsRootShaderResourceView(
           1u, object_upload_->GetGPUVirtualAddress() +
                   static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(*object_index * sizeof(D3D12ObjectUniforms)));
@@ -569,9 +578,11 @@ public:
       if (written == 0u) {
         return;
       }
-      command_list_->SetPipelineState(group.pass == aster::FrameRenderPass::Transparent
-                                          ? transparent_pso_.Get()
-                                          : opaque_pso_.Get());
+      const bool biased = depthPolicyUsesBias(first_object.material.depth_policy);
+      command_list_->SetPipelineState(
+          group.pass == aster::FrameRenderPass::Transparent
+              ? (biased ? transparent_biased_pso_.Get() : transparent_pso_.Get())
+              : (biased ? opaque_biased_pso_.Get() : opaque_pso_.Get()));
       command_list_->SetGraphicsRootShaderResourceView(
           1u, object_upload_->GetGPUVirtualAddress() +
                   static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(first_uniform * sizeof(D3D12ObjectUniforms)));
@@ -732,6 +743,14 @@ private:
       return false;
     }
 
+    pso.RasterizerState.DepthBias = 1;
+    pso.RasterizerState.SlopeScaledDepthBias = 1.0f;
+    if (FAILED(device_->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&opaque_biased_pso_)))) {
+      return false;
+    }
+
+    pso.RasterizerState.DepthBias = 0;
+    pso.RasterizerState.SlopeScaledDepthBias = 0.0f;
     pso.BlendState.RenderTarget[0].BlendEnable = TRUE;
     pso.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
     pso.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
@@ -740,7 +759,13 @@ private:
     pso.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
     pso.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
     pso.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-    return SUCCEEDED(device_->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&transparent_pso_)));
+    if (FAILED(device_->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&transparent_pso_)))) {
+      return false;
+    }
+    pso.RasterizerState.DepthBias = 1;
+    pso.RasterizerState.SlopeScaledDepthBias = 1.0f;
+    return SUCCEEDED(
+        device_->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&transparent_biased_pso_)));
   }
 
   bool beginCommandList() {
@@ -1150,7 +1175,9 @@ private:
 
   ComPtr<ID3D12RootSignature> root_signature_;
   ComPtr<ID3D12PipelineState> opaque_pso_;
+  ComPtr<ID3D12PipelineState> opaque_biased_pso_;
   ComPtr<ID3D12PipelineState> transparent_pso_;
+  ComPtr<ID3D12PipelineState> transparent_biased_pso_;
   ComPtr<ID3D12DescriptorHeap> rtv_heap_;
   ComPtr<ID3D12DescriptorHeap> dsv_heap_;
   ComPtr<ID3D12Resource> color_;

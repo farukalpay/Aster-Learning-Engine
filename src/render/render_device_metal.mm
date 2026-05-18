@@ -359,6 +359,9 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
   shadow.material.surface_pattern = aster::SurfacePattern::ContactShadow;
   shadow.material.alpha_mode = aster::MaterialAlphaMode::Blend;
   shadow.material.depth_write = aster::MaterialDepthWrite::Disabled;
+  shadow.material.depth_policy = {.layer = aster::RenderDepthLayer::ContactShadow,
+                                  .constant_bias = 0.00008f,
+                                  .slope_bias = 0.00012f};
   shadow.material.camera_occlusion = aster::CameraOcclusionPolicy::Solid;
   shadow.material.double_sided = true;
   shadow.casts_contact_shadow = false;
@@ -1057,6 +1060,8 @@ public:
                                         : (transparent ? transparent_depth_
                                                        : (writes_depth ? opaque_depth_
                                                                        : read_only_depth_))];
+      const aster::RenderDepthPolicy depth_policy = object.material.depth_policy;
+      [encoder setDepthBias:depth_policy.constant_bias slopeScale:depth_policy.slope_bias clamp:0.0f];
       [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
       [encoder setCullMode:metalCullMode(objectCullMode(
                                object, camera_position, settings.pipeline.back_face_culling))];
@@ -1151,6 +1156,8 @@ public:
                                         : (transparent ? transparent_depth_
                                                        : (writes_depth ? opaque_depth_
                                                                        : read_only_depth_))];
+      const aster::RenderDepthPolicy depth_policy = first_object.material.depth_policy;
+      [encoder setDepthBias:depth_policy.constant_bias slopeScale:depth_policy.slope_bias clamp:0.0f];
       [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
       [encoder setCullMode:metalCullMode(first_cull_mode)];
       [encoder setVertexBuffer:buffers->vertices offset:0 atIndex:0];

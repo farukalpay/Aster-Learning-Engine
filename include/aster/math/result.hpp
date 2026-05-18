@@ -4,8 +4,11 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
+#include <cassert>
 #include <bit>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <type_traits>
@@ -29,12 +32,129 @@ struct MathPolicy {
   bool debug_strict = false;
 };
 
+enum class MathScalarBackend {
+  PortableDeterministic,
+  NativeFast,
+  SimdAlignedCandidate,
+};
+
+struct MathBackendPolicy {
+  MathScalarBackend scalar_backend = MathScalarBackend::PortableDeterministic;
+  bool simd_aligned_storage_required = false;
+};
+
 struct MathDiagnostics {
   MathError error = MathError::None;
   float determinant = 0.0f;
   float condition_hint = 0.0f;
   const char *message = "ok";
 };
+
+enum class MathDiagnosticOperation {
+  Unknown,
+  Normalize,
+  NormalizeFallback,
+  PlaneConstruction,
+  Projection,
+  Unprojection,
+  MatrixInverse,
+  MatrixDecomposition,
+  GeometryQuery,
+  RobustPredicate,
+  AuthoringMeasure,
+};
+
+enum class MathDiagnosticSource {
+  MathCore,
+  Geometry,
+  Camera,
+  Render,
+  Asset,
+  Authoring,
+  Gameplay,
+};
+
+struct MathDiagnosticEvent {
+  MathDiagnosticOperation operation = MathDiagnosticOperation::Unknown;
+  MathDiagnosticSource source = MathDiagnosticSource::MathCore;
+  MathError error = MathError::None;
+  MathPolicy policy{};
+  bool fallback_used = false;
+  const char *message = "ok";
+};
+
+struct MathDiagnosticRing {
+  static constexpr std::size_t capacity = 96u;
+  std::array<MathDiagnosticEvent, capacity> events{};
+  std::size_t write_index = 0u;
+  std::size_t count = 0u;
+};
+
+[[nodiscard]] inline MathPolicy &currentMathPolicy() {
+  thread_local MathPolicy policy{};
+  return policy;
+}
+
+inline void setCurrentMathPolicy(const MathPolicy policy) {
+  currentMathPolicy() = policy;
+}
+
+[[nodiscard]] inline MathDiagnosticRing &mathDiagnosticRing() {
+  thread_local MathDiagnosticRing ring{};
+  return ring;
+}
+
+inline void clearMathDiagnostics() {
+  mathDiagnosticRing() = {};
+}
+
+[[nodiscard]] inline std::size_t mathDiagnosticCount() {
+  return mathDiagnosticRing().count;
+}
+
+[[nodiscard]] inline MathDiagnosticEvent mathDiagnosticAt(const std::size_t index) {
+  const MathDiagnosticRing &ring = mathDiagnosticRing();
+  if (index >= ring.count) {
+    return {};
+  }
+  const std::size_t start =
+      ring.count < MathDiagnosticRing::capacity ? 0u : ring.write_index;
+  return ring.events[(start + index) % MathDiagnosticRing::capacity];
+}
+
+inline void recordMathDiagnostic(const MathDiagnosticOperation operation,
+                                 const MathDiagnosticSource source,
+                                 const MathDiagnostics diagnostics,
+                                 const MathPolicy policy,
+                                 const bool fallback_used) {
+  if (diagnostics.error == MathError::None) {
+    return;
+  }
+  MathDiagnosticRing &ring = mathDiagnosticRing();
+  ring.events[ring.write_index] = {.operation = operation,
+                                   .source = source,
+                                   .error = diagnostics.error,
+                                   .policy = policy,
+                                   .fallback_used = fallback_used,
+                                   .message = diagnostics.message};
+  ring.write_index = (ring.write_index + 1u) % MathDiagnosticRing::capacity;
+  ring.count = std::min(ring.count + 1u, MathDiagnosticRing::capacity);
+}
+
+inline void handleMathContractFailure(const MathDiagnosticOperation operation,
+                                      const MathDiagnosticSource source,
+                                      const MathDiagnostics diagnostics,
+                                      const MathPolicy policy,
+                                      const bool fallback_used) {
+  recordMathDiagnostic(operation, source, diagnostics, policy, fallback_used);
+#ifndef NDEBUG
+  if (policy.debug_strict) {
+    assert(false && "Aster math debug-strict contract failure.");
+  }
+#else
+  (void)policy;
+#endif
+}
 
 template <typename T> struct MathResult {
   T value{};

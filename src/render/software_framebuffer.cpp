@@ -138,7 +138,9 @@ void SoftwareFrameBuffer::replaceRgba8(const int width, const int height,
 
 void SoftwareFrameBuffer::drawTriangle(const FrameVertex a, const FrameVertex b,
                                        const FrameVertex c, const bool depth_test,
-                                       const bool depth_write, const bool alpha_blend) {
+                                       const bool depth_write, const bool alpha_blend,
+                                       const float depth_bias_constant,
+                                       const float depth_bias_slope) {
   if (empty()) {
     return;
   }
@@ -154,6 +156,13 @@ void SoftwareFrameBuffer::drawTriangle(const FrameVertex a, const FrameVertex b,
   const int max_y = std::min(height_ - 1, static_cast<int>(std::ceil(std::max({a.y, b.y, c.y}))));
 
   const float inv_area = 1.0f / area;
+  const float dzdx =
+      ((b.depth - a.depth) * (c.y - a.y) - (c.depth - a.depth) * (b.y - a.y)) * inv_area;
+  const float dzdy =
+      ((c.depth - a.depth) * (b.x - a.x) - (b.depth - a.depth) * (c.x - a.x)) * inv_area;
+  const float slope_bias =
+      std::max(std::abs(dzdx), std::abs(dzdy)) * std::max(depth_bias_slope, 0.0f);
+  const float depth_bias = depth_bias_constant + slope_bias;
   for (int y = min_y; y <= max_y; ++y) {
     for (int x = min_x; x <= max_x; ++x) {
       const float px = static_cast<float>(x) + 0.5f;
@@ -164,7 +173,7 @@ void SoftwareFrameBuffer::drawTriangle(const FrameVertex a, const FrameVertex b,
       if (wa < 0.0f || wb < 0.0f || wc < 0.0f) {
         continue;
       }
-      const float depth = a.depth * wa + b.depth * wb + c.depth * wc;
+      const float depth = a.depth * wa + b.depth * wb + c.depth * wc + depth_bias;
       putPixel(x, y, depth, mixColor(a, b, c, wa, wb, wc), depth_test, depth_write, alpha_blend);
     }
   }

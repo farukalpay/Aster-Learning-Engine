@@ -489,6 +489,22 @@ AsterKernelFrameDiagnosticKind diagnosticKind(const aster::FrameDiagnosticKind k
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_CAPABILITY_MISMATCH;
   case aster::FrameDiagnosticKind::ClusteredLightingFallback:
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_CLUSTERED_LIGHTING_FALLBACK;
+  case aster::FrameDiagnosticKind::MathContract:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_MATH_CONTRACT;
+  case aster::FrameDiagnosticKind::NonFiniteWorldMatrix:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_NON_FINITE_WORLD_MATRIX;
+  case aster::FrameDiagnosticKind::SingularNormalMatrix:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_SINGULAR_NORMAL_MATRIX;
+  case aster::FrameDiagnosticKind::NegativeScaleTangentFlip:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_NEGATIVE_SCALE_TANGENT_FLIP;
+  case aster::FrameDiagnosticKind::ProjectionConventionMismatch:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_PROJECTION_CONVENTION_MISMATCH;
+  case aster::FrameDiagnosticKind::ViewportOriginMismatch:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_VIEWPORT_ORIGIN_MISMATCH;
+  case aster::FrameDiagnosticKind::BackendProjectionDrift:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_BACKEND_PROJECTION_DRIFT;
+  case aster::FrameDiagnosticKind::PredicateUncertainty:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_PREDICATE_UNCERTAINTY;
   case aster::FrameDiagnosticKind::BackendFallback:
   default:
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_BACKEND_FALLBACK;
@@ -887,9 +903,14 @@ AsterStatus aster_kernel_math_intersect_ray_plane(
   if (out_distance == nullptr || out_point == nullptr) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "ray-plane output pointer is null");
   }
+  const aster::MathResult<aster::Vec3> direction = aster::safeNormalize(vec(ray.direction));
+  if (!direction) {
+    writeMathDiagnostics(out_diagnostics, direction.diagnostics);
+    return statusFromMath(direction.diagnostics);
+  }
   const aster::RayHit3 hit =
-      aster::intersectRayPlane(vec(ray.origin), aster::normalize(vec(ray.direction)),
-                               {vec(plane.normal), plane.distance});
+      aster::intersectRayPlane(vec(ray.origin), direction.value, {vec(plane.normal),
+                                                                  plane.distance});
   if (!hit.hit || (ray.max_distance > 0.0f && hit.distance > ray.max_distance)) {
     const aster::MathDiagnostics diagnostics{aster::MathError::DegenerateInput, 0.0f, 0.0f,
                                              "Ray does not intersect the plane."};
@@ -908,8 +929,13 @@ AsterStatus aster_kernel_math_intersect_ray_triangle(
   if (out_distance == nullptr || out_barycentric == nullptr) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "ray-triangle output pointer is null");
   }
-  const aster::RayHit3 hit = aster::intersectRayTriangle(
-      vec(ray.origin), aster::normalize(vec(ray.direction)), vec(a), vec(b), vec(c));
+  const aster::MathResult<aster::Vec3> direction = aster::safeNormalize(vec(ray.direction));
+  if (!direction) {
+    writeMathDiagnostics(out_diagnostics, direction.diagnostics);
+    return statusFromMath(direction.diagnostics);
+  }
+  const aster::RayHit3 hit =
+      aster::intersectRayTriangle(vec(ray.origin), direction.value, vec(a), vec(b), vec(c));
   if (!hit.hit || (ray.max_distance > 0.0f && hit.distance > ray.max_distance)) {
     const aster::MathDiagnostics diagnostics{aster::MathError::DegenerateInput, 0.0f, 0.0f,
                                              "Ray does not intersect the triangle."};
@@ -928,8 +954,13 @@ AsterStatus aster_kernel_math_intersect_ray_sphere(
   if (out_distance == nullptr || out_point == nullptr || out_normal == nullptr) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "ray-sphere output pointer is null");
   }
+  const aster::MathResult<aster::Vec3> direction = aster::safeNormalize(vec(ray.direction));
+  if (!direction) {
+    writeMathDiagnostics(out_diagnostics, direction.diagnostics);
+    return statusFromMath(direction.diagnostics);
+  }
   const aster::RayHit3 hit = aster::intersectRaySphere(
-      vec(ray.origin), aster::normalize(vec(ray.direction)), {vec(sphere.center), sphere.radius});
+      vec(ray.origin), direction.value, {vec(sphere.center), sphere.radius});
   if (!hit.hit || (ray.max_distance > 0.0f && hit.distance > ray.max_distance)) {
     const aster::MathDiagnostics diagnostics{aster::MathError::DegenerateInput, 0.0f, 0.0f,
                                              "Ray does not intersect the sphere."};

@@ -95,7 +95,7 @@ constexpr aster::Vec3 kCaveEntrancePlanar{31.0f, 0.0f, -59.0f};
 constexpr aster::Vec3 kCaveInwardPlanar{-0.16f, 0.0f, -1.0f};
 constexpr float kCaveApproachPathWidth = 0.74f;
 constexpr std::size_t kMiningFractureShardVisualPoolSize = 28u;
-constexpr aster::Vec3 kCaveIndustrialWarmLight{0.62f, 0.72f, 0.82f};
+constexpr aster::Vec3 kCaveIndustrialRedLight{1.0f, 0.16f, 0.08f};
 constexpr float kAuthoredCaveFixtureIntensity = 30.0f;
 constexpr float kAuthoredCaveFixtureSourceRadius = 2.15f;
 constexpr float kOreInteractionDistance = 2.35f;

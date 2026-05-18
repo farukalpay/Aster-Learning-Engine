@@ -50,16 +50,14 @@ bool degenerateTriangle(const Vertex &a, const Vertex &b, const Vertex &c) {
     return true;
   }
 
-  return triangleAreaSquared(a, b, c) <=
+  const float authoring_area = triangleArea(a.position, b.position, c.position);
+  return authoring_area <= std::numeric_limits<float>::epsilon() ||
+         triangleAreaSquared(a, b, c) <=
          edge_scale_squared * edge_scale_squared * kRelativeAreaTolerance;
 }
 
 Vec3 faceNormal(const Vec3 a, const Vec3 b, const Vec3 c) {
-  Vec3 normal = normalize(cross(b - a, c - a));
-  if (length(normal) <= 0.0001f) {
-    return {0.0f, 1.0f, 0.0f};
-  }
-  return normal;
+  return normalizeOr(cross(b - a, c - a), {0.0f, 1.0f, 0.0f});
 }
 
 void validateMesh(const CpuMesh &mesh) {
@@ -131,7 +129,7 @@ void rebuildNormals(CpuMesh &mesh) {
   }
 
   for (Vertex &vertex : mesh.vertices) {
-    vertex.normal = normalize(vertex.normal);
+    vertex.normal = normalizeOr(vertex.normal, {0.0f, 1.0f, 0.0f});
     if (!validNormal(vertex.normal)) {
       vertex.normal = {0.0f, 1.0f, 0.0f};
     }
@@ -171,16 +169,15 @@ void generateTangents(CpuMesh &mesh, MeshDiagnostics &diagnostics) {
       const float inv = 1.0f / denominator;
       tangent = (edge_ab * uv_ac.y - edge_ac * uv_ab.y) * inv;
       const Vec3 bitangent = (edge_ac * uv_ab.x - edge_ab * uv_ac.x) * inv;
-      const Vec3 n = normalize(a.normal + b.normal + c.normal);
+      const Vec3 n = normalizeOr(a.normal + b.normal + c.normal,
+                                 faceNormal(a.position, b.position, c.position));
       sign = dot(cross(n, tangent), bitangent) < 0.0f ? -1.0f : 1.0f;
     } else {
-      Vec3 n = normalize(a.normal + b.normal + c.normal);
-      if (length(n) <= 0.0001f) {
-        n = faceNormal(a.position, b.position, c.position);
-      }
+      const Vec3 n = normalizeOr(a.normal + b.normal + c.normal,
+                                 faceNormal(a.position, b.position, c.position));
       const Vec3 reference = std::abs(n.y) > 0.80f ? Vec3{1.0f, 0.0f, 0.0f}
                                                     : Vec3{0.0f, 1.0f, 0.0f};
-      tangent = normalize(cross(reference, n));
+      tangent = normalizeOr(cross(reference, n), {1.0f, 0.0f, 0.0f});
     }
 
     const auto assign_tangent = [&](Vertex &vertex) {
@@ -190,7 +187,7 @@ void generateTangents(CpuMesh &mesh, MeshDiagnostics &diagnostics) {
                                                                  : Vec3{0.0f, 1.0f, 0.0f};
         t = cross(reference, vertex.normal);
       }
-      t = normalize(t);
+      t = normalizeOr(t, {1.0f, 0.0f, 0.0f});
       vertex.tangent = {t.x, t.y, t.z, sign};
     };
 
@@ -354,6 +351,18 @@ CpuMesh prepareMeshForRendering(CpuMesh mesh, const MeshProcessOptions options,
     *diagnostics = local;
   }
   return mesh;
+}
+
+MeshMeasure measureMeshForAuthoring(const CpuMesh &mesh) {
+  std::vector<Vec3> positions;
+  std::vector<Vec2> uvs;
+  positions.reserve(mesh.vertices.size());
+  uvs.reserve(mesh.vertices.size());
+  for (const Vertex &vertex : mesh.vertices) {
+    positions.push_back(vertex.position);
+    uvs.push_back(vertex.uv);
+  }
+  return measureTriangleMesh(positions, mesh.indices, uvs);
 }
 
 } // namespace aster

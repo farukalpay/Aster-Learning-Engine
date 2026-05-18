@@ -14,7 +14,6 @@
 #include <limits>
 #include <stdexcept>
 #include <type_traits>
-#include <unordered_set>
 
 namespace aster {
 namespace {
@@ -247,20 +246,19 @@ void appendKeyString(std::uint64_t &hash, const std::string &value) {
   hash = fnvAppend(hash, value.data(), value.size());
 }
 
+void appendDepthPolicy(std::uint64_t &hash, const RenderDepthPolicy policy) {
+  appendKey(hash, policy.layer);
+  appendKey(hash, policy.constant_bias);
+  appendKey(hash, policy.slope_bias);
+  appendKey(hash, policy.normal_offset);
+}
+
 Vec3 cameraForward(const OrbitCamera &camera) {
-  Vec3 forward = normalize(camera.target - camera.position());
-  if (length(forward) <= 0.0001f) {
-    return {0.0f, 0.0f, -1.0f};
-  }
-  return forward;
+  return normalizeOr(camera.target - camera.position(), {0.0f, 0.0f, -1.0f});
 }
 
 Vec3 cameraRight(const Vec3 forward) {
-  Vec3 right = normalize(cross(forward, {0.0f, 1.0f, 0.0f}));
-  if (length(right) <= 0.0001f) {
-    return {1.0f, 0.0f, 0.0f};
-  }
-  return right;
+  return normalizeOr(cross(forward, {0.0f, 1.0f, 0.0f}), {1.0f, 0.0f, 0.0f});
 }
 
 std::uint32_t queueValue(const MaterialRenderQueue queue) {
@@ -320,6 +318,7 @@ RenderMaterialKey renderMaterialKeyForObject(const RenderObject &object) {
   appendKey(hash, queue);
   appendKey(hash, writes_depth);
   appendKey(hash, double_sided);
+  appendDepthPolicy(hash, object.material.depth_policy);
   appendKey(hash, object.material.cull_mode);
   appendKey(hash, contact_shadow);
   appendKey(hash, object.material.shader_variant_key);
@@ -328,8 +327,22 @@ RenderMaterialKey renderMaterialKeyForObject(const RenderObject &object) {
   return {hash};
 }
 
+RenderSignatureKey renderSignatureKeyFor(const RenderMeshId mesh, const RenderMaterialKey material,
+                                         const MaterialRenderQueue queue,
+                                         const RenderDepthPolicy depth_policy,
+                                         const FrameRenderPass pass) {
+  std::uint64_t hash = 1469598103934665603ull;
+  appendKey(hash, mesh.value);
+  appendKey(hash, material.value);
+  appendKey(hash, queue);
+  appendDepthPolicy(hash, depth_policy);
+  appendKey(hash, pass);
+  return {hash};
+}
+
 RenderBounds renderBoundsForObject(const RenderObject &object) {
-  if (object.custom_mesh != nullptr && object.custom_mesh->vertices.empty()) {
+  if (object.custom_mesh != nullptr &&
+      (object.custom_mesh->vertices.empty() || object.custom_mesh->indices.empty())) {
     return {object.transform.position, 0.0f};
   }
 
@@ -345,27 +358,14 @@ RenderBounds renderBoundsForObject(const RenderObject &object) {
 }
 
 void RenderScene::rebuild(const Scene &scene) {
-  std::unordered_set<std::uintptr_t> live_custom_meshes;
-  live_custom_meshes.reserve(scene.objects().size());
-  for (const RenderObject &object : scene.objects()) {
-    if (object.custom_mesh != nullptr) {
-      live_custom_meshes.insert(reinterpret_cast<std::uintptr_t>(object.custom_mesh.get()));
-    }
-  }
-  for (auto it = custom_bounds_cache_.begin(); it != custom_bounds_cache_.end();) {
-    if (live_custom_meshes.contains(it->first)) {
-      ++it;
-    } else {
-      it = custom_bounds_cache_.erase(it);
-    }
-  }
+  custom_bounds_cache_.clear();
 
   const auto cached_bounds = [this](const RenderObject &object) {
     if (object.custom_mesh == nullptr) {
       const LocalBounds bounds = primitiveLocalBounds(object.primitive);
       return CachedLocalBounds{bounds.min, bounds.max, primitiveLocalRadius(object.primitive)};
     }
-    if (object.custom_mesh->vertices.empty()) {
+    if (object.custom_mesh->vertices.empty() || object.custom_mesh->indices.empty()) {
       return CachedLocalBounds{{}, {}, 0.0f};
     }
     const auto key = reinterpret_cast<std::uintptr_t>(object.custom_mesh.get());
@@ -390,32 +390,58 @@ void RenderScene::rebuild(const Scene &scene) {
         bounds.radius * std::max(maxAbsComponent(object.transform.scale), 0.001f)};
   };
 
-  objects_.clear();
-  objects_.reserve(scene.objects().size());
+  ir_.objects.clear();
+  ir_.objects.reserve(scene.objects().size());
+  std::uint64_t ir_hash = 1469598103934665603ull;
   for (std::size_t index = 0; index < scene.objects().size(); ++index) {
     const RenderObject &object = scene.objects()[index];
     const bool plane_primitive = object.custom_mesh == nullptr && object.primitive == MeshPrimitive::Plane;
     const bool fade_eligible =
         object.camera_occlusion_fade && !plane_primitive && allowsCameraOcclusionFade(object.material);
-    objects_.push_back({.entity = {static_cast<std::uint64_t>(index) + 1u},
-                        .object_index = index,
-                        .mesh = renderMeshIdForObject(object),
-                        .material = renderMaterialKeyForObject(object),
-                        .render_queue = classifyMaterialRenderQueue(object.material),
-                        .flags = fade_eligible ? kRuntimeFlagFadeEligible : 0u,
-                        .visibility_class =
-                            object.visibility_hint.visibility_class,
-                        .position = object.transform.position,
-                        .visibility_cell = object.visibility_hint.cell,
-                        .bounds = world_bounds(object),
-                        .opacity = object.material.opacity,
-                        .lod_max_distance = std::max(object.lod.max_distance, 0.0f),
-                        .lod_min_projected_radius =
-                            std::max(object.lod.min_projected_radius, 0.0f),
-                        .portal_depth = object.visibility_hint.portal_depth,
-                        .dynamic_mesh_generation =
-                            object.dynamic_mesh.valid() ? object.dynamic_mesh.generation : 0u});
+    const RenderMeshId mesh = renderMeshIdForObject(object);
+    const RenderMaterialKey material = renderMaterialKeyForObject(object);
+    const MaterialRenderQueue queue = classifyMaterialRenderQueue(object.material);
+    const RenderDepthPolicy depth_policy = object.material.depth_policy;
+    const RenderObjectPacket packet{
+        .entity = {static_cast<std::uint64_t>(index) + 1u},
+        .object_index = index,
+        .mesh = mesh,
+        .material = material,
+        .draw_signature =
+            renderSignatureKeyFor(mesh, material, queue, depth_policy, FrameRenderPass::Opaque),
+        .render_queue = queue,
+        .depth_policy = depth_policy,
+        .flags = fade_eligible ? kRuntimeFlagFadeEligible : 0u,
+        .visibility_class = object.visibility_hint.visibility_class,
+        .position = object.transform.position,
+        .visibility_cell = object.visibility_hint.cell,
+        .bounds = world_bounds(object),
+        .opacity = object.material.opacity,
+        .lod_max_distance = std::max(object.lod.max_distance, 0.0f),
+        .lod_min_projected_radius = std::max(object.lod.min_projected_radius, 0.0f),
+        .portal_depth = object.visibility_hint.portal_depth,
+        .dynamic_mesh_generation = object.dynamic_mesh.valid() ? object.dynamic_mesh.generation
+                                                               : 0u};
+    appendKey(ir_hash, packet.entity.value);
+    appendKey(ir_hash, packet.object_index);
+    appendKey(ir_hash, packet.mesh.value);
+    appendKey(ir_hash, packet.material.value);
+    appendKey(ir_hash, packet.render_queue);
+    appendDepthPolicy(ir_hash, packet.depth_policy);
+    appendKey(ir_hash, packet.flags);
+    appendKey(ir_hash, packet.visibility_class);
+    appendKey(ir_hash, packet.position.x);
+    appendKey(ir_hash, packet.position.y);
+    appendKey(ir_hash, packet.position.z);
+    appendKey(ir_hash, packet.bounds.center.x);
+    appendKey(ir_hash, packet.bounds.center.y);
+    appendKey(ir_hash, packet.bounds.center.z);
+    appendKey(ir_hash, packet.bounds.radius);
+    appendKey(ir_hash, packet.opacity);
+    appendKey(ir_hash, packet.dynamic_mesh_generation);
+    ir_.objects.push_back(packet);
   }
+  ir_.content_hash = ir_hash;
 }
 
 FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera &camera,
@@ -506,9 +532,27 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
   for (std::size_t i = 0; i < buffers.group_count; ++i) {
     const RuntimeDrawGroup &group = runtime_groups[i];
     const FrameRenderPass pass = passFromValue(group.pass);
-    plan.groups.push_back({.mesh = {group.mesh_key},
-                           .material = {group.material_key},
-                           .render_queue = materialQueueFromValue(group.render_queue),
+    RenderDepthPolicy depth_policy{};
+    if (group.first_instance < plan.instances.size()) {
+      const FrameRenderInstance &first_instance = plan.instances[group.first_instance];
+      if (first_instance.object_index < scene.objects().size()) {
+        depth_policy = scene.objects()[first_instance.object_index].depth_policy;
+      }
+    }
+    const RenderMeshId mesh{group.mesh_key};
+    const RenderMaterialKey material{group.material_key};
+    const MaterialRenderQueue queue = materialQueueFromValue(group.render_queue);
+    const CanonicalDrawSignature signature{
+        .key = renderSignatureKeyFor(mesh, material, queue, depth_policy, pass),
+        .mesh = mesh,
+        .material = material,
+        .render_queue = queue,
+        .depth_policy = depth_policy,
+        .pass = pass};
+    plan.groups.push_back({.signature = signature,
+                           .mesh = mesh,
+                           .material = material,
+                           .render_queue = queue,
                            .pass = pass,
                            .graph_pass_id =
                                static_cast<std::uint32_t>(pass == FrameRenderPass::Opaque
@@ -531,6 +575,7 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
                       .visibility_hint_objects = diagnostics.visibility_hint_objects,
                       .dynamic_mesh_objects = diagnostics.dynamic_mesh_objects,
                       .rust_plan_seconds = diagnostics.rust_plan_seconds};
+  plan.source_ir_hash = scene.ir().content_hash;
   return plan;
 }
 

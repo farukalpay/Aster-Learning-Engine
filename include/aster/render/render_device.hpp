@@ -284,6 +284,14 @@ enum class FrameDiagnosticKind : std::uint32_t {
   ResourceLifetimeHazard,
   CapabilityMismatch,
   ClusteredLightingFallback,
+  MathContract,
+  NonFiniteWorldMatrix,
+  SingularNormalMatrix,
+  NegativeScaleTangentFlip,
+  ProjectionConventionMismatch,
+  ViewportOriginMismatch,
+  BackendProjectionDrift,
+  PredicateUncertainty,
 };
 
 struct FrameDiagnosticEvent {
@@ -295,7 +303,16 @@ struct FrameDiagnosticEvent {
   std::uint64_t value = 0u;
 };
 
+struct FrameEvidence {
+  std::uint64_t schema_id = 0x4153544552464556ull;
+  std::uint64_t render_ir_hash = 0u;
+  std::uint64_t visibility_plan_hash = 0u;
+  std::uint32_t backend_kind = 0u;
+  std::uint32_t draw_signature_count = 0u;
+};
+
 struct FrameForensics {
+  FrameEvidence evidence{};
   std::vector<FramePassStats> passes;
   std::vector<FrameDiagnosticEvent> events;
 };

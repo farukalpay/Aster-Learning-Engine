@@ -28,15 +28,15 @@ void LumenRun::applyCaveWebTraversalGates(PhysicsBody &body) {
     const float approach = dot(offset, normal);
     const float clearance =
         tuning_.player_radius + std::max(web.thickness * 0.50f, tuning_.player_radius * 0.25f);
-    if (approach <= -clearance) {
+    if (std::abs(approach) > clearance) {
       continue;
     }
-    body.position = body.position - normal * (approach + clearance);
-    const float forward_speed = dot(body.velocity, normal);
-    if (forward_speed > 0.0f) {
-      body.velocity = body.velocity - normal * forward_speed;
+
+    const float through_speed = dot(body.velocity, normal);
+    if (std::abs(through_speed) > 0.001f) {
+      body.velocity = body.velocity - normal * (through_speed * 0.58f);
+      physics_.wakeBody(player_body_);
     }
-    physics_.wakeBody(player_body_);
   }
 }
 
@@ -701,6 +701,48 @@ void LumenRun::spawnBloodBurst(const Vec3 center, const Vec3 impact_origin, cons
   blood_particle_cursor_ += count;
 }
 
+void LumenRun::clearTransientFeedback() {
+  player_mouth_open_ = 0.0f;
+  death_state_ = DeathSequenceState::Alive;
+  death_timer_ = 0.0f;
+  death_origin_ = {};
+  pending_defeat_ = false;
+  blood_particle_cursor_ = 0;
+
+  auto &objects = scene_.objects();
+  for (SceneParticle &particle : blood_particles_) {
+    particle.position = {0.0f, -20.0f, 0.0f};
+    particle.velocity = {};
+    particle.age = 0.0f;
+    particle.lifetime = 0.0f;
+    if (particle.object_index < objects.size()) {
+      hideRenderObject(objects[particle.object_index]);
+    }
+  }
+  for (MiningFractureShardVisual &shard : mining_fracture_shards_) {
+    shard.active = false;
+    shard.age = shard.lifetime;
+    shard.velocity = {};
+    shard.angular_velocity = {};
+    if (shard.object_index < objects.size()) {
+      hideRenderObject(objects[shard.object_index]);
+    }
+  }
+  for (CoalOreNode &ore : coal_ores_) {
+    ore.hit_flash = 0.0f;
+  }
+  for (CaveWebObstacle &web : cave_webs_) {
+    web.hit_flash = 0.0f;
+  }
+  for (CaveSkitter &skitter : cave_skitters_) {
+    skitter.hit_flash = 0.0f;
+    skitter.bite_flash = 0.0f;
+    skitter.last_hit_normal = {0.0f, 1.0f, 0.0f};
+  }
+  mining_.reset();
+  restorePlayerEyeObjects();
+}
+
 void LumenRun::triggerPlayerDeath(const Vec3 impact_origin) {
   if (death_state_ != DeathSequenceState::Alive) {
     return;
@@ -727,7 +769,7 @@ void LumenRun::triggerPlayerDeath(const Vec3 impact_origin) {
     SceneParticle &particle = blood_particles_[i];
     const float angle = static_cast<float>(i) * (kPi * (3.0f - std::sqrt(5.0f)));
     const float ring = 0.35f + 0.45f * (static_cast<float>(i % 7u) / 6.0f);
-    const Vec3 away = normalize(player_position_ - impact_origin);
+    const Vec3 away = normalizeOr(player_position_ - impact_origin, Vec3{0.0f, 0.45f, 1.0f});
     const Vec3 radial{std::cos(angle), 0.0f, std::sin(angle)};
     particle.position = player_position_ + Vec3{0.0f, 0.16f, 0.0f};
     particle.velocity =
@@ -882,10 +924,9 @@ void LumenRun::respawnPlayer() {
   player_climb_blend_ = 0.0f;
   status_.health = status_.max_health;
   clearAvatarPointTarget();
+  clearTransientFeedback();
+  forced_spawn_lighting_frames_ = 2;
   invulnerability_ = tuning_.invulnerability_seconds;
-  death_state_ = DeathSequenceState::Alive;
-  death_timer_ = 0.0f;
-  pending_defeat_ = false;
   if (physics_.valid(player_body_)) {
     physics_.setPosition(player_body_, player_position_);
     physics_.setVelocity(player_body_, {});

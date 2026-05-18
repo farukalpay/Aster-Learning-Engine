@@ -147,6 +147,21 @@ struct RenderLodPolicy {
   float min_projected_radius = 0.0f;
 };
 
+enum class RenderDepthLayer : std::uint32_t {
+  BaseSurface = 0,
+  SurfaceAttachment = 1,
+  Decal = 2,
+  ContactShadow = 3,
+  DebugOverlay = 4,
+};
+
+struct RenderDepthPolicy {
+  RenderDepthLayer layer = RenderDepthLayer::BaseSurface;
+  float constant_bias = 0.0f;
+  float slope_bias = 0.0f;
+  float normal_offset = 0.0f;
+};
+
 struct DynamicMeshResourceKey {
   std::uint64_t id = 0u;
   std::uint64_t generation = 0u;
@@ -197,6 +212,7 @@ struct Material {
   MaterialRenderRole render_role = MaterialRenderRole::Surface;
   MaterialAlphaMode alpha_mode = MaterialAlphaMode::Opaque;
   MaterialDepthWrite depth_write = MaterialDepthWrite::Auto;
+  RenderDepthPolicy depth_policy{};
   CameraOcclusionPolicy camera_occlusion = CameraOcclusionPolicy::Fade;
   ProceduralSurfaceLayer procedural{};
   std::uint64_t compiled_permutation_key = 0u;
@@ -226,6 +242,7 @@ struct MaterialDesc {
   MaterialRenderRole render_role = MaterialRenderRole::Surface;
   MaterialAlphaMode alpha_mode = MaterialAlphaMode::Opaque;
   MaterialDepthWrite depth_write = MaterialDepthWrite::Auto;
+  RenderDepthPolicy depth_policy{};
   CameraOcclusionPolicy camera_occlusion = CameraOcclusionPolicy::Fade;
   ProceduralSurfaceLayer procedural{};
 };

@@ -614,7 +614,7 @@ bool raycastAabb(const Vec3 origin, const Vec3 direction, const float max_distan
     return false;
   }
   distance = t_min;
-  normal = normalize(enter_normal);
+  normal = normalizeOr(enter_normal, {0.0f, 1.0f, 0.0f});
   return true;
 }
 
@@ -654,7 +654,7 @@ bool raycastSphere(const Vec3 origin, const Vec3 direction, const float max_dist
     n = direction * -1.0f;
   }
   distance = t;
-  normal = normalize(n);
+  normal = normalizeOr(n, {0.0f, 1.0f, 0.0f});
   return true;
 }
 
@@ -1043,10 +1043,11 @@ bool PhysicsWorld::raycast(const PhysicsRay &ray, PhysicsRayHit &hit) const {
     return false;
   }
 
-  const Vec3 direction = normalize(ray.direction);
-  if (length(direction) <= kEpsilon) {
+  const MathResult<Vec3> direction_result = safeNormalize(ray.direction);
+  if (!direction_result) {
     return false;
   }
+  const Vec3 direction = direction_result.value;
 
   bool found = false;
   float closest_distance = ray.max_distance;

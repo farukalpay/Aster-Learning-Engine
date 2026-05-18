@@ -109,6 +109,7 @@ toRuntimeFixtureProfile(const sdk::CaveWallFixtureProfileDocument &source) {
   profile.normal_up_bias = source.normal_up_bias;
   profile.lens_offset = source.lens_offset;
   profile.light_offset = source.light_offset;
+  profile.light_color = {source.light_color.x, source.light_color.y, source.light_color.z};
   return profile;
 }
 
@@ -426,8 +427,9 @@ void LumenRun::rebuildScene() {
                                  .wetness = 0.06f,
                                  .height_shading = 0.22f};
   Material cave_wall =
-      material({0.108f, 0.112f, 0.104f}, {0.004f, 0.006f, 0.004f}, 0.97f, 0.0f, 0.006f, 1.18f, 12.4f,
-               0.34f, 0.54f, SurfacePattern::CaveRock, {2.9f, 5.6f}, 0.155f, 1.08f, 0.050f);
+      material({0.082f, 0.066f, 0.052f}, {0.008f, 0.006f, 0.003f}, 0.95f, 0.0f, 0.012f, 1.00f,
+               11.8f, 0.30f, 0.56f, SurfacePattern::CaveRock, {2.9f, 5.6f}, 0.132f, 0.92f,
+               0.052f);
   cave_wall.cull_mode = FaceCullMode::Back;
   cave_wall.double_sided = true;
   cave_wall.camera_occlusion = CameraOcclusionPolicy::Solid;
@@ -435,48 +437,56 @@ void LumenRun::rebuildScene() {
   cave_wall.procedural = {.macro_variation = 0.78f,
                           .micro_normal_strength = 0.62f,
                           .roughness_variation = 0.24f,
-                          .wetness = 0.18f,
-                          .height_shading = 0.30f};
+                          .wetness = 0.12f,
+                          .height_shading = 0.22f};
   Material cave_entrance_wall = cave_wall;
-  cave_entrance_wall.base_color = {0.132f, 0.124f, 0.104f};
-  cave_entrance_wall.emission_color = {0.026f, 0.020f, 0.012f};
-  cave_entrance_wall.emission_strength = 0.026f;
-  cave_entrance_wall.ambient_occlusion = 0.54f;
+  cave_entrance_wall.base_color = {0.104f, 0.082f, 0.062f};
+  cave_entrance_wall.emission_color = {0.030f, 0.020f, 0.010f};
+  cave_entrance_wall.emission_strength = 0.032f;
+  cave_entrance_wall.ambient_occlusion = 0.48f;
   cave_entrance_wall.procedural.wetness = 0.12f;
   Material cave_floor = makeSupportSurfaceMaterial(cave_wall);
-  cave_floor.base_color = {0.086f, 0.083f, 0.070f};
+  cave_floor.base_color = {0.070f, 0.058f, 0.046f};
   cave_floor.pattern_scale = {4.0f, 5.8f};
   cave_floor.pattern_depth = 0.118f;
-  cave_floor.ambient_occlusion = 0.42f;
-  cave_floor.procedural.wetness = 0.28f;
+  cave_floor.ambient_occlusion = 0.36f;
+  cave_floor.procedural.wetness = 0.20f;
   cave_floor.asset_id = "material.cave_rock";
+  const RenderDepthPolicy cave_decal_depth{
+      .layer = RenderDepthLayer::Decal, .constant_bias = 0.00008f, .slope_bias = 0.00012f};
+  const RenderDepthPolicy cave_attachment_depth{
+      .layer = RenderDepthLayer::SurfaceAttachment,
+      .constant_bias = 0.00006f,
+      .slope_bias = 0.00008f};
   Material cave_wet_streak =
-      material({0.044f, 0.046f, 0.041f}, {0.014f, 0.016f, 0.012f}, 0.42f, 0.0f, 0.018f, 1.10f,
-               18.0f, 0.02f, 0.38f, SurfacePattern::CaveRock, {1.3f, 9.2f}, 0.038f, 0.62f,
+      material({0.070f, 0.058f, 0.046f}, {0.018f, 0.012f, 0.007f}, 0.48f, 0.0f, 0.020f, 0.90f,
+               18.0f, 0.02f, 0.42f, SurfacePattern::CaveRock, {1.3f, 9.2f}, 0.030f, 0.48f,
                0.035f,
                {.macro_variation = 0.42f,
                 .micro_normal_strength = 0.18f,
                 .roughness_variation = 0.34f,
-                .wetness = 0.82f,
+                .wetness = 0.70f,
                 .height_shading = 0.08f});
-  cave_wet_streak.opacity = 0.78f;
+  cave_wet_streak.opacity = 0.54f;
   cave_wet_streak.alpha_mode = MaterialAlphaMode::Blend;
   cave_wet_streak.depth_write = MaterialDepthWrite::Disabled;
+  cave_wet_streak.depth_policy = cave_decal_depth;
   cave_wet_streak.double_sided = true;
   cave_wet_streak.cull_mode = FaceCullMode::None;
   cave_wet_streak.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_moss_patch =
-      material({0.065f, 0.115f, 0.054f}, {0.003f, 0.010f, 0.002f}, 0.92f, 0.0f, 0.004f, 0.72f,
+      material({0.052f, 0.064f, 0.038f}, {0.002f, 0.004f, 0.001f}, 0.92f, 0.0f, 0.003f, 0.64f,
                14.0f, 0.04f, 0.70f, SurfacePattern::GrassSoil, {5.0f, 7.0f}, 0.020f, 0.48f,
                0.065f,
                {.macro_variation = 0.38f,
                 .micro_normal_strength = 0.26f,
                 .roughness_variation = 0.20f,
-                .wetness = 0.46f,
+                .wetness = 0.34f,
                 .height_shading = 0.06f});
-  cave_moss_patch.opacity = 0.82f;
+  cave_moss_patch.opacity = 0.48f;
   cave_moss_patch.alpha_mode = MaterialAlphaMode::Blend;
   cave_moss_patch.depth_write = MaterialDepthWrite::Disabled;
+  cave_moss_patch.depth_policy = cave_decal_depth;
   cave_moss_patch.double_sided = true;
   cave_moss_patch.cull_mode = FaceCullMode::None;
   cave_moss_patch.camera_occlusion = CameraOcclusionPolicy::Solid;
@@ -484,19 +494,21 @@ void LumenRun::rebuildScene() {
       material({0.235f, 0.205f, 0.160f}, {0.020f, 0.012f, 0.006f}, 0.74f, 0.0f, 0.010f, 0.46f,
                22.0f, 0.18f, 0.66f, SurfacePattern::WeatheredStone, {18.0f, 3.0f}, 0.012f,
                0.72f, 0.040f);
-  cave_scratch_mark.opacity = 0.72f;
+  cave_scratch_mark.opacity = 0.56f;
   cave_scratch_mark.alpha_mode = MaterialAlphaMode::Blend;
   cave_scratch_mark.depth_write = MaterialDepthWrite::Disabled;
+  cave_scratch_mark.depth_policy = cave_decal_depth;
   cave_scratch_mark.double_sided = true;
   cave_scratch_mark.cull_mode = FaceCullMode::None;
   cave_scratch_mark.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_soot_rust =
-      material({0.034f, 0.033f, 0.030f}, {0.001f, 0.001f, 0.001f}, 0.97f, 0.02f, 0.0f, 0.58f,
-               10.0f, 0.34f, 0.46f, SurfacePattern::WeatheredMetal, {4.0f, 9.0f}, 0.016f, 0.68f,
+      material({0.074f, 0.052f, 0.034f}, {0.004f, 0.002f, 0.001f}, 0.96f, 0.02f, 0.0f, 0.46f,
+               10.0f, 0.22f, 0.48f, SurfacePattern::WeatheredMetal, {4.0f, 9.0f}, 0.014f, 0.50f,
                0.050f);
-  cave_soot_rust.opacity = 0.34f;
+  cave_soot_rust.opacity = 0.20f;
   cave_soot_rust.alpha_mode = MaterialAlphaMode::Blend;
   cave_soot_rust.depth_write = MaterialDepthWrite::Disabled;
+  cave_soot_rust.depth_policy = cave_decal_depth;
   cave_soot_rust.double_sided = true;
   cave_soot_rust.cull_mode = FaceCullMode::None;
   cave_soot_rust.camera_occlusion = CameraOcclusionPolicy::Solid;
@@ -508,9 +520,10 @@ void LumenRun::rebuildScene() {
                 .micro_normal_strength = 0.10f,
                 .roughness_variation = 0.12f,
                 .height_shading = 0.035f});
-  cave_dust_accumulation.opacity = 0.64f;
+  cave_dust_accumulation.opacity = 0.50f;
   cave_dust_accumulation.alpha_mode = MaterialAlphaMode::Blend;
   cave_dust_accumulation.depth_write = MaterialDepthWrite::Disabled;
+  cave_dust_accumulation.depth_policy = cave_decal_depth;
   cave_dust_accumulation.double_sided = true;
   cave_dust_accumulation.cull_mode = FaceCullMode::None;
   cave_dust_accumulation.camera_occlusion = CameraOcclusionPolicy::Solid;
@@ -539,6 +552,10 @@ void LumenRun::rebuildScene() {
   coal_ore_material.emission_strength = 0.16f;
   coal_ore_material.edge_wear = 0.30f;
   coal_ore_material.camera_occlusion = CameraOcclusionPolicy::Solid;
+  coal_ore_material.alpha_mode = MaterialAlphaMode::Opaque;
+  coal_ore_material.depth_write = MaterialDepthWrite::Enabled;
+  coal_ore_material.double_sided = false;
+  coal_ore_material.cull_mode = FaceCullMode::Back;
   Material ironstone_ore_material =
       material({0.245f, 0.155f, 0.105f}, {0.42f, 0.19f, 0.075f}, 0.78f, 0.08f, 0.040f, 0.82f,
                14.0f, 0.28f, 0.86f, SurfacePattern::CaveRock, {3.8f, 6.8f}, 0.180f, 0.94f,
@@ -547,6 +564,9 @@ void LumenRun::rebuildScene() {
   ironstone_ore_material.edge_wear = 0.38f;
   ironstone_ore_material.emission_strength = 0.075f;
   ironstone_ore_material.camera_occlusion = CameraOcclusionPolicy::Solid;
+  ironstone_ore_material.alpha_mode = MaterialAlphaMode::Opaque;
+  ironstone_ore_material.depth_write = MaterialDepthWrite::Enabled;
+  ironstone_ore_material.double_sided = false;
   ironstone_ore_material.cull_mode = FaceCullMode::Back;
   Material cave_web_material =
       material({0.78f, 0.80f, 0.76f}, {0.070f, 0.078f, 0.070f}, 0.34f, 0.0f, 0.060f, 0.76f,
@@ -561,6 +581,7 @@ void LumenRun::rebuildScene() {
   cave_web_material.cull_mode = FaceCullMode::None;
   cave_web_material.alpha_mode = MaterialAlphaMode::Blend;
   cave_web_material.depth_write = MaterialDepthWrite::Enabled;
+  cave_web_material.depth_policy = cave_attachment_depth;
   cave_web_material.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_skitter_material =
       material({0.115f, 0.058f, 0.042f}, {0.105f, 0.020f, 0.010f}, 0.34f, 0.06f, 0.070f, 0.82f,
@@ -580,13 +601,14 @@ void LumenRun::rebuildScene() {
       {0.070f, 0.064f, 0.055f}, {0.004f, 0.003f, 0.002f}, 0.52f, 0.68f, 0.004f, 0.54f, 12.0f, 0.16f,
       0.78f, SurfacePattern::WeatheredStone, {4.2f, 6.4f}, 0.024f, 0.56f, 0.05f);
   industrial_light_metal.cull_mode = FaceCullMode::Back;
-  Material industrial_red_lens =
+  Material industrial_wall_lens =
       material({0.92f, 0.56f, 0.30f}, {1.0f, 0.42f, 0.18f}, 0.34f, 0.0f, 0.34f, 0.26f, 6.0f, 0.02f,
                0.88f, SurfacePattern::AmberResin, {4.4f, 7.2f}, 0.010f, 0.50f, 0.04f);
-  industrial_red_lens.double_sided = true;
-  industrial_red_lens.alpha_mode = MaterialAlphaMode::Blend;
-  industrial_red_lens.depth_write = MaterialDepthWrite::Disabled;
-  applyIndustrialLensColor(industrial_red_lens, kCaveIndustrialWarmLight);
+  industrial_wall_lens.double_sided = true;
+  industrial_wall_lens.alpha_mode = MaterialAlphaMode::Blend;
+  industrial_wall_lens.depth_write = MaterialDepthWrite::Disabled;
+  industrial_wall_lens.depth_policy = cave_attachment_depth;
+  applyIndustrialLensColor(industrial_wall_lens, kCaveIndustrialRedLight);
   Material teddy_fur =
       material({0.39f, 0.255f, 0.155f}, {0.0f, 0.0f, 0.0f}, 0.99f, 0.0f, 0.0f, 1.08f, 18.0f, 0.035f,
                0.86f, SurfacePattern::FurFibers, {9.5f, 18.0f}, 0.060f, 0.92f, 0.08f);
@@ -978,7 +1000,7 @@ void LumenRun::rebuildScene() {
     const float yaw = std::atan2(n.x, n.z);
     const float pitch = std::atan2(-n.y, std::max(std::sqrt(n.x * n.x + n.z * n.z), 0.0001f));
     const Vec3 center = surface + n * lift;
-    const Vec3 scale{std::max(size.x, 0.02f), std::max(size.y, 0.02f), 0.010f};
+    const Vec3 scale{std::max(size.x, 0.02f), std::max(size.y, 0.02f), 0.0025f};
     keepCameraSolid(appendScenery(name, MeshPrimitive::Box, center, scale, {pitch, yaw, 0.0f},
                                   decal));
   };
@@ -988,7 +1010,7 @@ void LumenRun::rebuildScene() {
                                     const float lift = 0.020f) {
     const Vec3 t = length(tangent) > 0.0001f ? normalize(tangent) : Vec3{0.0f, 0.0f, -1.0f};
     const float yaw = std::atan2(t.x, t.z);
-    const Vec3 scale{std::max(size.x, 0.04f), 0.010f, std::max(size.y, 0.04f)};
+    const Vec3 scale{std::max(size.x, 0.04f), 0.0025f, std::max(size.y, 0.04f)};
     keepCameraSolid(appendScenery(name, MeshPrimitive::Box, center + Vec3{0.0f, lift, 0.0f}, scale,
                                   {0.0f, yaw, 0.0f}, decal));
   };
@@ -1900,7 +1922,7 @@ void LumenRun::rebuildScene() {
   }
   for (const AuthoredCaveSection &section : cave_sections_) {
     for (const CaveWallFixturePlacement &fixture : section.wall_fixtures) {
-      appendIndustrialWallLight(fixture, industrial_light_metal, industrial_red_lens);
+      appendIndustrialWallLight(fixture, industrial_light_metal, industrial_wall_lens);
       appendWallDecal("Rust-stained cave wall around lamp", fixture.mount_position,
                       fixture.normal, fixture.up, {0.72f, 0.52f}, cave_soot_rust, 0.014f);
       appendWallDecal("Wet drip trail under cave lamp",
@@ -1908,7 +1930,7 @@ void LumenRun::rebuildScene() {
                       fixture.normal, fixture.up, {0.18f, 0.82f}, cave_wet_streak, 0.018f);
     }
     for (const CaveWallFixturePlacement &fixture : section.secondary_wall_fixtures) {
-      appendIndustrialWallLight(fixture, industrial_light_metal, industrial_red_lens);
+      appendIndustrialWallLight(fixture, industrial_light_metal, industrial_wall_lens);
       appendWallDecal("Rust-stained cave wall around lamp", fixture.mount_position,
                       fixture.normal, fixture.up, {0.60f, 0.44f}, cave_soot_rust, 0.014f);
       appendWallDecal("Thin wet drip trail under cave lamp",
@@ -2495,7 +2517,7 @@ void LumenRun::rebuildScene() {
                         .mount_position = mount_position,
                         .lens_position = lens_position,
                         .light_position = light_position,
-                        .light_color = kCaveIndustrialWarmLight,
+                        .light_color = kCaveIndustrialRedLight,
                         .normal = normal,
                         .tangent = tangent,
                         .up = up,
@@ -2525,7 +2547,7 @@ void LumenRun::rebuildScene() {
       Vec3{inner_pond_radius_.x * 0.12f, kInnerPondSurfaceY + 1.34f, -inner_pond_radius_.y - 2.0f};
   if (const std::optional<CaveWallFixturePlacement> pond_fixture =
           findWallMountedFixture(pond_wall_anchor, pond_wall_anchor.y)) {
-    appendIndustrialWallLight(*pond_fixture, industrial_light_metal, industrial_red_lens);
+    appendIndustrialWallLight(*pond_fixture, industrial_light_metal, industrial_wall_lens);
     pond_accent_light_position_ = pond_fixture->light_position + pond_fixture->up * 0.20f;
     pond_accent_light_valid_ = true;
   }

@@ -472,6 +472,30 @@ private:
       } else {
         addError(field, "unknown cull_mode '" + value + "'");
       }
+    } else if (field.text == "depth_layer") {
+      if (value == "BaseSurface" || value == "base-surface" || value == "base_surface" ||
+          value == "base") {
+        asset.depth_policy.layer = RenderDepthLayer::BaseSurface;
+      } else if (value == "SurfaceAttachment" || value == "surface-attachment" ||
+                 value == "surface_attachment") {
+        asset.depth_policy.layer = RenderDepthLayer::SurfaceAttachment;
+      } else if (value == "Decal" || value == "decal") {
+        asset.depth_policy.layer = RenderDepthLayer::Decal;
+      } else if (value == "ContactShadow" || value == "contact-shadow" ||
+                 value == "contact_shadow") {
+        asset.depth_policy.layer = RenderDepthLayer::ContactShadow;
+      } else if (value == "DebugOverlay" || value == "debug-overlay" ||
+                 value == "debug_overlay") {
+        asset.depth_policy.layer = RenderDepthLayer::DebugOverlay;
+      } else {
+        addError(field, "unknown depth_layer '" + value + "'");
+      }
+    } else if (field.text == "depth_bias") {
+      asset.depth_policy.constant_bias = std::stof(value);
+    } else if (field.text == "slope_depth_bias") {
+      asset.depth_policy.slope_bias = std::stof(value);
+    } else if (field.text == "normal_offset") {
+      asset.depth_policy.normal_offset = std::stof(value);
     } else if (field.text == "receives_decals") {
       asset.receives_decals = value == "true";
     } else if (field.text == "receives_shadows") {
@@ -775,6 +799,7 @@ Material resolveMaterialAssetFallback(const MaterialAsset &asset) {
   desc.pattern_depth = paramOr(asset, "pattern_depth", desc.procedural.height_shading);
   desc.pattern_contrast = paramOr(asset, "pattern_contrast", 0.0f);
   desc.pattern_mortar = paramOr(asset, "pattern_mortar", 0.08f);
+  desc.depth_policy = asset.depth_policy;
   desc.surface_profile = asset.surface_profile;
   if (desc.surface_profile == MaterialSurfaceProfile::Auto &&
       (materialFeatureSet(asset).triplanar || materialFeatureSet(asset).height)) {

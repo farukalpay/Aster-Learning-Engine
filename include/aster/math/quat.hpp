@@ -78,15 +78,47 @@ template <typename T> [[nodiscard]] inline T length(const QuatT<T> value) {
 }
 
 template <typename T> [[nodiscard]] inline QuatT<T> normalize(const QuatT<T> value) {
+  const MathPolicy policy = currentMathPolicy();
+  MathDiagnostics diagnostics{};
+  if (!isFiniteScalar(value.x) || !isFiniteScalar(value.y) || !isFiniteScalar(value.z) ||
+      !isFiniteScalar(value.w)) {
+    diagnostics = {MathError::NonFiniteInput, 0.0f, 0.0f,
+                   "Cannot normalize a non-finite quaternion."};
+    handleMathContractFailure(MathDiagnosticOperation::Normalize,
+                              MathDiagnosticSource::MathCore, diagnostics, policy, false);
+    return identityQuatT<T>();
+  }
   const T len = length(value);
+  if (!isFiniteScalar(len)) {
+    diagnostics = {MathError::NonFiniteInput, 0.0f, 0.0f,
+                   "Cannot normalize a quaternion with non-finite length."};
+    handleMathContractFailure(MathDiagnosticOperation::Normalize,
+                              MathDiagnosticSource::MathCore, diagnostics, policy, false);
+    return identityQuatT<T>();
+  }
   if (len <= ScalarTraits<T>::defaultAbsoluteEpsilon()) {
+    diagnostics = {MathError::DegenerateInput, 0.0f, 0.0f,
+                   "Cannot normalize a near-zero quaternion."};
+    handleMathContractFailure(MathDiagnosticOperation::Normalize,
+                              MathDiagnosticSource::MathCore, diagnostics, policy, false);
     return identityQuatT<T>();
   }
   return {value.x / len, value.y / len, value.z / len, value.w / len};
 }
 
 template <typename T> [[nodiscard]] inline MathResult<QuatT<T>> safeNormalize(const QuatT<T> value) {
+  if (!isFiniteScalar(value.x) || !isFiniteScalar(value.y) || !isFiniteScalar(value.z) ||
+      !isFiniteScalar(value.w)) {
+    return MathResult<QuatT<T>>::failure(MathError::NonFiniteInput,
+                                         "Cannot normalize a non-finite quaternion.",
+                                         identityQuatT<T>());
+  }
   const T len = length(value);
+  if (!isFiniteScalar(len)) {
+    return MathResult<QuatT<T>>::failure(MathError::NonFiniteInput,
+                                         "Cannot normalize a quaternion with non-finite length.",
+                                         identityQuatT<T>());
+  }
   if (len <= ScalarTraits<T>::defaultAbsoluteEpsilon()) {
     return MathResult<QuatT<T>>::failure(MathError::DegenerateInput,
                                          "Cannot normalize a near-zero quaternion.",

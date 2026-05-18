@@ -28,6 +28,7 @@ Material makeMaterial(const MaterialDesc &desc) {
   material.render_role = desc.render_role;
   material.alpha_mode = desc.alpha_mode;
   material.depth_write = desc.depth_write;
+  material.depth_policy = desc.depth_policy;
   material.camera_occlusion = desc.camera_occlusion;
   material.procedural = desc.procedural;
   return material;

@@ -85,6 +85,7 @@ struct MaterialAsset {
   MaterialSurfaceProfile surface_profile = MaterialSurfaceProfile::Auto;
   MaterialBlendMode blend_mode = MaterialBlendMode::Opaque;
   MaterialAssetCullMode cull_mode = MaterialAssetCullMode::Back;
+  RenderDepthPolicy depth_policy{};
   bool receives_decals = false;
   bool receives_shadows = true;
   std::map<std::string, MaterialTextureSlot> textures;

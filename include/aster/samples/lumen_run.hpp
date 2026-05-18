@@ -359,6 +359,7 @@ private:
   void updateDeathSequence(float dt);
   void updateDeathVisuals();
   void restorePlayerEyeObjects();
+  void clearTransientFeedback();
   void triggerPlayerDeath(Vec3 impact_origin);
   void respawnPlayer();
   void enforceWorldBounds();
@@ -497,6 +498,7 @@ private:
   float death_timer_ = 0.0f;
   Vec3 death_origin_{};
   bool pending_defeat_ = false;
+  int forced_spawn_lighting_frames_ = 0;
   bool player_grounded_ = false;
   bool player_swimming_ = false;
   float player_swim_blend_ = 0.0f;

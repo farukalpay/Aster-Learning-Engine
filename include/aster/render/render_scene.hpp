@@ -27,6 +27,10 @@ struct RenderMaterialKey {
   std::uint64_t value = 0;
 };
 
+struct RenderSignatureKey {
+  std::uint64_t value = 0;
+};
+
 struct RenderBounds {
   Vec3 center{};
   float radius = 0.0f;
@@ -47,7 +51,9 @@ struct RenderObjectPacket {
   std::size_t object_index = 0;
   RenderMeshId mesh{};
   RenderMaterialKey material{};
+  RenderSignatureKey draw_signature{};
   MaterialRenderQueue render_queue = MaterialRenderQueue::Opaque;
+  RenderDepthPolicy depth_policy{};
   std::uint32_t flags = 0;
   RenderVisibilityClass visibility_class = RenderVisibilityClass::General;
   Vec3 position{};
@@ -60,6 +66,15 @@ struct RenderObjectPacket {
   std::uint64_t dynamic_mesh_generation = 0u;
 };
 
+struct CanonicalDrawSignature {
+  RenderSignatureKey key{};
+  RenderMeshId mesh{};
+  RenderMaterialKey material{};
+  MaterialRenderQueue render_queue = MaterialRenderQueue::Opaque;
+  RenderDepthPolicy depth_policy{};
+  FrameRenderPass pass = FrameRenderPass::Opaque;
+};
+
 struct FrameRenderInstance {
   std::size_t object_index = 0;
   float opacity = 1.0f;
@@ -68,6 +83,7 @@ struct FrameRenderInstance {
 };
 
 struct FrameRenderDrawGroup {
+  CanonicalDrawSignature signature{};
   RenderMeshId mesh{};
   RenderMaterialKey material{};
   MaterialRenderQueue render_queue = MaterialRenderQueue::Opaque;
@@ -94,12 +110,21 @@ struct FrameRenderDiagnostics {
   double rust_plan_seconds = 0.0;
 };
 
+struct CanonicalRenderIR {
+  std::vector<RenderObjectPacket> objects;
+  std::uint64_t content_hash = 0u;
+};
+
 class RenderScene {
 public:
   void rebuild(const Scene &scene);
 
   [[nodiscard]] const std::vector<RenderObjectPacket> &objects() const {
-    return objects_;
+    return ir_.objects;
+  }
+
+  [[nodiscard]] const CanonicalRenderIR &ir() const {
+    return ir_;
   }
 
 private:
@@ -109,14 +134,22 @@ private:
     float radius = 0.0f;
   };
 
-  std::vector<RenderObjectPacket> objects_;
+  CanonicalRenderIR ir_;
   std::unordered_map<std::uintptr_t, CachedLocalBounds> custom_bounds_cache_;
 };
 
-struct FrameRenderPlan {
+struct VisibilityPlan {
   std::vector<FrameRenderInstance> instances;
   std::vector<FrameRenderDrawGroup> groups;
   FrameRenderDiagnostics diagnostics{};
+  std::uint64_t source_ir_hash = 0u;
+};
+
+using FrameRenderPlan = VisibilityPlan;
+
+struct BackendPacket {
+  const CanonicalRenderIR *render_ir = nullptr;
+  const VisibilityPlan *visibility = nullptr;
 };
 
 [[nodiscard]] FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene,
@@ -127,6 +160,10 @@ struct FrameRenderPlan {
 
 [[nodiscard]] RenderMeshId renderMeshIdForObject(const RenderObject &object);
 [[nodiscard]] RenderMaterialKey renderMaterialKeyForObject(const RenderObject &object);
+[[nodiscard]] RenderSignatureKey renderSignatureKeyFor(RenderMeshId mesh, RenderMaterialKey material,
+                                                       MaterialRenderQueue queue,
+                                                       RenderDepthPolicy depth_policy,
+                                                       FrameRenderPass pass);
 [[nodiscard]] RenderBounds renderBoundsForObject(const RenderObject &object);
 
 } // namespace aster

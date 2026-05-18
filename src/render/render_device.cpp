@@ -1006,6 +1006,9 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
   shadow.material.surface_pattern = aster::SurfacePattern::ContactShadow;
   shadow.material.alpha_mode = aster::MaterialAlphaMode::Blend;
   shadow.material.depth_write = aster::MaterialDepthWrite::Disabled;
+  shadow.material.depth_policy = {.layer = aster::RenderDepthLayer::ContactShadow,
+                                  .constant_bias = 0.00008f,
+                                  .slope_bias = 0.00012f};
   shadow.material.camera_occlusion = aster::CameraOcclusionPolicy::Solid;
   shadow.material.double_sided = true;
   shadow.casts_contact_shadow = false;
@@ -1015,8 +1018,9 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
 
 ProjectedVertex projectVertex(const aster::Vertex &vertex, const aster::Mat4 &model,
                               const aster::Mat4 &model_view_projection, const int width,
-                              const int height) {
-  const Vec4f clip = transformPoint4(model_view_projection, vertex.position);
+                              const int height, const float normal_offset) {
+  const aster::Vec3 local_position = vertex.position + vertex.normal * normal_offset;
+  const Vec4f clip = transformPoint4(model_view_projection, local_position);
   if (clip.w <= 0.0001f) {
     return {};
   }
@@ -1032,7 +1036,7 @@ ProjectedVertex projectVertex(const aster::Vertex &vertex, const aster::Mat4 &mo
 
   return {
       .valid = true,
-      .world_position = aster::transformPoint(model, vertex.position),
+      .world_position = aster::transformPoint(model, local_position),
       .normal = aster::normalize(aster::transformVector(model, vertex.normal)),
       .uv = vertex.uv,
       .ambient_occlusion = vertex.ambient_occlusion,
@@ -1080,17 +1084,18 @@ void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mes
       opacity < 0.999f || aster::classifyMaterialRenderQueue(object.material) ==
                               aster::MaterialRenderQueue::Translucent;
   const bool depth_write = aster::materialWritesDepth(object.material) && !alpha_blend;
+  const aster::RenderDepthPolicy depth_policy = object.material.depth_policy;
 
   for (std::size_t i = 0; i + 2u < mesh.indices.size(); i += 3u) {
     const ProjectedVertex a =
         projectVertex(mesh.vertices[mesh.indices[i + 0u]], model, model_view_projection,
-                      framebuffer.width(), framebuffer.height());
+                      framebuffer.width(), framebuffer.height(), depth_policy.normal_offset);
     const ProjectedVertex b =
         projectVertex(mesh.vertices[mesh.indices[i + 1u]], model, model_view_projection,
-                      framebuffer.width(), framebuffer.height());
+                      framebuffer.width(), framebuffer.height(), depth_policy.normal_offset);
     const ProjectedVertex c =
         projectVertex(mesh.vertices[mesh.indices[i + 2u]], model, model_view_projection,
-                      framebuffer.width(), framebuffer.height());
+                      framebuffer.width(), framebuffer.height(), depth_policy.normal_offset);
     if (!a.valid || !b.valid || !c.valid ||
         shouldCullTriangle(a, b, c, camera_position, cull_mode)) {
       continue;
@@ -1120,7 +1125,8 @@ void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mes
             shadedFrameColor(object.material, c.world_position, c.normal, c.uv, c.ambient_occlusion,
                              camera_position, settings, frame_seconds, opacity),
     };
-    framebuffer.drawTriangle(fa, fb, fc, settings.pipeline.depth_test, depth_write, alpha_blend);
+    framebuffer.drawTriangle(fa, fb, fc, settings.pipeline.depth_test, depth_write, alpha_blend,
+                             depth_policy.constant_bias, depth_policy.slope_bias);
   }
   ++draw_calls;
 }
@@ -1178,11 +1184,11 @@ RenderStyleProfile makeRenderStyleProfile(const RenderStylePreset preset) {
   case RenderStylePreset::Neutral:
     break;
   case RenderStylePreset::RetroHorrorReadable:
-    profile.unlit_mix = 0.46f;
-    profile.emissive_gain = 2.65f;
-    profile.luma_crush = 0.42f;
-    profile.color_quantization_steps = 28.0f;
-    profile.procedural_sample_snap = 0.18f;
+    profile.unlit_mix = 0.14f;
+    profile.emissive_gain = 2.35f;
+    profile.luma_crush = 0.14f;
+    profile.color_quantization_steps = 48.0f;
+    profile.procedural_sample_snap = 0.0f;
     break;
   }
   return profile;
@@ -1196,23 +1202,23 @@ void applyRenderStyleProfile(RendererSettings &settings, const RenderStyleProfil
     return;
   }
 
-  settings.pipeline.clear_color = {0.006f, 0.001f, 0.001f};
-  settings.ambient_strength = std::min(settings.ambient_strength, 0.22f);
-  settings.ambient_floor = std::min(settings.ambient_floor, 0.040f);
-  settings.sun_light.intensity = std::min(settings.sun_light.intensity, 0.70f);
+  settings.pipeline.clear_color = {0.018f, 0.003f, 0.002f};
+  settings.ambient_strength = std::min(settings.ambient_strength, 0.30f);
+  settings.ambient_floor = std::min(settings.ambient_floor, 0.055f);
+  settings.sun_light.intensity = std::min(settings.sun_light.intensity, 0.85f);
   settings.atmosphere.enabled = true;
-  settings.atmosphere.fog_color = {0.125f, 0.004f, 0.003f};
-  settings.atmosphere.fog_start = 1.15f;
-  settings.atmosphere.fog_end = 10.8f;
-  settings.atmosphere.fog_strength = 0.86f;
+  settings.atmosphere.fog_color = {0.145f, 0.022f, 0.014f};
+  settings.atmosphere.fog_start = 1.85f;
+  settings.atmosphere.fog_end = 16.0f;
+  settings.atmosphere.fog_strength = 0.52f;
   settings.atmosphere.fog_falloff = AtmosphereFogFalloff::Exponential;
-  settings.atmosphere.fog_power = 3.4f;
-  settings.atmosphere.saturation = 0.68f;
-  settings.atmosphere.contrast = 1.46f;
-  settings.atmosphere.shadow_tint = {1.18f, 0.34f, 0.30f};
-  settings.atmosphere.shadow_tint_strength = 0.26f;
-  settings.atmosphere.highlight_tint = {1.24f, 0.55f, 0.34f};
-  settings.atmosphere.highlight_tint_strength = 0.14f;
+  settings.atmosphere.fog_power = 1.45f;
+  settings.atmosphere.saturation = 1.08f;
+  settings.atmosphere.contrast = 1.18f;
+  settings.atmosphere.shadow_tint = {1.10f, 0.44f, 0.34f};
+  settings.atmosphere.shadow_tint_strength = 0.12f;
+  settings.atmosphere.highlight_tint = {1.16f, 0.66f, 0.42f};
+  settings.atmosphere.highlight_tint_strength = 0.08f;
 }
 
 LightRig defaultLightRig() {
@@ -1291,7 +1297,7 @@ ClusteredLightGrid buildClusteredLightGrid(const LightRig &lights, const OrbitCa
                        static_cast<float>(std::max(framebuffer_height, 1));
   const Mat4 view_projection = camera.viewProjectionMatrix(aspect).value;
   const Vec3 eye = camera.position();
-  const Vec3 forward = normalize(camera.target - eye);
+  const Vec3 forward = normalizeOr(camera.target - eye, {0.0f, 0.0f, -1.0f});
   const float near_plane = std::max(camera.near_plane, 0.001f);
   const float far_plane = std::max(camera.far_plane, near_plane + 0.001f);
   const std::uint32_t max_lights_per_cluster = std::max(policy.max_lights_per_cluster, 1u);
@@ -1409,6 +1415,124 @@ struct MaterialFrameSummary {
   std::vector<std::size_t> transparent_order;
   std::vector<FrameDiagnosticEvent> events;
 };
+
+std::uint64_t appendEvidenceValue(std::uint64_t hash, const std::uint64_t value) {
+  constexpr std::uint64_t kPrime = 1099511628211ull;
+  hash ^= value;
+  hash *= kPrime;
+  return hash;
+}
+
+std::uint64_t framePlanEvidenceHash(const FrameRenderPlan &plan) {
+  std::uint64_t hash = 1469598103934665603ull;
+  hash = appendEvidenceValue(hash, plan.source_ir_hash);
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(plan.instances.size()));
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(plan.groups.size()));
+  for (const FrameRenderDrawGroup &group : plan.groups) {
+    hash = appendEvidenceValue(hash, group.signature.key.value);
+    hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(group.first_instance));
+    hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(group.instance_count));
+  }
+  return hash;
+}
+
+const char *mathOperationName(const aster::MathDiagnosticOperation operation) {
+  switch (operation) {
+  case aster::MathDiagnosticOperation::Normalize:
+    return "normalize";
+  case aster::MathDiagnosticOperation::NormalizeFallback:
+    return "normalize-fallback";
+  case aster::MathDiagnosticOperation::PlaneConstruction:
+    return "plane-construction";
+  case aster::MathDiagnosticOperation::Projection:
+    return "projection";
+  case aster::MathDiagnosticOperation::Unprojection:
+    return "unprojection";
+  case aster::MathDiagnosticOperation::MatrixInverse:
+    return "matrix-inverse";
+  case aster::MathDiagnosticOperation::MatrixDecomposition:
+    return "matrix-decomposition";
+  case aster::MathDiagnosticOperation::GeometryQuery:
+    return "geometry-query";
+  case aster::MathDiagnosticOperation::RobustPredicate:
+    return "robust-predicate";
+  case aster::MathDiagnosticOperation::AuthoringMeasure:
+    return "authoring-measure";
+  case aster::MathDiagnosticOperation::Unknown:
+  default:
+    return "unknown";
+  }
+}
+
+aster::FrameDiagnosticKind frameDiagnosticKindForMath(
+    const aster::MathDiagnosticEvent &event) {
+  if (event.operation == aster::MathDiagnosticOperation::RobustPredicate) {
+    return aster::FrameDiagnosticKind::PredicateUncertainty;
+  }
+  return aster::FrameDiagnosticKind::MathContract;
+}
+
+void appendMathDiagnosticsToFrame(std::vector<aster::FrameDiagnosticEvent> &events) {
+  const std::size_t count = aster::mathDiagnosticCount();
+  for (std::size_t i = 0; i < count; ++i) {
+    const aster::MathDiagnosticEvent event = aster::mathDiagnosticAt(i);
+    events.push_back({.kind = frameDiagnosticKindForMath(event),
+                      .severity = aster::FrameDiagnosticSeverity::Warning,
+                      .pass = "math",
+                      .label = mathOperationName(event.operation),
+                      .message = event.message == nullptr ? "math contract diagnostic"
+                                                          : event.message,
+                      .value = static_cast<std::uint64_t>(event.error)});
+  }
+  if (count > 0u) {
+    aster::clearMathDiagnostics();
+  }
+}
+
+bool finiteQuat(const aster::Quat value) {
+  return aster::isFiniteScalar(value.x) && aster::isFiniteScalar(value.y) &&
+         aster::isFiniteScalar(value.z) && aster::isFiniteScalar(value.w);
+}
+
+std::string objectDiagnosticLabel(const aster::RenderObject &object, const std::size_t index) {
+  return object.name.empty() ? ("object:" + std::to_string(index)) : object.name;
+}
+
+void appendRenderMathContractDiagnostics(const aster::Scene &scene,
+                                         std::vector<aster::FrameDiagnosticEvent> &events) {
+  for (std::size_t i = 0; i < scene.objects().size(); ++i) {
+    const aster::RenderObject &object = scene.objects()[i];
+    const std::string label = objectDiagnosticLabel(object, i);
+    if (!aster::allFinite(object.transform.position) || !aster::allFinite(object.transform.scale) ||
+        !finiteQuat(object.transform.rotation)) {
+      events.push_back({.kind = aster::FrameDiagnosticKind::NonFiniteWorldMatrix,
+                        .severity = aster::FrameDiagnosticSeverity::Error,
+                        .pass = "scene-contract",
+                        .label = label,
+                        .message = "Render object transform contains non-finite values.",
+                        .value = i});
+      continue;
+    }
+    const aster::Vec3 scale = object.transform.scale;
+    if (std::abs(scale.x) <= 0.000001f || std::abs(scale.y) <= 0.000001f ||
+        std::abs(scale.z) <= 0.000001f) {
+      events.push_back({.kind = aster::FrameDiagnosticKind::SingularNormalMatrix,
+                        .severity = aster::FrameDiagnosticSeverity::Warning,
+                        .pass = "scene-contract",
+                        .label = label,
+                        .message = "Render object scale makes its normal matrix singular.",
+                        .value = i});
+    }
+    if (scale.x * scale.y * scale.z < 0.0f) {
+      events.push_back({.kind = aster::FrameDiagnosticKind::NegativeScaleTangentFlip,
+                        .severity = aster::FrameDiagnosticSeverity::Info,
+                        .pass = "scene-contract",
+                        .label = label,
+                        .message = "Negative transform scale flips tangent-space handedness.",
+                        .value = i});
+    }
+  }
+}
 
 std::string shaderVariantTagFor(const Material &material) {
   if (!material.asset_id.empty()) {
@@ -1558,6 +1682,24 @@ const CpuMesh &RenderDevice::meshForObject(const RenderObject &object) {
 
 void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_eviction) {
   ASTER_PROFILE_SCOPE("RenderDevice::syncDynamicMeshes");
+  if (immediate_eviction) {
+    for (const auto &[mesh, handle] : custom_mesh_resource_handles_) {
+      (void)mesh;
+      resource_registry_.destroy(handle);
+    }
+    for (const auto &[resource, handle] : dynamic_mesh_resource_handles_) {
+      (void)resource;
+      resource_registry_.destroy(handle);
+    }
+    custom_mesh_cache_.clear();
+    custom_mesh_last_seen_.clear();
+    custom_mesh_resource_cache_.clear();
+    custom_mesh_resource_last_seen_.clear();
+    custom_mesh_resource_handles_.clear();
+    dynamic_mesh_resource_handles_.clear();
+    resource_registry_.clearRetired();
+  }
+
   ++mesh_cache_frame_;
   std::unordered_set<const CpuMesh *> live_meshes;
   std::unordered_set<DynamicMeshResourceKey, DynamicMeshResourceKeyHash> live_resources;
@@ -1565,6 +1707,9 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
   live_resources.reserve(scene.objects().size());
   for (const RenderObject &object : scene.objects()) {
     if (object.custom_mesh == nullptr) {
+      continue;
+    }
+    if (object.custom_mesh->vertices.empty() || object.custom_mesh->indices.empty()) {
       continue;
     }
     if (object.dynamic_mesh.valid()) {
@@ -1631,12 +1776,16 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
     }
   }
   for (const RenderObject &object : scene.objects()) {
-    if (object.custom_mesh != nullptr && object.dynamic_mesh.valid() &&
+    if (object.custom_mesh == nullptr || object.custom_mesh->vertices.empty() ||
+        object.custom_mesh->indices.empty()) {
+      continue;
+    }
+    if (object.dynamic_mesh.valid() &&
         !custom_mesh_resource_cache_.contains(object.dynamic_mesh)) {
       custom_mesh_resource_cache_.emplace(
           object.dynamic_mesh, prepareMeshForRendering(*object.custom_mesh, renderMeshOptions()));
     }
-    if (object.custom_mesh != nullptr && object.dynamic_mesh.valid() &&
+    if (object.dynamic_mesh.valid() &&
         !dynamic_mesh_resource_handles_.contains(object.dynamic_mesh)) {
       const auto &prepared = custom_mesh_resource_cache_.at(object.dynamic_mesh);
       dynamic_mesh_resource_handles_.emplace(
@@ -1723,6 +1872,12 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   const ClusteredLightGrid clustered_lights =
       buildClusteredLightGrid(settings.light_rig, camera, framebuffer_width, framebuffer_height,
                               settings.clustered_lighting);
+  last_forensics_.evidence = {.render_ir_hash = render_scene_.ir().content_hash,
+                              .visibility_plan_hash = framePlanEvidenceHash(plan),
+                              .backend_kind =
+                                  static_cast<std::uint32_t>(active_capabilities.kind),
+                              .draw_signature_count =
+                                  static_cast<std::uint32_t>(plan.groups.size())};
   MaterialFrameSummary material_summary =
       analyzeMaterialFrame(scene, plan, active_capabilities, material_artifact_cache_,
                            previous_transparent_order_);
@@ -1730,6 +1885,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   last_forensics_.events.insert(last_forensics_.events.end(),
                                 std::make_move_iterator(material_summary.events.begin()),
                                 std::make_move_iterator(material_summary.events.end()));
+  appendRenderMathContractDiagnostics(scene, last_forensics_.events);
+  appendMathDiagnosticsToFrame(last_forensics_.events);
   stats.visible_objects = plan.diagnostics.visible_objects;
   stats.culled_objects = plan.diagnostics.culled_objects;
   stats.instance_groups = plan.diagnostics.instance_groups;
@@ -1823,6 +1980,10 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   const auto encode_start = std::chrono::steady_clock::now();
 
   const auto draw_object = [&](const RenderObject &object, const float opacity) {
+    if (object.custom_mesh != nullptr &&
+        (object.custom_mesh->vertices.empty() || object.custom_mesh->indices.empty())) {
+      return;
+    }
     const CpuMesh &mesh = isContactShadowUtility(object) && object.custom_mesh == nullptr
                               ? contact_shadow_plane_
                               : meshForObject(object);

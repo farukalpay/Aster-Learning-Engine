@@ -50,6 +50,10 @@ replaced by `aster_kernel_math_world_to_screen`,
 `aster_kernel_math_screen_to_world`, and
 `aster_kernel_math_screen_to_world_ray` so public consumers cross the same
 world/clip/NDC/screen boundary as the C++ camera and renderer code.
+Math contract failures remain C++-first, but the frame-forensics ABI now has
+diagnostic kinds for math contracts, non-finite world matrices, singular normal
+matrices, negative-scale tangent flips, projection/backend convention drift, and
+robust predicate uncertainty.
 
 ## Ownership And Lifetime
 

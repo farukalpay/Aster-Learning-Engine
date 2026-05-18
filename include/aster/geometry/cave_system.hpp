@@ -210,6 +210,7 @@ struct CaveWallFixtureProfile {
   float normal_up_bias = -0.10f;
   float lens_offset = 0.075f;
   float light_offset = 0.18f;
+  Vec3 light_color{1.0f, 0.16f, 0.08f};
 };
 
 struct CaveWallFixturePlacement {

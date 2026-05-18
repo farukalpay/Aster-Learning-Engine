@@ -320,10 +320,11 @@ void testRenderStyleProfileContracts() {
   const aster::RenderStyleProfile retro =
       aster::makeRenderStyleProfile(aster::RenderStylePreset::RetroHorrorReadable);
   assert(retro.unlit_mix > 0.0f);
+  assert(retro.unlit_mix < 0.25f);
   assert(retro.emissive_gain > 1.0f);
   assert(retro.luma_crush > 0.0f);
   assert(retro.color_quantization_steps >= 16.0f);
-  assert(retro.procedural_sample_snap > 0.0f);
+  assert(retro.procedural_sample_snap == 0.0f);
   assert(aster::renderStylePresetName(retro.preset) == "retro-horror");
 
   aster::RendererSettings settings;
@@ -337,7 +338,8 @@ void testRenderStyleProfileContracts() {
   assert(settings.atmosphere.fog_color.x > settings.atmosphere.fog_color.y);
   assert(settings.atmosphere.fog_falloff == aster::AtmosphereFogFalloff::Exponential);
   assert(settings.atmosphere.fog_power > 1.0f);
-  assert(settings.sun_light.intensity <= 0.70f);
+  assert(settings.sun_light.intensity <= 0.85f);
+  assert(settings.atmosphere.saturation >= 1.0f);
 
   aster::applyRenderStyleProfile(settings, neutral);
   assert(settings.style.preset == aster::RenderStylePreset::Neutral);

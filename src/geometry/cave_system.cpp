@@ -1341,7 +1341,7 @@ std::vector<CaveWallFixturePlacement> placeCaveWallFixtures(const CaveTunnelProf
                           mount_position,
                           lens_position,
                           light_position,
-                          {1.0f, 0.16f, 0.08f},
+                          fixture.light_color,
                           normal,
                           tangent,
                           up,
@@ -1479,7 +1479,7 @@ CaveComplex buildCaveComplex(const CaveComplexSpec &spec) {
   const float chest_side_offset =
       std::clamp(floor_half_width - 0.58f, floor_half_width * 0.52f, floor_half_width * 0.86f);
   complex.chest_position =
-      evaluateCaveTunnelCenter(spec.tunnel, chest_t) + side * -chest_side_offset + up * 0.06f;
+      evaluateCaveTunnelCenter(spec.tunnel, chest_t) + side * -chest_side_offset + up * 0.24f;
   complex.chest_yaw = std::atan2(-tangent.x, -tangent.z);
   return complex;
 }

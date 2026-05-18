@@ -68,8 +68,13 @@ The default spatial path is typed: local/world/view/clip/NDC/screen points,
 directions, normals, rays, viewports, and transform wrappers encode the space
 contract in function signatures. Aster defaults are column-major storage,
 column-vector multiplication, right-handed view, zero-to-one reverse-Z depth,
-and top-left screen origin. These headers are internal source contracts unless
-re-exposed through the kernel ABI.
+and top-left screen origin. Contract failures flow through a math diagnostic
+ring so release builds can surface degenerate normalization, singular matrices,
+predicate uncertainty, and render-space contract issues in frame forensics.
+Header-first authoring/gameplay helpers extend the same layer to curves,
+sampling, packing, bounds, collision, camera/game feel, placement, and mesh
+measurement. These headers are internal source contracts unless re-exposed
+through the kernel ABI.
 
 `include/aster/asset`
 

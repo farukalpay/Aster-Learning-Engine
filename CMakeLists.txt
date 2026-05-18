@@ -488,6 +488,7 @@ if(ASTER_BUILD_TESTS)
 
   aster_add_test(aster_core_tests tests/core_tests.cpp)
   aster_add_test(aster_math_tests tests/math_tests.cpp)
+  aster_add_test(aster_math_property_tests tests/math_property_tests.cpp)
   aster_add_test(aster_geometry_tests tests/geometry_tests.cpp)
   add_executable(aster_asset_cache_tests tests/asset_cache_tests.cpp)
   target_link_libraries(aster_asset_cache_tests PRIVATE aster_engine_internal)
@@ -543,6 +544,10 @@ if(ASTER_BUILD_TESTS)
       industrial_pipe_scene
       showcase_lab_scenes
       software_preview_renderer
+      software_depth_policy_coplanar
+      software_depth_policy_object_order
+      prepare_scene_custom_mesh_cache
+      frame_math_diagnostics
       retro_style_neutral_preview
       retro_style_preview_effects
       retro_style_emissive_gain

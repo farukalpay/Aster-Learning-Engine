@@ -122,6 +122,7 @@ void LumenRun::reset() {
                      0.46f,
                      3.70f};
   player_grounded_ = false;
+  forced_spawn_lighting_frames_ = 2;
 
   const float golden_angle = kPi * (3.0f - std::sqrt(5.0f));
   const auto shard_overlaps_reserved_composition = [](const Vec3 position) {
@@ -169,6 +170,7 @@ void LumenRun::reset() {
   }
 
   rebuildScene();
+  clearTransientFeedback();
 }
 
 void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
@@ -179,6 +181,9 @@ void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
   }
 
   const float step = std::clamp(dt, 0.0f, 0.05f);
+  if (forced_spawn_lighting_frames_ > 0) {
+    --forced_spawn_lighting_frames_;
+  }
   status_.elapsed_seconds += step;
   invulnerability_ = std::max(0.0f, invulnerability_ - step);
   updateBloodParticles(step);
@@ -303,6 +308,7 @@ void LumenRun::relocatePlayer(Vec3 position, const float facing_yaw) {
   player_swim_blend_ = 0.0f;
   player_climbing_ = false;
   player_climb_blend_ = 0.0f;
+  forced_spawn_lighting_frames_ = 0;
   if (physics_.valid(player_body_)) {
     physics_.setPosition(player_body_, player_position_);
     physics_.setVelocity(player_body_, {});
@@ -478,10 +484,11 @@ void LumenRun::setAvatarPointTarget(const Vec3 target) {
 }
 
 bool LumenRun::pointAvatarAtRay(const Vec3 origin, const Vec3 direction, const float max_distance) {
-  const Vec3 ray_direction = normalize(direction);
-  if (length(ray_direction) <= 0.0001f || max_distance <= 0.0f) {
+  const MathResult<Vec3> ray_direction_result = safeNormalize(direction);
+  if (!ray_direction_result || max_distance <= 0.0f) {
     return false;
   }
+  const Vec3 ray_direction = ray_direction_result.value;
 
   bool found = false;
   float best_distance = max_distance;
@@ -638,7 +645,9 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
         continue;
       }
       const Vec3 to_target = target - ray_origin;
-      if (dot(normalize(to_target), ray_direction_unit) <= 0.92f) {
+      const float to_target_length = length(to_target);
+      if (to_target_length <= 0.0001f ||
+          dot(to_target / to_target_length, ray_direction_unit) <= 0.92f) {
         continue;
       }
 
@@ -1008,6 +1017,9 @@ LumenRun::caveSectionAt(const Vec3 position, CaveInteriorSample *sample) const {
 }
 
 CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
+  if (forced_spawn_lighting_frames_ > 0) {
+    return {};
+  }
   if (cave_sections_.empty()) {
     return {};
   }
@@ -1097,7 +1109,7 @@ CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
       [](const LightCandidate &lhs, const LightCandidate &rhs) { return lhs.score < rhs.score; });
 
   Vec3 wall_light_position = cave_entrance_light_position_;
-  Vec3 wall_light_color = kCaveIndustrialWarmLight;
+  Vec3 wall_light_color = kCaveIndustrialRedLight;
   std::vector<CaveWallLightSample> wall_lights;
   wall_lights.reserve(candidates.size());
   for (const LightCandidate &candidate : candidates) {

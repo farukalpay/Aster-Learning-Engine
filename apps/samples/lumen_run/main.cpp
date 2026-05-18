@@ -322,11 +322,12 @@ void applyCaveRenderEnvironment(aster::RendererSettings &settings,
   const float cave_depth = std::clamp(light.depth, 0.0f, 1.0f);
   const float chamber_fill = std::clamp(light.chamber, 0.0f, 1.0f);
   const float source_fill = std::clamp(light.wall_light, 0.0f, 1.0f);
-  const aster::Vec3 warm_ambient = mixVec({0.018f, 0.019f, 0.018f},
-                                         light.wall_light_color * 0.022f, source_fill * 0.35f);
-  const aster::Vec3 cave_sky_tint = mixVec({0.014f, 0.016f, 0.017f}, warm_ambient, source_fill);
+  const aster::Vec3 warm_ambient =
+      mixVec({0.018f, 0.019f, 0.018f}, light.wall_light_color * 0.022f, source_fill * 0.35f);
+  const aster::Vec3 cave_sky_tint =
+      mixVec({0.014f, 0.016f, 0.017f}, warm_ambient, source_fill * 0.30f);
   const aster::Vec3 cave_ground_tint =
-      mixVec({0.014f, 0.014f, 0.013f}, warm_ambient * 0.62f, source_fill);
+      mixVec({0.014f, 0.014f, 0.013f}, warm_ambient * 0.72f, source_fill * 0.26f);
 
   settings.ambient_strength =
       std::lerp(baseline.ambient_strength,
@@ -337,7 +338,8 @@ void applyCaveRenderEnvironment(aster::RendererSettings &settings,
                 interior);
   settings.sky_ambient_color = mixVec(baseline.sky_ambient_color, cave_sky_tint, interior);
   settings.ground_ambient_color = mixVec(baseline.ground_ambient_color, cave_ground_tint, interior);
-  settings.pipeline.clear_color = mixVec(baseline.clear_color, {0.005f, 0.005f, 0.005f}, interior);
+  settings.pipeline.clear_color =
+      mixVec(baseline.clear_color, {0.005f, 0.005f, 0.005f}, interior);
   settings.exposure =
       std::lerp(baseline.exposure, 0.94f + source_fill * 0.04f + chamber_fill * 0.025f, interior);
   settings.atmosphere.fog_color =

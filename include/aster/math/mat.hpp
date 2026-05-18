@@ -421,14 +421,19 @@ template <typename T>
 [[nodiscard]] inline MathResult<Mat2T<T>> inverse(const Mat2T<T> &matrix,
                                                   const MathPolicy policy = defaultMathPolicy()) {
   if (!allFinite(matrix)) {
-    return MathResult<Mat2T<T>>::failure(MathError::NonFiniteInput,
-                                         "Mat2 inverse requires finite inputs.");
+    auto out = MathResult<Mat2T<T>>::failure(MathError::NonFiniteInput,
+                                             "Mat2 inverse requires finite inputs.");
+    recordMathDiagnostic(MathDiagnosticOperation::MatrixInverse, MathDiagnosticSource::MathCore,
+                         out.diagnostics, policy, false);
+    return out;
   }
   const T det = determinant(matrix);
   if (nearZero(det, static_cast<T>(policy.absolute_epsilon))) {
     auto out = MathResult<Mat2T<T>>::failure(MathError::SingularMatrix,
                                              "Mat2 inverse requested for a singular matrix.");
     out.diagnostics.determinant = static_cast<float>(det);
+    recordMathDiagnostic(MathDiagnosticOperation::MatrixInverse, MathDiagnosticSource::MathCore,
+                         out.diagnostics, policy, false);
     return out;
   }
   const T inv_det = static_cast<T>(1) / det;
@@ -441,14 +446,19 @@ template <typename T>
 [[nodiscard]] inline MathResult<Mat3T<T>> inverse(const Mat3T<T> &matrix,
                                                   const MathPolicy policy = defaultMathPolicy()) {
   if (!allFinite(matrix)) {
-    return MathResult<Mat3T<T>>::failure(MathError::NonFiniteInput,
-                                         "Mat3 inverse requires finite inputs.");
+    auto out = MathResult<Mat3T<T>>::failure(MathError::NonFiniteInput,
+                                             "Mat3 inverse requires finite inputs.");
+    recordMathDiagnostic(MathDiagnosticOperation::MatrixInverse, MathDiagnosticSource::MathCore,
+                         out.diagnostics, policy, false);
+    return out;
   }
   const T det = determinant(matrix);
   if (nearZero(det, static_cast<T>(policy.absolute_epsilon))) {
     auto out = MathResult<Mat3T<T>>::failure(MathError::SingularMatrix,
                                              "Mat3 inverse requested for a singular matrix.");
     out.diagnostics.determinant = static_cast<float>(det);
+    recordMathDiagnostic(MathDiagnosticOperation::MatrixInverse, MathDiagnosticSource::MathCore,
+                         out.diagnostics, policy, false);
     return out;
   }
 
@@ -487,14 +497,19 @@ template <typename T>
 [[nodiscard]] inline MathResult<Mat4T<T>> inverse(const Mat4T<T> &matrix,
                                                   const MathPolicy policy = defaultMathPolicy()) {
   if (!allFinite(matrix)) {
-    return MathResult<Mat4T<T>>::failure(MathError::NonFiniteInput,
-                                         "Mat4 inverse requires finite inputs.");
+    auto out = MathResult<Mat4T<T>>::failure(MathError::NonFiniteInput,
+                                             "Mat4 inverse requires finite inputs.");
+    recordMathDiagnostic(MathDiagnosticOperation::MatrixInverse, MathDiagnosticSource::MathCore,
+                         out.diagnostics, policy, false);
+    return out;
   }
   const T det = determinant(matrix);
   if (nearZero(det, static_cast<T>(policy.absolute_epsilon))) {
     auto out = MathResult<Mat4T<T>>::failure(MathError::SingularMatrix,
                                              "Mat4 inverse requested for a singular matrix.");
     out.diagnostics.determinant = static_cast<float>(det);
+    recordMathDiagnostic(MathDiagnosticOperation::MatrixInverse, MathDiagnosticSource::MathCore,
+                         out.diagnostics, policy, false);
     return out;
   }
 

@@ -593,10 +593,10 @@ Vec3 transformNormal(const Mat4 &matrix, const Vec3 value) {
   if (const MathResult<Mat3> normal_matrix = normalMatrix(matrix)) {
     const Vec3 transformed = normal_matrix.value * value;
     if (length(transformed) > 0.0001f) {
-      return normalize(transformed);
+      return normalizeOr(transformed, {0.0f, 1.0f, 0.0f});
     }
   }
-  return normalize(transformVector(matrix, value));
+  return normalizeOr(transformVector(matrix, value), {0.0f, 1.0f, 0.0f});
 }
 
 CpuMesh meshFromPrimitive(const AssetData &data, const Json &primitive, const Mat4 &matrix,
@@ -628,8 +628,9 @@ CpuMesh meshFromPrimitive(const AssetData &data, const Json &primitive, const Ma
     if (apply_transform) {
       vertex.position = transformPoint(matrix, vertex.position);
       vertex.normal = transformNormal(matrix, vertex.normal);
-      const Vec3 tangent = normalize(transformVector(
-          matrix, {vertex.tangent.x, vertex.tangent.y, vertex.tangent.z}));
+      const Vec3 tangent = normalizeOr(
+          transformVector(matrix, {vertex.tangent.x, vertex.tangent.y, vertex.tangent.z}),
+          {1.0f, 0.0f, 0.0f});
       vertex.tangent = {tangent.x, tangent.y, tangent.z, vertex.tangent.w};
     }
     vertex.position = vertex.position * unit_scale;

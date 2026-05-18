@@ -91,12 +91,21 @@ CompiledMaterial compileMaterialForRendering(const Material &material,
   if (material.shader_variant_key != 0u || !material.asset_id.empty()) {
     compiled.permutation_flags |= materialPermutationFlagBit(MaterialPermutationFlag::ShaderVariant);
   }
+  if (material.depth_policy.layer != RenderDepthLayer::BaseSurface ||
+      material.depth_policy.constant_bias != 0.0f || material.depth_policy.slope_bias != 0.0f ||
+      material.depth_policy.normal_offset != 0.0f) {
+    compiled.permutation_flags |= materialPermutationFlagBit(MaterialPermutationFlag::DepthBias);
+  }
 
   std::uint64_t hash = 1469598103934665603ull;
   appendKey(hash, compiled.permutation_flags);
   appendEnum(hash, material.render_role);
   appendEnum(hash, material.alpha_mode);
   appendEnum(hash, material.depth_write);
+  appendEnum(hash, material.depth_policy.layer);
+  appendFloat(hash, material.depth_policy.constant_bias);
+  appendFloat(hash, material.depth_policy.slope_bias);
+  appendFloat(hash, material.depth_policy.normal_offset);
   appendEnum(hash, material.cull_mode);
   appendEnum(hash, resolveMaterialSurfaceProfile(material));
   appendEnum(hash, material.surface_pattern);
@@ -141,6 +150,10 @@ std::string materialPipelineTag(const CompiledMaterial &material) {
   if ((material.permutation_flags &
        materialPermutationFlagBit(MaterialPermutationFlag::ShaderVariant)) != 0u) {
     tag += ".shader-variant";
+  }
+  if ((material.permutation_flags & materialPermutationFlagBit(MaterialPermutationFlag::DepthBias)) !=
+      0u) {
+    tag += ".depth-bias";
   }
   return tag;
 }

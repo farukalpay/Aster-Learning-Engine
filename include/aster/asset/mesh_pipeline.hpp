@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "aster/math/authoring.hpp"
 #include "aster/render/mesh.hpp"
 
 #include <cstddef>
@@ -30,5 +31,6 @@ struct MeshDiagnostics {
 
 [[nodiscard]] CpuMesh prepareMeshForRendering(CpuMesh mesh, MeshProcessOptions options = {},
                                               MeshDiagnostics *diagnostics = nullptr);
+[[nodiscard]] MeshMeasure measureMeshForAuthoring(const CpuMesh &mesh);
 
 } // namespace aster
