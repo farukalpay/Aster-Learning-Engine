@@ -36,6 +36,7 @@ public:
 };
 
 [[nodiscard]] std::unique_ptr<NativeRenderBackend> createNativeRenderBackend();
+[[nodiscard]] std::unique_ptr<NativeRenderBackend> createNullRenderBackend();
 [[nodiscard]] bool captureNativeFrameToActiveFramebuffer();
 void clearNativeFrame();
 

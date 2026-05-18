@@ -929,7 +929,11 @@ public:
     stats.framebuffer_width = framebuffer_width;
     stats.framebuffer_height = framebuffer_height;
     stats.graph_passes = graph.passes.size();
+    stats.graph_resources = graph.resources.size();
+    stats.graph_barriers = graph.barriers.size();
+    stats.graph_transient_resources = graph.transient_resource_count;
     stats.backend_feature_mask = capabilities().graph_resource_mask;
+    stats.backend_kind_value = static_cast<std::uint32_t>(capabilities().kind);
     if (device_ == nil || queue_ == nil || framebuffer_width <= 0 || framebuffer_height <= 0) {
       return stats;
     }

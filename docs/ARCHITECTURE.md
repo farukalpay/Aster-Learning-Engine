@@ -101,7 +101,7 @@ lightweight CPU trace sink with scope timing, an in-memory ring, and text export
 have separate source files; all native handles stay inside those files. Engine
 and app code receive viewport sizes and `ControlSnapshot` values.
 
-`include/aster/render`
+`include/aster/render`, `include/aster/rhi`, and `include/aster/framegraph`
 
 Camera contracts, render-scene packets, mesh data, renderer settings, software
 framebuffer capture, and `RenderDevice`. macOS uses an owned Metal backend for
@@ -111,11 +111,12 @@ fallback, capture path, preview path, and reference implementation.
 software rendering.
 
 `RenderDevice` is the renderer orchestrator. Backend implementations own API-
-specific resource creation, encode work, and presentation details. The fixed
-render graph contract is shared across backends and currently spans
+specific resource creation, encode work, and presentation details. The graphics
+core exposes typed RHI handles, a resource registry, and a compiled frame graph
+with pass/resource dependencies, transient lifetimes, validation diagnostics,
+and resource barriers. The default frame graph currently spans
 `scene-color-depth`, `opaque`, `contact-shadow`, `transparent`, `ui-composite`,
-and `capture` passes, with explicit lifetime tags for frame-local and readback
-resources.
+and `capture` passes.
 
 `crates/aster_runtime`
 
@@ -230,16 +231,17 @@ the adapter behind `aster::Window` rather than adding product-level branches.
 
 ## Renderer Policy
 
-`RenderDevice` owns renderer selection and mesh preparation. On macOS, the
+`RenderDevice` owns renderer selection, mesh preparation, graph compilation, and
+resource-registry synchronization. On macOS, the
 default backend is `Aster Native Metal Rasterizer`; it uploads prepared meshes
 to Metal buffers, consumes a Rust-built frame plan, renders opaque planned
 groups with instanced draws, renders contact shadows, renders translucent
 groups in sorted order, streams object uniforms through a frame-local buffer,
 evaluates procedural material shading, and composites the UI overlay from the
 software framebuffer. `ASTER_FORCE_SOFTWARE_RENDERER=1` selects the
-deterministic software renderer.
+deterministic software reference renderer.
 
-The software renderer handles tiled rasterization, depth, alpha, procedural
+The software reference renderer handles tiled rasterization, depth, alpha, procedural
 material evaluation, contact shadows, fog, grading, tonemapping, and capture.
 Native capture waits for the Metal scene command buffer, reads the scene texture,
 and composites the software UI overlay using the same top-left framebuffer
@@ -328,8 +330,9 @@ extract a reusable engine or SDK contract.
 - Windows has a native Win32 window/input/software presentation path. Native
   Windows GPU rendering is represented by a bootstrap D3D12 backend that
   validates device creation and capability reporting. It does not yet replace
-  the Metal/software draw path for full scene rendering; app code should still
-  treat Metal and software as the production renderers today.
+  the Metal/software-reference draw path for full scene rendering; app code
+  should still treat Metal and software reference as the production renderers
+  today.
 - The scene importer supports the subset of JSON scene data exercised by
   generated tests and engine-authored scenes. Expanding file-format coverage
   should extend that importer without

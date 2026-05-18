@@ -1,0 +1,6 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float3 aster_unpack_normal(float3 encoded) {
+  return normalize(encoded * 2.0 - 1.0);
+}

@@ -1,0 +1,14 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float aster_saturate(float value) {
+  return clamp(value, 0.0, 1.0);
+}
+
+float aster_square(float value) {
+  return value * value;
+}
+
+float aster_safe_rcp(float value) {
+  return 1.0 / max(abs(value), 0.000001);
+}

@@ -125,15 +125,14 @@ void drawGraphSummary(aster::UiCanvas &canvas, std::size_t &selected_pass,
     }
   }
   y += 38.0f;
-  const aster::RenderGraphPassDesc &pass = graph->passes[selected_pass];
+  const aster::framegraph::CompiledPass &pass = graph->passes[selected_pass];
   const std::string pass_label =
-      std::to_string(selected_pass + 1u) + " " +
-      std::string(aster::renderGraphPassName(pass.pass));
+      std::to_string(selected_pass + 1u) + " " + pass.name;
   textRow(canvas, "Selected", pass_label, x, y, width, visible_top, visible_bottom);
   char buffer[64]{};
-  std::snprintf(buffer, sizeof(buffer), "0x%08x", pass.reads);
+  std::snprintf(buffer, sizeof(buffer), "0x%08x", pass.read_mask);
   textRow(canvas, "Reads", buffer, x, y, width, visible_top, visible_bottom);
-  std::snprintf(buffer, sizeof(buffer), "0x%08x", pass.writes);
+  std::snprintf(buffer, sizeof(buffer), "0x%08x", pass.write_mask);
   textRow(canvas, "Writes", buffer, x, y, width, visible_top, visible_bottom);
 }
 

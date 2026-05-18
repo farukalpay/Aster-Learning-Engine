@@ -8,6 +8,7 @@
 #include "aster/render/mesh.hpp"
 #include "aster/render/render_graph.hpp"
 #include "aster/render/render_scene.hpp"
+#include "aster/rhi/resource_registry.hpp"
 
 #include <array>
 #include <cstddef>
@@ -26,9 +27,10 @@ class NativeRenderBackend;
 struct RenderObject;
 
 enum class RenderBackendKind {
-  Software,
+  SoftwareReference,
   Metal,
   D3D12,
+  Null,
   Unknown,
 };
 
@@ -154,8 +156,17 @@ struct FrameStats {
   std::size_t dynamic_mesh_objects = 0;
   std::size_t dynamic_mesh_cache_entries = 0;
   std::size_t graph_passes = 0;
+  std::size_t graph_resources = 0;
+  std::size_t graph_barriers = 0;
+  std::size_t graph_transient_resources = 0;
+  std::size_t registry_live_resources = 0;
+  std::size_t registry_retired_resources = 0;
+  std::size_t timestamp_query_slots = 0;
+  std::size_t queue_waits = 0;
   std::uint32_t backend_feature_mask = 0u;
+  std::uint32_t backend_kind_value = 0u;
   double rust_plan_seconds = 0.0;
+  double graph_compile_seconds = 0.0;
   double render_encode_seconds = 0.0;
 };
 
@@ -197,8 +208,15 @@ private:
   std::unordered_map<DynamicMeshResourceKey, std::uint64_t, DynamicMeshResourceKeyHash>
       custom_mesh_resource_last_seen_;
   std::uint64_t mesh_cache_frame_ = 0u;
+  double graph_compile_seconds_ = 0.0;
   RenderScene render_scene_;
   FixedRenderGraph render_graph_;
+  framegraph::FrameGraph frame_graph_;
+  framegraph::CompiledFrameGraph compiled_frame_graph_;
+  rhi::ResourceRegistry resource_registry_;
+  std::unordered_map<const CpuMesh *, rhi::BufferHandle> custom_mesh_resource_handles_;
+  std::unordered_map<DynamicMeshResourceKey, rhi::BufferHandle, DynamicMeshResourceKeyHash>
+      dynamic_mesh_resource_handles_;
 };
 
 [[nodiscard]] std::string_view renderBackendKindName(RenderBackendKind kind);

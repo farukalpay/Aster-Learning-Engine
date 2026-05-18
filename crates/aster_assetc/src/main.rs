@@ -1,7 +1,10 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-use aster_content::{compile_scene_asset_to_cache, inspect_cache, CompileOptions, OriginPolicy};
+use aster_content::{
+    bake_texture_to_ktx2, compile_scene_asset_to_cache, hex_hash, inspect_cache, inspect_texture,
+    CompileOptions, OriginPolicy,
+};
 use aster_runtime::{
     build_frame_plan, AsterRuntimeCamera, AsterRuntimeRenderObject, AsterRuntimeRenderPlanOptions,
     AsterRuntimeVec3,
@@ -69,7 +72,9 @@ fn usage() -> &'static str {
     "usage:
   aster_assetc --self-check
   aster_assetc compile --input <file.scene> --output <file.astercache> [--origin keep|center|center-on-ground] [--unit-scale <float>]
-  aster_assetc inspect --input <file.astercache>"
+  aster_assetc inspect --input <file.astercache>
+  aster_assetc texture-inspect --input <texture> [--role albedo|normal|orm|height|emissive]
+  aster_assetc texture-bake --input <texture> --output <file.ktx2> [--role albedo|normal|orm|height|emissive]"
 }
 
 fn value_after(args: &[String], name: &str) -> Option<String> {
@@ -129,6 +134,54 @@ fn inspect_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn texture_inspect_command(args: &[String]) -> Result<(), String> {
+    let input = value_after(args, "--input")
+        .map(PathBuf::from)
+        .ok_or_else(|| "texture-inspect requires --input <texture>".to_string())?;
+    let role = value_after(args, "--role").unwrap_or_else(|| "unknown".to_string());
+    let summary = inspect_texture(&input, &role).map_err(|error| error.to_string())?;
+    println!(
+        "texture {} role={} kind={} colorspace={} format={} size={}x{} mips={} hash={}",
+        input.display(),
+        summary.role,
+        summary.kind.as_str(),
+        summary.color_space,
+        summary.format,
+        summary.width,
+        summary.height,
+        summary.mip_count,
+        hex_hash(&summary.source_hash)
+    );
+    for diagnostic in summary.diagnostics {
+        println!("warning: {diagnostic}");
+    }
+    Ok(())
+}
+
+fn texture_bake_command(args: &[String]) -> Result<(), String> {
+    let input = value_after(args, "--input")
+        .map(PathBuf::from)
+        .ok_or_else(|| "texture-bake requires --input <texture>".to_string())?;
+    let output = value_after(args, "--output")
+        .map(PathBuf::from)
+        .ok_or_else(|| "texture-bake requires --output <file.ktx2>".to_string())?;
+    let role = value_after(args, "--role").unwrap_or_else(|| "unknown".to_string());
+    let summary =
+        bake_texture_to_ktx2(&input, &output, &role).map_err(|error| error.to_string())?;
+    println!(
+        "baked {} -> {} kind={} colorspace={} size={}x{} mips={} hash={}",
+        input.display(),
+        output.display(),
+        summary.kind.as_str(),
+        summary.color_space,
+        summary.width,
+        summary.height,
+        summary.mip_count,
+        hex_hash(&summary.source_hash)
+    );
+    Ok(())
+}
+
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|arg| arg == "--self-check") {
@@ -138,6 +191,8 @@ fn run() -> Result<(), String> {
     match args.get(1).map(String::as_str) {
         Some("compile") => compile_command(&args[2..]),
         Some("inspect") => inspect_command(&args[2..]),
+        Some("texture-inspect") => texture_inspect_command(&args[2..]),
+        Some("texture-bake") => texture_bake_command(&args[2..]),
         Some("--help") | Some("-h") | None => {
             println!("{}", usage());
             Ok(())

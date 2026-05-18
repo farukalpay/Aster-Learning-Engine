@@ -1,0 +1,41 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+material material.cave_moss {
+  schema_version: 1
+  name: "Cave Moss"
+  shading_model: LitPBR
+  blend_mode: Opaque
+  cull_mode: None
+  receives_decals: true
+  receives_shadows: true
+
+  textures {
+    albedo: "moss_cave_albedo.ktx2"
+    normal: "moss_cave_normal.ktx2"
+    roughness: "moss_cave_roughness.ktx2"
+    ao: "moss_cave_ao.ktx2"
+    moss: "moss_slope_mask.ktx2"
+  }
+
+  params {
+    base_color_r: 0.12
+    base_color_g: 0.24
+    base_color_b: 0.11
+    roughness: 0.92
+    metallic: 0.0
+    triplanar_scale: 2.1
+    micro_normal_strength: 0.18
+    roughness_variation: 0.16
+  }
+
+  features {
+    triplanar: true
+    normal_map: true
+  }
+
+  layers {
+    base: triplanar(albedo, normal, roughness)
+    moss: slope_blend(moss, world_up, 0.42)
+  }
+}

@@ -325,6 +325,75 @@ pub struct TextureDependency {
     pub hash: [u8; 32],
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureImportKind {
+    Unknown,
+    Albedo,
+    Normal,
+    Roughness,
+    Metallic,
+    Occlusion,
+    MetallicRoughness,
+    Orm,
+    Height,
+    Emissive,
+    Mask,
+}
+
+impl TextureImportKind {
+    pub fn role(role: &str) -> Self {
+        match role {
+            "albedo" | "base_color" | "baseColor" => Self::Albedo,
+            "normal" => Self::Normal,
+            "roughness" => Self::Roughness,
+            "metallic" => Self::Metallic,
+            "ao" | "occlusion" | "ambient_occlusion" => Self::Occlusion,
+            "metallic_roughness" => Self::MetallicRoughness,
+            "orm" => Self::Orm,
+            "height" | "displacement" => Self::Height,
+            "emissive" => Self::Emissive,
+            "wetness" | "moss" | "crack" | "mask" | "opacity" => Self::Mask,
+            _ => Self::Unknown,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Albedo => "albedo",
+            Self::Normal => "normal",
+            Self::Roughness => "roughness",
+            Self::Metallic => "metallic",
+            Self::Occlusion => "occlusion",
+            Self::MetallicRoughness => "metallic_roughness",
+            Self::Orm => "orm",
+            Self::Height => "height",
+            Self::Emissive => "emissive",
+            Self::Mask => "mask",
+        }
+    }
+
+    pub fn color_space(self) -> &'static str {
+        match self {
+            Self::Albedo | Self::Emissive => "srgb",
+            _ => "linear",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextureImportSummary {
+    pub role: String,
+    pub kind: TextureImportKind,
+    pub color_space: String,
+    pub width: u32,
+    pub height: u32,
+    pub mip_count: u32,
+    pub format: String,
+    pub source_hash: [u8; 32],
+    pub diagnostics: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Material {
     pub name: String,
@@ -736,6 +805,199 @@ pub fn hex_hash(hash: &[u8; 32]) -> String {
         let _ = write!(&mut out, "{byte:02x}");
     }
     out
+}
+
+pub fn texture_mip_count(mut width: u32, mut height: u32) -> u32 {
+    width = width.max(1);
+    height = height.max(1);
+    let mut levels = 1;
+    while width > 1 || height > 1 {
+        width = (width / 2).max(1);
+        height = (height / 2).max(1);
+        levels += 1;
+    }
+    levels
+}
+
+pub fn inspect_texture(path: impl AsRef<Path>, role: &str) -> Result<TextureImportSummary> {
+    let bytes = fs::read(path)?;
+    let (format, width, height, header_mips, mut diagnostics) = inspect_texture_header(&bytes);
+    if width == 0 || height == 0 {
+        diagnostics.push("texture dimensions could not be decoded from header".to_string());
+    }
+    let kind = TextureImportKind::role(role);
+    Ok(TextureImportSummary {
+        role: role.to_string(),
+        kind,
+        color_space: kind.color_space().to_string(),
+        width,
+        height,
+        mip_count: header_mips.max(if width > 0 && height > 0 {
+            texture_mip_count(width, height)
+        } else {
+            1
+        }),
+        format,
+        source_hash: *blake3::hash(&bytes).as_bytes(),
+        diagnostics,
+    })
+}
+
+pub fn bake_texture_to_ktx2(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    role: &str,
+) -> Result<TextureImportSummary> {
+    let summary = inspect_texture(&input, role)?;
+    let width = summary.width.max(1);
+    let height = summary.height.max(1);
+    let mip_count = summary.mip_count.max(1);
+    let vk_format = if summary.color_space == "srgb" {
+        43u32
+    } else {
+        37u32
+    };
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&[0xab, b'K', b'T', b'X', b' ', b'2', b'0', 0xbb]);
+    bytes.extend_from_slice(&[b'\r', b'\n', 0x1a, b'\n']);
+    bytes.extend_from_slice(&vk_format.to_le_bytes());
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&width.to_le_bytes());
+    bytes.extend_from_slice(&height.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&mip_count.to_le_bytes());
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(b"ASTER_TEXTURE_BAKE_V1\0");
+    bytes.extend_from_slice(summary.kind.as_str().as_bytes());
+    bytes.push(0);
+    bytes.extend_from_slice(summary.color_space.as_bytes());
+    bytes.push(0);
+    bytes.extend_from_slice(&summary.source_hash);
+    if let Some(parent) = output.as_ref().parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    fs::write(output, bytes)?;
+    Ok(summary)
+}
+
+fn inspect_texture_header(bytes: &[u8]) -> (String, u32, u32, u32, Vec<String>) {
+    if bytes.len() >= 24 && bytes.starts_with(&[0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'])
+    {
+        return (
+            "png".to_string(),
+            u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]),
+            u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]),
+            1,
+            Vec::new(),
+        );
+    }
+    if bytes.len() >= 68
+        && bytes.starts_with(&[
+            0xab, b'K', b'T', b'X', b' ', b'2', b'0', 0xbb, b'\r', b'\n', 0x1a, b'\n',
+        ])
+    {
+        return (
+            "ktx2".to_string(),
+            u32::from_le_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]),
+            u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]),
+            u32::from_le_bytes([bytes[40], bytes[41], bytes[42], bytes[43]]).max(1),
+            Vec::new(),
+        );
+    }
+    if bytes.len() >= 18 {
+        let image_type = bytes[2];
+        if image_type == 2 || image_type == 3 || image_type == 10 || image_type == 11 {
+            return (
+                "tga".to_string(),
+                u16::from_le_bytes([bytes[12], bytes[13]]) as u32,
+                u16::from_le_bytes([bytes[14], bytes[15]]) as u32,
+                1,
+                Vec::new(),
+            );
+        }
+    }
+    if bytes.len() >= 4 && bytes.starts_with(&[0xff, 0xd8]) {
+        if let Some((width, height)) = inspect_jpeg_size(bytes) {
+            return ("jpeg".to_string(), width, height, 1, Vec::new());
+        }
+        return (
+            "jpeg".to_string(),
+            0,
+            0,
+            1,
+            vec!["jpeg header was present but SOF dimensions were not found".to_string()],
+        );
+    }
+    if bytes.len() >= 4 && bytes.starts_with(&[0x76, 0x2f, 0x31, 0x01]) {
+        return (
+            "exr".to_string(),
+            0,
+            0,
+            1,
+            vec!["EXR payload detected; full dataWindow decode is deferred".to_string()],
+        );
+    }
+    (
+        "unknown".to_string(),
+        0,
+        0,
+        1,
+        vec!["unsupported texture header".to_string()],
+    )
+}
+
+fn inspect_jpeg_size(bytes: &[u8]) -> Option<(u32, u32)> {
+    let mut cursor = 2usize;
+    while cursor + 9 < bytes.len() {
+        if bytes[cursor] != 0xff {
+            cursor += 1;
+            continue;
+        }
+        while cursor < bytes.len() && bytes[cursor] == 0xff {
+            cursor += 1;
+        }
+        if cursor >= bytes.len() {
+            return None;
+        }
+        let marker = bytes[cursor];
+        cursor += 1;
+        if marker == 0xd9 || marker == 0xda {
+            return None;
+        }
+        if cursor + 2 > bytes.len() {
+            return None;
+        }
+        let length = u16::from_be_bytes([bytes[cursor], bytes[cursor + 1]]) as usize;
+        if length < 2 || cursor + length > bytes.len() {
+            return None;
+        }
+        let is_sof = matches!(
+            marker,
+            0xc0 | 0xc1
+                | 0xc2
+                | 0xc3
+                | 0xc5
+                | 0xc6
+                | 0xc7
+                | 0xc9
+                | 0xca
+                | 0xcb
+                | 0xcd
+                | 0xce
+                | 0xcf
+        );
+        if is_sof && length >= 7 {
+            let height = u16::from_be_bytes([bytes[cursor + 3], bytes[cursor + 4]]) as u32;
+            let width = u16::from_be_bytes([bytes[cursor + 5], bytes[cursor + 6]]) as u32;
+            return Some((width, height));
+        }
+        cursor += length;
+    }
+    None
 }
 
 fn default_material() -> Material {
@@ -2817,5 +3079,36 @@ mod tests {
         let read = read_cache_bytes(&bytes).expect("read cache");
         assert_eq!(asset, read);
         fs::remove_dir_all(scene.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn inspects_and_bakes_texture_metadata() {
+        let dir = fixture_dir("texture");
+        fs::create_dir_all(&dir).expect("texture dir");
+        let texture = dir.join("albedo.png");
+        let mut png = Vec::new();
+        png.extend_from_slice(&[0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n']);
+        png.extend_from_slice(&13u32.to_be_bytes());
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(&32u32.to_be_bytes());
+        png.extend_from_slice(&16u32.to_be_bytes());
+        png.extend_from_slice(&[8, 6, 0, 0, 0]);
+        fs::write(&texture, png).expect("png");
+
+        let summary = inspect_texture(&texture, "albedo").expect("inspect");
+        assert_eq!(summary.kind, TextureImportKind::Albedo);
+        assert_eq!(summary.color_space, "srgb");
+        assert_eq!(summary.width, 32);
+        assert_eq!(summary.height, 16);
+        assert_eq!(summary.mip_count, texture_mip_count(32, 16));
+
+        let baked = dir.join("albedo.ktx2");
+        let baked_summary = bake_texture_to_ktx2(&texture, &baked, "albedo").expect("bake");
+        assert_eq!(baked_summary.source_hash, summary.source_hash);
+        let baked_read = inspect_texture(&baked, "albedo").expect("inspect baked");
+        assert_eq!(baked_read.format, "ktx2");
+        assert_eq!(baked_read.width, 32);
+        assert_eq!(baked_read.height, 16);
+        fs::remove_dir_all(dir).ok();
     }
 }

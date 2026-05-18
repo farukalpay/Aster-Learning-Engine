@@ -72,6 +72,10 @@ struct FrameRenderDrawGroup {
   RenderMaterialKey material{};
   MaterialRenderQueue render_queue = MaterialRenderQueue::Opaque;
   FrameRenderPass pass = FrameRenderPass::Opaque;
+  std::uint32_t graph_pass_id = 0u;
+  std::uint32_t resource_usage_flags = 0u;
+  std::uint32_t upload_range_index = 0u;
+  std::uint32_t diagnostic_id = 0u;
   std::size_t first_instance = 0;
   std::size_t instance_count = 0;
 };

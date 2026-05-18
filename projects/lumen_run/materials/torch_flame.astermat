@@ -1,0 +1,38 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+material material.torch_flame {
+  schema_version: 1
+  name: "Torch Flame"
+  shading_model: Emissive
+  blend_mode: Blend
+  cull_mode: None
+  receives_decals: false
+  receives_shadows: false
+
+  textures {
+    emissive: "torch_flame_emissive.ktx2"
+    opacity: "torch_flame_alpha.ktx2"
+  }
+
+  params {
+    base_color_r: 1.0
+    base_color_g: 0.46
+    base_color_b: 0.08
+    emission_r: 1.0
+    emission_g: 0.36
+    emission_b: 0.08
+    emission_strength: 0.66
+    opacity: 0.82
+    roughness: 0.42
+  }
+
+  features {
+    disable_fog: true
+    disable_instancing: false
+  }
+
+  layers {
+    glow: wetness(emissive, opacity, 0.35)
+  }
+}

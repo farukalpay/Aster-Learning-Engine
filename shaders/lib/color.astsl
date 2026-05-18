@@ -1,0 +1,10 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float3 aster_srgb_to_linear(float3 value) {
+  return pow(max(value, float3(0.0)), float3(2.2));
+}
+
+float3 aster_linear_to_srgb(float3 value) {
+  return pow(max(value, float3(0.0)), float3(1.0 / 2.2));
+}

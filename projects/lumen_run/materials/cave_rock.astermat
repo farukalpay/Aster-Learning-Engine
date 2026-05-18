@@ -1,0 +1,47 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+material material.cave_rock {
+  schema_version: 1
+  name: "Cave Rock"
+  shading_model: LitPBR
+  blend_mode: Opaque
+  cull_mode: None
+  receives_decals: true
+  receives_shadows: true
+
+  textures {
+    albedo: "rock_cave_albedo.ktx2"
+    normal: "rock_cave_normal.ktx2"
+    roughness: "rock_cave_roughness.ktx2"
+    height: "rock_cave_height.ktx2"
+    ao: "rock_cave_ao.ktx2"
+    wetness: "rock_wetness_mask.ktx2"
+  }
+
+  params {
+    base_color_r: 0.22
+    base_color_g: 0.20
+    base_color_b: 0.18
+    roughness: 0.86
+    metallic: 0.0
+    triplanar_scale: 3.5
+    wetness_strength: 0.30
+    micro_normal_strength: 0.34
+    roughness_variation: 0.22
+    height_shading: 0.18
+    pattern_depth: 0.16
+  }
+
+  features {
+    triplanar: true
+    normal_map: true
+    parallax: true
+    decal_receiver: true
+  }
+
+  layers {
+    base: triplanar(albedo, normal, height)
+    wet: height_blend(wetness, height, 0.55)
+  }
+}

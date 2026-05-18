@@ -3,9 +3,10 @@
 
 #pragma once
 
+#include "aster/framegraph/graph_compiler.hpp"
+
 #include <cstdint>
 #include <string_view>
-#include <vector>
 
 namespace aster {
 
@@ -42,10 +43,7 @@ struct RenderGraphPassDesc {
   std::uint32_t writes = 0u;
 };
 
-struct FixedRenderGraph {
-  std::vector<RenderGraphResourceDesc> resources;
-  std::vector<RenderGraphPassDesc> passes;
-};
+using FixedRenderGraph = framegraph::CompiledFrameGraph;
 
 [[nodiscard]] constexpr std::uint32_t renderGraphResourceBit(const RenderGraphResource resource) {
   return 1u << static_cast<std::uint32_t>(resource);
@@ -54,6 +52,10 @@ struct FixedRenderGraph {
 [[nodiscard]] std::string_view renderGraphPassName(RenderGraphPass pass);
 [[nodiscard]] std::string_view renderGraphResourceName(RenderGraphResource resource);
 [[nodiscard]] std::string_view renderGraphResourceLifetimeName(RenderGraphResourceLifetime lifetime);
+[[nodiscard]] RenderGraphPass renderGraphPassFromName(std::string_view name);
+[[nodiscard]] RenderGraphResource renderGraphResourceFromName(std::string_view name);
+[[nodiscard]] framegraph::FrameGraph makeDefaultFrameGraph(bool ui_overlay_enabled = true,
+                                                          bool capture_enabled = true);
 [[nodiscard]] FixedRenderGraph makeFixedRenderGraph(bool ui_overlay_enabled = true,
                                                     bool capture_enabled = true);
 

@@ -90,6 +90,8 @@ engine contracts from papers that were useful as background context.
   camera-occlusion contracts
 - Shared `SurfacePattern` procedural material behavior across the software
   renderer and native Metal backend
+- Typed graphics resource handles, a resource registry, and a compiled frame
+  graph for renderer-facing resource lifetime and pass dependency diagnostics
 - Object-level camera culling, sorted translucent worksets, and frame-local
   object-uniform streaming in the native renderer
 - Required Rust frame planning for renderer-facing packets, including frustum

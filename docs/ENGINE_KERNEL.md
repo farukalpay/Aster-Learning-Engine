@@ -47,7 +47,9 @@ plain C and compiling C++ wrappers in the consuming toolchain.
 
 Kernel resources are opaque handles. A handle returned by a kernel creation
 function is owned by the caller until it is passed to the matching destroy
-function:
+function. The current ABI declares the broader handle family, but only engine
+creation is constructible today; the other destroy functions reject uncreated
+handles with `ASTER_STATUS_UNSUPPORTED` until their matching create APIs land:
 
 - `AsterEngineHandle` -> `aster_kernel_engine_destroy`
 - `AsterWindowHandle` -> `aster_kernel_window_destroy`

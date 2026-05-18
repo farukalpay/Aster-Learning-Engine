@@ -1,0 +1,9 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float3 aster_apply_fog(float3 color, float3 fog_color, float distance_to_camera,
+                       float fog_start, float fog_end, float strength) {
+  float fog = smoothstep(fog_start, max(fog_end, fog_start + 0.001), distance_to_camera) *
+              clamp(strength, 0.0, 1.0);
+  return mix(color, fog_color, fog);
+}

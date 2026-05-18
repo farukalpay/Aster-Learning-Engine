@@ -1,0 +1,7 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float3 aster_triplanar_weights(float3 normal) {
+  float3 w = pow(abs(normalize(normal)), float3(4.0));
+  return w / max(w.x + w.y + w.z, 0.000001);
+}

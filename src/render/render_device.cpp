@@ -1056,12 +1056,14 @@ RenderDevice::~RenderDevice() = default;
 
 std::string_view renderBackendKindName(const RenderBackendKind kind) {
   switch (kind) {
-  case RenderBackendKind::Software:
-    return "software";
+  case RenderBackendKind::SoftwareReference:
+    return "software-reference";
   case RenderBackendKind::Metal:
     return "metal";
   case RenderBackendKind::D3D12:
     return "d3d12";
+  case RenderBackendKind::Null:
+    return "null";
   case RenderBackendKind::Unknown:
     return "unknown";
   }
@@ -1076,7 +1078,7 @@ RenderBackendCapabilities softwareCapabilities() {
       renderGraphResourceBit(RenderGraphResource::SceneDepth) |
       renderGraphResourceBit(RenderGraphResource::UiOverlay) |
       renderGraphResourceBit(RenderGraphResource::CaptureReadback);
-  return {.kind = RenderBackendKind::Software,
+  return {.kind = RenderBackendKind::SoftwareReference,
           .name = "Aster Learning Software Rasterizer",
           .gpu = false,
           .supports_shader_materials = true,
@@ -1165,6 +1167,11 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
     if (live || !expired) {
       ++it;
     } else {
+      if (const auto handle = custom_mesh_resource_handles_.find(it->first);
+          handle != custom_mesh_resource_handles_.end()) {
+        resource_registry_.destroy(handle->second);
+        custom_mesh_resource_handles_.erase(handle);
+      }
       custom_mesh_last_seen_.erase(it->first);
       it = custom_mesh_cache_.erase(it);
     }
@@ -1179,6 +1186,11 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
     if (live || !expired) {
       ++it;
     } else {
+      if (const auto handle = dynamic_mesh_resource_handles_.find(it->first);
+          handle != dynamic_mesh_resource_handles_.end()) {
+        resource_registry_.destroy(handle->second);
+        dynamic_mesh_resource_handles_.erase(handle);
+      }
       custom_mesh_resource_last_seen_.erase(it->first);
       it = custom_mesh_resource_cache_.erase(it);
     }
@@ -1188,6 +1200,16 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
     if (!custom_mesh_cache_.contains(mesh)) {
       custom_mesh_cache_.emplace(mesh, prepareMeshForRendering(*mesh, renderMeshOptions()));
     }
+    if (!custom_mesh_resource_handles_.contains(mesh)) {
+      const auto &prepared = custom_mesh_cache_.at(mesh);
+      custom_mesh_resource_handles_.emplace(
+          mesh, resource_registry_.createBuffer(
+                    {.byte_size = prepared.vertices.size() * sizeof(Vertex) +
+                                  prepared.indices.size() * sizeof(std::uint32_t),
+                     .usage = rhi::bufferUsageBit(rhi::BufferUsage::Vertex) |
+                              rhi::bufferUsageBit(rhi::BufferUsage::Index),
+                     .debug_label = "custom-mesh"}));
+    }
   }
   for (const RenderObject &object : scene.objects()) {
     if (object.custom_mesh != nullptr && object.dynamic_mesh.valid() &&
@@ -1195,12 +1217,30 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
       custom_mesh_resource_cache_.emplace(
           object.dynamic_mesh, prepareMeshForRendering(*object.custom_mesh, renderMeshOptions()));
     }
+    if (object.custom_mesh != nullptr && object.dynamic_mesh.valid() &&
+        !dynamic_mesh_resource_handles_.contains(object.dynamic_mesh)) {
+      const auto &prepared = custom_mesh_resource_cache_.at(object.dynamic_mesh);
+      dynamic_mesh_resource_handles_.emplace(
+          object.dynamic_mesh,
+          resource_registry_.createBuffer(
+              {.byte_size = prepared.vertices.size() * sizeof(Vertex) +
+                            prepared.indices.size() * sizeof(std::uint32_t),
+               .usage = rhi::bufferUsageBit(rhi::BufferUsage::Vertex) |
+                        rhi::bufferUsageBit(rhi::BufferUsage::Index),
+               .debug_label = "dynamic-mesh"}));
+    }
   }
+  resource_registry_.clearRetired();
 }
 
 void RenderDevice::initialize() {
   ASTER_PROFILE_SCOPE("RenderDevice::initialize");
-  render_graph_ = makeFixedRenderGraph(true, true);
+  const auto graph_start = std::chrono::steady_clock::now();
+  frame_graph_ = makeDefaultFrameGraph(true, true);
+  compiled_frame_graph_ = framegraph::compileFrameGraph(frame_graph_);
+  render_graph_ = compiled_frame_graph_;
+  const auto graph_end = std::chrono::steady_clock::now();
+  graph_compile_seconds_ = std::chrono::duration<double>(graph_end - graph_start).count();
   const MeshProcessOptions mesh_options = renderMeshOptions();
   box_ = prepareMeshForRendering(makeBox(), mesh_options);
   sphere_ =
@@ -1212,8 +1252,14 @@ void RenderDevice::initialize() {
   ruin_block_ = prepareMeshForRendering(makeRuinBlock(), mesh_options);
   pillar_ = prepareMeshForRendering(makePillar(kPillarSides, 1.0f, 1.0f), mesh_options);
 
+  const char *force_null = std::getenv("ASTER_FORCE_NULL_RENDERER");
   const char *force_software = std::getenv("ASTER_FORCE_SOFTWARE_RENDERER");
-  if (force_software == nullptr || *force_software == '\0') {
+  if (force_null != nullptr && *force_null != '\0') {
+    native_backend_ = createNullRenderBackend();
+    if (native_backend_ != nullptr && !native_backend_->initialize()) {
+      native_backend_.reset();
+    }
+  } else if (force_software == nullptr || *force_software == '\0') {
     native_backend_ = createNativeRenderBackend();
     if (native_backend_ != nullptr && !native_backend_->initialize()) {
       native_backend_.reset();
@@ -1236,6 +1282,12 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.framebuffer_width = framebuffer_width;
   stats.framebuffer_height = framebuffer_height;
   stats.graph_passes = render_graph_.passes.size();
+  stats.graph_resources = render_graph_.resources.size();
+  stats.graph_barriers = render_graph_.barriers.size();
+  stats.graph_transient_resources = render_graph_.transient_resource_count;
+  const rhi::ResourceRegistryStats initial_registry_stats = resource_registry_.stats();
+  stats.registry_live_resources = initial_registry_stats.live_resources;
+  stats.registry_retired_resources = initial_registry_stats.retired_resources;
 
   if (framebuffer_width <= 0 || framebuffer_height <= 0) {
     return stats;
@@ -1255,6 +1307,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.dynamic_mesh_cache_entries =
       custom_mesh_cache_.size() + custom_mesh_resource_cache_.size();
   stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
+  stats.graph_compile_seconds = graph_compile_seconds_;
+  stats.backend_kind_value =
+      static_cast<std::uint32_t>(backendCapabilities().kind);
 
   SoftwareFrameBuffer &framebuffer = activeFrameBuffer();
   if (native_backend_ != nullptr) {
@@ -1285,7 +1340,16 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
         custom_mesh_cache_.size() + custom_mesh_resource_cache_.size();
     native_stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
     native_stats.graph_passes = render_graph_.passes.size();
+    native_stats.graph_resources = render_graph_.resources.size();
+    native_stats.graph_barriers = render_graph_.barriers.size();
+    native_stats.graph_transient_resources = render_graph_.transient_resource_count;
+    const rhi::ResourceRegistryStats registry_stats = resource_registry_.stats();
+    native_stats.registry_live_resources = registry_stats.live_resources;
+    native_stats.registry_retired_resources = registry_stats.retired_resources;
     native_stats.backend_feature_mask = native_backend_->capabilities().graph_resource_mask;
+    native_stats.backend_kind_value =
+        static_cast<std::uint32_t>(native_backend_->capabilities().kind);
+    native_stats.graph_compile_seconds = graph_compile_seconds_;
     return native_stats;
   }
 
@@ -1339,6 +1403,11 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   const auto encode_end = std::chrono::steady_clock::now();
   stats.render_encode_seconds = std::chrono::duration<double>(encode_end - encode_start).count();
   stats.backend_feature_mask = softwareCapabilities().graph_resource_mask;
+  stats.backend_kind_value = static_cast<std::uint32_t>(RenderBackendKind::SoftwareReference);
+  const rhi::ResourceRegistryStats registry_stats = resource_registry_.stats();
+  stats.registry_live_resources = registry_stats.live_resources;
+  stats.registry_retired_resources = registry_stats.retired_resources;
+  stats.graph_compile_seconds = graph_compile_seconds_;
 
   return stats;
 }

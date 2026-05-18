@@ -89,6 +89,10 @@ struct RuntimeDrawGroup {
   std::uint64_t material_key = 0;
   std::uint32_t render_queue = 0;
   std::uint32_t pass = 0;
+  std::uint32_t graph_pass_id = 0;
+  std::uint32_t resource_usage_flags = 0;
+  std::uint32_t upload_range_index = 0;
+  std::uint32_t diagnostic_id = 0;
   std::size_t first_instance = 0;
   std::size_t instance_count = 0;
 };
@@ -147,7 +151,7 @@ static_assert(sizeof(RuntimeRenderObject) == 112u);
 static_assert(sizeof(std::size_t) == 8u,
               "The Rust render planner ABI currently uses usize and is validated for 64-bit "
               "desktop targets.");
-static_assert(sizeof(RuntimeDrawGroup) == 40u);
+static_assert(sizeof(RuntimeDrawGroup) == 56u);
 static_assert(sizeof(RuntimeDiagnostics) == 88u);
 static_assert(sizeof(RuntimeFramePlanBuffers) == 56u);
 
@@ -239,6 +243,10 @@ template <typename T> void appendKey(std::uint64_t &hash, const T &value) {
   hash = fnvAppend(hash, &value, sizeof(T));
 }
 
+void appendKeyString(std::uint64_t &hash, const std::string &value) {
+  hash = fnvAppend(hash, value.data(), value.size());
+}
+
 Vec3 cameraForward(const OrbitCamera &camera) {
   Vec3 forward = normalize(camera.target - camera.position());
   if (length(forward) <= 0.0001f) {
@@ -313,6 +321,9 @@ RenderMaterialKey renderMaterialKeyForObject(const RenderObject &object) {
   appendKey(hash, double_sided);
   appendKey(hash, object.material.cull_mode);
   appendKey(hash, contact_shadow);
+  appendKey(hash, object.material.shader_variant_key);
+  appendKeyString(hash, object.material.asset_id);
+  appendKeyString(hash, object.material_asset_id);
   return {hash};
 }
 
@@ -497,6 +508,10 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
                            .material = {group.material_key},
                            .render_queue = materialQueueFromValue(group.render_queue),
                            .pass = passFromValue(group.pass),
+                           .graph_pass_id = group.graph_pass_id,
+                           .resource_usage_flags = group.resource_usage_flags,
+                           .upload_range_index = group.upload_range_index,
+                           .diagnostic_id = group.diagnostic_id,
                            .first_instance = group.first_instance,
                            .instance_count = group.instance_count});
   }

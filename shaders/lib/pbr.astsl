@@ -1,0 +1,19 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float3 aster_lit_pbr(float3 albedo, float3 normal, float3 view, float3 light_dir,
+                     float3 light_color, float roughness, float metallic, float ao) {
+  float3 h = normalize(light_dir + view);
+  float n_dot_l = max(dot(normal, light_dir), 0.0);
+  float n_dot_v = max(dot(normal, view), 0.001);
+  float n_dot_h = max(dot(normal, h), 0.0);
+  float h_dot_v = max(dot(h, view), 0.0);
+  float3 f0 = mix(float3(0.04), albedo, metallic);
+  float d = aster_distribution_ggx(n_dot_h, roughness);
+  float g = aster_geometry_schlick_ggx(n_dot_l, roughness) *
+            aster_geometry_schlick_ggx(n_dot_v, roughness);
+  float3 f = aster_fresnel_schlick(h_dot_v, f0);
+  float3 specular = (d * g * f) / max(4.0 * n_dot_l * n_dot_v, 0.000001);
+  float3 diffuse = (float3(1.0) - f) * albedo * (1.0 - metallic) / 3.14159265;
+  return (diffuse + specular) * light_color * n_dot_l * ao;
+}

@@ -152,6 +152,7 @@ struct DynamicMeshResourceKeyHash {
 };
 
 struct Material {
+  std::string asset_id;
   Vec3 base_color{1.0f, 1.0f, 1.0f};
   Vec3 emission_color{0.0f, 0.0f, 0.0f};
   float roughness = 0.55f;
@@ -176,6 +177,7 @@ struct Material {
   ProceduralSurfaceLayer procedural{};
   std::uint64_t compiled_permutation_key = 0u;
   std::uint32_t compiled_permutation_flags = 0u;
+  std::uint64_t shader_variant_key = 0u;
 };
 
 struct MaterialDesc {
@@ -213,6 +215,7 @@ struct MaterialDesc {
 
 struct RenderObject {
   std::string name;
+  std::string material_asset_id;
   MeshPrimitive primitive = MeshPrimitive::Sphere;
   Transform transform{};
   Material material{};

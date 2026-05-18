@@ -87,6 +87,10 @@ pub struct AsterRuntimeDrawGroup {
     pub material_key: u64,
     pub render_queue: u32,
     pub pass: u32,
+    pub graph_pass_id: u32,
+    pub resource_usage_flags: u32,
+    pub upload_range_index: u32,
+    pub diagnostic_id: u32,
     pub first_instance: usize,
     pub instance_count: usize,
 }
@@ -427,6 +431,10 @@ fn append_groups(
             material_key: key.material_key,
             render_queue: key.render_queue,
             pass: key.pass,
+            graph_pass_id: key.pass,
+            resource_usage_flags: 0,
+            upload_range_index: 0,
+            diagnostic_id: first_instance as u32,
             first_instance,
             instance_count: count,
         });
@@ -956,7 +964,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<AsterRuntimeLineOfSightFade>(), 48);
         assert_eq!(std::mem::size_of::<AsterRuntimeRenderPlanOptions>(), 48);
         assert_eq!(std::mem::size_of::<AsterRuntimeDrawInstance>(), 16);
-        assert_eq!(std::mem::size_of::<AsterRuntimeDrawGroup>(), 40);
+        assert_eq!(std::mem::size_of::<AsterRuntimeDrawGroup>(), 56);
         assert_eq!(std::mem::size_of::<AsterRuntimeRenderDiagnostics>(), 88);
         assert_eq!(std::mem::size_of::<AsterRuntimeFramePlanBuffers>(), 56);
     }

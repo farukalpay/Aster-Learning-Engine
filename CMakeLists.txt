@@ -260,6 +260,9 @@ endif()
 if(ASTER_BUILD_PREVIEW)
   add_executable(aster_preview apps/offline/preview_main.cpp)
   target_link_libraries(aster_preview PRIVATE aster_engine_internal)
+
+  add_executable(aster_material_lab apps/material_lab/main.cpp)
+  target_link_libraries(aster_material_lab PRIVATE aster_engine_internal)
 endif()
 
 if(ASTER_BUILD_NETWORK)
@@ -332,7 +335,9 @@ if(ASTER_BUILD_TESTS)
       industrial_pipe_scene
       software_preview_renderer
       material_render_policies
-      fixed_render_graph
+      rhi_resource_registry
+      frame_graph
+      backend_kinds
       material_compiler
       rust_render_frame_plan
       scene_coherence_energy
@@ -343,6 +348,20 @@ if(ASTER_BUILD_TESTS)
   )
     add_test(NAME aster_render_scene_tests.${render_scene_case}
              COMMAND aster_render_scene_tests ${render_scene_case})
+  endforeach()
+
+  add_executable(aster_material_shader_system_tests tests/material_shader_system_tests.cpp)
+  target_link_libraries(aster_material_shader_system_tests PRIVATE aster_engine_internal)
+  target_include_directories(aster_material_shader_system_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  foreach(material_shader_case
+      material_asset_parser_and_compiler
+      shader_library_and_reflection
+      texture_validation_and_debug
+      hot_reload_snapshot
+      invalid_material_diagnostics
+  )
+    add_test(NAME aster_material_shader_system_tests.${material_shader_case}
+             COMMAND aster_material_shader_system_tests ${material_shader_case})
   endforeach()
   aster_add_test(aster_systems_tests tests/systems_tests.cpp)
   aster_add_test(aster_physics_tests tests/physics_tests.cpp)

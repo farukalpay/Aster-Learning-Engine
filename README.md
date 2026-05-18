@@ -39,14 +39,14 @@ The checked-in images are generated from the current build.
 - A macOS native Metal renderer with depth, translucent sorting, procedural
   material shading, contact shadows, fog, tonemapping, frame pacing, and UI
   composition.
-- A renderer/RHI v1 spine: `RenderDevice` orchestrates backend selection, fixed
-  render graph passes, backend capability queries, and material permutation
-  artifacts.
+- A renderer/RHI v1 spine: `RenderDevice` orchestrates backend selection, typed
+  graphics resources, compiled frame graph passes, backend capability queries,
+  and material permutation artifacts.
 - A Windows D3D12 bootstrap backend for device creation, capability reporting,
   frame clear, and capture-path smoke coverage. Full Windows scene rendering is
   still future work.
-- A deterministic software renderer used for fallback presentation, capture,
-  preview rendering, and renderer diagnostics.
+- A deterministic software reference renderer used for fallback presentation,
+  capture, preview rendering, and renderer diagnostics.
 - Reusable systems for player motion, creature motion, interaction, inventory,
   equipment, lighting, particles, mining, animation, and third-person camera
   behavior.
@@ -68,6 +68,7 @@ The checked-in images are generated from the current build.
 | --- | --- |
 | `include/aster/kernel/` | Stable public engine kernel ABI and C++ wrappers |
 | `include/aster/game_sdk/` | Public source SDK for project/scene/prefab/component/action authoring |
+| `include/aster/rhi` and `include/aster/framegraph` | Internal graphics-core contracts for resource handles, registry state, pass/resource graph compilation, and validation |
 | `include/aster/*` except `kernel` | Internal engine source headers used by repository targets |
 | `src/` | Engine implementations, platform adapters, renderers, reusable systems, and sample-owned implementations |
 | `src/samples/lumen_run_*.cpp` | Lumen Run implementation split by lifecycle, scene/physics rebuild, validation, simulation, interaction, and mining |
@@ -256,7 +257,8 @@ Aster v1 has native desktop paths for macOS, Linux, and Windows behind the same
   cursor clipping/visibility, GDI/DIB software presentation, and waitable-timer
   frame pacing. The D3D12 backend currently bootstraps device/queue ownership and
   capability diagnostics; full Windows GPU scene rendering is still future work,
-  with the software renderer remaining the production Windows draw path today.
+  with the software reference renderer remaining the production Windows draw
+  path today.
 
 ## Authorship
 

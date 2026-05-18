@@ -1,0 +1,19 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float aster_distribution_ggx(float n_dot_h, float roughness) {
+  float a = roughness * roughness;
+  float a2 = a * a;
+  float denom = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+  return a2 / max(3.14159265 * denom * denom, 0.000001);
+}
+
+float aster_geometry_schlick_ggx(float n_dot_v, float roughness) {
+  float r = roughness + 1.0;
+  float k = (r * r) * 0.125;
+  return n_dot_v / max(n_dot_v * (1.0 - k) + k, 0.000001);
+}
+
+float3 aster_fresnel_schlick(float cos_theta, float3 f0) {
+  return f0 + (float3(1.0) - f0) * pow(1.0 - clamp(cos_theta, 0.0, 1.0), 5.0);
+}

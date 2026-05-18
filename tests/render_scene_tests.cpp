@@ -194,20 +194,70 @@ void testMaterialRenderPolicies() {
   assert(!aster::allowsCameraOcclusionFade(support));
 }
 
-void testFixedRenderGraphContract() {
+void testRhiResourceRegistryContract() {
+  aster::rhi::ResourceRegistry registry;
+  const aster::rhi::BufferHandle vertex_buffer = registry.createBuffer(
+      {.byte_size = 256u,
+       .usage = aster::rhi::bufferUsageBit(aster::rhi::BufferUsage::Vertex),
+       .debug_label = "unit.vertex-buffer"});
+  assert(vertex_buffer.valid());
+  assert(registry.contains(vertex_buffer));
+  assert(registry.label(vertex_buffer) == "unit.vertex-buffer");
+  assert(registry.setLabel(vertex_buffer, "unit.renamed-buffer"));
+  assert(registry.label(vertex_buffer) == "unit.renamed-buffer");
+
+  const aster::rhi::BufferHandle regenerated = registry.invalidate(vertex_buffer);
+  assert(regenerated.valid());
+  assert(!registry.contains(vertex_buffer));
+  assert(registry.contains(regenerated));
+  assert(regenerated.id == vertex_buffer.id);
+  assert(regenerated.generation == vertex_buffer.generation + 1u);
+
+  const aster::rhi::ImageHandle color = registry.createImage(
+      {.format = aster::rhi::ImageFormat::Bgra8Unorm,
+       .extent = {.width = 64u, .height = 64u, .depth = 1u},
+       .usage = aster::rhi::imageUsageBit(aster::rhi::ImageUsage::ColorAttachment),
+       .debug_label = "unit.color"});
+  const aster::rhi::SamplerHandle sampler =
+      registry.createSampler({.debug_label = "unit.sampler"});
+  const aster::rhi::GraphicsPipelineHandle pipeline =
+      registry.createGraphicsPipeline({.debug_label = "unit.pipeline"});
+  assert(registry.contains(color));
+  assert(registry.contains(sampler));
+  assert(registry.contains(pipeline));
+
+  const aster::rhi::ResourceRegistryStats stats = registry.stats();
+  assert(stats.live_resources == 4u);
+  assert(stats.buffers == 1u);
+  assert(stats.images == 1u);
+  assert(stats.samplers == 1u);
+  assert(stats.pipelines == 1u);
+
+  assert(registry.destroy(regenerated));
+  assert(!registry.contains(regenerated));
+  assert(registry.stats().retired_resources == 1u);
+  registry.clearRetired();
+  assert(registry.stats().retired_resources == 0u);
+}
+
+void testFrameGraphContract() {
   const aster::FixedRenderGraph graph = aster::makeFixedRenderGraph();
+  assert(graph.valid());
+  assert(graph.validation_errors.empty());
   assert(graph.resources.size() == 4u);
-  assert(graph.resources[0].resource == aster::RenderGraphResource::SceneColor);
-  assert(graph.resources[0].lifetime == aster::RenderGraphResourceLifetime::Frame);
-  assert(graph.resources[3].resource == aster::RenderGraphResource::CaptureReadback);
-  assert(graph.resources[3].lifetime == aster::RenderGraphResourceLifetime::Readback);
+  assert(graph.resources[0].name == "scene-color");
+  assert(graph.resources[0].desc.lifetime == aster::framegraph::ResourceLifetime::Transient);
+  assert(graph.resources[2].name == "ui-overlay");
+  assert(graph.resources[2].desc.lifetime == aster::framegraph::ResourceLifetime::Imported);
+  assert(graph.resources[3].name == "capture-readback");
+  assert(graph.resources[3].desc.lifetime == aster::framegraph::ResourceLifetime::Readback);
   assert(graph.passes.size() == 6u);
-  assert(graph.passes[0].pass == aster::RenderGraphPass::SceneColorDepth);
-  assert(graph.passes[1].pass == aster::RenderGraphPass::Opaque);
-  assert(graph.passes[2].pass == aster::RenderGraphPass::ContactShadow);
-  assert(graph.passes[3].pass == aster::RenderGraphPass::Transparent);
-  assert(graph.passes[4].pass == aster::RenderGraphPass::UiComposite);
-  assert(graph.passes[5].pass == aster::RenderGraphPass::Capture);
+  assert(graph.passes[0].name == "scene-color-depth");
+  assert(graph.passes[1].name == "opaque");
+  assert(graph.passes[2].name == "contact-shadow");
+  assert(graph.passes[3].name == "transparent");
+  assert(graph.passes[4].name == "ui-composite");
+  assert(graph.passes[5].name == "capture");
   const std::uint32_t color =
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor);
   const std::uint32_t depth =
@@ -215,16 +265,39 @@ void testFixedRenderGraphContract() {
   const std::uint32_t ui = aster::renderGraphResourceBit(aster::RenderGraphResource::UiOverlay);
   const std::uint32_t capture =
       aster::renderGraphResourceBit(aster::RenderGraphResource::CaptureReadback);
-  assert(graph.passes[0].reads == 0u && graph.passes[0].writes == (color | depth));
-  assert(graph.passes[1].reads == (color | depth) && graph.passes[1].writes == (color | depth));
-  assert(graph.passes[2].reads == (color | depth) && graph.passes[2].writes == (color | depth));
-  assert(graph.passes[3].reads == (color | depth) && graph.passes[3].writes == color);
-  assert(graph.passes[4].reads == (color | ui) && graph.passes[4].writes == color);
-  assert(graph.passes[5].reads == color && graph.passes[5].writes == capture);
-  assert(aster::renderGraphPassName(graph.passes[0].pass) == "scene-color-depth");
+  assert(graph.passes[0].read_mask == 0u && graph.passes[0].write_mask == (color | depth));
+  assert(graph.passes[1].read_mask == (color | depth) &&
+         graph.passes[1].write_mask == (color | depth));
+  assert(graph.passes[2].read_mask == (color | depth) &&
+         graph.passes[2].write_mask == (color | depth));
+  assert(graph.passes[3].read_mask == (color | depth) && graph.passes[3].write_mask == color);
+  assert(graph.passes[4].read_mask == (color | ui) && graph.passes[4].write_mask == color);
+  assert(graph.passes[5].read_mask == color && graph.passes[5].write_mask == capture);
+  assert(graph.transient_resource_count == 2u);
+  assert(!graph.barriers.empty());
+  const std::string dump = aster::framegraph::dumpFrameGraph(graph);
+  assert(dump.find("scene-color-depth") != std::string::npos);
+
+  aster::framegraph::FrameGraph invalid_graph;
+  const auto dangling = invalid_graph.addResource("dangling", {});
+  invalid_graph.addPass("invalid-read").reads(dangling);
+  const aster::framegraph::CompiledFrameGraph invalid =
+      aster::framegraph::compileFrameGraph(invalid_graph);
+  assert(!invalid.valid());
+  assert(!invalid.validation_errors.empty());
+
   assert(aster::renderGraphResourceName(aster::RenderGraphResource::UiOverlay) == "ui-overlay");
   assert(aster::renderGraphResourceLifetimeName(aster::RenderGraphResourceLifetime::Readback) ==
          "readback");
+}
+
+void testBackendKindContract() {
+  assert(aster::renderBackendKindName(aster::RenderBackendKind::SoftwareReference) ==
+         "software-reference");
+  assert(aster::renderBackendKindName(aster::RenderBackendKind::Metal) == "metal");
+  assert(aster::renderBackendKindName(aster::RenderBackendKind::D3D12) == "d3d12");
+  assert(aster::renderBackendKindName(aster::RenderBackendKind::Null) == "null");
+  assert(aster::renderBackendKindName(aster::RenderBackendKind::Unknown) == "unknown");
 }
 
 void testMaterialCompilerContract() {
@@ -576,7 +649,9 @@ constexpr TestCase kTestCases[] = {
     {"industrial_pipe_scene", testIndustrialPipeSceneContract},
     {"software_preview_renderer", testSoftwarePreviewRendererProducesImage},
     {"material_render_policies", testMaterialRenderPolicies},
-    {"fixed_render_graph", testFixedRenderGraphContract},
+    {"rhi_resource_registry", testRhiResourceRegistryContract},
+    {"frame_graph", testFrameGraphContract},
+    {"backend_kinds", testBackendKindContract},
     {"material_compiler", testMaterialCompilerContract},
     {"rust_render_frame_plan", testRustRenderFramePlanContracts},
     {"scene_coherence_energy", testSceneCoherenceEnergy},

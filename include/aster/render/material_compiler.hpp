@@ -18,6 +18,7 @@ enum class MaterialPermutationFlag : std::uint32_t {
   DoubleSided = 1u << 3u,
   DepthWrite = 1u << 4u,
   ContactShadow = 1u << 5u,
+  ShaderVariant = 1u << 6u,
 };
 
 struct CompiledMaterial {

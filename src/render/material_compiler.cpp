@@ -43,6 +43,12 @@ void appendString(std::uint64_t &hash, const std::string_view value) {
   }
 }
 
+void appendU64(std::uint64_t &hash, const std::uint64_t value) {
+  for (int byte_index = 0; byte_index < 8; ++byte_index) {
+    appendByte(hash, static_cast<std::uint8_t>(value >> (byte_index * 8)));
+  }
+}
+
 } // namespace
 
 bool materialHasProceduralPermutation(const Material &material) {
@@ -82,6 +88,9 @@ CompiledMaterial compileMaterialForRendering(const Material &material,
   if (material.surface_pattern == SurfacePattern::ContactShadow) {
     compiled.permutation_flags |= materialPermutationFlagBit(MaterialPermutationFlag::ContactShadow);
   }
+  if (material.shader_variant_key != 0u || !material.asset_id.empty()) {
+    compiled.permutation_flags |= materialPermutationFlagBit(MaterialPermutationFlag::ShaderVariant);
+  }
 
   std::uint64_t hash = 1469598103934665603ull;
   appendKey(hash, compiled.permutation_flags);
@@ -100,6 +109,8 @@ CompiledMaterial compileMaterialForRendering(const Material &material,
   appendFloat(hash, material.procedural.roughness_variation);
   appendFloat(hash, material.procedural.wetness);
   appendFloat(hash, material.procedural.height_shading);
+  appendU64(hash, material.shader_variant_key);
+  appendString(hash, material.asset_id);
   appendString(hash, material_id);
   compiled.permutation_key = hash;
   compiled.material.compiled_permutation_key = compiled.permutation_key;
@@ -125,6 +136,10 @@ std::string materialPipelineTag(const CompiledMaterial &material) {
   if ((material.permutation_flags &
        materialPermutationFlagBit(MaterialPermutationFlag::ContactShadow)) != 0u) {
     tag += ".contact-shadow";
+  }
+  if ((material.permutation_flags &
+       materialPermutationFlagBit(MaterialPermutationFlag::ShaderVariant)) != 0u) {
+    tag += ".shader-variant";
   }
   return tag;
 }

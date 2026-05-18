@@ -1,0 +1,6 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float3 aster_tonemap_reinhard(float3 color) {
+  return color / (float3(1.0) + max(color, float3(0.0)));
+}
