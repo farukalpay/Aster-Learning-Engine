@@ -55,6 +55,8 @@ struct D3D12SceneUniforms {
   float exposure_ambient[4]{};
   float fog_color_strength[4]{};
   float fog_params[4]{};
+  float style_params[4]{};
+  float style_params2[4]{};
   float lighting_params[4]{};
   D3D12LightUniform lights[aster::kRenderLightUniformCapacity]{};
 };
@@ -186,6 +188,8 @@ cbuffer SceneBuffer : register(b0) {
   float4 scene_exposure_ambient;
   float4 scene_fog_color_strength;
   float4 scene_fog_params;
+  float4 scene_style_params;
+  float4 scene_style_params2;
   float4 scene_lighting_params;
   Light scene_lights[64];
 };
@@ -241,6 +245,36 @@ float noise3(float3 p) {
 float ridge1(float v) { return 1.0 - abs(v * 2.0 - 1.0); }
 float3 gamma_encode(float3 c) { return pow(saturate(c), float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2)); }
 float3 tonemap(float3 c) { return c / (float3(1.0, 1.0, 1.0) + max(c, float3(0.0, 0.0, 0.0))); }
+float3 style_sample_world(float3 world) {
+  float snap = max(scene_style_params2.x, 0.0);
+  if (snap <= 0.0001) return world;
+  return floor(world / snap + float3(0.5, 0.5, 0.5)) * snap;
+}
+float style_fog(float distance_to_camera) {
+  float range = max(scene_fog_params.y - scene_fog_params.x, 0.001);
+  float normalized = max((distance_to_camera - scene_fog_params.x) / range, 0.0);
+  float power = max(scene_style_params2.z, 0.001);
+  float curve = smooth1(0.0, 1.0, normalized);
+  if (scene_style_params2.y > 1.5) {
+    curve = pow(saturate(normalized), power);
+  } else if (scene_style_params2.y > 0.5) {
+    curve = 1.0 - exp(-normalized * power);
+  }
+  return saturate(curve * scene_fog_color_strength.w);
+}
+float3 style_post(float3 color) {
+  float crush = saturate(scene_style_params.z);
+  if (crush > 0.0001) {
+    float luma = dot(color, float3(0.2126, 0.7152, 0.0722));
+    float dark = 1.0 - smooth1(0.10, 0.58, luma);
+    color = lerp(color, color * (0.58 + luma * 0.42), dark * crush);
+  }
+  float steps = floor(max(scene_style_params.w, 0.0));
+  if (steps > 1.0) {
+    color = floor(saturate(color) * steps + float3(0.5, 0.5, 0.5)) / steps;
+  }
+  return color;
+}
 float projected_noise(float3 world, float3 normal, float scale, float salt) {
   float3 n = normalize(normal);
   if (length(n) < 0.001) n = float3(0.0, 1.0, 0.0);
@@ -321,12 +355,13 @@ float4 fs_main(VSOut input) : SV_Target0 {
   }
   float3 normal = normalize(input.normal);
   if (length(normal) < 0.001) normal = float3(0.0, 1.0, 0.0);
-  float3 albedo = material_albedo(object, input.world, normal, input.uv);
+  float3 sample_world = style_sample_world(input.world);
+  float3 albedo = material_albedo(object, sample_world, normal, input.uv);
   float sky = saturate(normal.y * 0.5 + 0.5);
   float ambient = max(scene_exposure_ambient.y * saturate(object.pattern_params2.z * input.ao), scene_exposure_ambient.z);
   float3 color = lerp(scene_ground_ambient.rgb, scene_sky_ambient.rgb, sky) * albedo * ambient + albedo * 0.035;
   float3 view = normalize(scene_camera_time.xyz - input.world);
-  float layer_roughness = saturate(object.material_params.x + (noise3(input.world * 0.37) - 0.5) * object.procedural_params.z * 0.18);
+  float layer_roughness = saturate(object.material_params.x + (noise3(sample_world * 0.37) - 0.5) * object.procedural_params.z * 0.18);
   if (scene_sun_direction_enabled.w > 0.5) {
     float3 light_dir = normalize(scene_sun_direction_enabled.xyz);
     float ndotl = max(dot(normal, light_dir), 0.0);
@@ -341,13 +376,16 @@ float4 fs_main(VSOut input) : SV_Target0 {
     float ndotl = max(dot(normal, normalize(lv)), 0.0);
     color += albedo * (ndotl * 0.84 + 0.12) * scene_lights[i].color_intensity.rgb * (scene_lights[i].color_intensity.w / soft);
   }
-  float fog = smooth1(0.0, 1.0, (distance(scene_camera_time.xyz, input.world) - scene_fog_params.x) / max(scene_fog_params.y - scene_fog_params.x, 0.001)) * scene_fog_color_strength.w;
+  color = lerp(color, albedo * max(scene_exposure_ambient.y + scene_exposure_ambient.z + 0.14, 0.18), saturate(scene_style_params.x));
+  float fog = style_fog(distance(scene_camera_time.xyz, input.world));
   color = lerp(color, scene_fog_color_strength.rgb, saturate(fog));
   float luma = dot(color, float3(0.2126, 0.7152, 0.0722));
   color = lerp(float3(luma, luma, luma), color, saturate(scene_fog_params.z));
   color = (color - 0.5) * max(scene_fog_params.w, 0.0) + 0.5;
-  color += object.emission_strength.rgb * object.emission_strength.w;
-  return float4(gamma_encode(tonemap(color * scene_exposure_ambient.x)), opacity);
+  color += object.emission_strength.rgb * object.emission_strength.w * max(scene_style_params.y, 0.0);
+  color = tonemap(color * scene_exposure_ambient.x);
+  color = style_post(color);
+  return float4(gamma_encode(color), opacity);
 }
 )hlsl";
 }
@@ -856,6 +894,13 @@ private:
     uniforms.fog_params[1] = settings.atmosphere.fog_end;
     uniforms.fog_params[2] = settings.atmosphere.saturation;
     uniforms.fog_params[3] = settings.atmosphere.contrast;
+    uniforms.style_params[0] = settings.style.unlit_mix;
+    uniforms.style_params[1] = settings.style.emissive_gain;
+    uniforms.style_params[2] = settings.style.luma_crush;
+    uniforms.style_params[3] = settings.style.color_quantization_steps;
+    uniforms.style_params2[0] = settings.style.procedural_sample_snap;
+    uniforms.style_params2[1] = static_cast<float>(settings.atmosphere.fog_falloff);
+    uniforms.style_params2[2] = settings.atmosphere.fog_power;
     const std::vector<aster::Light> selected_lights =
         aster::selectRenderLights(settings.light_rig, camera.target, settings.light_policy);
     uniforms.lighting_params[0] = static_cast<float>(selected_lights.size());

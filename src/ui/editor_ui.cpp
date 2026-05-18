@@ -65,6 +65,31 @@ void checkboxRow(aster::UiCanvas &canvas, const std::string &label, bool &value,
   y += row_height + 3.0f;
 }
 
+void renderStyleRow(aster::UiCanvas &canvas, aster::RendererSettings &settings, const float x,
+                    float &y, const float width, const float visible_top,
+                    const float visible_bottom) {
+  constexpr float kRowHeight = 34.0f;
+  const float button_width = std::max((width - 8.0f) * 0.5f, 84.0f);
+  if (y >= visible_top && y + kRowHeight <= visible_bottom) {
+    const bool neutral = settings.style.preset == aster::RenderStylePreset::Neutral;
+    const bool retro = settings.style.preset == aster::RenderStylePreset::RetroHorrorReadable;
+    if (canvas.button({x, y, button_width, 30.0f}, neutral ? "Neutral*" : "Neutral",
+                      "style.neutral") &&
+        !neutral) {
+      aster::applyRenderStyleProfile(
+          settings, aster::makeRenderStyleProfile(aster::RenderStylePreset::Neutral));
+    }
+    if (canvas.button({x + width - button_width, y, button_width, 30.0f},
+                      retro ? "Retro Horror*" : "Retro Horror", "style.retro") &&
+        !retro) {
+      aster::applyRenderStyleProfile(
+          settings,
+          aster::makeRenderStyleProfile(aster::RenderStylePreset::RetroHorrorReadable));
+    }
+  }
+  y += kRowHeight + 3.0f;
+}
+
 void textRow(aster::UiCanvas &canvas, const std::string_view label, const std::string_view value,
              const float x, float &y, const float width, const float visible_top,
              const float visible_bottom) {
@@ -269,6 +294,7 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
             width, "contact.weight", visible_top, panel_bottom);
   checkboxRow(canvas_, "Atmosphere", settings.atmosphere.enabled, x, y, width, "atmosphere",
               visible_top, panel_bottom);
+  renderStyleRow(canvas_, settings, x, y, width, visible_top, panel_bottom);
   sliderRow(canvas_, "Fog", settings.atmosphere.fog_strength, 0.0f, 0.6f, x, y, width, "fog",
             visible_top, panel_bottom);
   sliderRow(canvas_, "Saturation", settings.atmosphere.saturation, 0.0f, 1.4f, x, y, width,

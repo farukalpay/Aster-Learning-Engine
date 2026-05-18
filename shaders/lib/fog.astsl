@@ -7,3 +7,15 @@ float3 aster_apply_fog(float3 color, float3 fog_color, float distance_to_camera,
               clamp(strength, 0.0, 1.0);
   return mix(color, fog_color, fog);
 }
+
+float aster_fog_factor(float distance_to_camera, float fog_start, float fog_end, float strength,
+                       float falloff, float power) {
+  float normalized = max((distance_to_camera - fog_start) / max(fog_end - fog_start, 0.001), 0.0);
+  float curve = smoothstep(0.0, 1.0, normalized);
+  if (falloff > 1.5) {
+    curve = pow(clamp(normalized, 0.0, 1.0), max(power, 0.001));
+  } else if (falloff > 0.5) {
+    curve = 1.0 - exp(-normalized * max(power, 0.001));
+  }
+  return clamp(curve * clamp(strength, 0.0, 1.0), 0.0, 1.0);
+}

@@ -7,6 +7,8 @@
 #include "aster/rhi/resource_barrier.hpp"
 
 #include <cstring>
+#include <span>
+#include <unordered_set>
 
 namespace {
 
@@ -198,6 +200,152 @@ void testSoftwarePreviewRendererProducesImage() {
                           framebuffer.rgba8()[i + 1u] > 8u || framebuffer.rgba8()[i + 2u] > 8u;
   }
   assert(has_non_black_pixel);
+}
+
+aster::OrbitCamera retroStyleTestCamera() {
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.55f, 0.0f};
+  camera.yaw = aster::radians(42.0f);
+  camera.pitch = aster::radians(14.0f);
+  camera.radius = 6.2f;
+  camera.vertical_fov = aster::radians(44.0f);
+  return camera;
+}
+
+struct PixelStats {
+  double mean_r = 0.0;
+  double mean_g = 0.0;
+  double mean_b = 0.0;
+  double mean_luma = 0.0;
+  std::size_t unique_rgb = 0u;
+};
+
+PixelStats measurePixels(const aster::SoftwareFrameBuffer &framebuffer) {
+  PixelStats stats;
+  std::unordered_set<std::uint32_t> unique;
+  const std::span<const std::uint8_t> rgba = framebuffer.rgba8();
+  const std::size_t pixels = std::max<std::size_t>(rgba.size() / 4u, 1u);
+  for (std::size_t i = 0; i + 3u < rgba.size(); i += 4u) {
+    const double r = static_cast<double>(rgba[i + 0u]) / 255.0;
+    const double g = static_cast<double>(rgba[i + 1u]) / 255.0;
+    const double b = static_cast<double>(rgba[i + 2u]) / 255.0;
+    stats.mean_r += r;
+    stats.mean_g += g;
+    stats.mean_b += b;
+    stats.mean_luma += r * 0.2126 + g * 0.7152 + b * 0.0722;
+    unique.insert((static_cast<std::uint32_t>(rgba[i + 0u]) << 16u) |
+                  (static_cast<std::uint32_t>(rgba[i + 1u]) << 8u) |
+                  static_cast<std::uint32_t>(rgba[i + 2u]));
+  }
+  stats.mean_r /= static_cast<double>(pixels);
+  stats.mean_g /= static_cast<double>(pixels);
+  stats.mean_b /= static_cast<double>(pixels);
+  stats.mean_luma /= static_cast<double>(pixels);
+  stats.unique_rgb = unique.size();
+  return stats;
+}
+
+void testRetroStyleNeutralSoftwarePreviewMatchesDefault() {
+  aster::RendererSettings baseline;
+  baseline.sun_light.enabled = true;
+  baseline.sun_light.intensity = 1.4f;
+  baseline.ambient_strength = 0.22f;
+  baseline.ambient_floor = 0.02f;
+
+  aster::RendererSettings explicit_neutral = baseline;
+  aster::applyRenderStyleProfile(
+      explicit_neutral, aster::makeRenderStyleProfile(aster::RenderStylePreset::Neutral));
+
+  const aster::OrbitCamera camera = retroStyleTestCamera();
+  const aster::Scene scene = aster::makeIndustrialPipeScene();
+  const aster::SoftwareFrameBuffer default_frame =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 42,
+                                    .height = 28,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = baseline});
+  const aster::SoftwareFrameBuffer neutral_frame =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 42,
+                                    .height = 28,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = explicit_neutral});
+  assert(default_frame.rgba8() == neutral_frame.rgba8());
+}
+
+void testRetroStyleSoftwarePreviewEffects() {
+  const aster::OrbitCamera camera = retroStyleTestCamera();
+  const aster::Scene scene = aster::makeIndustrialPipeScene();
+
+  aster::RendererSettings neutral;
+  neutral.sun_light.enabled = true;
+  neutral.sun_light.intensity = 1.7f;
+  neutral.ambient_strength = 0.26f;
+  neutral.ambient_floor = 0.02f;
+
+  aster::RendererSettings retro = neutral;
+  aster::applyRenderStyleProfile(
+      retro, aster::makeRenderStyleProfile(aster::RenderStylePreset::RetroHorrorReadable));
+
+  const aster::SoftwareFrameBuffer neutral_frame =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 54,
+                                    .height = 34,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = neutral});
+  const aster::SoftwareFrameBuffer retro_frame =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 54,
+                                    .height = 34,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = retro});
+  const PixelStats neutral_stats = measurePixels(neutral_frame);
+  const PixelStats retro_stats = measurePixels(retro_frame);
+  assert(retro_stats.mean_r > retro_stats.mean_g);
+  assert(retro_stats.mean_r > retro_stats.mean_b);
+  assert(retro_stats.unique_rgb < neutral_stats.unique_rgb);
+}
+
+void testRetroStyleEmissiveSoftwarePreviewGain() {
+  aster::Scene scene;
+  aster::RenderObject object;
+  object.name = "emissive style probe";
+  object.primitive = aster::MeshPrimitive::Sphere;
+  object.transform.position = {0.0f, 0.55f, 0.0f};
+  object.transform.scale = {0.85f, 0.85f, 0.85f};
+  object.material = aster::makeMaterial({.base_color = {0.12f, 0.08f, 0.06f},
+                                         .emission_color = {1.0f, 0.18f, 0.06f},
+                                         .emission_strength = 0.42f});
+  scene.objects().push_back(object);
+
+  aster::RendererSettings neutral;
+  neutral.sun_light.enabled = false;
+  neutral.ambient_strength = 0.05f;
+  neutral.ambient_floor = 0.01f;
+
+  aster::RendererSettings boosted = neutral;
+  boosted.style.emissive_gain = 4.0f;
+
+  const aster::OrbitCamera camera = retroStyleTestCamera();
+  const aster::SoftwareFrameBuffer neutral_frame =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 42,
+                                    .height = 30,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = neutral});
+  const aster::SoftwareFrameBuffer boosted_frame =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 42,
+                                    .height = 30,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = boosted});
+  assert(measurePixels(boosted_frame).mean_luma > measurePixels(neutral_frame).mean_luma * 1.10);
 }
 
 void testMaterialRenderPolicies() {
@@ -846,6 +994,9 @@ constexpr TestCase kTestCases[] = {
     {"industrial_pipe_scene", testIndustrialPipeSceneContract},
     {"showcase_lab_scenes", testShowcaseLabSceneContracts},
     {"software_preview_renderer", testSoftwarePreviewRendererProducesImage},
+    {"retro_style_neutral_preview", testRetroStyleNeutralSoftwarePreviewMatchesDefault},
+    {"retro_style_preview_effects", testRetroStyleSoftwarePreviewEffects},
+    {"retro_style_emissive_gain", testRetroStyleEmissiveSoftwarePreviewGain},
     {"material_render_policies", testMaterialRenderPolicies},
     {"runtime_light_policy", testRuntimeLightPolicy},
     {"rhi_resource_registry", testRhiResourceRegistryContract},

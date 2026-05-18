@@ -543,6 +543,9 @@ if(ASTER_BUILD_TESTS)
       industrial_pipe_scene
       showcase_lab_scenes
       software_preview_renderer
+      retro_style_neutral_preview
+      retro_style_preview_effects
+      retro_style_emissive_gain
       material_render_policies
       runtime_light_policy
       rhi_resource_registry
@@ -592,6 +595,8 @@ if(ASTER_BUILD_TESTS)
       shader_library_and_reflection
       texture_validation_and_debug
       render_quality_profile
+      render_style_profile
+      native_render_style_shaders
       hot_reload_snapshot
       invalid_material_diagnostics
   )

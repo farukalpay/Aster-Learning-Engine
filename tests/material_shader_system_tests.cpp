@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <utility>
@@ -39,6 +40,12 @@ void writeText(const std::filesystem::path &path, const std::string &text) {
   std::ofstream file(path, std::ios::binary);
   file << text;
   assert(file.good());
+}
+
+std::string readText(const std::filesystem::path &path) {
+  std::ifstream file(path, std::ios::binary);
+  assert(file.good());
+  return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
 }
 
 std::string sampleMaterialSource() {
@@ -191,6 +198,16 @@ void testShaderLibraryAndReflection() {
   assert(material_utilities.source.find("aster_apply_wetness_roughness") != std::string::npos);
   assert(material_utilities.source.find("aster_parallax_offset") != std::string::npos);
   assert(material_utilities.source.find("aster_debug_roughness") != std::string::npos);
+
+  const aster::ShaderCompileResult fog =
+      aster::compileShaderVariant(real_library.library,
+                                  {.backend = aster::ShaderBackend::D3D12HLSL,
+                                   .variant = variant,
+                                   .modules = {"fog"},
+                                   .entry_point = "aster_fog_factor"});
+  assert(fog.success);
+  assert(fog.source.find("aster_fog_factor") != std::string::npos);
+  assert(fog.source.find("falloff") != std::string::npos);
 }
 
 void testTextureValidationAndDebugContracts() {
@@ -289,6 +306,57 @@ material BrokenPbr {
   assert(!broken_report.issues.empty());
 }
 
+void testRenderStyleProfileContracts() {
+  const aster::RenderStyleProfile neutral =
+      aster::makeRenderStyleProfile(aster::RenderStylePreset::Neutral);
+  assert(neutral.preset == aster::RenderStylePreset::Neutral);
+  assert(neutral.unlit_mix == 0.0f);
+  assert(neutral.emissive_gain == 1.0f);
+  assert(neutral.color_quantization_steps == 0.0f);
+  assert(aster::renderStylePresetName(neutral.preset) == "neutral");
+  assert(aster::parseRenderStylePreset("retro_horror").value() ==
+         aster::RenderStylePreset::RetroHorrorReadable);
+
+  const aster::RenderStyleProfile retro =
+      aster::makeRenderStyleProfile(aster::RenderStylePreset::RetroHorrorReadable);
+  assert(retro.unlit_mix > 0.0f);
+  assert(retro.emissive_gain > 1.0f);
+  assert(retro.luma_crush > 0.0f);
+  assert(retro.color_quantization_steps >= 16.0f);
+  assert(retro.procedural_sample_snap > 0.0f);
+  assert(aster::renderStylePresetName(retro.preset) == "retro-horror");
+
+  aster::RendererSettings settings;
+  settings.atmosphere.fog_color = {0.20f, 0.24f, 0.32f};
+  settings.atmosphere.fog_start = 6.0f;
+  settings.atmosphere.fog_end = 30.0f;
+  settings.sun_light.intensity = 2.0f;
+  aster::applyRenderStyleProfile(settings, retro);
+  assert(settings.style.preset == aster::RenderStylePreset::RetroHorrorReadable);
+  assert(settings.atmosphere.enabled);
+  assert(settings.atmosphere.fog_color.x > settings.atmosphere.fog_color.y);
+  assert(settings.atmosphere.fog_falloff == aster::AtmosphereFogFalloff::Exponential);
+  assert(settings.atmosphere.fog_power > 1.0f);
+  assert(settings.sun_light.intensity <= 0.70f);
+
+  aster::applyRenderStyleProfile(settings, neutral);
+  assert(settings.style.preset == aster::RenderStylePreset::Neutral);
+  assert(settings.atmosphere.fog_falloff == aster::AtmosphereFogFalloff::SmoothLinear);
+  assert(settings.atmosphere.fog_power == 1.0f);
+}
+
+void testNativeRenderStyleShaderContracts() {
+  const std::filesystem::path source_root = std::filesystem::path(ASTER_SOURCE_DIR);
+  const std::string metal = readText(source_root / "src" / "render" / "render_device_metal.mm");
+  const std::string d3d12 = readText(source_root / "src" / "render" / "render_device_d3d12.cpp");
+  assert(metal.find("style_params") != std::string::npos);
+  assert(metal.find("style_sample_world") != std::string::npos);
+  assert(metal.find("style_fog") != std::string::npos);
+  assert(d3d12.find("scene_style_params") != std::string::npos);
+  assert(d3d12.find("style_sample_world") != std::string::npos);
+  assert(d3d12.find("style_fog") != std::string::npos);
+}
+
 void testHotReloadSnapshot() {
   const std::filesystem::path dir = tempDir();
   const std::filesystem::path path = dir / "shader.astsl";
@@ -324,6 +392,8 @@ constexpr TestCase kTestCases[] = {
     {"shader_library_and_reflection", testShaderLibraryAndReflection},
     {"texture_validation_and_debug", testTextureValidationAndDebugContracts},
     {"render_quality_profile", testRenderQualityProfileContracts},
+    {"render_style_profile", testRenderStyleProfileContracts},
+    {"native_render_style_shaders", testNativeRenderStyleShaderContracts},
     {"hot_reload_snapshot", testHotReloadSnapshot},
     {"invalid_material_diagnostics", testInvalidMaterialDiagnostics},
 };

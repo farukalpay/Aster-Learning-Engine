@@ -76,6 +76,54 @@ Vec3 mixVec(const Vec3 a, const Vec3 b, const float t) {
   return a * (1.0f - amount) + b * amount;
 }
 
+float evaluateFogFactor(const AtmosphereSettings &atmosphere, const float distance_to_camera) {
+  if (!atmosphere.enabled || atmosphere.fog_strength <= 0.0f) {
+    return 0.0f;
+  }
+  const float range = std::max(atmosphere.fog_end - atmosphere.fog_start, 0.001f);
+  const float normalized = std::max((distance_to_camera - atmosphere.fog_start) / range, 0.0f);
+  const float power = std::max(atmosphere.fog_power, 0.001f);
+  float curve = 0.0f;
+  switch (atmosphere.fog_falloff) {
+  case AtmosphereFogFalloff::SmoothLinear:
+    curve = smoothstep(0.0f, 1.0f, normalized);
+    break;
+  case AtmosphereFogFalloff::Exponential:
+    curve = 1.0f - std::exp(-normalized * power);
+    break;
+  case AtmosphereFogFalloff::Powered:
+    curve = std::pow(saturate(normalized), power);
+    break;
+  }
+  return saturate(curve * std::clamp(atmosphere.fog_strength, 0.0f, 1.0f));
+}
+
+Vec3 snapProceduralSamplePosition(const Vec3 world_position, const RenderStyleProfile &style) {
+  const float step = std::max(style.procedural_sample_snap, 0.0f);
+  if (step <= 0.0001f) {
+    return world_position;
+  }
+  return {std::floor(world_position.x / step + 0.5f) * step,
+          std::floor(world_position.y / step + 0.5f) * step,
+          std::floor(world_position.z / step + 0.5f) * step};
+}
+
+Vec3 applyRenderStylePost(Vec3 color, const RenderStyleProfile &style) {
+  const float luma_crush = std::clamp(style.luma_crush, 0.0f, 1.0f);
+  if (luma_crush > 0.0001f) {
+    const float luma = color.x * 0.2126f + color.y * 0.7152f + color.z * 0.0722f;
+    const float dark_weight = 1.0f - smoothstep(0.10f, 0.58f, luma);
+    color = mixVec(color, color * (0.58f + luma * 0.42f), dark_weight * luma_crush);
+  }
+  const float steps = std::floor(std::max(style.color_quantization_steps, 0.0f));
+  if (steps > 1.0f) {
+    color = {std::floor(saturate(color.x) * steps + 0.5f) / steps,
+             std::floor(saturate(color.y) * steps + 0.5f) / steps,
+             std::floor(saturate(color.z) * steps + 0.5f) / steps};
+  }
+  return color;
+}
+
 float hash31(Vec3 p) {
   p = {fractValue(p.x * 0.1031f), fractValue(p.y * 0.11369f), fractValue(p.z * 0.13787f)};
   const float d = p.x * (p.y + 19.19f) + p.y * (p.z + 19.19f) + p.z * (p.x + 19.19f);
@@ -452,17 +500,20 @@ float effectiveRoughness(const Hit &hit) {
 }
 
 Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
-  const Vec3 albedo = previewAlbedo(hit);
+  Hit sample_hit = hit;
+  sample_hit.position = snapProceduralSamplePosition(hit.position, settings.style);
+  const Vec3 albedo = previewAlbedo(sample_hit);
   Vec3 normal = normalize(hit.normal);
   const float normal_strength = std::max(hit.material.procedural.micro_normal_strength,
                                          hit.material.detail_strength * 0.16f);
   if (normal_strength > 0.0001f) {
-    const Vec3 bump{projectedFbm(hit.position, normal, hit.material.detail_scale * 1.10f, 607.0f) -
-                        0.5f,
-                    projectedFbm(hit.position, normal, hit.material.detail_scale * 1.35f, 619.0f) -
-                        0.5f,
-                    projectedFbm(hit.position, normal, hit.material.detail_scale * 1.58f, 631.0f) -
-                        0.5f};
+    const Vec3 bump{
+        projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.10f, 607.0f) -
+            0.5f,
+        projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.35f, 619.0f) -
+            0.5f,
+        projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.58f, 631.0f) -
+            0.5f};
     normal = normalize(normal + bump * std::clamp(normal_strength, 0.0f, 0.90f));
   }
 
@@ -475,7 +526,7 @@ Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
                albedo * 0.025f;
 
   const float metallic = std::clamp(hit.material.metallic, 0.0f, 1.0f);
-  const float roughness = effectiveRoughness(hit);
+  const float roughness = effectiveRoughness(sample_hit);
   const float alpha = roughness * roughness;
   const float alpha2 = std::max(alpha * alpha, 0.0005f);
   const float n_dot_v = std::max(dot(normal, view), 0.001f);
@@ -517,24 +568,28 @@ Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
     add_light(normalize(light_vector), light.color * (light.intensity / softened_distance));
   }
 
-  color = color + hit.material.emission_color * hit.material.emission_strength;
+  color = mixVec(color,
+                 albedo * std::max(settings.ambient_strength + settings.ambient_floor + 0.14f,
+                                   0.18f),
+                 std::clamp(settings.style.unlit_mix, 0.0f, 1.0f));
+  color = color + hit.material.emission_color * hit.material.emission_strength *
+                      std::max(settings.style.emissive_gain, 0.0f);
   if (settings.atmosphere.enabled) {
-    const float fog_range =
-        std::max(settings.atmosphere.fog_end - settings.atmosphere.fog_start, 0.001f);
-    const float fog = smoothstep(0.0f, 1.0f,
-                                 (length(ray.origin - hit.position) - settings.atmosphere.fog_start) /
-                                     fog_range) *
-                      std::clamp(settings.atmosphere.fog_strength, 0.0f, 1.0f);
+    const float fog = evaluateFogFactor(settings.atmosphere, length(ray.origin - hit.position));
     color = mixVec(color, settings.atmosphere.fog_color, fog);
   }
-  return gamma_encode(aces_tonemap(color * settings.exposure));
+  color = aces_tonemap(color * settings.exposure);
+  color = applyRenderStylePost(color, settings.style);
+  return gamma_encode(color);
 }
 
 Vec3 skyColor(const Ray &ray, const RendererSettings &settings) {
   const float t = saturate(ray.direction.y * 0.5f + 0.5f);
   const Vec3 base = mixVec(settings.pipeline.clear_color * 0.72f,
                            settings.sky_ambient_color * 0.32f + Vec3{0.015f, 0.020f, 0.030f}, t);
-  return gamma_encode(aces_tonemap(base * settings.exposure));
+  Vec3 color = aces_tonemap(base * settings.exposure);
+  color = applyRenderStylePost(color, settings.style);
+  return gamma_encode(color);
 }
 
 } // namespace

@@ -142,6 +142,8 @@ struct MetalSceneUniforms {
   float fog_params[4]{};
   float shadow_tint_strength[4]{};
   float highlight_tint_strength[4]{};
+  float style_params[4]{};
+  float style_params2[4]{};
   float lighting_params[4]{};
   MetalLightUniform lights[aster::kRenderLightUniformCapacity]{};
 };
@@ -520,7 +522,8 @@ public:
            "float4 sky_ambient; float4 ground_ambient; float4 exposure_ambient; float4 "
            "fog_color_strength; "
            "float4 fog_params; float4 shadow_tint_strength; float4 highlight_tint_strength; "
-           "float4 lighting_params; Light lights[64]; };\n"
+           "float4 style_params; float4 style_params2; float4 lighting_params; Light lights[64]; "
+           "};\n"
            "struct Object { float4x4 model; float4x4 mvp; float4 base_color_opacity; "
            "float4 emission_strength; float4 material_params; float4 pattern_params; "
            "float4 pattern_params2; float4 procedural_params; float4 procedural_params2; "
@@ -543,6 +546,22 @@ public:
            "mix(n011,n111,f.x), f.y), f.z); }\n"
            "float3 gamma_encode(float3 c) { return pow(clamp(c, 0.0, 1.0), float3(1.0 / 2.2)); }\n"
            "float3 tonemap(float3 c) { return c / (float3(1.0) + max(c, float3(0.0))); }\n"
+           "float3 style_sample_world(float3 world, constant Scene &scene) { float snap = "
+           "max(scene.style_params2.x, 0.0); if (snap <= 0.0001) return world; return "
+           "floor(world / snap + float3(0.5)) * snap; }\n"
+           "float style_fog(float distance_to_camera, constant Scene &scene) { float range = "
+           "max(scene.fog_params.y - scene.fog_params.x, 0.001); float normalized = "
+           "max((distance_to_camera - scene.fog_params.x) / range, 0.0); float power = "
+           "max(scene.style_params2.z, 0.001); float curve = smooth1(0.0, 1.0, normalized); "
+           "if (scene.style_params2.y > 1.5) { curve = pow(clamp(normalized, 0.0, 1.0), power); "
+           "} else if (scene.style_params2.y > 0.5) { curve = 1.0 - exp(-normalized * power); } "
+           "return clamp(curve * scene.fog_color_strength.w, 0.0, 1.0); }\n"
+           "float3 style_post(float3 color, constant Scene &scene) { float crush = "
+           "clamp(scene.style_params.z, 0.0, 1.0); if (crush > 0.0001) { float luma = dot(color, "
+           "float3(0.2126, 0.7152, 0.0722)); float dark = 1.0 - smooth1(0.10, 0.58, luma); "
+           "color = mix(color, color * (0.58 + luma * 0.42), dark * crush); } float steps = "
+           "floor(max(scene.style_params.w, 0.0)); if (steps > 1.0) color = floor(clamp(color, "
+           "0.0, 1.0) * steps + float3(0.5)) / steps; return color; }\n"
            "float grid_line(float2 p, float mortar) { float2 f = fract(p); float2 edge = min(f, "
            "1.0 - f); float d = min(edge.x, edge.y); return 1.0 - smooth1(mortar, mortar + 0.035, "
            "d); }\n"
@@ -834,9 +853,12 @@ public:
            "return float4(0.018, 0.015, 0.012, opacity * soft * soft * 0.70); } "
            "float3 normal = normalize(in.normal); if (length(normal) < 0.001) normal = float3(0.0, "
            "1.0, 0.0); "
+           "float3 sample_world = style_sample_world(in.world, scene); "
            "if (scene.exposure_ambient.w > 0.5 && object.material_flags.x < 0.5 && "
-           "object.material_flags.z < 0.5) normal = procedural_normal(normal, in.world, object); "
-           "float3 albedo = material_albedo(object, in.world, normal, in.uv, scene.camera_time.w); "
+           "object.material_flags.z < 0.5) normal = procedural_normal(normal, sample_world, "
+           "object); "
+           "float3 albedo = material_albedo(object, sample_world, normal, in.uv, "
+           "scene.camera_time.w); "
            "float sky = saturate1(normal.y * 0.5 + 0.5); float ao = clamp(object.pattern_params2.z "
            "* in.ao, 0.0, 1.0); "
            "float ambient = max(scene.exposure_ambient.y * ao, scene.exposure_ambient.z); "
@@ -845,7 +867,7 @@ public:
            "float3 view = normalize(scene.camera_time.xyz - in.world); "
            "float rim = pow(1.0 - saturate1(dot(normal, view)), 2.0); color += albedo * "
            "scene.sky_ambient.rgb * rim * 0.10; "
-           "float layer_roughness = clamp(object.material_params.x + (noise3(in.world * 0.37 + "
+           "float layer_roughness = clamp(object.material_params.x + (noise3(sample_world * 0.37 + "
            "float3(3.1, 7.2, 1.9)) - 0.5) * object.procedural_params.z * 0.18, 0.0, 1.0); "
            "auto add_light = [&](float3 light_dir, float3 radiance) { float ndotl = "
            "max(dot(normal, light_dir), 0.0); float wrapped = ndotl * 0.86 + 0.14; float3 h = "
@@ -862,17 +884,19 @@ public:
            "float soft = max(d2, scene.lights[i].position_radius.w * "
            "scene.lights[i].position_radius.w + 0.0001); add_light(normalize(lv), "
            "scene.lights[i].color_intensity.rgb * (scene.lights[i].color_intensity.w / soft)); } "
-           "float fog = smooth1(0.0, 1.0, (distance(scene.camera_time.xyz, in.world) - "
-           "scene.fog_params.x) / max(scene.fog_params.y - scene.fog_params.x, 0.001)) * "
-           "scene.fog_color_strength.w; "
+           "color = mix(color, albedo * max(scene.exposure_ambient.y + scene.exposure_ambient.z "
+           "+ 0.14, 0.18), clamp(scene.style_params.x, 0.0, 1.0)); "
+           "float fog = style_fog(distance(scene.camera_time.xyz, in.world), scene); "
            "color = mix(color, scene.fog_color_strength.rgb, clamp(fog, 0.0, 1.0)); float luma = "
            "dot(color, float3(0.2126, 0.7152, 0.0722)); "
            "color = mix(float3(luma), color, clamp(scene.fog_params.z, 0.0, 2.0)); color = (color "
            "- 0.5) * max(scene.fog_params.w, 0.0) + 0.5; "
            "float floor_lift = 0.030 + 0.018 * max(object.material_flags.y, "
            "object.material_flags.w); color = max(color, albedo * floor_lift); "
-           "color += object.emission_strength.rgb * object.emission_strength.w; color = "
-           "tonemap(color * scene.exposure_ambient.x); return float4(gamma_encode(color), "
+           "color += object.emission_strength.rgb * object.emission_strength.w * "
+           "max(scene.style_params.y, 0.0); color = "
+           "tonemap(color * scene.exposure_ambient.x); color = style_post(color, scene); return "
+           "float4(gamma_encode(color), "
            "opacity); }\n";
 
       NSError *error = nil;
@@ -1307,6 +1331,13 @@ private:
     out.highlight_tint_strength[1] = settings.atmosphere.highlight_tint.y;
     out.highlight_tint_strength[2] = settings.atmosphere.highlight_tint.z;
     out.highlight_tint_strength[3] = settings.atmosphere.highlight_tint_strength;
+    out.style_params[0] = settings.style.unlit_mix;
+    out.style_params[1] = settings.style.emissive_gain;
+    out.style_params[2] = settings.style.luma_crush;
+    out.style_params[3] = settings.style.color_quantization_steps;
+    out.style_params2[0] = settings.style.procedural_sample_snap;
+    out.style_params2[1] = static_cast<float>(settings.atmosphere.fog_falloff);
+    out.style_params2[2] = settings.atmosphere.fog_power;
     const std::vector<aster::Light> selected_lights =
         aster::selectRenderLights(settings.light_rig, camera.target, settings.light_policy);
     out.lighting_params[0] = static_cast<float>(selected_lights.size());

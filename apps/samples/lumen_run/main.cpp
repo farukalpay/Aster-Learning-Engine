@@ -703,6 +703,15 @@ int main(int argc, char **argv) {
         !screenshot_path.empty() || sequence_capture || scripted_frame_report_route;
     const bool unlocked = hasArgument(argc, argv, "--unlocked");
     const bool no_vsync = hasArgument(argc, argv, "--no-vsync");
+    const std::string render_style_name = argumentString(argc, argv, "--render-style", "neutral");
+    const std::optional<aster::RenderStylePreset> render_style_preset =
+        aster::parseRenderStylePreset(render_style_name);
+    if (!render_style_preset.has_value()) {
+      throw std::runtime_error("unknown render style '" + render_style_name +
+                               "'; expected neutral or retro-horror");
+    }
+    const aster::RenderStyleProfile render_style =
+        aster::makeRenderStyleProfile(*render_style_preset);
     const double target_frame_seconds = (!scripted_capture && !unlocked && !frame_report_enabled)
                                             ? kDefaultInteractiveFrameCapSeconds
                                             : 0.0;
@@ -897,6 +906,7 @@ int main(int argc, char **argv) {
     settings.atmosphere.shadow_tint_strength = 0.16f;
     settings.atmosphere.highlight_tint = {1.10f, 1.02f, 0.82f};
     settings.atmosphere.highlight_tint_strength = 0.10f;
+    settings.style = render_style;
     const RenderEnvironmentBaseline base_render_environment{
         .light_rig = settings.light_rig,
         .sun_light = settings.sun_light,
@@ -1288,6 +1298,7 @@ int main(int argc, char **argv) {
         settings.light_rig.push_back({light->position, light->color,
                                       light->intensity * cave_torch_gain, light->source_radius});
       }
+      aster::applyRenderStyleProfile(settings, render_style);
       if (collect_frame_sample) {
         update_times.addSample(clock.now() - update_start);
       }

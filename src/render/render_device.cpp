@@ -14,12 +14,14 @@
 #include "render_backend_common.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <limits>
 #include <iterator>
 #include <stdexcept>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -71,6 +73,70 @@ float smoothstep(const float edge0, const float edge1, const float value) {
 aster::Vec3 mixVec(const aster::Vec3 a, const aster::Vec3 b, const float t) {
   const float amount = saturate(t);
   return a * (1.0f - amount) + b * amount;
+}
+
+float evaluateFogFactor(const aster::AtmosphereSettings &atmosphere,
+                        const float distance_to_camera) {
+  if (!atmosphere.enabled || atmosphere.fog_strength <= 0.0f) {
+    return 0.0f;
+  }
+  const float range = std::max(atmosphere.fog_end - atmosphere.fog_start, 0.001f);
+  const float normalized = std::max((distance_to_camera - atmosphere.fog_start) / range, 0.0f);
+  const float power = std::max(atmosphere.fog_power, 0.001f);
+  float curve = 0.0f;
+  switch (atmosphere.fog_falloff) {
+  case aster::AtmosphereFogFalloff::SmoothLinear:
+    curve = smoothstep(0.0f, 1.0f, normalized);
+    break;
+  case aster::AtmosphereFogFalloff::Exponential:
+    curve = 1.0f - std::exp(-normalized * power);
+    break;
+  case aster::AtmosphereFogFalloff::Powered:
+    curve = std::pow(saturate(normalized), power);
+    break;
+  }
+  return saturate(curve * std::clamp(atmosphere.fog_strength, 0.0f, 1.0f));
+}
+
+aster::Vec3 snapProceduralSamplePosition(const aster::Vec3 world_position,
+                                         const aster::RenderStyleProfile &style) {
+  const float step = std::max(style.procedural_sample_snap, 0.0f);
+  if (step <= 0.0001f) {
+    return world_position;
+  }
+  return {std::floor(world_position.x / step + 0.5f) * step,
+          std::floor(world_position.y / step + 0.5f) * step,
+          std::floor(world_position.z / step + 0.5f) * step};
+}
+
+aster::Vec3 applyRenderStylePost(aster::Vec3 color, const aster::RenderStyleProfile &style) {
+  const float luma_crush = std::clamp(style.luma_crush, 0.0f, 1.0f);
+  if (luma_crush > 0.0001f) {
+    const float luma = color.x * 0.2126f + color.y * 0.7152f + color.z * 0.0722f;
+    const float dark_weight = 1.0f - smoothstep(0.10f, 0.58f, luma);
+    color = mixVec(color, color * (0.58f + luma * 0.42f), dark_weight * luma_crush);
+  }
+
+  const float steps = std::floor(std::max(style.color_quantization_steps, 0.0f));
+  if (steps > 1.0f) {
+    color = {std::floor(saturate(color.x) * steps + 0.5f) / steps,
+             std::floor(saturate(color.y) * steps + 0.5f) / steps,
+             std::floor(saturate(color.z) * steps + 0.5f) / steps};
+  }
+  return color;
+}
+
+std::string normalizeStyleName(const std::string_view value) {
+  std::string out;
+  out.reserve(value.size());
+  for (const char ch : value) {
+    if (ch == '_' || ch == ' ') {
+      out.push_back('-');
+    } else {
+      out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+    }
+  }
+  return out;
 }
 
 aster::MeshProcessOptions renderMeshOptions() {
@@ -677,11 +743,14 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
   if (aster::length(normal) <= 0.0001f) {
     normal = {0.0f, 1.0f, 0.0f};
   }
+  const aster::Vec3 material_sample_position =
+      snapProceduralSamplePosition(world_position, settings.style);
   if (settings.procedural_surface_normals) {
-    normal = proceduralSurfaceNormal(material, world_position, normal);
+    normal = proceduralSurfaceNormal(material, material_sample_position, normal);
   }
 
-  const aster::Vec3 albedo = materialAlbedo(material, world_position, normal, uv, frame_seconds);
+  const aster::Vec3 albedo =
+      materialAlbedo(material, material_sample_position, normal, uv, frame_seconds);
   const float sky_factor = saturate(normal.y * 0.5f + 0.5f);
   const aster::Vec3 ambient_color =
       mixVec(settings.ground_ambient_color, settings.sky_ambient_color, sky_factor);
@@ -737,6 +806,11 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
     add_light(light_dir, radiance);
   }
 
+  color = mixVec(color,
+                 albedo * std::max(settings.ambient_strength + settings.ambient_floor + 0.14f,
+                                   0.18f),
+                 std::clamp(settings.style.unlit_mix, 0.0f, 1.0f));
+
   if (settings.grounding.enabled && settings.grounding.surface_occlusion_strength > 0.0f) {
     const float height = std::max(settings.grounding.surface_occlusion_height, 0.001f);
     const float above_reference = std::max(world_position.y - settings.grounding.reference_y, 0.0f);
@@ -753,20 +827,17 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
   }
 
   if (settings.atmosphere.enabled) {
-    const float fog_range =
-        std::max(settings.atmosphere.fog_end - settings.atmosphere.fog_start, 0.001f);
-    const float fog = smoothstep(0.0f, 1.0f,
-                                 (aster::length(camera_position - world_position) -
-                                  settings.atmosphere.fog_start) /
-                                     fog_range) *
-                      std::clamp(settings.atmosphere.fog_strength, 0.0f, 1.0f);
+    const float fog = evaluateFogFactor(settings.atmosphere,
+                                        aster::length(camera_position - world_position));
     color = mixVec(color, settings.atmosphere.fog_color, fog);
   }
 
   color = applyVisualGrade(color, settings.atmosphere);
-  color = color + material.emission_color * material.emission_strength;
+  color = color + material.emission_color * material.emission_strength *
+                      std::max(settings.style.emissive_gain, 0.0f);
   color = color * settings.exposure;
   color = toneMapColor(color, toneMapperUniform(settings));
+  color = applyRenderStylePost(color, settings.style);
   return aster::gamma_encode(aster::clamp(color, 0.0f, 1.0f));
 }
 
@@ -1075,6 +1146,73 @@ std::string_view renderBackendKindName(const RenderBackendKind kind) {
     return "unknown";
   }
   return "unknown";
+}
+
+std::string_view renderStylePresetName(const RenderStylePreset preset) {
+  switch (preset) {
+  case RenderStylePreset::Neutral:
+    return "neutral";
+  case RenderStylePreset::RetroHorrorReadable:
+    return "retro-horror";
+  }
+  return "neutral";
+}
+
+std::optional<RenderStylePreset> parseRenderStylePreset(const std::string_view value) {
+  const std::string normalized = normalizeStyleName(value);
+  if (normalized.empty() || normalized == "neutral" || normalized == "none" ||
+      normalized == "default") {
+    return RenderStylePreset::Neutral;
+  }
+  if (normalized == "retro" || normalized == "retro-horror" ||
+      normalized == "retro-horror-readable" || normalized == "ps1-horror") {
+    return RenderStylePreset::RetroHorrorReadable;
+  }
+  return std::nullopt;
+}
+
+RenderStyleProfile makeRenderStyleProfile(const RenderStylePreset preset) {
+  RenderStyleProfile profile;
+  profile.preset = preset;
+  switch (preset) {
+  case RenderStylePreset::Neutral:
+    break;
+  case RenderStylePreset::RetroHorrorReadable:
+    profile.unlit_mix = 0.46f;
+    profile.emissive_gain = 2.65f;
+    profile.luma_crush = 0.42f;
+    profile.color_quantization_steps = 28.0f;
+    profile.procedural_sample_snap = 0.18f;
+    break;
+  }
+  return profile;
+}
+
+void applyRenderStyleProfile(RendererSettings &settings, const RenderStyleProfile &profile) {
+  settings.style = profile;
+  if (profile.preset == RenderStylePreset::Neutral) {
+    settings.atmosphere.fog_falloff = AtmosphereFogFalloff::SmoothLinear;
+    settings.atmosphere.fog_power = 1.0f;
+    return;
+  }
+
+  settings.pipeline.clear_color = {0.006f, 0.001f, 0.001f};
+  settings.ambient_strength = std::min(settings.ambient_strength, 0.22f);
+  settings.ambient_floor = std::min(settings.ambient_floor, 0.040f);
+  settings.sun_light.intensity = std::min(settings.sun_light.intensity, 0.70f);
+  settings.atmosphere.enabled = true;
+  settings.atmosphere.fog_color = {0.125f, 0.004f, 0.003f};
+  settings.atmosphere.fog_start = 1.15f;
+  settings.atmosphere.fog_end = 10.8f;
+  settings.atmosphere.fog_strength = 0.86f;
+  settings.atmosphere.fog_falloff = AtmosphereFogFalloff::Exponential;
+  settings.atmosphere.fog_power = 3.4f;
+  settings.atmosphere.saturation = 0.68f;
+  settings.atmosphere.contrast = 1.46f;
+  settings.atmosphere.shadow_tint = {1.18f, 0.34f, 0.30f};
+  settings.atmosphere.shadow_tint_strength = 0.26f;
+  settings.atmosphere.highlight_tint = {1.24f, 0.55f, 0.34f};
+  settings.atmosphere.highlight_tint_strength = 0.14f;
 }
 
 LightRig defaultLightRig() {

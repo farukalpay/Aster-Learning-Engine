@@ -15,7 +15,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -73,6 +75,26 @@ enum class ToneMapper {
   FilmicAces,
   PbrNeutral,
   Reinhard,
+};
+
+enum class AtmosphereFogFalloff : std::uint32_t {
+  SmoothLinear,
+  Exponential,
+  Powered,
+};
+
+enum class RenderStylePreset : std::uint32_t {
+  Neutral,
+  RetroHorrorReadable,
+};
+
+struct RenderStyleProfile {
+  RenderStylePreset preset = RenderStylePreset::Neutral;
+  float unlit_mix = 0.0f;
+  float emissive_gain = 1.0f;
+  float luma_crush = 0.0f;
+  float color_quantization_steps = 0.0f;
+  float procedural_sample_snap = 0.0f;
 };
 
 using LightRig = std::vector<Light>;
@@ -154,6 +176,8 @@ struct AtmosphereSettings {
   float fog_start = 8.0f;
   float fog_end = 24.0f;
   float fog_strength = 0.0f;
+  AtmosphereFogFalloff fog_falloff = AtmosphereFogFalloff::SmoothLinear;
+  float fog_power = 1.0f;
   float saturation = 1.0f;
   float contrast = 1.0f;
   Vec3 shadow_tint{0.70f, 0.78f, 0.88f};
@@ -199,6 +223,7 @@ struct RendererSettings {
   AtmosphereSettings atmosphere{};
   GraphicsPipelineState pipeline{};
   LineOfSightFadeSettings line_of_sight_fade{};
+  RenderStyleProfile style{};
 };
 
 struct FrameStats {
@@ -329,5 +354,9 @@ private:
 };
 
 [[nodiscard]] std::string_view renderBackendKindName(RenderBackendKind kind);
+[[nodiscard]] std::string_view renderStylePresetName(RenderStylePreset preset);
+[[nodiscard]] std::optional<RenderStylePreset> parseRenderStylePreset(std::string_view value);
+[[nodiscard]] RenderStyleProfile makeRenderStyleProfile(RenderStylePreset preset);
+void applyRenderStyleProfile(RendererSettings &settings, const RenderStyleProfile &profile);
 
 } // namespace aster
