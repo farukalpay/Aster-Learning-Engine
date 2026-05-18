@@ -123,6 +123,9 @@ void testMaterialAssetParserAndCompiler() {
   const aster::MaterialGraph graph = aster::materialGraphForAsset(loaded.value);
   assert(graph.nodes.size() == 2u);
   assert(graph.nodes.front().operation == "triplanar");
+  assert(graph.nodes.front().op == aster::MaterialGraphOperation::TriplanarSample);
+  assert(graph.nodes.front().value_type == aster::MaterialGraphValueType::MaterialLayer);
+  assert(aster::materialGraphOperationName(graph.nodes.back().op) == "height-blend");
 }
 
 void testShaderLibraryAndReflection() {
@@ -156,6 +159,26 @@ void testShaderLibraryAndReflection() {
   assert(pbr.source.find("generated HLSL") != std::string::npos);
   assert(pbr.source.find("return float4(1.0, 0.0, 1.0, 1.0)") == std::string::npos);
   assert(pbr.source.find("aster_material_lit_pbr") != std::string::npos);
+
+  const aster::ShaderCompileResult material_utilities =
+      aster::compileShaderVariant(real_library.library,
+                                  {.backend = aster::ShaderBackend::SoftwareReference,
+                                   .variant = variant,
+                                   .modules = {"brdf",
+                                               "debug_views",
+                                               "clearcoat",
+                                               "wetness",
+                                               "parallax",
+                                               "detail_normal",
+                                               "alpha",
+                                               "material_debug",
+                                               "material_lit_pbr"},
+                                   .entry_point = "fs_main"});
+  assert(material_utilities.success);
+  assert(material_utilities.source.find("aster_clearcoat_specular") != std::string::npos);
+  assert(material_utilities.source.find("aster_apply_wetness_roughness") != std::string::npos);
+  assert(material_utilities.source.find("aster_parallax_offset") != std::string::npos);
+  assert(material_utilities.source.find("aster_debug_roughness") != std::string::npos);
 }
 
 void testTextureValidationAndDebugContracts() {

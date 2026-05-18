@@ -26,6 +26,7 @@ static_assert(std::is_standard_layout_v<AsterEngineDesc>);
 static_assert(std::is_standard_layout_v<AsterWindowDesc>);
 static_assert(std::is_standard_layout_v<AsterRendererDesc>);
 static_assert(std::is_standard_layout_v<AsterBackendCapabilities>);
+static_assert(std::is_standard_layout_v<AsterBackendCapabilityTable>);
 static_assert(std::is_standard_layout_v<AsterShaderCompileDesc>);
 static_assert(std::is_standard_layout_v<AsterShaderCompileResult>);
 static_assert(std::is_standard_layout_v<AsterShaderReflectionBinding>);
@@ -147,6 +148,17 @@ void testRendererAbi2Lifecycle() {
          ASTER_STATUS_OK);
   assert(capabilities.backend == ASTER_KERNEL_BACKEND_SOFTWARE_REFERENCE ||
          capabilities.backend == ASTER_KERNEL_BACKEND_NULL);
+  AsterBackendCapabilityTable table{sizeof(AsterBackendCapabilityTable),
+                                    ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_get_backend_capability_table(renderer, &table).code ==
+         ASTER_STATUS_OK);
+  assert(table.backend == capabilities.backend);
+  assert((table.color_format_mask & (1ull << ASTER_KERNEL_BACKEND_FORMAT_BGRA8_UNORM)) != 0ull ||
+         table.backend == ASTER_KERNEL_BACKEND_NULL);
+  assert((table.sample_count_mask & (1ull << 1u)) != 0ull ||
+         table.backend == ASTER_KERNEL_BACKEND_NULL);
+  assert(table.presentation == ASTER_KERNEL_BACKEND_PRESENTATION_SOFTWARE_FRAMEBUFFER ||
+         table.backend == ASTER_KERNEL_BACKEND_NULL);
 
   AsterSceneHandle scene = nullptr;
   assert(aster_kernel_scene_create(engine, &scene).code == ASTER_STATUS_OK);
@@ -311,6 +323,7 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_scene_destroy",
       "aster_kernel_renderer_create",
       "aster_kernel_renderer_get_capabilities",
+      "aster_kernel_renderer_get_backend_capability_table",
       "aster_kernel_renderer_render_frame",
       "aster_kernel_renderer_present",
       "aster_kernel_renderer_capture",
@@ -355,6 +368,7 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_scene_destroy;
   (void)&aster_kernel_renderer_create;
   (void)&aster_kernel_renderer_get_capabilities;
+  (void)&aster_kernel_renderer_get_backend_capability_table;
   (void)&aster_kernel_renderer_render_frame;
   (void)&aster_kernel_renderer_present;
   (void)&aster_kernel_renderer_capture;

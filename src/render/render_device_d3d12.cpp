@@ -127,11 +127,38 @@ bool isStructuredSurfacePattern(const aster::SurfacePattern pattern) {
          pattern == aster::SurfacePattern::AmberResin;
 }
 
+aster::rhi::DeviceCapabilities d3d12CapabilityTable() {
+  aster::rhi::DeviceCapabilities table;
+  table.backend = aster::rhi::BackendKind::D3D12;
+  table.shader_materials = true;
+  table.texture_sampling = false;
+  table.instancing = true;
+  table.capture = true;
+  table.ui_composite = false;
+  table.gpu_timestamps = false;
+  table.color_format_mask =
+      aster::rhi::imageFormatCapabilityBit(aster::rhi::ImageFormat::Bgra8Unorm);
+  table.depth_format_mask =
+      aster::rhi::imageFormatCapabilityBit(aster::rhi::ImageFormat::Depth32Float);
+  table.sample_count_mask = aster::rhi::sampleCountCapabilityBit(1u);
+  table.blend_mode_mask = aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::Opaque) |
+                          aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::AlphaBlend);
+  table.shader_model = aster::rhi::ShaderModel::D3D12ShaderModel51;
+  table.presentation = aster::rhi::PresentationMode::D3D12OffscreenReadback;
+  table.limits.max_color_attachments = 1u;
+  table.limits.max_uniform_buffers_per_stage = 1u;
+  table.limits.max_storage_buffers_per_stage = 1u;
+  table.limits.max_bind_groups = 1u;
+  table.limits.max_vertex_attributes = 4u;
+  table.limits.max_texture_dimension_2d = 16384u;
+  table.limits.max_dynamic_uniform_bytes = 256u * 1024u;
+  return table;
+}
+
 aster::RenderBackendCapabilities d3d12Capabilities() {
   const std::uint32_t graph_resources =
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor) |
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth) |
-      aster::renderGraphResourceBit(aster::RenderGraphResource::UiOverlay) |
       aster::renderGraphResourceBit(aster::RenderGraphResource::CaptureReadback);
   return {.kind = aster::RenderBackendKind::D3D12,
           .name = "Aster Native D3D12 Rasterizer",
@@ -140,9 +167,10 @@ aster::RenderBackendCapabilities d3d12Capabilities() {
           .supports_texture_sampling = false,
           .supports_instancing = true,
           .supports_capture = true,
-          .supports_ui_composite = true,
+          .supports_ui_composite = false,
           .supports_gpu_timestamps = false,
-          .graph_resource_mask = graph_resources};
+          .graph_resource_mask = graph_resources,
+          .capability_table = d3d12CapabilityTable()};
 }
 
 const char *d3dShaderSource() {

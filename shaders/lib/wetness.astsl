@@ -1,0 +1,11 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float3 aster_apply_wetness_albedo(float3 albedo, float wetness) {
+  float amount = clamp(wetness, 0.0, 1.0);
+  return mix(albedo, albedo * 0.48, amount);
+}
+
+float aster_apply_wetness_roughness(float roughness, float wetness) {
+  return mix(roughness, min(roughness, 0.18), clamp(wetness, 0.0, 1.0));
+}

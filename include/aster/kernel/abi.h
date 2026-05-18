@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 2u
-#define ASTER_KERNEL_ABI_MINOR 1u
+#define ASTER_KERNEL_ABI_MINOR 2u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -94,6 +94,58 @@ typedef enum AsterKernelShaderResourceKind {
   ASTER_KERNEL_SHADER_RESOURCE_SAMPLER = 2,
   ASTER_KERNEL_SHADER_RESOURCE_STORAGE_BUFFER = 3
 } AsterKernelShaderResourceKind;
+
+typedef enum AsterKernelBackendFormat {
+  ASTER_KERNEL_BACKEND_FORMAT_UNKNOWN = 0,
+  ASTER_KERNEL_BACKEND_FORMAT_RGBA8_UNORM = 1,
+  ASTER_KERNEL_BACKEND_FORMAT_RGBA8_SRGB = 2,
+  ASTER_KERNEL_BACKEND_FORMAT_BGRA8_UNORM = 3,
+  ASTER_KERNEL_BACKEND_FORMAT_BGRA8_SRGB = 4,
+  ASTER_KERNEL_BACKEND_FORMAT_RGBA16_FLOAT = 5,
+  ASTER_KERNEL_BACKEND_FORMAT_RG8_UNORM = 6,
+  ASTER_KERNEL_BACKEND_FORMAT_R8_UNORM = 7,
+  ASTER_KERNEL_BACKEND_FORMAT_BC1_RGBA_UNORM = 8,
+  ASTER_KERNEL_BACKEND_FORMAT_BC1_RGBA_SRGB = 9,
+  ASTER_KERNEL_BACKEND_FORMAT_BC3_RGBA_UNORM = 10,
+  ASTER_KERNEL_BACKEND_FORMAT_BC3_RGBA_SRGB = 11,
+  ASTER_KERNEL_BACKEND_FORMAT_BC5_RG_UNORM = 12,
+  ASTER_KERNEL_BACKEND_FORMAT_BC7_RGBA_UNORM = 13,
+  ASTER_KERNEL_BACKEND_FORMAT_BC7_RGBA_SRGB = 14,
+  ASTER_KERNEL_BACKEND_FORMAT_ASTC4X4_RGBA_UNORM = 15,
+  ASTER_KERNEL_BACKEND_FORMAT_ASTC4X4_RGBA_SRGB = 16,
+  ASTER_KERNEL_BACKEND_FORMAT_DEPTH32_FLOAT = 17
+} AsterKernelBackendFormat;
+
+typedef enum AsterKernelBackendSamplerFilter {
+  ASTER_KERNEL_BACKEND_SAMPLER_FILTER_NEAREST = 0,
+  ASTER_KERNEL_BACKEND_SAMPLER_FILTER_LINEAR = 1
+} AsterKernelBackendSamplerFilter;
+
+typedef enum AsterKernelBackendSamplerAddressMode {
+  ASTER_KERNEL_BACKEND_SAMPLER_ADDRESS_CLAMP_TO_EDGE = 0,
+  ASTER_KERNEL_BACKEND_SAMPLER_ADDRESS_REPEAT = 1,
+  ASTER_KERNEL_BACKEND_SAMPLER_ADDRESS_MIRRORED_REPEAT = 2
+} AsterKernelBackendSamplerAddressMode;
+
+typedef enum AsterKernelBackendBlendMode {
+  ASTER_KERNEL_BACKEND_BLEND_OPAQUE = 0,
+  ASTER_KERNEL_BACKEND_BLEND_ALPHA = 1,
+  ASTER_KERNEL_BACKEND_BLEND_ADDITIVE = 2
+} AsterKernelBackendBlendMode;
+
+typedef enum AsterKernelBackendShaderModel {
+  ASTER_KERNEL_BACKEND_SHADER_MODEL_NONE = 0,
+  ASTER_KERNEL_BACKEND_SHADER_MODEL_SOFTWARE_REFERENCE = 1,
+  ASTER_KERNEL_BACKEND_SHADER_MODEL_METAL_MSL_2_3 = 2,
+  ASTER_KERNEL_BACKEND_SHADER_MODEL_D3D12_SHADER_MODEL_5_1 = 3
+} AsterKernelBackendShaderModel;
+
+typedef enum AsterKernelBackendPresentationMode {
+  ASTER_KERNEL_BACKEND_PRESENTATION_NONE = 0,
+  ASTER_KERNEL_BACKEND_PRESENTATION_SOFTWARE_FRAMEBUFFER = 1,
+  ASTER_KERNEL_BACKEND_PRESENTATION_METAL_LAYER = 2,
+  ASTER_KERNEL_BACKEND_PRESENTATION_D3D12_OFFSCREEN_READBACK = 3
+} AsterKernelBackendPresentationMode;
 
 typedef enum AsterKernelMeshPrimitive {
   ASTER_KERNEL_MESH_PRIMITIVE_BOX = 0,
@@ -205,6 +257,32 @@ typedef struct AsterBackendCapabilities {
   uint32_t graph_resource_mask;
   AsterStringView name;
 } AsterBackendCapabilities;
+
+typedef struct AsterBackendCapabilityTable {
+  size_t size;
+  uint32_t version;
+  AsterKernelBackendKind backend;
+  uint32_t flags;
+  uint32_t graph_resource_mask;
+  AsterStringView name;
+  uint64_t color_format_mask;
+  uint64_t depth_format_mask;
+  uint64_t sample_count_mask;
+  uint64_t sampler_filter_mask;
+  uint64_t sampler_address_mode_mask;
+  uint64_t blend_mode_mask;
+  AsterKernelBackendShaderModel shader_model;
+  AsterKernelBackendPresentationMode presentation;
+  uint32_t max_color_attachments;
+  uint32_t max_sampled_textures_per_material;
+  uint32_t max_samplers_per_material;
+  uint32_t max_uniform_buffers_per_stage;
+  uint32_t max_storage_buffers_per_stage;
+  uint32_t max_bind_groups;
+  uint32_t max_vertex_attributes;
+  uint32_t max_texture_dimension_2d;
+  uint32_t max_dynamic_uniform_bytes;
+} AsterBackendCapabilityTable;
 
 typedef struct AsterShaderModuleSource {
   AsterStringView name;
@@ -409,6 +487,8 @@ ASTER_KERNEL_API AsterStatus aster_kernel_renderer_create(AsterEngineHandle engi
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_get_capabilities(AsterRendererHandle renderer,
                                         AsterBackendCapabilities *out_capabilities);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_get_backend_capability_table(
+    AsterRendererHandle renderer, AsterBackendCapabilityTable *out_capabilities);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_render_frame(
     AsterRendererHandle renderer, AsterSceneHandle scene, const AsterCameraDesc *camera,
     const AsterRendererSettings *settings);

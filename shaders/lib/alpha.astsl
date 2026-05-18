@@ -1,0 +1,11 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float aster_alpha_cutout_coverage(float alpha, float cutoff) {
+  return alpha >= cutoff ? 1.0 : 0.0;
+}
+
+float aster_alpha_dither_threshold(float2 pixel_position) {
+  float pattern = fmod(pixel_position.x + pixel_position.y * 3.0, 4.0);
+  return (pattern + 0.5) * 0.25;
+}

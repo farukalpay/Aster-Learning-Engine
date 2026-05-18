@@ -44,6 +44,38 @@ struct MetalFrameState {
   int overlay_height = 0;
 };
 
+aster::rhi::DeviceCapabilities metalCapabilityTable() {
+  aster::rhi::DeviceCapabilities table;
+  table.backend = aster::rhi::BackendKind::Metal;
+  table.shader_materials = true;
+  table.texture_sampling = false;
+  table.instancing = true;
+  table.capture = true;
+  table.ui_composite = true;
+  table.gpu_timestamps = false;
+  table.color_format_mask =
+      aster::rhi::imageFormatCapabilityBit(aster::rhi::ImageFormat::Rgba8Unorm) |
+      aster::rhi::imageFormatCapabilityBit(aster::rhi::ImageFormat::Bgra8Unorm);
+  table.depth_format_mask =
+      aster::rhi::imageFormatCapabilityBit(aster::rhi::ImageFormat::Depth32Float);
+  table.sample_count_mask = aster::rhi::sampleCountCapabilityBit(1u);
+  table.sampler_filter_mask =
+      aster::rhi::filterModeCapabilityBit(aster::rhi::FilterMode::Linear);
+  table.sampler_address_mode_mask =
+      aster::rhi::addressModeCapabilityBit(aster::rhi::AddressMode::ClampToEdge);
+  table.blend_mode_mask = aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::Opaque) |
+                          aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::AlphaBlend);
+  table.shader_model = aster::rhi::ShaderModel::MetalMSL23;
+  table.presentation = aster::rhi::PresentationMode::MetalLayer;
+  table.limits.max_color_attachments = 1u;
+  table.limits.max_uniform_buffers_per_stage = 2u;
+  table.limits.max_bind_groups = 3u;
+  table.limits.max_vertex_attributes = 4u;
+  table.limits.max_texture_dimension_2d = 16384u;
+  table.limits.max_dynamic_uniform_bytes = 256u * 1024u;
+  return table;
+}
+
 MetalFrameState &metalFrameState() {
   static MetalFrameState state;
   return state;
@@ -1205,7 +1237,8 @@ public:
             .supports_capture = true,
             .supports_ui_composite = true,
             .supports_gpu_timestamps = false,
-            .graph_resource_mask = graph_resources};
+            .graph_resource_mask = graph_resources,
+            .capability_table = metalCapabilityTable()};
   }
 
 private:

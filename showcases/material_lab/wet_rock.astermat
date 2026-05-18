@@ -1,0 +1,37 @@
+material ShowcaseWetRock {
+  schema_version: 1
+  name: "Showcase Wet Rock"
+  shading_model: LitPBR
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  textures {
+    albedo: "wet_rock_albedo.ktx2"
+    normal: "wet_rock_normal.ktx2"
+    orm: "wet_rock_orm.ktx2"
+    height: "wet_rock_height.ktx2"
+    wetness: "wet_rock_wetness.ktx2"
+  }
+
+  params {
+    roughness: 0.78
+    metallic: 0.0
+    triplanar_scale: 3.2
+    wetness_strength: 0.52
+    micro_normal_strength: 0.50
+    height_shading: 0.28
+  }
+
+  features {
+    triplanar: true
+    normal_map: true
+    parallax: true
+  }
+
+  layers {
+    base: triplanar(albedo, normal, height)
+    wet: height_blend(wetness, height, 0.52)
+  }
+}

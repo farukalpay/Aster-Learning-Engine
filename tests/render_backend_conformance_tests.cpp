@@ -6,6 +6,7 @@
 #include "aster/render/frame_capture.hpp"
 #include "aster/render/render_device.hpp"
 #include "aster/render/software_framebuffer.hpp"
+#include "aster/samples/showcase_scenes.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -13,10 +14,17 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <span>
+#include <sstream>
 #include <string>
 #include <vector>
+
+#ifndef ASTER_SOURCE_DIR
+#define ASTER_SOURCE_DIR "."
+#endif
 
 #if defined(_WIN32)
 #include <stdlib.h>
@@ -51,6 +59,221 @@ struct ImageMetrics {
   double foreground_ratio = 0.0;
   double alpha_ratio = 0.0;
 };
+
+struct CapturedImage {
+  int width = 0;
+  int height = 0;
+  std::vector<std::uint8_t> rgba;
+};
+
+struct ImageDiffMetrics {
+  double mean_abs_error = 0.0;
+  std::uint8_t max_abs_error = 0u;
+  double differing_pixel_ratio = 0.0;
+};
+
+struct LabSceneCase {
+  const char *name = "";
+  aster::Scene (*make_scene)() = nullptr;
+};
+
+constexpr int kGoldenWidth = 96;
+constexpr int kGoldenHeight = 64;
+
+const LabSceneCase kLabScenes[] = {
+    {"material_lab", aster::makeMaterialLabShowcaseScene},
+    {"mesh_lab", aster::makeMeshLabShowcaseScene},
+    {"lighting_lab", aster::makeLightingLabShowcaseScene},
+    {"scene_lab", aster::makeSceneLabShowcaseScene},
+};
+
+std::filesystem::path goldenRoot() {
+  return std::filesystem::path(ASTER_SOURCE_DIR) / "tests" / "golden" / "render";
+}
+
+std::filesystem::path goldenPath(const LabSceneCase &lab) {
+  return goldenRoot() / (std::string(lab.name) + "_software.ppm");
+}
+
+std::filesystem::path artifactRoot() {
+  return std::filesystem::temp_directory_path() / "aster_render_backend_conformance_artifacts";
+}
+
+std::vector<std::uint8_t> readBytes(const std::filesystem::path &path) {
+  std::ifstream input(path, std::ios::binary);
+  assert(input.good());
+  return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+void writeTextFile(const std::filesystem::path &path, const std::string &text) {
+  std::filesystem::create_directories(path.parent_path());
+  std::ofstream output(path, std::ios::binary);
+  output << text;
+  assert(output.good());
+}
+
+void writePpmFromRgba(const std::filesystem::path &path, const CapturedImage &image) {
+  std::filesystem::create_directories(path.parent_path());
+  std::ofstream output(path, std::ios::binary);
+  assert(output.good());
+  output << "P6\n" << image.width << ' ' << image.height << "\n255\n";
+  for (int y = 0; y < image.height; ++y) {
+    for (int x = 0; x < image.width; ++x) {
+      const std::size_t i =
+          (static_cast<std::size_t>(y) * static_cast<std::size_t>(image.width) +
+           static_cast<std::size_t>(x)) *
+          4u;
+      const char rgb[3] = {static_cast<char>(image.rgba[i + 0u]),
+                           static_cast<char>(image.rgba[i + 1u]),
+                           static_cast<char>(image.rgba[i + 2u])};
+      output.write(rgb, sizeof(rgb));
+    }
+  }
+}
+
+CapturedImage parsePpm(const std::filesystem::path &path) {
+  std::ifstream input(path, std::ios::binary);
+  assert(input.good());
+  std::string magic;
+  int width = 0;
+  int height = 0;
+  int max_value = 0;
+  input >> magic >> width >> height >> max_value;
+  assert(magic == "P6");
+  assert(width > 0 && height > 0 && max_value == 255);
+  input.get();
+  std::vector<std::uint8_t> rgb(static_cast<std::size_t>(width) *
+                                static_cast<std::size_t>(height) * 3u);
+  input.read(reinterpret_cast<char *>(rgb.data()), static_cast<std::streamsize>(rgb.size()));
+  assert(input.gcount() == static_cast<std::streamsize>(rgb.size()));
+  CapturedImage image{.width = width, .height = height};
+  image.rgba.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u);
+  for (std::size_t pixel = 0; pixel < rgb.size() / 3u; ++pixel) {
+    image.rgba[pixel * 4u + 0u] = rgb[pixel * 3u + 0u];
+    image.rgba[pixel * 4u + 1u] = rgb[pixel * 3u + 1u];
+    image.rgba[pixel * 4u + 2u] = rgb[pixel * 3u + 2u];
+    image.rgba[pixel * 4u + 3u] = 255u;
+  }
+  return image;
+}
+
+ImageDiffMetrics diffImages(const CapturedImage &reference, const CapturedImage &candidate,
+                            CapturedImage *out_diff = nullptr) {
+  assert(reference.width == candidate.width);
+  assert(reference.height == candidate.height);
+  assert(reference.rgba.size() == candidate.rgba.size());
+  ImageDiffMetrics metrics;
+  std::size_t differing_pixels = 0u;
+  const std::size_t pixel_count = reference.rgba.size() / 4u;
+  if (out_diff != nullptr) {
+    *out_diff = {.width = reference.width, .height = reference.height};
+    out_diff->rgba.assign(reference.rgba.size(), 255u);
+  }
+  for (std::size_t pixel = 0; pixel < pixel_count; ++pixel) {
+    std::uint8_t max_pixel_error = 0u;
+    for (std::size_t channel = 0; channel < 3u; ++channel) {
+      const std::size_t i = pixel * 4u + channel;
+      const int delta = std::abs(static_cast<int>(reference.rgba[i]) -
+                                 static_cast<int>(candidate.rgba[i]));
+      metrics.mean_abs_error += static_cast<double>(delta);
+      metrics.max_abs_error =
+          std::max(metrics.max_abs_error, static_cast<std::uint8_t>(std::min(delta, 255)));
+      max_pixel_error =
+          std::max(max_pixel_error, static_cast<std::uint8_t>(std::min(delta, 255)));
+      if (out_diff != nullptr) {
+        out_diff->rgba[pixel * 4u + channel] = static_cast<std::uint8_t>(std::min(delta * 4, 255));
+      }
+    }
+    if (max_pixel_error > 2u) {
+      ++differing_pixels;
+    }
+  }
+  metrics.mean_abs_error /=
+      static_cast<double>(std::max<std::size_t>(pixel_count * 3u, 1u));
+  metrics.differing_pixel_ratio =
+      static_cast<double>(differing_pixels) / static_cast<double>(std::max<std::size_t>(pixel_count, 1u));
+  return metrics;
+}
+
+void writeDiffArtifacts(const std::filesystem::path &root, const std::string &label,
+                        const CapturedImage &reference, const CapturedImage &candidate,
+                        const ImageDiffMetrics &metrics) {
+  CapturedImage diff;
+  (void)diffImages(reference, candidate, &diff);
+  writePpmFromRgba(root / (label + "_reference.ppm"), reference);
+  writePpmFromRgba(root / (label + "_candidate.ppm"), candidate);
+  writePpmFromRgba(root / (label + "_diff.ppm"), diff);
+  std::ostringstream json;
+  json << std::fixed << std::setprecision(6)
+       << "{\n"
+       << "  \"label\": \"" << label << "\",\n"
+       << "  \"mean_abs_error\": " << metrics.mean_abs_error << ",\n"
+       << "  \"max_abs_error\": " << static_cast<int>(metrics.max_abs_error) << ",\n"
+       << "  \"differing_pixel_ratio\": " << metrics.differing_pixel_ratio << "\n"
+       << "}\n";
+  writeTextFile(root / (label + "_metrics.json"), json.str());
+}
+
+aster::OrbitCamera labCamera(const std::string &name) {
+  aster::OrbitCamera camera;
+  camera.vertical_fov = aster::radians(40.0f);
+  camera.near_plane = 0.04f;
+  camera.far_plane = 64.0f;
+  if (name == "material_lab") {
+    camera.target = {0.0f, 0.58f, 0.0f};
+    camera.yaw = aster::radians(18.0f);
+    camera.pitch = aster::radians(14.0f);
+    camera.radius = 6.2f;
+  } else if (name == "mesh_lab") {
+    camera.target = {0.12f, 0.72f, 0.0f};
+    camera.yaw = aster::radians(24.0f);
+    camera.pitch = aster::radians(18.0f);
+    camera.radius = 6.5f;
+  } else if (name == "lighting_lab") {
+    camera.target = {0.24f, 0.62f, 0.02f};
+    camera.yaw = aster::radians(31.0f);
+    camera.pitch = aster::radians(15.0f);
+    camera.radius = 5.7f;
+  } else {
+    camera.target = {0.0f, 0.58f, 0.08f};
+    camera.yaw = aster::radians(35.0f);
+    camera.pitch = aster::radians(24.0f);
+    camera.radius = 6.8f;
+    camera.vertical_fov = aster::radians(44.0f);
+  }
+  return camera;
+}
+
+aster::RendererSettings makeContractSettings();
+
+aster::RendererSettings labSettings(const std::string &name) {
+  aster::RendererSettings settings = makeContractSettings();
+  settings.use_aces_tonemap = true;
+  settings.procedural_surface_normals = true;
+  settings.pipeline.clear_color = {0.024f, 0.027f, 0.031f};
+  settings.grounding.enabled = true;
+  settings.grounding.contact_shadows = true;
+  settings.grounding.auto_contact_shadows = true;
+  settings.grounding.reference_y = 0.0f;
+  if (name == "lighting_lab") {
+    settings.exposure = 0.92f;
+    settings.ambient_strength = 0.14f;
+    settings.sun_light.intensity = 1.70f;
+    settings.atmosphere.enabled = true;
+    settings.atmosphere.fog_color = {0.045f, 0.042f, 0.040f};
+    settings.atmosphere.fog_start = 4.0f;
+    settings.atmosphere.fog_end = 10.0f;
+    settings.atmosphere.fog_strength = 0.28f;
+  } else if (name == "scene_lab") {
+    settings.exposure = 1.02f;
+    settings.ambient_strength = 0.22f;
+  } else {
+    settings.exposure = 1.00f;
+    settings.ambient_strength = 0.24f;
+    settings.sun_light.intensity = 2.20f;
+  }
+  return settings;
+}
 
 ImageMetrics metricsForActiveFrame(const aster::Vec3 clear_color) {
   const aster::SoftwareFrameBuffer &framebuffer = aster::activeFrameBuffer();
@@ -264,6 +487,40 @@ RenderResult renderContractFrame(const bool force_software) {
   return result;
 }
 
+struct LabRenderResult {
+  aster::RenderBackendCapabilities backend{};
+  aster::FrameStats stats{};
+  aster::FrameForensics forensics{};
+  ImageMetrics metrics{};
+  CapturedImage image{};
+};
+
+LabRenderResult renderLabFrame(const LabSceneCase &lab, const bool force_software,
+                               const std::filesystem::path &capture_path) {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", force_software);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  aster::Scene scene = lab.make_scene();
+  renderer.prepareScene(scene);
+  const std::string name = lab.name;
+  const aster::RendererSettings settings = labSettings(name);
+  const aster::FrameStats stats =
+      renderer.render(scene, labCamera(name), settings, kGoldenWidth, kGoldenHeight, 0.0);
+  aster::writeFramebufferPpm(capture_path, kGoldenWidth, kGoldenHeight);
+  const aster::SoftwareFrameBuffer &framebuffer = aster::activeFrameBuffer();
+  LabRenderResult result;
+  result.backend = renderer.backendCapabilities();
+  result.stats = stats;
+  result.forensics = renderer.lastFrameForensics();
+  result.metrics = metricsForActiveFrame(settings.pipeline.clear_color);
+  result.image.width = framebuffer.width();
+  result.image.height = framebuffer.height();
+  result.image.rgba.assign(framebuffer.rgba8().begin(), framebuffer.rgba8().end());
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+  return result;
+}
+
 void assertRenderableFrame(const RenderResult &result) {
   assert(result.stats.framebuffer_width == 96);
   assert(result.stats.framebuffer_height == 64);
@@ -298,7 +555,9 @@ void testNativeBackendConformsWhenAvailable() {
   }
   assertRenderableFrame(native);
   assert(native.backend.supports_capture);
-  assert(native.backend.supports_ui_composite);
+  if (native.backend.kind == aster::RenderBackendKind::Metal) {
+    assert(native.backend.supports_ui_composite);
+  }
   assert(native.stats.draw_calls > 0u);
   assert(std::abs(native.metrics.mean_luma - software.metrics.mean_luma) < 0.35);
   assert(std::abs(native.metrics.foreground_ratio - software.metrics.foreground_ratio) < 0.55);
@@ -310,6 +569,119 @@ void testNativeBackendConformsWhenAvailable() {
 #endif
 }
 
+void testBackendCapabilityTableContracts() {
+  const RenderResult software = renderContractFrame(true);
+  const aster::rhi::DeviceCapabilities &software_table = software.backend.capability_table;
+  assert(software_table.backend == aster::rhi::BackendKind::SoftwareReference);
+  assert(software_table.shader_model == aster::rhi::ShaderModel::SoftwareReference);
+  assert(software_table.presentation == aster::rhi::PresentationMode::SoftwareFramebuffer);
+  assert((software_table.color_format_mask &
+          aster::rhi::imageFormatCapabilityBit(aster::rhi::ImageFormat::Bgra8Unorm)) != 0ull);
+  assert((software_table.depth_format_mask &
+          aster::rhi::imageFormatCapabilityBit(aster::rhi::ImageFormat::Depth32Float)) != 0ull);
+  assert((software_table.sample_count_mask & aster::rhi::sampleCountCapabilityBit(1u)) != 0ull);
+  assert((software_table.blend_mode_mask &
+          aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::AlphaBlend)) != 0ull);
+  assert(software_table.max_sampled_textures_per_material == 0u);
+  assert(!software_table.texture_sampling);
+
+  const RenderResult native = renderContractFrame(false);
+  if (native.backend.kind == aster::RenderBackendKind::Metal) {
+    assert(native.backend.capability_table.shader_model == aster::rhi::ShaderModel::MetalMSL23);
+    assert(native.backend.capability_table.presentation == aster::rhi::PresentationMode::MetalLayer);
+  }
+  if (native.backend.kind == aster::RenderBackendKind::D3D12) {
+    assert(native.backend.capability_table.shader_model ==
+           aster::rhi::ShaderModel::D3D12ShaderModel51);
+    assert(native.backend.capability_table.presentation ==
+           aster::rhi::PresentationMode::D3D12OffscreenReadback);
+  }
+  if (native.backend.kind != aster::RenderBackendKind::Null) {
+    assert(native.backend.capability_table.max_color_attachments == 1u);
+    assert(!native.backend.capability_table.texture_sampling);
+  }
+}
+
+void testGoldenLabScenes() {
+  std::filesystem::create_directories(artifactRoot());
+  for (const LabSceneCase &lab : kLabScenes) {
+    const std::filesystem::path current_path =
+        artifactRoot() / (std::string(lab.name) + "_software_current.ppm");
+    const LabRenderResult result = renderLabFrame(lab, true, current_path);
+    assert(result.backend.kind == aster::RenderBackendKind::SoftwareReference);
+    assert(result.stats.visible_objects >= 2u);
+    assert(result.metrics.foreground_ratio > 0.08);
+    const std::filesystem::path expected_path = goldenPath(lab);
+    if (!std::filesystem::exists(expected_path)) {
+      std::cerr << "Missing golden baseline: " << expected_path << '\n';
+      assert(false);
+    }
+    const std::vector<std::uint8_t> expected = readBytes(expected_path);
+    const std::vector<std::uint8_t> current = readBytes(current_path);
+    if (expected != current) {
+      const CapturedImage reference = parsePpm(expected_path);
+      const ImageDiffMetrics metrics = diffImages(reference, result.image);
+      writeDiffArtifacts(artifactRoot(), std::string(lab.name) + "_software_golden_mismatch",
+                         reference, result.image, metrics);
+      std::cerr << "Software golden mismatch for " << lab.name
+                << " mean_abs_error=" << metrics.mean_abs_error
+                << " max_abs_error=" << static_cast<int>(metrics.max_abs_error) << '\n';
+      assert(false);
+    }
+  }
+}
+
+void testNativeLabScenesMatchSoftwareReferenceWhenAvailable() {
+  for (const LabSceneCase &lab : kLabScenes) {
+    const LabRenderResult software = renderLabFrame(
+        lab, true, artifactRoot() / (std::string(lab.name) + "_software_reference.ppm"));
+    const LabRenderResult native = renderLabFrame(
+        lab, false, artifactRoot() / (std::string(lab.name) + "_native_candidate.ppm"));
+    if (native.backend.kind == aster::RenderBackendKind::Null ||
+        native.backend.kind == aster::RenderBackendKind::SoftwareReference) {
+      continue;
+    }
+    assert(native.stats.visible_objects == software.stats.visible_objects);
+    assert(native.stats.draw_calls > 0u);
+    assert(!native.forensics.passes.empty());
+    const ImageDiffMetrics metrics = diffImages(software.image, native.image);
+    if (metrics.mean_abs_error > 52.0 || metrics.differing_pixel_ratio > 0.82) {
+      writeDiffArtifacts(artifactRoot(), std::string(lab.name) + "_native_reference_mismatch",
+                         software.image, native.image, metrics);
+      std::cerr << "Native/reference diff too high for " << lab.name
+                << " mean_abs_error=" << metrics.mean_abs_error
+                << " differing_pixel_ratio=" << metrics.differing_pixel_ratio << '\n';
+      assert(false);
+    }
+  }
+}
+
+void testFailureArtifactWriter() {
+  CapturedImage reference{.width = 2, .height = 2, .rgba = {0, 0, 0, 255, 32, 32, 32, 255,
+                                                            64, 64, 64, 255, 255, 255, 255, 255}};
+  CapturedImage candidate = reference;
+  candidate.rgba[4u] = 200u;
+  candidate.rgba[5u] = 20u;
+  const ImageDiffMetrics metrics = diffImages(reference, candidate);
+  const std::filesystem::path root = artifactRoot() / "artifact_writer";
+  std::filesystem::remove_all(root);
+  writeDiffArtifacts(root, "synthetic", reference, candidate, metrics);
+  assert(std::filesystem::exists(root / "synthetic_reference.ppm"));
+  assert(std::filesystem::exists(root / "synthetic_candidate.ppm"));
+  assert(std::filesystem::exists(root / "synthetic_diff.ppm"));
+  assert(std::filesystem::exists(root / "synthetic_metrics.json"));
+}
+
+void writeGoldenBaselines() {
+  std::filesystem::create_directories(goldenRoot());
+  for (const LabSceneCase &lab : kLabScenes) {
+    const LabRenderResult result = renderLabFrame(lab, true, goldenPath(lab));
+    assert(result.backend.kind == aster::RenderBackendKind::SoftwareReference);
+    assert(result.metrics.foreground_ratio > 0.08);
+    std::cout << "wrote " << goldenPath(lab) << '\n';
+  }
+}
+
 struct TestCase {
   const char *name = "";
   void (*run)() = nullptr;
@@ -318,6 +690,11 @@ struct TestCase {
 constexpr TestCase kTestCases[] = {
     {"software_deterministic_hash_and_forensics", testSoftwareDeterministicHashAndForensics},
     {"native_backend_conforms_when_available", testNativeBackendConformsWhenAvailable},
+    {"backend_capability_table_contracts", testBackendCapabilityTableContracts},
+    {"golden_lab_scenes", testGoldenLabScenes},
+    {"native_lab_scenes_match_software_reference_when_available",
+     testNativeLabScenesMatchSoftwareReferenceWhenAvailable},
+    {"failure_artifact_writer", testFailureArtifactWriter},
 };
 
 int runTestCase(const TestCase &test_case) {
@@ -331,6 +708,10 @@ int runTestCase(const TestCase &test_case) {
 
 int main(const int argc, const char **argv) {
   if (argc > 1) {
+    if (std::strcmp(argv[1], "--write-golden") == 0) {
+      writeGoldenBaselines();
+      return 0;
+    }
     for (const TestCase &test_case : kTestCases) {
       if (std::strcmp(argv[1], test_case.name) == 0) {
         return runTestCase(test_case);

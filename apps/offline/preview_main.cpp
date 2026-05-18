@@ -31,6 +31,18 @@ aster::Scene makeScene(const std::string &scene_name) {
   if (scene_name == "industrial-pipe") {
     return aster::makeIndustrialPipeScene();
   }
+  if (scene_name == "material-lab") {
+    return aster::makeMaterialLabShowcaseScene();
+  }
+  if (scene_name == "mesh-lab") {
+    return aster::makeMeshLabShowcaseScene();
+  }
+  if (scene_name == "lighting-lab") {
+    return aster::makeLightingLabShowcaseScene();
+  }
+  if (scene_name == "scene-lab") {
+    return aster::makeSceneLabShowcaseScene();
+  }
   if (scene_name == "architecture") {
     return aster::makeArchitectureShowcaseScene();
   }
@@ -45,6 +57,38 @@ aster::OrbitCamera makeCamera(const std::string &scene_name) {
     camera.pitch = aster::radians(15.0f);
     camera.radius = 5.0f;
     camera.vertical_fov = aster::radians(42.0f);
+    return camera;
+  }
+  if (scene_name == "material-lab") {
+    camera.target = {0.0f, 0.58f, 0.0f};
+    camera.yaw = aster::radians(18.0f);
+    camera.pitch = aster::radians(14.0f);
+    camera.radius = 6.2f;
+    camera.vertical_fov = aster::radians(38.0f);
+    return camera;
+  }
+  if (scene_name == "mesh-lab") {
+    camera.target = {0.12f, 0.72f, 0.0f};
+    camera.yaw = aster::radians(24.0f);
+    camera.pitch = aster::radians(18.0f);
+    camera.radius = 6.5f;
+    camera.vertical_fov = aster::radians(39.0f);
+    return camera;
+  }
+  if (scene_name == "lighting-lab") {
+    camera.target = {0.24f, 0.62f, 0.02f};
+    camera.yaw = aster::radians(31.0f);
+    camera.pitch = aster::radians(15.0f);
+    camera.radius = 5.7f;
+    camera.vertical_fov = aster::radians(38.0f);
+    return camera;
+  }
+  if (scene_name == "scene-lab") {
+    camera.target = {0.0f, 0.58f, 0.08f};
+    camera.yaw = aster::radians(35.0f);
+    camera.pitch = aster::radians(24.0f);
+    camera.radius = 6.8f;
+    camera.vertical_fov = aster::radians(44.0f);
     return camera;
   }
   camera.target = {0.0f, 1.18f, -0.35f};
@@ -89,6 +133,46 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
     settings.atmosphere.fog_start = 7.0f;
     settings.atmosphere.fog_end = 20.0f;
     settings.atmosphere.fog_strength = 0.12f;
+  }
+  if (scene_name == "material-lab") {
+    settings.exposure = 1.00f;
+    settings.ambient_strength = 0.24f;
+    settings.sun_light.intensity = 2.35f;
+    settings.grounding.enabled = true;
+    settings.grounding.contact_shadows = true;
+    settings.grounding.auto_contact_shadows = true;
+    settings.grounding.contact_shadow_strength = 0.34f;
+  }
+  if (scene_name == "mesh-lab") {
+    settings.exposure = 1.04f;
+    settings.ambient_strength = 0.25f;
+    settings.sun_light.intensity = 2.10f;
+    settings.grounding.enabled = true;
+    settings.grounding.contact_shadows = true;
+    settings.grounding.auto_contact_shadows = true;
+    settings.atmosphere.fog_strength = 0.05f;
+  }
+  if (scene_name == "lighting-lab") {
+    settings.exposure = 0.92f;
+    settings.ambient_strength = 0.14f;
+    settings.sun_light.intensity = 1.70f;
+    settings.pipeline.clear_color = {0.018f, 0.020f, 0.023f};
+    settings.atmosphere.fog_color = {0.045f, 0.042f, 0.040f};
+    settings.atmosphere.fog_start = 4.0f;
+    settings.atmosphere.fog_end = 10.0f;
+    settings.atmosphere.fog_strength = 0.28f;
+    settings.grounding.enabled = true;
+    settings.grounding.contact_shadows = true;
+    settings.grounding.auto_contact_shadows = true;
+    settings.grounding.contact_shadow_strength = 0.42f;
+  }
+  if (scene_name == "scene-lab") {
+    settings.exposure = 1.02f;
+    settings.ambient_strength = 0.22f;
+    settings.sun_light.intensity = 1.95f;
+    settings.grounding.enabled = true;
+    settings.grounding.contact_shadows = true;
+    settings.grounding.auto_contact_shadows = true;
   }
 
   return settings;

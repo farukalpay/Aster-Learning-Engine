@@ -134,6 +134,30 @@ void testIndustrialPipeSceneContract() {
   assert(weld_beads == 2u);
 }
 
+void testShowcaseLabSceneContracts() {
+  const aster::Scene material_lab = aster::makeMaterialLabShowcaseScene();
+  const aster::Scene mesh_lab = aster::makeMeshLabShowcaseScene();
+  const aster::Scene lighting_lab = aster::makeLightingLabShowcaseScene();
+  const aster::Scene scene_lab = aster::makeSceneLabShowcaseScene();
+
+  assert(material_lab.objects().size() >= 5u);
+  assert(mesh_lab.objects().size() >= 5u);
+  assert(lighting_lab.objects().size() >= 7u);
+  assert(scene_lab.objects().size() >= 20u);
+
+  std::size_t custom_meshes = 0u;
+  for (const aster::RenderObject &object : mesh_lab.objects()) {
+    custom_meshes += object.custom_mesh != nullptr ? 1u : 0u;
+  }
+  assert(custom_meshes >= 4u);
+
+  std::size_t translucent = 0u;
+  for (const aster::RenderObject &object : material_lab.objects()) {
+    translucent += aster::isMaterialTranslucent(object.material) ? 1u : 0u;
+  }
+  assert(translucent >= 1u);
+}
+
 void testSoftwarePreviewRendererProducesImage() {
   aster::OrbitCamera camera;
   camera.target = {0.0f, 0.58f, 0.0f};
@@ -659,6 +683,7 @@ constexpr TestCase kTestCases[] = {
     {"hud_visibility", testHudVisibilityPolicy},
     {"scene_contract", testSceneContract},
     {"industrial_pipe_scene", testIndustrialPipeSceneContract},
+    {"showcase_lab_scenes", testShowcaseLabSceneContracts},
     {"software_preview_renderer", testSoftwarePreviewRendererProducesImage},
     {"material_render_policies", testMaterialRenderPolicies},
     {"rhi_resource_registry", testRhiResourceRegistryContract},

@@ -577,6 +577,16 @@ public:
     return Result<AsterBackendCapabilities>(std::move(value));
   }
 
+  [[nodiscard]] Result<AsterBackendCapabilityTable> backendCapabilityTable() const noexcept {
+    AsterBackendCapabilityTable value{sizeof(AsterBackendCapabilityTable),
+                                      ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_get_backend_capability_table(handle_, &value));
+    if (!status) {
+      return Result<AsterBackendCapabilityTable>(status);
+    }
+    return Result<AsterBackendCapabilityTable>(std::move(value));
+  }
+
   [[nodiscard]] Status renderFrame(const Scene &scene, const AsterCameraDesc &camera,
                                    const AsterRendererSettings &settings) noexcept {
     return Status(aster_kernel_renderer_render_frame(handle_, scene.get(), &camera, &settings));

@@ -1,0 +1,12 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float2 aster_parallax_offset(float2 uv, float3 view_tangent, float height, float scale) {
+  float view_z = max(abs(view_tangent.z), 0.08);
+  float2 offset = view_tangent.xy * ((height - 0.5) * scale / view_z);
+  return uv - offset;
+}
+
+float aster_height_occlusion(float height, float strength) {
+  return clamp(1.0 - (1.0 - height) * strength, 0.0, 1.0);
+}

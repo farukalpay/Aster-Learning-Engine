@@ -100,6 +100,7 @@ aster_tests
 # Local captures, diagnostics, and profiler outputs
 *.ppm
 *.tmp.ppm
+!tests/golden/**/*.ppm
 *.log
 *.trace
 *.dmp

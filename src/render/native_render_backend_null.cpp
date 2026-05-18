@@ -11,6 +11,19 @@
 
 namespace {
 
+aster::rhi::DeviceCapabilities nullCapabilityTable() {
+  aster::rhi::DeviceCapabilities table;
+  table.backend = aster::rhi::BackendKind::Null;
+  table.shader_materials = false;
+  table.texture_sampling = false;
+  table.instancing = false;
+  table.capture = false;
+  table.ui_composite = false;
+  table.gpu_timestamps = false;
+  table.presentation = aster::rhi::PresentationMode::None;
+  return table;
+}
+
 aster::RenderBackendCapabilities nullCapabilities() {
   const std::uint32_t graph_resources =
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor) |
@@ -26,7 +39,8 @@ aster::RenderBackendCapabilities nullCapabilities() {
           .supports_capture = false,
           .supports_ui_composite = false,
           .supports_gpu_timestamps = false,
-          .graph_resource_mask = graph_resources};
+          .graph_resource_mask = graph_resources,
+          .capability_table = nullCapabilityTable()};
 }
 
 class NullNativeRenderBackend final : public aster::NativeRenderBackend {

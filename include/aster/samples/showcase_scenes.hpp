@@ -9,5 +9,9 @@ namespace aster {
 
 [[nodiscard]] Scene makeArchitectureShowcaseScene();
 [[nodiscard]] Scene makeIndustrialPipeScene();
+[[nodiscard]] Scene makeMaterialLabShowcaseScene();
+[[nodiscard]] Scene makeMeshLabShowcaseScene();
+[[nodiscard]] Scene makeLightingLabShowcaseScene();
+[[nodiscard]] Scene makeSceneLabShowcaseScene();
 
 } // namespace aster

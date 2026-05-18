@@ -1,0 +1,33 @@
+material ShowcaseWeatheredMetal {
+  schema_version: 1
+  name: "Showcase Weathered Metal"
+  shading_model: LitPBR
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  textures {
+    albedo: "weathered_metal_albedo.ktx2"
+    normal: "weathered_metal_normal.ktx2"
+    orm: "weathered_metal_orm.ktx2"
+    height: "weathered_metal_height.ktx2"
+  }
+
+  params {
+    roughness: 0.74
+    metallic: 0.78
+    triplanar_scale: 4.0
+    micro_normal_strength: 0.54
+    height_shading: 0.36
+  }
+
+  features {
+    triplanar: true
+    normal_map: true
+  }
+
+  layers {
+    base: triplanar(albedo, normal, height)
+  }
+}

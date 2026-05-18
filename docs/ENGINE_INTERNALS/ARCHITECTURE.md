@@ -48,10 +48,10 @@ fully driven by SDK documents.
 Stable public ABI and C++ wrappers. Kernel headers must not include broad engine
 headers, STL containers in ABI structs, native platform types, renderer backend
 types, or sample-owned state. Public resources cross this boundary only as
-opaque handles with matching destroy functions. ABI 2.1 includes a public
+opaque handles with matching destroy functions. ABI 2.2 includes a public
 renderer path for windows, renderer instances, scenes, meshes, materials, shader
 artifacts, render pipelines, captures, frame stats, frame forensics, and backend
-capabilities.
+capability tables.
 
 `include/aster/game_sdk`
 
@@ -260,10 +260,12 @@ Native capture waits for the Metal scene command buffer, reads the scene texture
 and composites the software UI overlay using the same top-left framebuffer
 origin as live presentation.
 
-Windows now has a D3D12 bootstrap backend that validates device and command queue
-creation, reports backend capabilities, and preserves the software framebuffer
-capture path. It is a second GPU backend entry point, not a finished scene
-renderer. Full scene drawing still lives in the Metal and software paths.
+Windows now has a D3D12 offscreen raster/readback backend that validates device
+and command queue creation, consumes the shared scene render plan, reports
+structured backend capabilities, and captures through readback. It is a second
+GPU backend entry point for conformance work, not a finished Windows presentation
+renderer. Window presentation on Windows still uses the software framebuffer
+path today.
 
 Procedural material evaluation is pattern-driven rather than sample-specific.
 Terrain, water, cave rock, coal veins, foliage, fur, amber, wood, stone, scales,

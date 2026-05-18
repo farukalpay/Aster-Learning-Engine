@@ -1,0 +1,9 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float3 aster_blend_detail_normal(float3 base_normal, float3 detail_normal, float strength) {
+  float3 base = normalize(base_normal);
+  float3 detail = normalize(detail_normal * 2.0 - 1.0);
+  detail.xy = detail.xy * clamp(strength, 0.0, 1.0);
+  return normalize(float3(base.xy + detail.xy, base.z * detail.z));
+}

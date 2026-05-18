@@ -1,0 +1,17 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float3 aster_clearcoat_specular(float3 normal, float3 view, float3 light_dir,
+                                float3 light_color, float roughness, float strength) {
+  float3 h = normalize(light_dir + view);
+  float n_dot_l = max(dot(normal, light_dir), 0.0);
+  float n_dot_v = max(dot(normal, view), 0.001);
+  float n_dot_h = max(dot(normal, h), 0.0);
+  float h_dot_v = max(dot(h, view), 0.0);
+  float d = aster_distribution_ggx(n_dot_h, clamp(roughness, 0.03, 1.0));
+  float g = aster_geometry_schlick_ggx(n_dot_l, roughness) *
+            aster_geometry_schlick_ggx(n_dot_v, roughness);
+  float f = 0.04 + (1.0 - 0.04) * pow(1.0 - clamp(h_dot_v, 0.0, 1.0), 5.0);
+  return light_color * n_dot_l * strength * (d * g * f) /
+         max(4.0 * n_dot_l * n_dot_v, 0.000001);
+}

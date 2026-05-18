@@ -339,6 +339,7 @@ if(ASTER_BUILD_TESTS)
       hud_visibility
       scene_contract
       industrial_pipe_scene
+      showcase_lab_scenes
       software_preview_renderer
       material_render_policies
       rhi_resource_registry
@@ -361,9 +362,16 @@ if(ASTER_BUILD_TESTS)
   target_link_libraries(aster_render_backend_conformance_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_render_backend_conformance_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/tests)
+  target_compile_definitions(aster_render_backend_conformance_tests PRIVATE
+    ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+  )
   foreach(render_backend_conformance_case
       software_deterministic_hash_and_forensics
       native_backend_conforms_when_available
+      backend_capability_table_contracts
+      golden_lab_scenes
+      native_lab_scenes_match_software_reference_when_available
+      failure_artifact_writer
   )
     add_test(NAME aster_render_backend_conformance_tests.${render_backend_conformance_case}
              COMMAND aster_render_backend_conformance_tests ${render_backend_conformance_case})

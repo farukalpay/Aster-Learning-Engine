@@ -4,9 +4,16 @@
 #include "aster/samples/showcase_scenes.hpp"
 
 #include "aster/geometry/architectural_mesh.hpp"
+#include "aster/geometry/cable_mesh.hpp"
+#include "aster/geometry/cave_web_mesh.hpp"
+#include "aster/geometry/fracture_mesh.hpp"
+#include "aster/geometry/terrain_mesh.hpp"
 #include "aster/geometry/tube_mesh.hpp"
 
+#include <cstdint>
+#include <cstddef>
 #include <memory>
+#include <utility>
 
 namespace aster {
 namespace {
@@ -72,6 +79,73 @@ std::shared_ptr<const CpuMesh> weldBeadMesh() {
                                                                    .axial_width = 0.18f,
                                                                    .radial_segments = 96,
                                                                    .bead_segments = 14}));
+  return mesh;
+}
+
+std::shared_ptr<const CpuMesh> labCableMesh() {
+  static const std::shared_ptr<const CpuMesh> mesh =
+      std::make_shared<const CpuMesh>(makeCableMesh({.construction = CableConstruction::TwistedStrands,
+                                                     .radial_segments = 24,
+                                                     .length_segments = 28,
+                                                     .strand_count = 7,
+                                                     .radius = 0.22f,
+                                                     .length = 2.6f,
+                                                     .twist_turns = 3.0f}));
+  return mesh;
+}
+
+std::shared_ptr<const CpuMesh> labTerrainMesh() {
+  static const std::shared_ptr<const CpuMesh> mesh = [] {
+    TerrainHeightField terrain = makeProceduralTerrain(
+        {.grid_size = 25,
+         .square_size = 0.18f,
+         .central_flat_radius = 0.72f,
+         .transition_width = 1.8f,
+         .hill_height = 0.18f,
+         .mountain_height = 0.46f});
+    return std::make_shared<const CpuMesh>(
+        makeTerrainMesh(terrain, {.alternating_diagonal_split = true,
+                                  .clamp_edge_samples = true,
+                                  .subdivisions_per_square = 1,
+                                  .smooth_visual_surface = true}));
+  }();
+  return mesh;
+}
+
+std::shared_ptr<const CpuMesh> labCaveWebMesh() {
+  static const std::shared_ptr<const CpuMesh> mesh =
+      std::make_shared<const CpuMesh>(makeCaveWebMesh({.radius_x = 0.82f,
+                                                       .radius_y = 0.60f,
+                                                       .radial_strands = 16,
+                                                       .ring_strands = 5,
+                                                       .ring_segments = 80,
+                                                       .strand_width = 0.020f,
+                                                       .sag = 0.12f,
+                                                       .irregularity = 0.08f,
+                                                       .seed = 11u}));
+  return mesh;
+}
+
+std::shared_ptr<const CpuMesh> labFracturedMesh() {
+  static const std::shared_ptr<const CpuMesh> mesh = [] {
+    const std::vector<VoronoiFractureShard> shards = buildImpactVoronoiFracture(
+        {.volume = {.center = {}, .half_extents = {0.62f, 0.44f, 0.50f}},
+         .impact_point = {-0.28f, 0.12f, 0.32f},
+         .impact_normal = {0.22f, 0.80f, -0.18f},
+         .seed = 19u,
+         .shard_count = 7,
+         .impact_seed_fraction = 0.60f});
+    CpuMesh merged;
+    for (const VoronoiFractureShard &shard : shards) {
+      const std::uint32_t base = static_cast<std::uint32_t>(merged.vertices.size());
+      merged.vertices.insert(merged.vertices.end(), shard.mesh.vertices.begin(),
+                             shard.mesh.vertices.end());
+      for (const std::uint32_t index : shard.mesh.indices) {
+        merged.indices.push_back(base + index);
+      }
+    }
+    return std::make_shared<const CpuMesh>(std::move(merged));
+  }();
   return mesh;
 }
 
@@ -213,6 +287,229 @@ Scene makeIndustrialPipeScene() {
     bead.contact_shadow_strength = 0.36f;
     bead.contact_shadow_radius_scale = 0.85f;
     scene.objects().push_back(bead);
+  }
+
+  return scene;
+}
+
+Scene makeMaterialLabShowcaseScene() {
+  Scene scene;
+
+  const Material floor_material =
+      makeSupportSurfaceMaterial(material({0.16f, 0.17f, 0.16f}, {}, 0.92f, 0.0f, 0.0f, 0.28f,
+                                          3.0f, 0.08f, 0.86f, SurfacePattern::CourseCells,
+                                          {2.2f, 2.2f}, 0.05f, 0.30f));
+  RenderObject floor;
+  floor.name = "material lab inspection floor";
+  floor.primitive = MeshPrimitive::Plane;
+  floor.transform.scale = {1.05f, 1.0f, 1.05f};
+  floor.material = floor_material;
+  floor.auto_contact_shadow = false;
+  scene.objects().push_back(floor);
+
+  const Material wet_rock =
+      material({0.20f, 0.22f, 0.21f}, {}, 0.78f, 0.0f, 0.0f, 0.88f, 5.0f, 0.22f, 0.78f,
+               SurfacePattern::CaveRock, {2.6f, 3.2f}, 0.26f, 0.60f, 0.06f,
+               {.macro_variation = 0.56f,
+                .micro_normal_strength = 0.50f,
+                .roughness_variation = 0.36f,
+                .wetness = 0.52f,
+                .height_shading = 0.28f});
+  const Material rusty_pipe =
+      material({0.24f, 0.17f, 0.12f}, {0.02f, 0.008f, 0.0f}, 0.74f, 0.78f, 0.0f, 0.92f,
+               10.0f, 0.36f, 0.70f, SurfacePattern::WeatheredMetal, {3.6f, 11.5f}, 0.42f,
+               0.92f, 0.05f, {.macro_variation = 0.70f,
+                               .micro_normal_strength = 0.54f,
+                               .roughness_variation = 0.68f,
+                               .wetness = 0.08f,
+                               .height_shading = 0.36f});
+  const Material brushed_metal =
+      material({0.55f, 0.53f, 0.48f}, {}, 0.34f, 0.92f, 0.0f, 0.48f, 18.0f, 0.10f, 0.84f,
+               SurfacePattern::FiberStrands, {14.0f, 2.0f}, 0.08f, 0.38f);
+  Material glass =
+      material({0.34f, 0.62f, 0.78f}, {0.02f, 0.04f, 0.06f}, 0.08f, 0.0f, 0.08f, 0.12f,
+               2.0f, 0.0f, 1.0f);
+  glass.opacity = 0.42f;
+  glass.alpha_mode = MaterialAlphaMode::Blend;
+  glass.depth_write = MaterialDepthWrite::Disabled;
+  glass.double_sided = true;
+
+  const Material materials[] = {wet_rock, rusty_pipe, brushed_metal, glass};
+  const char *names[] = {"wet rock shader ball", "weathered pipe shader ball",
+                         "brushed metal shader ball", "translucent glass shader ball"};
+  for (std::size_t i = 0; i < 4u; ++i) {
+    RenderObject object;
+    object.name = names[i];
+    object.primitive = i == 1u ? MeshPrimitive::Box : MeshPrimitive::Sphere;
+    object.custom_mesh = i == 1u ? pipeSectionMesh() : nullptr;
+    object.transform.position = {-2.55f + static_cast<float>(i) * 1.70f, 0.70f, 0.0f};
+    object.transform.scale = {0.58f, 0.58f, 0.58f};
+    object.material = materials[i];
+    object.casts_contact_shadow = true;
+    object.contact_shadow_strength = 0.56f;
+    scene.objects().push_back(object);
+  }
+
+  return scene;
+}
+
+Scene makeMeshLabShowcaseScene() {
+  Scene scene;
+  const Material floor_material =
+      makeSupportSurfaceMaterial(material({0.13f, 0.14f, 0.15f}, {}, 0.90f, 0.0f, 0.0f, 0.24f,
+                                          2.8f, 0.08f, 0.88f));
+  RenderObject floor;
+  floor.name = "mesh lab floor";
+  floor.primitive = MeshPrimitive::Plane;
+  floor.material = floor_material;
+  floor.auto_contact_shadow = false;
+  scene.objects().push_back(floor);
+
+  const Material terrain =
+      material({0.28f, 0.24f, 0.18f}, {}, 0.88f, 0.0f, 0.0f, 0.62f, 5.4f, 0.18f, 0.82f,
+               SurfacePattern::TerrainBlend, {2.2f, 2.8f}, 0.18f, 0.48f);
+  const Material cable =
+      material({0.045f, 0.050f, 0.052f}, {}, 0.66f, 0.36f, 0.0f, 0.84f, 12.0f, 0.08f, 0.88f,
+               SurfacePattern::FiberStrands, {16.0f, 3.0f}, 0.08f, 0.52f);
+  const Material fracture =
+      material({0.38f, 0.33f, 0.28f}, {}, 0.82f, 0.0f, 0.0f, 0.68f, 4.5f, 0.34f, 0.78f,
+               SurfacePattern::WeatheredStone, {3.2f, 3.8f}, 0.16f, 0.56f);
+  const Material web =
+      material({0.68f, 0.70f, 0.66f}, {0.02f, 0.025f, 0.028f}, 0.56f, 0.0f, 0.08f, 0.46f,
+               7.0f, 0.0f, 0.90f, SurfacePattern::CaveWeb, {5.0f, 5.0f}, 0.05f, 0.32f);
+
+  RenderObject terrain_object;
+  terrain_object.name = "terrain patch mesh";
+  terrain_object.primitive = MeshPrimitive::Box;
+  terrain_object.custom_mesh = labTerrainMesh();
+  terrain_object.transform.position = {-2.15f, 0.02f, 0.05f};
+  terrain_object.transform.scale = {0.76f, 0.76f, 0.76f};
+  terrain_object.material = terrain;
+  terrain_object.casts_contact_shadow = true;
+  scene.objects().push_back(terrain_object);
+
+  RenderObject cable_object;
+  cable_object.name = "twisted cable mesh";
+  cable_object.primitive = MeshPrimitive::Box;
+  cable_object.custom_mesh = labCableMesh();
+  cable_object.transform.position = {-0.68f, 0.52f, 0.0f};
+  cable_object.transform.rotation = {0.0f, 0.0f, radians(88.0f)};
+  cable_object.material = cable;
+  cable_object.casts_contact_shadow = true;
+  scene.objects().push_back(cable_object);
+
+  RenderObject fracture_object;
+  fracture_object.name = "fractured rock proxy mesh";
+  fracture_object.primitive = MeshPrimitive::Box;
+  fracture_object.custom_mesh = labFracturedMesh();
+  fracture_object.transform.position = {0.92f, 0.62f, -0.05f};
+  fracture_object.material = fracture;
+  fracture_object.casts_contact_shadow = true;
+  scene.objects().push_back(fracture_object);
+
+  RenderObject web_object;
+  web_object.name = "projected cave web mesh";
+  web_object.primitive = MeshPrimitive::Box;
+  web_object.custom_mesh = labCaveWebMesh();
+  web_object.transform.position = {2.30f, 1.02f, -0.10f};
+  web_object.transform.rotation = {0.0f, radians(-8.0f), 0.0f};
+  web_object.material = web;
+  web_object.material.double_sided = true;
+  web_object.casts_contact_shadow = false;
+  scene.objects().push_back(web_object);
+
+  return scene;
+}
+
+Scene makeLightingLabShowcaseScene() {
+  Scene scene;
+  const Material floor_material =
+      makeSupportSurfaceMaterial(material({0.19f, 0.18f, 0.16f}, {}, 0.88f, 0.0f, 0.0f, 0.38f,
+                                          3.4f, 0.12f, 0.82f, SurfacePattern::CourseCells,
+                                          {1.9f, 1.9f}, 0.05f, 0.34f));
+  RenderObject floor;
+  floor.name = "lighting lab receiver";
+  floor.primitive = MeshPrimitive::Plane;
+  floor.material = floor_material;
+  floor.auto_contact_shadow = false;
+  scene.objects().push_back(floor);
+
+  for (std::size_t i = 0; i < 5u; ++i) {
+    RenderObject object;
+    object.name = "lighting probe object";
+    object.primitive = i % 2u == 0u ? MeshPrimitive::Sphere : MeshPrimitive::Rock;
+    object.transform.position = {-2.0f + static_cast<float>(i) * 1.0f, 0.54f,
+                                 i % 2u == 0u ? -0.18f : 0.22f};
+    object.transform.scale = {0.38f, 0.38f, 0.38f};
+    object.material =
+        material({0.28f + static_cast<float>(i) * 0.08f, 0.28f, 0.24f}, {}, 0.48f + 0.08f * i,
+                 i == 3u ? 0.70f : 0.0f, 0.0f, 0.38f, 4.0f, 0.14f, 0.86f,
+                 i == 1u ? SurfacePattern::CaveRock : SurfacePattern::None);
+    object.casts_contact_shadow = true;
+    object.contact_shadow_strength = 0.78f;
+    scene.objects().push_back(object);
+  }
+
+  RenderObject emissive;
+  emissive.name = "warm emissive crystal";
+  emissive.primitive = MeshPrimitive::Crystal;
+  emissive.transform.position = {2.52f, 0.82f, 0.38f};
+  emissive.transform.scale = {0.28f, 0.48f, 0.28f};
+  emissive.material =
+      material({0.74f, 0.42f, 0.18f}, {1.0f, 0.40f, 0.12f}, 0.24f, 0.0f, 0.52f, 0.0f, 1.0f,
+               0.0f, 1.0f, SurfacePattern::AmberResin, {2.2f, 2.2f}, 0.12f, 0.42f);
+  emissive.casts_contact_shadow = true;
+  scene.objects().push_back(emissive);
+
+  return scene;
+}
+
+Scene makeSceneLabShowcaseScene() {
+  Scene scene;
+  const Material floor_material =
+      makeSupportSurfaceMaterial(material({0.12f, 0.135f, 0.14f}, {}, 0.91f, 0.0f, 0.0f, 0.18f,
+                                          2.0f, 0.08f, 0.88f));
+  RenderObject floor;
+  floor.name = "scene lab floor";
+  floor.primitive = MeshPrimitive::Plane;
+  floor.material = floor_material;
+  floor.auto_contact_shadow = false;
+  scene.objects().push_back(floor);
+
+  const Material crate_material =
+      material({0.42f, 0.28f, 0.18f}, {}, 0.72f, 0.0f, 0.0f, 0.66f, 6.0f, 0.22f, 0.78f,
+               SurfacePattern::PaintedWood, {4.0f, 3.0f}, 0.10f, 0.46f);
+  const Material marker_material =
+      material({0.16f, 0.42f, 0.68f}, {0.02f, 0.08f, 0.14f}, 0.36f, 0.1f, 0.16f, 0.12f,
+               2.0f, 0.0f, 0.92f);
+
+  for (int z = 0; z < 3; ++z) {
+    for (int x = 0; x < 5; ++x) {
+      RenderObject crate;
+      crate.name = "instancing grid crate";
+      crate.primitive = MeshPrimitive::Box;
+      crate.transform.position = {-2.2f + static_cast<float>(x) * 1.1f, 0.35f,
+                                  -0.95f + static_cast<float>(z) * 0.78f};
+      crate.transform.scale = {0.38f, 0.38f, 0.38f};
+      crate.material = crate_material;
+      crate.casts_contact_shadow = true;
+      crate.visibility_hint = {.visibility_class = RenderVisibilityClass::CaveCell,
+                               .cell = {static_cast<float>(x), 0.0f, static_cast<float>(z)},
+                               .portal_depth = static_cast<float>(z)};
+      scene.objects().push_back(crate);
+    }
+  }
+
+  for (int i = 0; i < 4; ++i) {
+    RenderObject marker;
+    marker.name = "scene debug marker";
+    marker.primitive = MeshPrimitive::Crystal;
+    marker.transform.position = {-1.65f + static_cast<float>(i) * 1.1f, 0.92f, 1.52f};
+    marker.transform.scale = {0.18f, 0.32f, 0.18f};
+    marker.material = marker_material;
+    marker.spin_rate = 0.16f + 0.04f * static_cast<float>(i);
+    marker.casts_contact_shadow = false;
+    scene.objects().push_back(marker);
   }
 
   return scene;

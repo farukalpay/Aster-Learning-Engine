@@ -9,6 +9,7 @@
 #include "aster/render/mesh.hpp"
 #include "aster/render/render_graph.hpp"
 #include "aster/render/render_scene.hpp"
+#include "aster/rhi/device.hpp"
 #include "aster/rhi/resource_registry.hpp"
 
 #include <array>
@@ -47,6 +48,7 @@ struct RenderBackendCapabilities {
   bool supports_ui_composite = false;
   bool supports_gpu_timestamps = false;
   std::uint32_t graph_resource_mask = 0u;
+  rhi::DeviceCapabilities capability_table{};
 };
 
 struct Light {

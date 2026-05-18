@@ -1075,6 +1075,32 @@ std::string_view renderBackendKindName(const RenderBackendKind kind) {
 
 namespace {
 
+rhi::DeviceCapabilities softwareCapabilityTable() {
+  rhi::DeviceCapabilities table;
+  table.backend = rhi::BackendKind::SoftwareReference;
+  table.shader_materials = true;
+  table.texture_sampling = false;
+  table.instancing = false;
+  table.capture = true;
+  table.ui_composite = true;
+  table.gpu_timestamps = false;
+  table.color_format_mask = rhi::imageFormatCapabilityBit(rhi::ImageFormat::Bgra8Unorm) |
+                            rhi::imageFormatCapabilityBit(rhi::ImageFormat::Rgba8Unorm);
+  table.depth_format_mask = rhi::imageFormatCapabilityBit(rhi::ImageFormat::Depth32Float);
+  table.sample_count_mask = rhi::sampleCountCapabilityBit(1u);
+  table.blend_mode_mask = rhi::blendModeCapabilityBit(rhi::BlendMode::Opaque) |
+                          rhi::blendModeCapabilityBit(rhi::BlendMode::AlphaBlend);
+  table.shader_model = rhi::ShaderModel::SoftwareReference;
+  table.presentation = rhi::PresentationMode::SoftwareFramebuffer;
+  table.limits.max_color_attachments = 1u;
+  table.limits.max_uniform_buffers_per_stage = 1u;
+  table.limits.max_bind_groups = 1u;
+  table.limits.max_vertex_attributes = 4u;
+  table.limits.max_texture_dimension_2d = 16384u;
+  table.limits.max_dynamic_uniform_bytes = 64u * 1024u;
+  return table;
+}
+
 RenderBackendCapabilities softwareCapabilities() {
   const std::uint32_t graph_resources =
       renderGraphResourceBit(RenderGraphResource::SceneColor) |
@@ -1090,7 +1116,8 @@ RenderBackendCapabilities softwareCapabilities() {
           .supports_capture = true,
           .supports_ui_composite = true,
           .supports_gpu_timestamps = false,
-          .graph_resource_mask = graph_resources};
+          .graph_resource_mask = graph_resources,
+          .capability_table = softwareCapabilityTable()};
 }
 
 struct MaterialFrameSummary {

@@ -1,0 +1,18 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+float3 aster_debug_roughness(float roughness) {
+  return aster_debug_scalar(roughness);
+}
+
+float3 aster_debug_metallic(float metallic) {
+  return float3(clamp(metallic, 0.0, 1.0), 0.0, 1.0 - clamp(metallic, 0.0, 1.0));
+}
+
+float3 aster_debug_ambient_occlusion(float ambient_occlusion) {
+  return aster_debug_scalar(ambient_occlusion);
+}
+
+float3 aster_debug_tangent(float4 tangent) {
+  return normalize(tangent.xyz) * 0.5 + 0.5;
+}

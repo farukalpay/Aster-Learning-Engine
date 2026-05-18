@@ -230,6 +230,35 @@ std::uint32_t capabilityFlags(const aster::RenderBackendCapabilities &capabiliti
   return flags;
 }
 
+AsterKernelBackendShaderModel shaderModel(const aster::rhi::ShaderModel model) {
+  switch (model) {
+  case aster::rhi::ShaderModel::SoftwareReference:
+    return ASTER_KERNEL_BACKEND_SHADER_MODEL_SOFTWARE_REFERENCE;
+  case aster::rhi::ShaderModel::MetalMSL23:
+    return ASTER_KERNEL_BACKEND_SHADER_MODEL_METAL_MSL_2_3;
+  case aster::rhi::ShaderModel::D3D12ShaderModel51:
+    return ASTER_KERNEL_BACKEND_SHADER_MODEL_D3D12_SHADER_MODEL_5_1;
+  case aster::rhi::ShaderModel::None:
+  default:
+    return ASTER_KERNEL_BACKEND_SHADER_MODEL_NONE;
+  }
+}
+
+AsterKernelBackendPresentationMode presentationMode(
+    const aster::rhi::PresentationMode presentation) {
+  switch (presentation) {
+  case aster::rhi::PresentationMode::SoftwareFramebuffer:
+    return ASTER_KERNEL_BACKEND_PRESENTATION_SOFTWARE_FRAMEBUFFER;
+  case aster::rhi::PresentationMode::MetalLayer:
+    return ASTER_KERNEL_BACKEND_PRESENTATION_METAL_LAYER;
+  case aster::rhi::PresentationMode::D3D12OffscreenReadback:
+    return ASTER_KERNEL_BACKEND_PRESENTATION_D3D12_OFFSCREEN_READBACK;
+  case aster::rhi::PresentationMode::None:
+  default:
+    return ASTER_KERNEL_BACKEND_PRESENTATION_NONE;
+  }
+}
+
 aster::ShaderBackend shaderBackend(const AsterKernelShaderBackend backend) {
   switch (backend) {
   case ASTER_KERNEL_SHADER_BACKEND_METAL_MSL:
@@ -633,6 +662,42 @@ aster_kernel_renderer_get_capabilities(const AsterRendererHandle renderer,
   out_capabilities->flags = capabilityFlags(capabilities);
   out_capabilities->graph_resource_mask = capabilities.graph_resource_mask;
   out_capabilities->name = {capabilities.name, std::strlen(capabilities.name)};
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_get_backend_capability_table(
+    const AsterRendererHandle renderer, AsterBackendCapabilityTable *out_capabilities) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_capabilities)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "backend capability table struct version is not supported");
+  }
+  const aster::RenderBackendCapabilities capabilities = renderer->renderer->backendCapabilities();
+  const aster::rhi::DeviceCapabilities &table = capabilities.capability_table;
+  out_capabilities->backend = backendKind(capabilities.kind);
+  out_capabilities->flags = capabilityFlags(capabilities);
+  out_capabilities->graph_resource_mask = capabilities.graph_resource_mask;
+  out_capabilities->name = {capabilities.name, std::strlen(capabilities.name)};
+  out_capabilities->color_format_mask = table.color_format_mask;
+  out_capabilities->depth_format_mask = table.depth_format_mask;
+  out_capabilities->sample_count_mask = table.sample_count_mask;
+  out_capabilities->sampler_filter_mask = table.sampler_filter_mask;
+  out_capabilities->sampler_address_mode_mask = table.sampler_address_mode_mask;
+  out_capabilities->blend_mode_mask = table.blend_mode_mask;
+  out_capabilities->shader_model = shaderModel(table.shader_model);
+  out_capabilities->presentation = presentationMode(table.presentation);
+  out_capabilities->max_color_attachments = table.limits.max_color_attachments;
+  out_capabilities->max_sampled_textures_per_material =
+      table.limits.max_sampled_textures_per_material;
+  out_capabilities->max_samplers_per_material = table.limits.max_samplers_per_material;
+  out_capabilities->max_uniform_buffers_per_stage = table.limits.max_uniform_buffers_per_stage;
+  out_capabilities->max_storage_buffers_per_stage = table.limits.max_storage_buffers_per_stage;
+  out_capabilities->max_bind_groups = table.limits.max_bind_groups;
+  out_capabilities->max_vertex_attributes = table.limits.max_vertex_attributes;
+  out_capabilities->max_texture_dimension_2d = table.limits.max_texture_dimension_2d;
+  out_capabilities->max_dynamic_uniform_bytes = table.limits.max_dynamic_uniform_bytes;
   return aster_kernel_status_ok();
 }
 
