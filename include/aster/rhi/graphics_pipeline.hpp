@@ -128,7 +128,7 @@ struct MultisampleStateDesc {
 struct DepthStencilStateDesc {
   bool depth_test_enabled = true;
   bool depth_write_enabled = true;
-  CompareOp depth_compare = CompareOp::LessOrEqual;
+  CompareOp depth_compare = CompareOp::GreaterOrEqual;
   bool stencil_test_enabled = false;
   std::uint32_t stencil_read_mask = 0xffu;
   std::uint32_t stencil_write_mask = 0xffu;

@@ -42,7 +42,7 @@ void LumenRun::updateChestVisuals(const float dt) {
     const Vec3 opened_local = hinge + rotateX(closed_local - hinge, -angle);
     RenderObject &object = objects[index];
     object.transform.position = chest_base_ + rotateYaw(opened_local, chest_yaw_);
-    object.transform.rotation = {-angle, chest_yaw_, 0.0f};
+    object.transform.rotation = quatFromEulerXyz({-angle, chest_yaw_, 0.0f});
   };
 
   placeLidPart(chest_lid_object_, {0.0f, 0.49f, 0.0f});
@@ -68,8 +68,8 @@ void LumenRun::updateChestVisuals(const float dt) {
           0.010f * open_visibility;
       object.transform.position =
           chest_base_ + rotateYaw(part.local_position + Vec3{0.0f, lift, 0.0f}, chest_yaw_);
-      object.transform.rotation = {part.local_rotation.x, chest_yaw_ + part.local_rotation.y,
-                                   part.local_rotation.z};
+      object.transform.rotation = quatFromEulerXyz(
+          {part.local_rotation.x, chest_yaw_ + part.local_rotation.y, part.local_rotation.z});
       object.transform.scale = part.scale * open_visibility;
       object.material.emission_strength = part.base_emission + (highlighted ? 0.16f : 0.0f);
     }
@@ -88,9 +88,10 @@ void LumenRun::updateEquipmentVisuals(const float dt) {
 
   const std::string equipped_id =
       equipment_.hasEquippedItem() ? equipment_.equipped().item_id : std::string{};
-  Transform hand_socket{avatarPosePosition() + rotateYaw({0.27f, 0.33f, 0.11f}, player_facing_yaw_),
-                        {0.0f, player_facing_yaw_, 0.0f},
-                        {1.0f, 1.0f, 1.0f}};
+  Transform hand_socket =
+      Transform::fromEuler(avatarPosePosition() +
+                               rotateYaw({0.27f, 0.33f, 0.11f}, player_facing_yaw_),
+                           {0.0f, player_facing_yaw_, 0.0f});
   if (const std::optional<Transform> resolved_socket = resolveAvatarAttachmentSocket(
           player_avatar_, player_avatar_pose_, plushRightHandCarrySocket())) {
     hand_socket = *resolved_socket;
@@ -111,7 +112,7 @@ void LumenRun::updateEquipmentVisuals(const float dt) {
     RenderObject &object = objects[part.object_index];
     object.transform.position =
         hand_socket.position + rotateEuler(part.local_position, carry_rotation);
-    object.transform.rotation = carry_rotation + part.local_rotation;
+    object.transform.rotation = quatFromEulerXyz(carry_rotation + part.local_rotation);
     object.transform.scale = part.scale;
   }
 
@@ -155,8 +156,8 @@ void LumenRun::updateEquipmentVisuals(const float dt) {
     const Particle &particle = particles[i];
     RenderObject &object = objects[object_index];
     object.transform.position = particle.position;
-    object.transform.rotation = {0.0f, status_.elapsed_seconds * 1.6f + static_cast<float>(i),
-                                 0.0f};
+    object.transform.rotation =
+        quatFromEulerXyz({0.0f, status_.elapsed_seconds * 1.6f + static_cast<float>(i), 0.0f});
     object.transform.scale = {particle.size, particle.size * 1.55f, particle.size};
     object.material.base_color = particle.tint;
     object.material.emission_color = particle.tint;
@@ -190,9 +191,10 @@ void LumenRun::updatePrismRelayVisuals(const float dt) {
   if (prism_relay_core_valid_ && prism_relay_core_object_ < objects.size()) {
     RenderObject &core = objects[prism_relay_core_object_];
     core.transform.position = relay_core + Vec3{0.0f, 0.035f * field * pulse, 0.0f};
-    core.transform.rotation = {0.045f * std::sin(status_.elapsed_seconds * 1.7f),
-                               status_.elapsed_seconds * (0.32f + field * 0.22f),
-                               0.050f * std::cos(status_.elapsed_seconds * 1.3f)};
+    core.transform.rotation =
+        quatFromEulerXyz({0.045f * std::sin(status_.elapsed_seconds * 1.7f),
+                          status_.elapsed_seconds * (0.32f + field * 0.22f),
+                          0.050f * std::cos(status_.elapsed_seconds * 1.3f)});
     const float breathe = 1.0f + field * (0.026f + 0.018f * pulse);
     core.transform.scale = {0.24f * breathe, 0.52f * breathe, 0.24f * breathe};
     core.material.emission_strength = 0.10f + charge * (0.56f + 0.20f * pulse);
@@ -207,13 +209,17 @@ void LumenRun::updatePrismRelayVisuals(const float dt) {
     const float direction = i == 0u ? 1.0f : -1.0f;
     ring.transform.position = relay_core;
     ring.transform.rotation =
-        i == 0u
-            ? Vec3{0.08f * field * std::sin(status_.elapsed_seconds * 1.1f),
-                   status_.elapsed_seconds * 0.24f * direction,
-                   0.05f * field * std::cos(status_.elapsed_seconds * 1.6f)}
-            : Vec3{radians(90.0f) + 0.07f * field * std::sin(status_.elapsed_seconds * 1.4f),
-                   status_.elapsed_seconds * 0.18f * direction,
-                   radians(12.0f) + 0.04f * field * std::cos(status_.elapsed_seconds * 1.9f)};
+        quatFromEulerXyz(i == 0u
+                             ? Vec3{0.08f * field * std::sin(status_.elapsed_seconds * 1.1f),
+                                    status_.elapsed_seconds * 0.24f * direction,
+                                    0.05f * field * std::cos(status_.elapsed_seconds * 1.6f)}
+                             : Vec3{radians(90.0f) +
+                                        0.07f * field *
+                                            std::sin(status_.elapsed_seconds * 1.4f),
+                                    status_.elapsed_seconds * 0.18f * direction,
+                                    radians(12.0f) +
+                                        0.04f * field *
+                                            std::cos(status_.elapsed_seconds * 1.9f)});
     const float ring_breathe = 1.0f + field * (0.035f + 0.018f * pulse);
     ring.transform.scale = {ring_breathe, ring_breathe, ring_breathe};
     ring.material.opacity = 0.08f + field * 0.34f;

@@ -32,7 +32,7 @@ public:
   void clear(Vec3 color);
   void clearTransparent();
   void clearTransparentColor();
-  void clearDepth(float depth = 1.0f);
+  void clearDepth(float depth = 0.0f);
   void replaceRgba8(int width, int height, std::span<const std::uint8_t> pixels);
 
   void drawTriangle(FrameVertex a, FrameVertex b, FrameVertex c, bool depth_test, bool depth_write,

@@ -923,7 +923,8 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
   shadow.transform.position = {object.transform.position.x,
                                foot_y + grounding.contact_shadow_receiver_bias,
                                object.transform.position.z};
-  shadow.transform.rotation = {0.0f, object.transform.rotation.y, 0.0f};
+  shadow.transform.rotation =
+      aster::quatFromEulerXyz({0.0f, aster::eulerXyz(object.transform.rotation).y, 0.0f});
   shadow.transform.scale = {footprint_x, 1.0f, footprint_z};
   shadow.material.base_color = {0.0f, 0.0f, 0.0f};
   shadow.material.roughness = 1.0f;
@@ -952,7 +953,7 @@ ProjectedVertex projectVertex(const aster::Vertex &vertex, const aster::Mat4 &mo
   const float ndc_x = clip.x * inv_w;
   const float ndc_y = clip.y * inv_w;
   const float ndc_z = clip.z * inv_w;
-  if (ndc_z < -1.0f || ndc_z > 1.0f || ndc_x < -2.0f || ndc_x > 2.0f || ndc_y < -2.0f ||
+  if (ndc_z < 0.0f || ndc_z > 1.0f || ndc_x < -2.0f || ndc_x > 2.0f || ndc_y < -2.0f ||
       ndc_y > 2.0f) {
     return {};
   }
@@ -965,7 +966,7 @@ ProjectedVertex projectVertex(const aster::Vertex &vertex, const aster::Mat4 &mo
       .ambient_occlusion = vertex.ambient_occlusion,
       .x = (ndc_x * 0.5f + 0.5f) * static_cast<float>(width),
       .y = (1.0f - (ndc_y * 0.5f + 0.5f)) * static_cast<float>(height),
-      .depth = ndc_z * 0.5f + 0.5f,
+      .depth = ndc_z,
   };
 }
 

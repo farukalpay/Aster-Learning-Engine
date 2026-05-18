@@ -324,6 +324,7 @@ void testRhiExplicitGpuContracts() {
   pipeline.fragment_shader = {9u, 1u};
   pipeline.rasterizer.cull_mode = aster::rhi::CullMode::Back;
   pipeline.rasterizer.front_face = aster::rhi::FrontFace::CounterClockwise;
+  assert(pipeline.depth_stencil.depth_compare == aster::rhi::CompareOp::GreaterOrEqual);
   pipeline.depth_stencil.depth_compare = aster::rhi::CompareOp::LessOrEqual;
   pipeline.multisample.sample_count = 4u;
   pipeline.vertex_input.bindings.push_back(

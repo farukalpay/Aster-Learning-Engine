@@ -600,7 +600,7 @@ void LumenRun::rebuildScene() {
     object.primitive = primitive;
     object.transform.position = position;
     object.transform.scale = scale;
-    object.transform.rotation = rotation;
+    object.transform.rotation = quatFromEulerXyz(rotation);
     object.material = scenery_material;
     object.camera_occlusion_fade = allowsCameraOcclusionFade(scenery_material);
     object.spin_rate = spin_rate;
@@ -619,7 +619,7 @@ void LumenRun::rebuildScene() {
     object.custom_mesh = mesh;
     object.transform.position = position;
     object.transform.scale = scale;
-    object.transform.rotation = rotation;
+    object.transform.rotation = quatFromEulerXyz(rotation);
     object.material = scenery_material;
     object.camera_occlusion_fade = allowsCameraOcclusionFade(scenery_material);
     object.spin_rate = spin_rate;
@@ -916,7 +916,7 @@ void LumenRun::rebuildScene() {
                                         const Vec3 position, const Material &underlay_material) {
     appendGeneratedScenery(name, mesh, position, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f},
                            underlay_material);
-    const Transform transform{position, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
+    const Transform transform = Transform::fromEuler(position, {0.0f, 0.0f, 0.0f});
     support_surfaces_.addMesh({mesh, transform, 0.12f});
     decorative_ground_surfaces.addMesh({mesh, transform, 0.12f});
   };
@@ -1020,8 +1020,7 @@ void LumenRun::rebuildScene() {
     appendGeneratedStructuralScenery(castleChannelName(channel), mesh, castle_origin,
                                      {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f},
                                      castleMaterial(channel));
-    support_surfaces_.addMesh(
-        {mesh, {castle_origin, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}}, 0.55f});
+    support_surfaces_.addMesh({mesh, Transform::fromEuler(castle_origin, {}), 0.55f});
   }
   for (const CastleCourseBoxElement &element : course.box_elements) {
     appendStructuralScenery(castleChannelName(element.channel), MeshPrimitive::Box,
@@ -1300,38 +1299,37 @@ void LumenRun::rebuildScene() {
   }
 
   support_surfaces_.addMesh(
-      {terrainTransitionMesh(), {pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}}, 0.35f});
+      {terrainTransitionMesh(), Transform::fromEuler(pond_center_, {}), 0.35f});
   decorative_ground_surfaces.addMesh(
-      {terrainTransitionMesh(), {pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}}, 0.35f});
+      {terrainTransitionMesh(), Transform::fromEuler(pond_center_, {}), 0.35f});
   appendGroundUnderlay("Courtyard pond hardscape underlay", pondHardscapeUnderlayMesh(),
                        {pond_center_.x, -0.042f, pond_center_.z}, hardscape_substrate);
-  support_surfaces_.addMesh(
-      {moundMesh(), {pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}}, 0.25f});
+  support_surfaces_.addMesh({moundMesh(), Transform::fromEuler(pond_center_, {}), 0.25f});
   decorative_ground_surfaces.addMesh(
-      {moundMesh(), {pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}}, 0.25f});
+      {moundMesh(), Transform::fromEuler(pond_center_, {}), 0.25f});
   support_surfaces_.addMesh({pondHardscapeSubstrateMesh(),
-                             {pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}},
+                             Transform::fromEuler(pond_center_, {}),
                              0.18f});
   decorative_ground_surfaces.addMesh({pondHardscapeSubstrateMesh(),
-                                      {pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}},
+                                      Transform::fromEuler(pond_center_, {}),
                                       0.18f});
   support_surfaces_.addMesh({innerPondTransitionMesh(),
-                             {inner_pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}},
+                             Transform::fromEuler(inner_pond_center_, {}),
                              0.35f});
   decorative_ground_surfaces.addMesh({innerPondTransitionMesh(),
-                                      {inner_pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}},
+                                      Transform::fromEuler(inner_pond_center_, {}),
                                       0.35f});
   appendGroundUnderlay("Inner pond hardscape underlay", innerPondHardscapeUnderlayMesh(),
                        {inner_pond_center_.x, -0.044f, inner_pond_center_.z}, hardscape_substrate);
   support_surfaces_.addMesh(
-      {innerPondMoundMesh(), {inner_pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}}, 0.25f});
+      {innerPondMoundMesh(), Transform::fromEuler(inner_pond_center_, {}), 0.25f});
   decorative_ground_surfaces.addMesh(
-      {innerPondMoundMesh(), {inner_pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}}, 0.25f});
+      {innerPondMoundMesh(), Transform::fromEuler(inner_pond_center_, {}), 0.25f});
   support_surfaces_.addMesh({innerPondHardscapeSubstrateMesh(),
-                             {inner_pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}},
+                             Transform::fromEuler(inner_pond_center_, {}),
                              0.18f});
   decorative_ground_surfaces.addMesh({innerPondHardscapeSubstrateMesh(),
-                                      {inner_pond_center_, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}},
+                                      Transform::fromEuler(inner_pond_center_, {}),
                                       0.18f});
 
   const Vec3 bird_grove_center{bird_grove_clip.center.x, 0.0f, bird_grove_clip.center.y};
@@ -1339,17 +1337,17 @@ void LumenRun::rebuildScene() {
                          bird_grove_center, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f},
                          terrain_transition);
   support_surfaces_.addMesh({birdGroveTransitionMesh(),
-                             {bird_grove_center, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}},
+                             Transform::fromEuler(bird_grove_center, {}),
                              0.32f});
   decorative_ground_surfaces.addMesh({birdGroveTransitionMesh(),
-                                      {bird_grove_center, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}},
+                                      Transform::fromEuler(bird_grove_center, {}),
                                       0.32f});
   appendGeneratedScenery("Bird grove grass island", birdGroveGroundMesh(), bird_grove_center,
                          {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, grass_soil);
   support_surfaces_.addMesh(
-      {birdGroveGroundMesh(), {bird_grove_center, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}}, 0.25f});
+      {birdGroveGroundMesh(), Transform::fromEuler(bird_grove_center, {}), 0.25f});
   decorative_ground_surfaces.addMesh(
-      {birdGroveGroundMesh(), {bird_grove_center, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}}, 0.25f});
+      {birdGroveGroundMesh(), Transform::fromEuler(bird_grove_center, {}), 0.25f});
   const TerrainSurfaceSample bird_tree_ground =
       decorative_ground_surfaces.sample(Vec2{bird_grove_center.x, bird_grove_center.z});
   const Vec3 bird_tree_base{bird_grove_center.x,
@@ -1992,13 +1990,15 @@ void LumenRun::rebuildScene() {
       {.root = {.position = bird_tree_base},
        .meshes = {GeneratedSceneryMeshPart{.name = "Bird nest tree trunk",
                                            .mesh = climbableTreeTrunkMesh(),
-                                           .transform = {.rotation = {0.0f, radians(-10.0f), 0.0f},
+                                           .transform = {.rotation = quatFromEulerXyz(
+                                                             {0.0f, radians(-10.0f), 0.0f}),
                                                          .scale = {0.70f, 0.92f, 0.70f}},
                                            .material = tree_bark},
                   GeneratedSceneryMeshPart{.name = "Bird nest tree crown",
                                            .mesh = treeCanopyMesh(),
                                            .transform = {.position = {0.0f, 3.12f, 0.0f},
-                                                         .rotation = {0.0f, radians(16.0f), 0.0f},
+                                                         .rotation = quatFromEulerXyz(
+                                                             {0.0f, radians(16.0f), 0.0f}),
                                                          .scale = {0.92f, 0.78f, 0.90f}},
                                            .material = exotic_leaf}},
        .sockets = {GeneratedScenerySocket{

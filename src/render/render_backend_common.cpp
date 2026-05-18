@@ -157,7 +157,8 @@ RenderObject contactShadowObjectFor(const RenderObject &object,
   shadow.transform.position = {object.transform.position.x,
                                foot_y + grounding.contact_shadow_receiver_bias,
                                object.transform.position.z};
-  shadow.transform.rotation = {0.0f, object.transform.rotation.y, 0.0f};
+  shadow.transform.rotation =
+      quatFromEulerXyz({0.0f, eulerXyz(object.transform.rotation).y, 0.0f});
   shadow.transform.scale = {footprint_x, 1.0f, footprint_z};
   shadow.material.base_color = {0.0f, 0.0f, 0.0f};
   shadow.material.roughness = 1.0f;

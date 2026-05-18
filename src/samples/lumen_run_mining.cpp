@@ -139,7 +139,7 @@ void LumenRun::spawnMiningFractureEffect(const Vec3 center, Vec3 normal, Vec3 ha
     object.primitive = MeshPrimitive::Box;
     object.custom_mesh = makeSharedMesh(std::move(local_mesh));
     object.transform.position = visual->position;
-    object.transform.rotation = visual->rotation;
+    object.transform.rotation = quatFromEulerXyz(visual->rotation);
     object.transform.scale = {1.0f, 1.0f, 1.0f};
     object.material = material;
     object.material.edge_wear = std::max(object.material.edge_wear, 0.34f + fill * 0.18f);
@@ -279,7 +279,7 @@ bool LumenRun::placeEquippedResource(const Vec3 ray_origin, Vec3 ray_direction) 
   object.name = "Placed cave resource rock";
   object.primitive = placementPrimitiveFor(definition->placement_shape);
   object.transform.position = rock.position;
-  object.transform.rotation = rock.rotation;
+  object.transform.rotation = quatFromEulerXyz(rock.rotation);
   object.transform.scale = rock.scale;
   object.material = lumenPlacedResourceMaterial(definition);
   object.camera_occlusion_fade = false;

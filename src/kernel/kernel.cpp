@@ -606,7 +606,7 @@ AsterStatus aster_kernel_scene_add_object(const AsterSceneHandle scene,
     object.material = aster::makeMaterial({.base_color = {0.8f, 0.82f, 0.86f}});
   }
   object.transform.position = vec(desc->position);
-  object.transform.rotation = vec(desc->rotation);
+  object.transform.rotation = aster::quatFromEulerXyz(vec(desc->rotation));
   object.transform.scale = vec(desc->scale);
   if (object.transform.scale.x == 0.0f && object.transform.scale.y == 0.0f &&
       object.transform.scale.z == 0.0f) {

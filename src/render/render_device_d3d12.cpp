@@ -297,7 +297,6 @@ VSOut vs_main(VSIn input, uint instance_id : SV_InstanceID) {
   float4 local = float4(input.position.xyz, 1.0);
   VSOut outp;
   outp.position = mul(object.mvp, local);
-  outp.position.z = outp.position.z * 0.5 + outp.position.w * 0.5;
   outp.world = mul(object.model, local).xyz;
   outp.normal = normalize(mul(object.model, float4(input.normal.xyz, 0.0)).xyz);
   outp.uv = input.uv_ao.xy;
@@ -453,7 +452,7 @@ public:
     const float clear[4] = {settings.pipeline.clear_color.x, settings.pipeline.clear_color.y,
                             settings.pipeline.clear_color.z, 1.0f};
     command_list_->ClearRenderTargetView(rtv, clear, 0u, nullptr);
-    command_list_->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0u, 0u, nullptr);
+    command_list_->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0u, 0u, nullptr);
     command_list_->SetGraphicsRootSignature(root_signature_.Get());
     uploadSceneUniforms(camera, settings, frame_seconds);
     command_list_->SetGraphicsRootConstantBufferView(
@@ -670,7 +669,7 @@ private:
     pso.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     pso.DepthStencilState.DepthEnable = TRUE;
     pso.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-    pso.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    pso.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;
     pso.DepthStencilState.StencilEnable = FALSE;
     pso.SampleMask = UINT_MAX;
     pso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
@@ -757,7 +756,7 @@ private:
     depth_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
     D3D12_CLEAR_VALUE depth_clear{};
     depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
-    depth_clear.DepthStencil.Depth = 1.0f;
+    depth_clear.DepthStencil.Depth = 0.0f;
     if (FAILED(device_->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &depth_desc,
                                                 D3D12_RESOURCE_STATE_DEPTH_WRITE, &depth_clear,
                                                 IID_PPV_ARGS(&depth_)))) {

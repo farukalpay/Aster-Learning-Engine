@@ -400,7 +400,7 @@ aster::Scene makeContractScene() {
   crystal.name = "emissive crystal";
   crystal.primitive = aster::MeshPrimitive::Crystal;
   crystal.transform.position = {0.88f, 0.72f, -0.68f};
-  crystal.transform.rotation = {0.0f, aster::radians(22.0f), 0.0f};
+  crystal.transform.rotation = aster::quatFromEulerXyz({0.0f, aster::radians(22.0f), 0.0f});
   crystal.transform.scale = {0.32f, 0.42f, 0.32f};
   crystal.material = emissive;
   crystal.casts_contact_shadow = true;

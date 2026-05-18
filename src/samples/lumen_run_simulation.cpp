@@ -261,7 +261,8 @@ void LumenRun::updateSceneObjects(const float animation_dt) {
       continue;
     }
     object.transform.position = shard.position + Vec3{0.0f, pulse * 0.05f, 0.0f};
-    object.transform.rotation = {0.0f, status_.elapsed_seconds * 0.7f + shard.position.x, 0.0f};
+    object.transform.rotation =
+        quatFromEulerXyz({0.0f, status_.elapsed_seconds * 0.7f + shard.position.x, 0.0f});
     object.transform.scale = {tuning_.shard_radius * 0.82f, tuning_.shard_radius * 1.55f,
                               tuning_.shard_radius * 0.82f};
     object.material.emission_strength = 0.30f + pulse * 0.22f;
@@ -276,7 +277,8 @@ void LumenRun::updateSceneObjects(const float animation_dt) {
         tuning_.sentinel_radius * 1.42f,
         std::sin(angle + weave) * sentinel.orbit_radius,
     };
-    object.transform.rotation = {0.06f * std::sin(angle * 1.3f), -angle, 0.04f * std::cos(angle)};
+    object.transform.rotation =
+        quatFromEulerXyz({0.06f * std::sin(angle * 1.3f), -angle, 0.04f * std::cos(angle)});
     object.material.emission_strength = 0.18f + 0.08f * std::sin(status_.elapsed_seconds * 5.0f);
   }
 
@@ -350,9 +352,10 @@ void LumenRun::updateFishingVisual() {
                           std::cos(status_.elapsed_seconds * 1.3f + phase_offset) * 0.020f};
     RenderObject &bobber = objects[float_object];
     bobber.transform.position = float_position;
-    bobber.transform.rotation = {0.05f * std::sin(status_.elapsed_seconds * 1.7f + phase_offset),
-                                 status_.elapsed_seconds * 0.18f,
-                                 0.04f * std::cos(status_.elapsed_seconds * 1.3f + phase_offset)};
+    bobber.transform.rotation =
+        quatFromEulerXyz({0.05f * std::sin(status_.elapsed_seconds * 1.7f + phase_offset),
+                          status_.elapsed_seconds * 0.18f,
+                          0.04f * std::cos(status_.elapsed_seconds * 1.3f + phase_offset)});
 
     const float sag = sag_base + 0.018f * std::sin(status_.elapsed_seconds * 1.1f + phase_offset);
     const float side_sway = std::sin(status_.elapsed_seconds * 0.8f + phase_offset) * 0.018f;
@@ -365,7 +368,7 @@ void LumenRun::updateFishingVisual() {
 
       RenderObject &line = objects[line_objects[i]];
       line.transform.position = midpoint;
-      line.transform.rotation = segmentRotation(previous, next);
+      line.transform.rotation = quatFromEulerXyz(segmentRotation(previous, next));
       line.transform.scale = {fishing_line_radius_, segment_length, fishing_line_radius_};
       previous = next;
     }
@@ -392,9 +395,10 @@ void LumenRun::updateAquaticLifeVisual() {
                      fish.center.z + std::sin((phase + 0.08f) * 0.86f) * fish.swim_radius.y};
     RenderObject &object = objects[fish.object_index];
     object.transform.position = position;
-    object.transform.rotation = {0.02f * std::sin(phase * 1.7f),
-                                 std::atan2(ahead.x - position.x, ahead.z - position.z),
-                                 0.10f * std::sin(phase * 2.1f)};
+    object.transform.rotation =
+        quatFromEulerXyz({0.02f * std::sin(phase * 1.7f),
+                          std::atan2(ahead.x - position.x, ahead.z - position.z),
+                          0.10f * std::sin(phase * 2.1f)});
     object.transform.scale = fish.scale * (0.92f + 0.08f * std::sin(phase * 1.3f));
   }
 }
@@ -439,8 +443,9 @@ void LumenRun::updateCastleBirdVisuals() {
     const float cruise = 1.0f - bird.state.landing_blend;
     RenderObject &object = objects[bird.object_index];
     object.transform.position = bird.state.position;
-    object.transform.rotation = {bird.state.pitch + flap * 0.055f * cruise, bird.state.facing_yaw,
-                                 bird.state.roll + flap * 0.16f * cruise};
+    object.transform.rotation =
+        quatFromEulerXyz({bird.state.pitch + flap * 0.055f * cruise, bird.state.facing_yaw,
+                          bird.state.roll + flap * 0.16f * cruise});
     object.transform.scale =
         bird.scale * (0.96f + cruise * 0.04f * std::sin(bird.state.wing_phase * 0.57f));
     object.transform.scale.y *= 1.0f - bird.state.landing_blend * 0.12f;
@@ -552,7 +557,7 @@ void LumenRun::updateCrocodileVisual() {
     }
     RenderObject &object = objects[crocodile_objects_[part]];
     object.transform.position = base + rotateYaw(offset, yaw);
-    object.transform.rotation = {rotation.x, yaw + rotation.y, rotation.z};
+    object.transform.rotation = quatFromEulerXyz({rotation.x, yaw + rotation.y, rotation.z});
     object.transform.scale = scale;
   };
 
@@ -593,10 +598,11 @@ void LumenRun::updateCaveSkitterVisuals(const float dt) {
     object.transform.position =
         skitter.state.position + hit_recoil +
         Vec3{0.0f, 0.012f * gait - skitter.hit_flash * 0.010f, 0.0f};
-    object.transform.rotation = {0.030f * gait,
-                                 skitter.state.facing_yaw,
-                                 0.040f * std::sin(skitter.state.phase * 5.4f) +
-                                     skitter.hit_flash * 0.080f};
+    object.transform.rotation =
+        quatFromEulerXyz({0.030f * gait,
+                          skitter.state.facing_yaw,
+                          0.040f * std::sin(skitter.state.phase * 5.4f) +
+                              skitter.hit_flash * 0.080f});
     const float scale = 1.0f + skitter.bite_flash * 0.06f;
     object.transform.scale = {scale * (1.0f + skitter.hit_flash * 0.035f),
                               scale * (1.0f - damage * 0.05f - skitter.hit_flash * 0.12f),
@@ -662,7 +668,7 @@ void LumenRun::updateMiningFractureVisuals(const float dt) {
         std::clamp(1.0f - shard.age / std::max(shard.lifetime, 0.001f), 0.0f, 1.0f);
     const float scale = shard.base_scale * (0.18f + 0.82f * life);
     object.transform.position = shard.position;
-    object.transform.rotation = shard.rotation;
+    object.transform.rotation = quatFromEulerXyz(shard.rotation);
     object.transform.scale = {scale, scale, scale};
     object.material.emission_strength = std::max(object.material.emission_strength, 0.035f * life);
   }
@@ -791,8 +797,9 @@ void LumenRun::updateDeathVisuals() {
     }
     RenderObject &object = objects[object_index];
     object.transform.position.y -= fall_t * 0.22f;
-    object.transform.rotation.x += fall_t * 1.42f;
-    object.transform.rotation.z += fall_t * 0.62f;
+    object.transform.rotation =
+        quatFromEulerXyz(eulerXyz(object.transform.rotation) +
+                         Vec3{fall_t * 1.42f, 0.0f, fall_t * 0.62f});
   }
 
   for (const std::size_t object_index : x_eye_objects_) {
@@ -812,7 +819,7 @@ void LumenRun::updateDeathVisuals() {
     }
     const RenderObject &eye = objects[eye_index];
     RenderObject &overlay = objects[x_eye_objects_[overlay_slot]];
-    const Vec3 forward = rotateEuler({0.0f, 0.0f, 1.0f}, eye.transform.rotation);
+    const Vec3 forward = rotate(eye.transform.rotation, {0.0f, 0.0f, 1.0f});
     const float radius = std::max({std::abs(eye.transform.scale.x), std::abs(eye.transform.scale.y),
                                    std::abs(eye.transform.scale.z)});
     overlay.transform.position = eye.transform.position + forward * (radius * 1.08f + 0.006f);

@@ -88,7 +88,7 @@ void SoftwareFrameBuffer::resize(const int width, const int height) {
   width_ = width;
   height_ = height;
   rgba_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_) * 4u, 0u);
-  depth_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), 1.0f);
+  depth_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), 0.0f);
 }
 
 void SoftwareFrameBuffer::clear(const Vec3 color) {
@@ -133,7 +133,7 @@ void SoftwareFrameBuffer::replaceRgba8(const int width, const int height,
   width_ = width;
   height_ = height;
   rgba_.assign(pixels.begin(), pixels.end());
-  depth_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), 1.0f);
+  depth_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), 0.0f);
 }
 
 void SoftwareFrameBuffer::drawTriangle(const FrameVertex a, const FrameVertex b,
@@ -241,7 +241,7 @@ void SoftwareFrameBuffer::putPixel(const int x, const int y, const float depth,
 
   const std::size_t pixel =
       static_cast<std::size_t>(y) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(x);
-  if (depth_test && (depth < 0.0f || depth > 1.0f || depth >= depth_[pixel])) {
+  if (depth_test && (depth < 0.0f || depth > 1.0f || depth <= depth_[pixel])) {
     return;
   }
 

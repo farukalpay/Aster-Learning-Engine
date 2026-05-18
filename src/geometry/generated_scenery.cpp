@@ -19,32 +19,10 @@ Vec3 absVec(const Vec3 value) {
   return {std::abs(value.x), std::abs(value.y), std::abs(value.z)};
 }
 
-Vec3 rotateX(const Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x, value.y * c - value.z * s, value.y * s + value.z * c};
-}
-
-Vec3 rotateY(const Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x * c + value.z * s, value.y, -value.x * s + value.z * c};
-}
-
-Vec3 rotateZ(const Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x * c - value.y * s, value.x * s + value.y * c, value.z};
-}
-
-Vec3 rotateEuler(const Vec3 value, const Vec3 rotation) {
-  return rotateZ(rotateY(rotateX(value, rotation.x), rotation.y), rotation.z);
-}
-
 Transform composeTransform(const Transform &root, const Transform &local) {
   Transform out;
-  out.position = root.position + rotateEuler(scaleVec(local.position, root.scale), root.rotation);
-  out.rotation = root.rotation + local.rotation;
+  out.position = root.position + rotate(root.rotation, scaleVec(local.position, root.scale));
+  out.rotation = root.rotation * local.rotation;
   out.scale = scaleVec(root.scale, local.scale);
   return out;
 }
@@ -78,7 +56,7 @@ GeneratedSceneryCollisionProxy composeCollisionProxy(
     const GeneratedSceneryCollisionProxy &proxy) {
   GeneratedSceneryCollisionProxy out;
   out.name = scopedName(root_name, proxy.name);
-  out.center = root.position + rotateEuler(scaleVec(proxy.center, root.scale), root.rotation);
+  out.center = root.position + rotate(root.rotation, scaleVec(proxy.center, root.scale));
   out.half_extents = scaleVec(proxy.half_extents, absVec(root.scale));
   return out;
 }

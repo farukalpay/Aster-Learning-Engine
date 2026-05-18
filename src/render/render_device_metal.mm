@@ -337,7 +337,8 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
   shadow.transform.position = {object.transform.position.x,
                                foot_y + grounding.contact_shadow_receiver_bias,
                                object.transform.position.z};
-  shadow.transform.rotation = {0.0f, object.transform.rotation.y, 0.0f};
+  shadow.transform.rotation =
+      aster::quatFromEulerXyz({0.0f, aster::eulerXyz(object.transform.rotation).y, 0.0f});
   shadow.transform.scale = {footprint_x, 1.0f, footprint_z};
   shadow.material.base_color = {0.0f, 0.0f, 0.0f};
   shadow.material.roughness = 1.0f;
@@ -812,8 +813,7 @@ public:
            "constant Object *objects [[buffer(2)]]) {\n"
            "  constant Object &object = objects[instance_id]; Vertex v = vertices[id]; "
            "float4 local = float4(v.position.xyz, 1.0); VSOut out; "
-           "out.position = object.mvp * local; "
-           "  out.position.z = out.position.z * 0.5 + out.position.w * 0.5; out.world = "
+           "out.position = object.mvp * local; out.world = "
            "(object.model * local).xyz; "
            "  out.normal = normalize((object.model * float4(v.normal.xyz, 0.0)).xyz); out.uv = "
            "v.uv_ao.xy; out.ao = v.uv_ao.z; out.object_index = instance_id; return out;\n"
@@ -896,17 +896,17 @@ public:
                                                                       error:&error];
 
       MTLDepthStencilDescriptor *opaque_depth_desc = [[MTLDepthStencilDescriptor alloc] init];
-      opaque_depth_desc.depthCompareFunction = MTLCompareFunctionLess;
+      opaque_depth_desc.depthCompareFunction = MTLCompareFunctionGreater;
       opaque_depth_desc.depthWriteEnabled = YES;
       opaque_depth_ = [device_ newDepthStencilStateWithDescriptor:opaque_depth_desc];
 
       MTLDepthStencilDescriptor *transparent_depth_desc = [[MTLDepthStencilDescriptor alloc] init];
-      transparent_depth_desc.depthCompareFunction = MTLCompareFunctionLessEqual;
+      transparent_depth_desc.depthCompareFunction = MTLCompareFunctionGreaterEqual;
       transparent_depth_desc.depthWriteEnabled = NO;
       transparent_depth_ = [device_ newDepthStencilStateWithDescriptor:transparent_depth_desc];
 
       MTLDepthStencilDescriptor *read_only_depth_desc = [[MTLDepthStencilDescriptor alloc] init];
-      read_only_depth_desc.depthCompareFunction = MTLCompareFunctionLessEqual;
+      read_only_depth_desc.depthCompareFunction = MTLCompareFunctionGreaterEqual;
       read_only_depth_desc.depthWriteEnabled = NO;
       read_only_depth_ = [device_ newDepthStencilStateWithDescriptor:read_only_depth_desc];
 
@@ -970,7 +970,7 @@ public:
     pass.depthAttachment.texture = depth_texture_;
     pass.depthAttachment.loadAction = MTLLoadActionClear;
     pass.depthAttachment.storeAction = MTLStoreActionDontCare;
-    pass.depthAttachment.clearDepth = 1.0;
+    pass.depthAttachment.clearDepth = 0.0;
 
     id<MTLRenderCommandEncoder> encoder = [command_buffer renderCommandEncoderWithDescriptor:pass];
     const MetalSceneUniforms scene_uniforms = makeSceneUniforms(camera, settings, frame_seconds);

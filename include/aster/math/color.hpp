@@ -15,9 +15,9 @@ inline Vec3 aces_tonemap(const Vec3 value) {
   constexpr float c = 2.43f;
   constexpr float d = 0.59f;
   constexpr float e = 0.14f;
-  return clamp({(value.x * (a * value.x + b)) / (value.x * (c * value.x + d) + e),
-                (value.y * (a * value.y + b)) / (value.y * (c * value.y + d) + e),
-                (value.z * (a * value.z + b)) / (value.z * (c * value.z + d) + e)},
+  return clamp(Vec3{(value.x * (a * value.x + b)) / (value.x * (c * value.x + d) + e),
+                    (value.y * (a * value.y + b)) / (value.y * (c * value.y + d) + e),
+                    (value.z * (a * value.z + b)) / (value.z * (c * value.z + d) + e)},
                0.0f, 1.0f);
 }
 

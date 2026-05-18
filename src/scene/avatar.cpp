@@ -13,28 +13,6 @@ namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
 
-aster::Vec3 rotateX(const aster::Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x, value.y * c - value.z * s, value.y * s + value.z * c};
-}
-
-aster::Vec3 rotateY(const aster::Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x * c + value.z * s, value.y, -value.x * s + value.z * c};
-}
-
-aster::Vec3 rotateZ(const aster::Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x * c - value.y * s, value.x * s + value.y * c, value.z};
-}
-
-aster::Vec3 rotateEuler(const aster::Vec3 value, const aster::Vec3 rotation) {
-  return rotateZ(rotateY(rotateX(value, rotation.x), rotation.y), rotation.z);
-}
-
 float wrapRadians(float value) {
   while (value > kPi) {
     value -= kPi * 2.0f;
@@ -74,6 +52,12 @@ float clampSymmetric(const float value, const float limit) {
 struct AttentionAngles {
   float yaw = 0.0f;
   float pitch = 0.0f;
+};
+
+struct EulerTransformSpec {
+  aster::Vec3 position{};
+  aster::Vec3 rotation{};
+  aster::Vec3 scale{1.0f, 1.0f, 1.0f};
 };
 
 AttentionAngles attentionAngles(const aster::Vec3 origin, const aster::Vec3 target,
@@ -209,7 +193,7 @@ aster::Vec3 jointRotation(const aster::AvatarJoint joint, const aster::AvatarPos
 
 aster::Vec3 transformedLocalPoint(const aster::Transform &transform,
                                   const aster::Vec3 local_offset) {
-  return transform.position + rotateEuler(local_offset * transform.scale, transform.rotation);
+  return transform.position + aster::rotate(transform.rotation, local_offset * transform.scale);
 }
 
 aster::Transform posedAvatarPartTransform(const aster::AvatarPart &part,
@@ -228,13 +212,15 @@ aster::Transform posedAvatarPartTransform(const aster::AvatarPart &part,
     transform.scale.z *= 1.0f + open * 0.65f;
   }
   const aster::Vec3 rotation = jointRotation(part.joint, pose, stride);
+  const aster::Quat rotation_delta = aster::quatFromEulerXyz(rotation);
   transform.position =
-      part.joint_pivot + rotateEuler(transform.position - part.joint_pivot, rotation);
-  transform.rotation = transform.rotation + rotation;
+      part.joint_pivot + aster::rotate(rotation_delta, transform.position - part.joint_pivot);
+  transform.rotation = rotation_delta * transform.rotation;
 
-  transform.position = pose.position + rotateY(transform.position, pose.facing_yaw) +
+  const aster::Quat facing = aster::axisAngle({0.0f, 1.0f, 0.0f}, pose.facing_yaw);
+  transform.position = pose.position + aster::rotate(facing, transform.position) +
                        aster::Vec3{0.0f, pose.vertical_bob, 0.0f};
-  transform.rotation.y += pose.facing_yaw;
+  transform.rotation = facing * transform.rotation;
   return transform;
 }
 
@@ -252,10 +238,13 @@ void expandBounds(aster::AvatarBounds &bounds, const aster::Vec3 point) {
 }
 
 void addPart(aster::AvatarRig &rig, std::string name, const aster::MeshPrimitive primitive,
-             const aster::Transform transform, const aster::Material &material,
+             const EulerTransformSpec transform, const aster::Material &material,
              const aster::AvatarJoint joint, const aster::Vec3 joint_pivot,
              const aster::AvatarPartRole role = aster::AvatarPartRole::Body) {
-  rig.parts.push_back({std::move(name), primitive, transform, joint_pivot, material, joint, role});
+  rig.parts.push_back({std::move(name), primitive,
+                       aster::Transform::fromEuler(transform.position, transform.rotation,
+                                                   transform.scale),
+                       joint_pivot, material, joint, role});
 }
 
 } // namespace
@@ -546,7 +535,7 @@ std::optional<Transform> resolveAvatarAttachmentSocket(const AvatarRig &rig, con
     }
     Transform transform = posedAvatarPartTransform(part, pose);
     transform.position = transformedLocalPoint(transform, socket.local_position);
-    transform.rotation = transform.rotation + socket.local_rotation;
+    transform.rotation = transform.rotation * quatFromEulerXyz(socket.local_rotation);
     transform.scale = {1.0f, 1.0f, 1.0f};
     return transform;
   }

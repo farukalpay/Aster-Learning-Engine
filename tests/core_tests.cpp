@@ -15,6 +15,37 @@ void testVectorMath() {
   expectNear(aster::length(aster::normalize({3.0f, 4.0f, 0.0f})), 1.0f, 0.0001f);
 }
 
+void testVectorAliasesAndShaderHelpers() {
+  const aster::DVec3 precise{1.0, 2.0, 3.0};
+  const aster::IVec2 tile{4, -2};
+  const aster::BVec4 mask{true, false, true, false};
+  assert(precise.z == 3.0);
+  assert(tile.x == 4);
+  assert(mask.x && !mask.y);
+
+  const aster::Vec3 mixed =
+      aster::mix(aster::Vec3{0.0f, 2.0f, 4.0f}, aster::Vec3{2.0f, 4.0f, 8.0f}, 0.5f);
+  expectNear(mixed.x, 1.0f, 0.0001f);
+  expectNear(mixed.y, 3.0f, 0.0001f);
+  expectNear(mixed.z, 6.0f, 0.0001f);
+
+  const aster::Vec3 saturated = aster::saturate(aster::Vec3{-1.0f, 0.45f, 2.0f});
+  expectNear(saturated.x, 0.0f, 0.0001f);
+  expectNear(saturated.y, 0.45f, 0.0001f);
+  expectNear(saturated.z, 1.0f, 0.0001f);
+  expectNear(aster::smoothstep(0.0f, 1.0f, 0.5f), 0.5f, 0.0001f);
+  expectNear(aster::fract(1.75f), 0.75f, 0.0001f);
+  assert(aster::step(0.5f, 0.49f) == 0.0f);
+  assert(aster::step(0.5f, 0.50f) == 1.0f);
+
+  const aster::Vec3 reflected =
+      aster::reflect(aster::Vec3{1.0f, -1.0f, 0.0f}, aster::Vec3{0.0f, 1.0f, 0.0f});
+  expectNear(reflected.x, 1.0f, 0.0001f);
+  expectNear(reflected.y, 1.0f, 0.0001f);
+  expectNear(aster::distance(aster::Vec3{1.0f, 2.0f, 3.0f}, aster::Vec3{1.0f, 2.0f, 5.0f}),
+             2.0f, 0.0001f);
+}
+
 void testMatrixComposition() {
   const aster::Mat4 transform =
       aster::translation({2.0f, 3.0f, 4.0f}) * aster::scale({2.0f, 2.0f, 2.0f});
@@ -24,6 +55,28 @@ void testMatrixComposition() {
   expectNear(transform.m[12], 2.0f, 0.0001f);
   expectNear(transform.m[13], 3.0f, 0.0001f);
   expectNear(transform.m[14], 4.0f, 0.0001f);
+}
+
+void testMat3AndNormalMatrix() {
+  const aster::Mat3 basis =
+      aster::mat3FromColumns({2.0f, 0.0f, 0.0f}, {0.0f, 3.0f, 0.0f}, {0.0f, 0.0f, 4.0f});
+  expectNear(aster::determinant(basis), 24.0f, 0.0001f);
+
+  const aster::Mat3 round_trip = basis * aster::inverse(basis);
+  const aster::Mat3 identity = aster::identity3();
+  for (std::size_t i = 0; i < round_trip.m.size(); ++i) {
+    expectNear(round_trip.m[i], identity.m[i], 0.0001f);
+  }
+
+  const aster::Mat3 normal_matrix = aster::normalMatrix(aster::scale({2.0f, 4.0f, 0.5f}));
+  const aster::Vec3 transformed_normal = normal_matrix * aster::Vec3{0.0f, 4.0f, 0.0f};
+  expectNear(transformed_normal.x, 0.0f, 0.0001f);
+  expectNear(transformed_normal.y, 1.0f, 0.0001f);
+  expectNear(transformed_normal.z, 0.0f, 0.0001f);
+
+  const aster::Mat3 singular =
+      aster::mat3FromColumns({1.0f, 0.0f, 0.0f}, {2.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f});
+  assert(!aster::try_inverse(singular).has_value());
 }
 
 void testMatrixInverseAndDeterminant() {
@@ -44,6 +97,17 @@ void testMatrixInverseAndDeterminant() {
   expectNear(restored.x, point.x, 0.001f);
   expectNear(restored.y, point.y, 0.001f);
   expectNear(restored.z, point.z, 0.001f);
+
+  const aster::Mat4 singular = aster::scale({1.0f, 0.0f, 1.0f});
+  assert(!aster::try_inverse(singular).has_value());
+  assert(!aster::try_normalMatrix(singular).has_value());
+  bool threw = false;
+  try {
+    (void)aster::inverse(singular);
+  } catch (const std::runtime_error &) {
+    threw = true;
+  }
+  assert(threw);
 }
 
 void testTransformContract() {
@@ -58,6 +122,88 @@ void testTransformContract() {
   expectNear(matrix.m[12], 2.0f, 0.0001f);
   expectNear(matrix.m[13], 3.0f, 0.0001f);
   expectNear(matrix.m[14], 4.0f, 0.0001f);
+}
+
+void testQuaternionTransformContract() {
+  const aster::Quat yaw = aster::axisAngle({0.0f, 1.0f, 0.0f}, aster::radians(90.0f));
+  const aster::Vec3 rotated = aster::rotate(yaw, {0.0f, 0.0f, 1.0f});
+  expectNear(rotated.x, 1.0f, 0.0001f);
+  expectNear(rotated.y, 0.0f, 0.0001f);
+  expectNear(rotated.z, 0.0f, 0.0001f);
+
+  const aster::Quat from_euler = aster::quatFromEulerXyz({0.0f, aster::radians(90.0f), 0.0f});
+  const aster::Vec3 euler = aster::eulerXyz(from_euler);
+  expectNear(euler.y, aster::radians(90.0f), 0.0001f);
+
+  const aster::Quat halfway = aster::slerp(aster::identityQuat(), yaw, 0.5f);
+  const aster::Vec3 halfway_forward = aster::rotate(halfway, {0.0f, 0.0f, 1.0f});
+  const float diagonal = std::sqrt(0.5f);
+  expectNear(halfway_forward.x, diagonal, 0.0001f);
+  expectNear(halfway_forward.z, diagonal, 0.0001f);
+
+  const aster::Transform transform =
+      aster::Transform::fromEuler({1.0f, 2.0f, 3.0f}, {0.0f, aster::radians(90.0f), 0.0f},
+                                  {2.0f, 2.0f, 2.0f});
+  const aster::Vec3 point = aster::transformPoint(transform, {0.0f, 0.0f, 1.0f});
+  expectNear(point.x, 3.0f, 0.0001f);
+  expectNear(point.y, 2.0f, 0.0001f);
+  expectNear(point.z, 3.0f, 0.0001f);
+}
+
+void testReverseZProjectionAndCamera() {
+  constexpr float near_plane = 0.1f;
+  constexpr float far_plane = 100.0f;
+  const auto ndc_z = [](const aster::Mat4 &matrix, const aster::Vec3 point) {
+    const aster::Vec4 clip = matrix * aster::Vec4{point.x, point.y, point.z, 1.0f};
+    return clip.z / clip.w;
+  };
+
+  const aster::Mat4 perspective =
+      aster::perspective(aster::radians(60.0f), 1.0f, near_plane, far_plane);
+  expectNear(ndc_z(perspective, {0.0f, 0.0f, -near_plane}), 1.0f, 0.0001f);
+  expectNear(ndc_z(perspective, {0.0f, 0.0f, -far_plane}), 0.0f, 0.0001f);
+
+  const aster::ProjectionPolicy forward_no{aster::CoordinateHandedness::RightHanded,
+                                           aster::ClipDepthRange::NegativeOneToOne,
+                                           aster::DepthDirection::ForwardZ};
+  const aster::Mat4 forward_no_perspective =
+      aster::perspective(aster::radians(60.0f), 1.0f, near_plane, far_plane, forward_no);
+  expectNear(ndc_z(forward_no_perspective, {0.0f, 0.0f, -near_plane}), -1.0f, 0.0001f);
+  expectNear(ndc_z(forward_no_perspective, {0.0f, 0.0f, -far_plane}), 1.0f, 0.0001f);
+
+  const aster::Mat4 ortho =
+      aster::orthographic(-2.0f, 2.0f, -1.0f, 1.0f, near_plane, far_plane);
+  expectNear(ndc_z(ortho, {0.0f, 0.0f, -near_plane}), 1.0f, 0.0001f);
+  expectNear(ndc_z(ortho, {0.0f, 0.0f, -far_plane}), 0.0f, 0.0001f);
+
+  aster::Camera camera;
+  camera.eye = {0.0f, 0.0f, 5.0f};
+  camera.target = {0.0f, 0.0f, 0.0f};
+  camera.near_plane = near_plane;
+  camera.far_plane = far_plane;
+  const aster::Mat4 view_projection = camera.viewProjectionMatrix(4.0f / 3.0f);
+  const aster::Mat4 clip_to_world = aster::inverse(view_projection);
+  const aster::Vec3 world{0.2f, -0.1f, 0.0f};
+  const aster::Vec3 window = aster::project(world, view_projection, {}, {800.0f, 600.0f});
+  const aster::Vec3 restored = aster::unproject(window, clip_to_world, {}, {800.0f, 600.0f});
+  expectNear(restored.x, world.x, 0.001f);
+  expectNear(restored.y, world.y, 0.001f);
+  expectNear(restored.z, world.z, 0.001f);
+
+  const aster::CameraRay ray = camera.screenRay({400.0f, 300.0f}, {800.0f, 600.0f});
+  expectNear(ray.origin.x, camera.eye.x, 0.0001f);
+  expectNear(ray.origin.y, camera.eye.y, 0.0001f);
+  expectNear(ray.origin.z, camera.eye.z, 0.0001f);
+  assert(ray.direction.z < -0.99f);
+
+  const aster::CameraFrustum frustum = camera.frustum(4.0f / 3.0f);
+  for (const aster::Plane3 &plane : frustum.planes) {
+    assert(aster::length(plane.normal) > 0.99f);
+    assert(aster::length(plane.normal) < 1.01f);
+  }
+  for (const aster::Plane3 &plane : frustum.planes) {
+    assert(aster::dot(plane.normal, aster::Vec3{0.0f, 0.0f, 0.0f}) + plane.distance >= -0.001f);
+  }
 }
 
 void testColorPipeline() {
@@ -212,9 +358,13 @@ void testSourceBoundaryContracts() {
 
 int main() {
   testVectorMath();
+  testVectorAliasesAndShaderHelpers();
   testMatrixComposition();
+  testMat3AndNormalMatrix();
   testMatrixInverseAndDeterminant();
   testTransformContract();
+  testQuaternionTransformContract();
+  testReverseZProjectionAndCamera();
   testColorPipeline();
   testFixedTimestep();
   testFrameTimeStats();

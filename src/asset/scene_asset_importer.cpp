@@ -19,6 +19,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -586,11 +587,13 @@ Mat4 nodeMatrix(const Json &node) {
 }
 
 Vec3 transformNormal(const Mat4 &matrix, const Vec3 value) {
-  const Vec3 transformed = transformVector(transpose(inverse(matrix)), value);
-  if (length(transformed) <= 0.0001f) {
-    return normalize(transformVector(matrix, value));
+  if (const std::optional<Mat3> normal_matrix = try_normalMatrix(matrix)) {
+    const Vec3 transformed = *normal_matrix * value;
+    if (length(transformed) > 0.0001f) {
+      return normalize(transformed);
+    }
   }
-  return normalize(transformed);
+  return normalize(transformVector(matrix, value));
 }
 
 CpuMesh meshFromPrimitive(const AssetData &data, const Json &primitive, const Mat4 &matrix,

@@ -393,7 +393,8 @@ void testAvatarRigSceneBinding() {
   for (std::size_t i = 0; i < rig.parts.size(); ++i) {
     if (rig.parts[i].joint == aster::AvatarJoint::Head) {
       const std::size_t object_index = instance.object_indices[i];
-      saw_head_turn = saw_head_turn || scene.objects()[object_index].transform.rotation.y > 1.0f;
+      saw_head_turn =
+          saw_head_turn || aster::eulerXyz(scene.objects()[object_index].transform.rotation).y > 1.0f;
     }
     if (rig.parts[i].joint == aster::AvatarJoint::Mouth) {
       const std::size_t object_index = instance.object_indices[i];

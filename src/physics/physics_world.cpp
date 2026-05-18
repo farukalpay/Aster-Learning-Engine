@@ -52,30 +52,8 @@ Vec3 clampVec(const Vec3 value, const Vec3 low, const Vec3 high) {
           clamp(value.z, low.z, high.z)};
 }
 
-Vec3 rotateX(const Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x, value.y * c - value.z * s, value.y * s + value.z * c};
-}
-
-Vec3 rotateY(const Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x * c + value.z * s, value.y, -value.x * s + value.z * c};
-}
-
-Vec3 rotateZ(const Vec3 value, const float radians) {
-  const float c = std::cos(radians);
-  const float s = std::sin(radians);
-  return {value.x * c - value.y * s, value.x * s + value.y * c, value.z};
-}
-
 Vec3 transformPhysicsPoint(const Transform &transform, const Vec3 point) {
-  Vec3 out = point * transform.scale;
-  out = rotateX(out, transform.rotation.x);
-  out = rotateY(out, transform.rotation.y);
-  out = rotateZ(out, transform.rotation.z);
-  return out + transform.position;
+  return rotate(transform.rotation, point * transform.scale) + transform.position;
 }
 
 float component(const Vec3 value, const int axis) {

@@ -207,7 +207,7 @@ Scene makeArchitectureShowcaseScene() {
     house.primitive = MeshPrimitive::Box;
     house.custom_mesh = showcaseHouseMesh();
     house.transform.position = {side * 2.45f, 0.0f, 0.20f};
-    house.transform.rotation = {0.0f, -side * 0.20f, 0.0f};
+    house.transform.rotation = quatFromEulerXyz({0.0f, -side * 0.20f, 0.0f});
     house.transform.scale = {0.92f, 0.92f, 0.92f};
     house.material = side < 0.0f ? dark_stone : brick_material;
     scene.objects().push_back(house);
@@ -268,7 +268,7 @@ Scene makeIndustrialPipeScene() {
   pipe.primitive = MeshPrimitive::Box;
   pipe.custom_mesh = pipeSectionMesh();
   pipe.transform.position = {0.0f, 0.62f, 0.0f};
-  pipe.transform.rotation = {0.0f, 0.0f, -0.045f};
+  pipe.transform.rotation = quatFromEulerXyz({0.0f, 0.0f, -0.045f});
   pipe.material = pipe_metal;
   pipe.casts_contact_shadow = true;
   pipe.contact_shadow_strength = 0.44f;
@@ -393,7 +393,7 @@ Scene makeMeshLabShowcaseScene() {
   cable_object.primitive = MeshPrimitive::Box;
   cable_object.custom_mesh = labCableMesh();
   cable_object.transform.position = {-0.68f, 0.52f, 0.0f};
-  cable_object.transform.rotation = {0.0f, 0.0f, radians(88.0f)};
+  cable_object.transform.rotation = quatFromEulerXyz({0.0f, 0.0f, radians(88.0f)});
   cable_object.material = cable;
   cable_object.casts_contact_shadow = true;
   scene.objects().push_back(cable_object);
@@ -412,7 +412,7 @@ Scene makeMeshLabShowcaseScene() {
   web_object.primitive = MeshPrimitive::Box;
   web_object.custom_mesh = labCaveWebMesh();
   web_object.transform.position = {2.30f, 1.02f, -0.10f};
-  web_object.transform.rotation = {0.0f, radians(-8.0f), 0.0f};
+  web_object.transform.rotation = quatFromEulerXyz({0.0f, radians(-8.0f), 0.0f});
   web_object.material = web;
   web_object.material.double_sided = true;
   web_object.casts_contact_shadow = false;

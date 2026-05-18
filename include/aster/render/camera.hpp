@@ -5,11 +5,53 @@
 
 #include "aster/math/mat4.hpp"
 
+#include <array>
+#include <cstddef>
+
 namespace aster {
 
-struct CameraRay {
-  Vec3 origin{};
-  Vec3 direction{0.0f, 0.0f, -1.0f};
+using CameraRay = Ray3;
+
+enum class CameraProjectionMode {
+  Perspective,
+  Orthographic,
+};
+
+enum class FrustumPlane {
+  Left,
+  Right,
+  Bottom,
+  Top,
+  Near,
+  Far,
+};
+
+struct CameraFrustum {
+  std::array<Plane3, 6> planes{};
+
+  [[nodiscard]] const Plane3 &operator[](const FrustumPlane plane) const {
+    return planes[static_cast<std::size_t>(plane)];
+  }
+};
+
+struct Camera {
+  Vec3 eye{0.0f, 0.0f, 1.0f};
+  Vec3 target{0.0f, 0.0f, 0.0f};
+  Vec3 up{0.0f, 1.0f, 0.0f};
+  CameraProjectionMode projection_mode = CameraProjectionMode::Perspective;
+  ProjectionPolicy projection_policy = defaultProjectionPolicy();
+  float vertical_fov = radians(54.0f);
+  float orthographic_height = 8.0f;
+  float near_plane = 0.05f;
+  float far_plane = 120.0f;
+  Vec2 jitter{};
+
+  [[nodiscard]] Mat4 viewMatrix() const;
+  [[nodiscard]] Mat4 projectionMatrix(float aspect_ratio) const;
+  [[nodiscard]] Mat4 viewProjectionMatrix(float aspect_ratio) const;
+  [[nodiscard]] CameraRay screenRay(Vec2 pointer, Vec2 viewport_size) const;
+  [[nodiscard]] Vec3 unproject(Vec3 window, Vec2 viewport_size) const;
+  [[nodiscard]] CameraFrustum frustum(float aspect_ratio) const;
 };
 
 class OrbitCamera {
@@ -18,9 +60,12 @@ public:
   void zoom(float radius_delta);
 
   [[nodiscard]] Vec3 position() const;
+  [[nodiscard]] Camera camera() const;
   [[nodiscard]] CameraRay screenRay(Vec2 pointer, Vec2 viewport_size) const;
   [[nodiscard]] Mat4 viewMatrix() const;
   [[nodiscard]] Mat4 projectionMatrix(float aspect_ratio) const;
+  [[nodiscard]] Mat4 viewProjectionMatrix(float aspect_ratio) const;
+  [[nodiscard]] CameraFrustum frustum(float aspect_ratio) const;
 
   Vec3 target{0.0f, 0.9f, 0.0f};
   float yaw = radians(36.0f);
@@ -29,6 +74,8 @@ public:
   float vertical_fov = radians(54.0f);
   float near_plane = 0.05f;
   float far_plane = 120.0f;
+  ProjectionPolicy projection_policy = defaultProjectionPolicy();
+  Vec2 jitter{};
 };
 
 } // namespace aster
