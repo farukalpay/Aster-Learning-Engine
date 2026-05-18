@@ -849,10 +849,11 @@ int main(int argc, char **argv) {
     settings.sun_light.direction_to_light = {-0.46f, 0.86f, 0.30f};
     settings.sun_light.color = {1.00f, 0.84f, 0.58f};
     settings.sun_light.intensity = 1.72f;
-    settings.light_rig = {{{{-4.6f, 3.2f, 2.8f}, {4.4f, 3.25f, 2.05f}, 0.28f, 3.0f},
-                           {{4.8f, 2.4f, -3.4f}, {1.15f, 1.35f, 2.10f}, 0.22f, 3.5f},
-                           {{0.0f, 2.8f, -5.8f}, {1.35f, 1.02f, 0.72f}, 0.16f, 4.0f},
-                           {{0.0f, 2.0f, 4.8f}, {0.76f, 0.86f, 1.12f}, 0.13f, 3.5f}}};
+    settings.light_rig = {{{-4.6f, 3.2f, 2.8f}, {4.4f, 3.25f, 2.05f}, 0.28f, 3.0f},
+                          {{4.8f, 2.4f, -3.4f}, {1.15f, 1.35f, 2.10f}, 0.22f, 3.5f},
+                          {{0.0f, 2.8f, -5.8f}, {1.35f, 1.02f, 0.72f}, 0.16f, 4.0f},
+                          {{0.0f, 2.0f, 4.8f}, {0.76f, 0.86f, 1.12f}, 0.13f, 3.5f}};
+    settings.light_policy.max_point_lights = 16u;
     settings.pipeline.clear_color = {0.092f, 0.122f, 0.158f};
     settings.pipeline.multisampling = config.multisample_samples > 0;
     settings.pipeline.tone_mapper = aster::ToneMapper::PbrNeutral;
@@ -1233,35 +1234,32 @@ int main(int argc, char **argv) {
       restoreRenderEnvironment(settings, base_render_environment);
       if (const std::optional<aster::DynamicPointLight> light = game.pondAccentLight();
           light.has_value() && light->active) {
-        settings.light_rig[2] = {light->position, light->color, light->intensity,
-                                 light->source_radius};
+        settings.light_rig.push_back({light->position, light->color, light->intensity,
+                                      light->source_radius});
       }
       if (const std::optional<aster::DynamicPointLight> light = game.prismRelayLight();
           light.has_value() && light->active) {
-        settings.light_rig[1] = {light->position, light->color, light->intensity,
-                                 light->source_radius};
+        settings.light_rig.push_back({light->position, light->color, light->intensity,
+                                      light->source_radius});
       }
       applyCaveRenderEnvironment(settings, base_render_environment, cave_light);
       if (!cave_light.wall_lights.empty()) {
-        const std::size_t wall_light_count =
-            std::min<std::size_t>(cave_light.wall_lights.size(), settings.light_rig.size() - 1u);
-        for (std::size_t i = 0; i < wall_light_count; ++i) {
-          const aster::CaveWallLightSample &light = cave_light.wall_lights[i];
-          settings.light_rig[i] = {light.position, light.color, light.intensity,
-                                   light.source_radius};
+        for (const aster::CaveWallLightSample &light : cave_light.wall_lights) {
+          settings.light_rig.push_back(
+              {light.position, light.color, light.intensity, light.source_radius});
         }
       }
       if (cave_light.entrance_light > 0.001f) {
-        settings.light_rig[2] = {cave_light.entrance_light_position,
-                                 {1.0f, 0.72f, 0.42f},
-                                 0.38f * cave_light.entrance_light,
-                                 3.2f};
+        settings.light_rig.push_back({cave_light.entrance_light_position,
+                                      {1.0f, 0.72f, 0.42f},
+                                      0.38f * cave_light.entrance_light,
+                                      3.2f});
       }
       if (const std::optional<aster::DynamicPointLight> light = game.equippedLight();
           light.has_value() && light->active) {
         const float cave_torch_gain = std::lerp(1.0f, 1.35f, cave_light.interior);
-        settings.light_rig[3] = {light->position, light->color, light->intensity * cave_torch_gain,
-                                 light->source_radius};
+        settings.light_rig.push_back({light->position, light->color,
+                                      light->intensity * cave_torch_gain, light->source_radius});
       }
       if (collect_frame_sample) {
         update_times.addSample(clock.now() - update_start);

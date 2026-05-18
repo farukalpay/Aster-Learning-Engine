@@ -60,7 +60,7 @@ FaceCullMode objectCullMode(const RenderObject &object, const Vec3 camera_positi
 }
 
 bool isContactShadowUtility(const RenderObject &object) {
-  return object.material.surface_pattern == SurfacePattern::ContactShadow;
+  return resolveMaterialSurfaceProfile(object.material) == MaterialSurfaceProfile::ContactShadow;
 }
 
 LocalBounds primitiveLocalBounds(const MeshPrimitive primitive) {
@@ -163,6 +163,7 @@ RenderObject contactShadowObjectFor(const RenderObject &object,
   shadow.material.roughness = 1.0f;
   shadow.material.opacity = std::clamp(
       grounding.contact_shadow_strength * object.contact_shadow_strength * fade, 0.0f, 0.42f);
+  shadow.material.surface_profile = MaterialSurfaceProfile::ContactShadow;
   shadow.material.surface_pattern = SurfacePattern::ContactShadow;
   shadow.material.alpha_mode = MaterialAlphaMode::Blend;
   shadow.material.depth_write = MaterialDepthWrite::Disabled;

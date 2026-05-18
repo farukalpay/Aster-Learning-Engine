@@ -55,7 +55,8 @@ struct D3D12SceneUniforms {
   float exposure_ambient[4]{};
   float fog_color_strength[4]{};
   float fog_params[4]{};
-  D3D12LightUniform lights[aster::kRenderLightCount]{};
+  float lighting_params[4]{};
+  D3D12LightUniform lights[aster::kRenderLightUniformCapacity]{};
 };
 
 struct D3D12ObjectUniforms {
@@ -109,22 +110,15 @@ D3D12_RESOURCE_DESC bufferDesc(const std::uint64_t byte_size) {
   return desc;
 }
 
-bool isTerrainLayerPattern(const aster::SurfacePattern pattern) {
-  return pattern == aster::SurfacePattern::GrassSoil ||
-         pattern == aster::SurfacePattern::SoilPath ||
-         pattern == aster::SurfacePattern::TerrainBlend ||
-         pattern == aster::SurfacePattern::LayeredTerrain;
+bool isTerrainLayerProfile(const aster::MaterialSurfaceProfile profile) {
+  return profile == aster::MaterialSurfaceProfile::TerrainLayer;
 }
 
-bool isStructuredSurfacePattern(const aster::SurfacePattern pattern) {
-  return pattern == aster::SurfacePattern::CourseCells ||
-         pattern == aster::SurfacePattern::WeatheredStone ||
-         pattern == aster::SurfacePattern::CaveRock ||
-         pattern == aster::SurfacePattern::CoalVein ||
-         pattern == aster::SurfacePattern::CaveWeb ||
-         pattern == aster::SurfacePattern::WeatheredMetal ||
-         pattern == aster::SurfacePattern::WeldBead ||
-         pattern == aster::SurfacePattern::AmberResin;
+bool isStructuredSurfaceProfile(const aster::MaterialSurfaceProfile profile) {
+  return profile != aster::MaterialSurfaceProfile::Plain &&
+         profile != aster::MaterialSurfaceProfile::TerrainLayer &&
+         profile != aster::MaterialSurfaceProfile::Liquid &&
+         profile != aster::MaterialSurfaceProfile::ContactShadow;
 }
 
 aster::rhi::DeviceCapabilities d3d12CapabilityTable() {
@@ -185,7 +179,8 @@ cbuffer SceneBuffer : register(b0) {
   float4 scene_exposure_ambient;
   float4 scene_fog_color_strength;
   float4 scene_fog_params;
-  Light scene_lights[4];
+  float4 scene_lighting_params;
+  Light scene_lights[64];
 };
 struct Object {
   float4x4 model;
@@ -263,7 +258,7 @@ float projected_fbm(float3 world, float3 normal, float scale, float salt) {
   return norm > 0.0 ? sum / norm : 0.0;
 }
 float is_pattern(float pattern, float id) { return abs(pattern - id) < 0.5 ? 1.0 : 0.0; }
-float3 cave_rock(float3 base, Object object, float3 world, float3 normal) {
+float3 stratified_rock(float3 base, Object object, float3 world, float3 normal) {
   float strata = 0.5 + 0.5 * sin((world.y * object.pattern_params.z + world.z * 0.33 + world.x * 0.18) * 1.75);
   float broad = projected_fbm(world, normal, object.material_params.w * 0.10, 41.0);
   float fine = projected_fbm(world, normal, object.material_params.w * 0.88, 53.0);
@@ -280,12 +275,12 @@ float3 material_albedo(Object object, float3 world, float3 normal, float2 uv) {
   float detail = max(object.material_params.w, 0.001);
   float3 base = object.base_color_opacity.rgb;
   if (object.material_flags.x > 0.5) return float3(0.018, 0.015, 0.012);
-  if (is_pattern(pattern, 17.0) > 0.5) return cave_rock(base, object, world, normal);
-  if (is_pattern(pattern, 18.0) > 0.5) {
+  if (is_pattern(pattern, 11.0) > 0.5) return stratified_rock(base, object, world, normal);
+  if (is_pattern(pattern, 12.0) > 0.5) {
     float vein = smooth1(0.70, 0.96, ridge1(projected_fbm(world, normal, detail * 0.44, 71.0)));
     return lerp(base * 0.52, base + object.emission_strength.rgb * 0.35, vein);
   }
-  if (is_pattern(pattern, 13.0) > 0.5) {
+  if (is_pattern(pattern, 7.0) > 0.5) {
     float cloud = projected_fbm(world, normal, detail * 1.10, 131.0);
     return lerp(base * float3(0.62, 0.42, 0.28), base * float3(1.30, 0.96, 0.56), smooth1(0.25, 0.92, cloud));
   }
@@ -333,7 +328,7 @@ float4 fs_main(VSOut input) : SV_Target0 {
     float spec = pow(max(dot(normal, h), 0.0), lerp(64.0, 8.0, layer_roughness)) * (1.0 - layer_roughness) * 0.28;
     color += (albedo * 0.78 * (ndotl * 0.86 + 0.14) + spec) * scene_sun_color_intensity.rgb * scene_sun_color_intensity.w;
   }
-  [unroll] for (uint i = 0; i < 4; ++i) {
+  for (uint i = 0; i < uint(scene_lighting_params.x); ++i) {
     float3 lv = scene_lights[i].position_radius.xyz - input.world;
     float d2 = max(dot(lv, lv), 0.0001);
     float soft = max(d2, scene_lights[i].position_radius.w * scene_lights[i].position_radius.w + 0.0001);
@@ -849,8 +844,11 @@ private:
     uniforms.fog_params[1] = settings.atmosphere.fog_end;
     uniforms.fog_params[2] = settings.atmosphere.saturation;
     uniforms.fog_params[3] = settings.atmosphere.contrast;
-    for (std::size_t i = 0; i < settings.light_rig.size(); ++i) {
-      const aster::Light &light = settings.light_rig[i];
+    const std::vector<aster::Light> selected_lights =
+        aster::selectRenderLights(settings.light_rig, camera.target, settings.light_policy);
+    uniforms.lighting_params[0] = static_cast<float>(selected_lights.size());
+    for (std::size_t i = 0; i < selected_lights.size(); ++i) {
+      const aster::Light &light = selected_lights[i];
       uniforms.lights[i].position_radius[0] = light.position.x;
       uniforms.lights[i].position_radius[1] = light.position.y;
       uniforms.lights[i].position_radius[2] = light.position.z;
@@ -898,8 +896,10 @@ private:
     uniforms.material_params[1] = object.material.metallic;
     uniforms.material_params[2] = object.material.detail_strength;
     uniforms.material_params[3] = object.material.detail_scale;
+    const aster::MaterialSurfaceProfile surface_profile =
+        aster::resolveMaterialSurfaceProfile(object.material);
     uniforms.pattern_params[0] =
-        static_cast<float>(static_cast<int>(object.material.surface_pattern));
+        static_cast<float>(aster::materialSurfaceProfileId(surface_profile));
     uniforms.pattern_params[1] = object.material.pattern_scale.x;
     uniforms.pattern_params[2] = object.material.pattern_scale.y;
     uniforms.pattern_params[3] = object.material.pattern_depth;
@@ -913,12 +913,11 @@ private:
     uniforms.procedural_params[3] = object.material.procedural.wetness;
     uniforms.procedural_params2[0] = object.material.procedural.height_shading;
     uniforms.material_flags[0] =
-        object.material.surface_pattern == aster::SurfacePattern::ContactShadow ? 1.0f : 0.0f;
-    uniforms.material_flags[1] = isTerrainLayerPattern(object.material.surface_pattern) ? 1.0f : 0.0f;
+        surface_profile == aster::MaterialSurfaceProfile::ContactShadow ? 1.0f : 0.0f;
+    uniforms.material_flags[1] = isTerrainLayerProfile(surface_profile) ? 1.0f : 0.0f;
     uniforms.material_flags[2] =
-        object.material.surface_pattern == aster::SurfacePattern::WaterSurface ? 1.0f : 0.0f;
-    uniforms.material_flags[3] =
-        isStructuredSurfacePattern(object.material.surface_pattern) ? 1.0f : 0.0f;
+        surface_profile == aster::MaterialSurfaceProfile::Liquid ? 1.0f : 0.0f;
+    uniforms.material_flags[3] = isStructuredSurfaceProfile(surface_profile) ? 1.0f : 0.0f;
 
     void *mapped = nullptr;
     if (FAILED(object_upload_->Map(0u, nullptr, &mapped))) {

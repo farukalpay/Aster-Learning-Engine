@@ -12,7 +12,6 @@
 #include "aster/rhi/device.hpp"
 #include "aster/rhi/resource_registry.hpp"
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -22,7 +21,8 @@
 
 namespace aster {
 
-constexpr std::size_t kRenderLightCount = 4;
+constexpr std::size_t kDefaultRenderLightBudget = 4;
+constexpr std::size_t kRenderLightUniformCapacity = 64;
 
 class Scene;
 enum class MeshPrimitive;
@@ -71,7 +71,17 @@ enum class ToneMapper {
   Reinhard,
 };
 
-using LightRig = std::array<Light, kRenderLightCount>;
+using LightRig = std::vector<Light>;
+
+struct RenderLightPolicy {
+  std::size_t max_point_lights = kDefaultRenderLightBudget;
+  bool distance_weighted = true;
+  float min_intensity = 0.0f;
+};
+
+[[nodiscard]] LightRig defaultLightRig();
+[[nodiscard]] std::vector<Light> selectRenderLights(const LightRig &lights, Vec3 reference_position,
+                                                    const RenderLightPolicy &policy);
 
 struct GroundingSettings {
   bool enabled = false;
@@ -135,12 +145,8 @@ struct RendererSettings {
   bool animate_scene = true;
   bool procedural_surface_normals = false;
   DirectionalLight sun_light{};
-  LightRig light_rig{{
-      Light{{-5.8f, 7.2f, 3.8f}, {29.0f, 27.0f, 23.0f}, 1.0f},
-      Light{{4.7f, 3.6f, 2.0f}, {11.0f, 12.0f, 13.5f}, 1.0f},
-      Light{{0.2f, 3.8f, -8.8f}, {14.0f, 10.5f, 7.8f}, 1.0f},
-      Light{{0.0f, 2.0f, 4.8f}, {7.0f, 6.7f, 7.2f}, 1.0f},
-  }};
+  LightRig light_rig = defaultLightRig();
+  RenderLightPolicy light_policy{};
   GroundingSettings grounding{};
   AtmosphereSettings atmosphere{};
   GraphicsPipelineState pipeline{};

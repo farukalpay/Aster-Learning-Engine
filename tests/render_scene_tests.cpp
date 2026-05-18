@@ -3,6 +3,9 @@
 
 #include "test_support.hpp"
 
+#include "aster/rhi/graphics_pipeline.hpp"
+#include "aster/rhi/resource_barrier.hpp"
+
 #include <cstring>
 
 namespace {
@@ -102,6 +105,8 @@ void testSceneContract() {
   assert(scene.objects().size() >= 3u);
   assert(scene.objects().front().primitive == aster::MeshPrimitive::Plane);
   assert(scene.objects().front().material.surface_pattern == aster::SurfacePattern::CourseCells);
+  assert(aster::resolveMaterialSurfaceProfile(scene.objects().front().material) ==
+         aster::MaterialSurfaceProfile::Masonry);
   assert(scene.objects().front().material.pattern_depth > 0.0f);
 }
 
@@ -127,8 +132,14 @@ void testIndustrialPipeSceneContract() {
   std::size_t weld_beads = 0;
   for (const aster::RenderObject &object : scene.objects()) {
     weathered_metal +=
-        object.material.surface_pattern == aster::SurfacePattern::WeatheredMetal ? 1u : 0u;
-    weld_beads += object.material.surface_pattern == aster::SurfacePattern::WeldBead ? 1u : 0u;
+        aster::resolveMaterialSurfaceProfile(object.material) ==
+                aster::MaterialSurfaceProfile::CorrodedMetal
+            ? 1u
+            : 0u;
+    weld_beads += aster::resolveMaterialSurfaceProfile(object.material) ==
+                          aster::MaterialSurfaceProfile::WeldBead
+                      ? 1u
+                      : 0u;
   }
   assert(weathered_metal == 1u);
   assert(weld_beads == 2u);
@@ -218,6 +229,25 @@ void testMaterialRenderPolicies() {
   assert(!aster::allowsCameraOcclusionFade(support));
 }
 
+void testRuntimeLightPolicy() {
+  aster::LightRig lights;
+  for (int i = 0; i < 12; ++i) {
+    lights.push_back({.position = {static_cast<float>(i), 0.0f, 0.0f},
+                      .color = {1.0f + static_cast<float>(i), 1.0f, 1.0f},
+                      .intensity = 1.0f + static_cast<float>(i) * 0.25f,
+                      .source_radius = 0.2f});
+  }
+
+  const std::vector<aster::Light> selected =
+      aster::selectRenderLights(lights, {10.0f, 0.0f, 0.0f}, {.max_point_lights = 5u});
+  assert(selected.size() == 5u);
+  assert(selected.front().position.x >= 7.0f);
+
+  const std::vector<aster::Light> unbounded = aster::selectRenderLights(
+      lights, {}, {.max_point_lights = aster::kRenderLightUniformCapacity + 32u});
+  assert(unbounded.size() == lights.size());
+}
+
 void testRhiResourceRegistryContract() {
   aster::rhi::ResourceRegistry registry;
   const aster::rhi::BufferHandle vertex_buffer = registry.createBuffer(
@@ -262,6 +292,88 @@ void testRhiResourceRegistryContract() {
   assert(registry.stats().retired_resources == 1u);
   registry.clearRetired();
   assert(registry.stats().retired_resources == 0u);
+}
+
+void testRhiExplicitGpuContracts() {
+  aster::rhi::ResourceBarrier upload_to_sample =
+      aster::rhi::completeResourceBarrier({.resource_id = 42u,
+                                           .before = aster::rhi::ResourceState::CopyDestination,
+                                           .after = aster::rhi::ResourceState::ShaderRead,
+                                           .subresources =
+                                               {.aspect_mask = aster::rhi::textureAspectBit(
+                                                    aster::rhi::TextureAspect::Color),
+                                                .base_mip = 0u,
+                                                .mip_count = 4u,
+                                                .base_layer = 0u,
+                                                .layer_count = 6u},
+                                           .source_queue = aster::rhi::QueueKind::Copy,
+                                           .destination_queue = aster::rhi::QueueKind::Graphics});
+  assert((upload_to_sample.source_stage_mask &
+          aster::rhi::pipelineStageBit(aster::rhi::PipelineStage::Transfer)) != 0u);
+  assert((upload_to_sample.destination_stage_mask &
+          aster::rhi::pipelineStageBit(aster::rhi::PipelineStage::FragmentShader)) != 0u);
+  assert((upload_to_sample.destination_access_mask &
+          aster::rhi::resourceAccessBit(aster::rhi::ResourceAccess::ShaderRead)) != 0u);
+  assert(upload_to_sample.old_layout == aster::rhi::ImageLayout::TransferDestination);
+  assert(upload_to_sample.new_layout == aster::rhi::ImageLayout::ShaderReadOnly);
+  assert(aster::rhi::transfersQueueOwnership(upload_to_sample));
+
+  aster::rhi::GraphicsPipelineDesc pipeline;
+  pipeline.layout = {7u, 1u};
+  pipeline.vertex_shader = {8u, 1u};
+  pipeline.fragment_shader = {9u, 1u};
+  pipeline.rasterizer.cull_mode = aster::rhi::CullMode::Back;
+  pipeline.rasterizer.front_face = aster::rhi::FrontFace::CounterClockwise;
+  pipeline.depth_stencil.depth_compare = aster::rhi::CompareOp::LessOrEqual;
+  pipeline.multisample.sample_count = 4u;
+  pipeline.vertex_input.bindings.push_back(
+      {.binding = 0u, .stride = 32u, .input_rate = aster::rhi::VertexInputRate::Vertex});
+  pipeline.vertex_input.attributes.push_back(
+      {.location = 0u,
+       .binding = 0u,
+       .format = aster::rhi::VertexFormat::Float32x3,
+       .offset = 0u});
+  pipeline.vertex_input.attributes.push_back(
+      {.location = 1u,
+       .binding = 0u,
+       .format = aster::rhi::VertexFormat::Float32x3,
+       .offset = 12u});
+  pipeline.render_pass.color_formats.push_back(aster::rhi::ImageFormat::Bgra8Unorm);
+  pipeline.render_pass.depth_format = aster::rhi::ImageFormat::Depth32Float;
+  pipeline.render_pass.sample_count = 4u;
+  pipeline.color_blend_attachments.push_back(
+      {.blend_enabled = true,
+       .source_color_factor = aster::rhi::BlendFactor::SourceAlpha,
+       .destination_color_factor = aster::rhi::BlendFactor::OneMinusSourceAlpha,
+       .color_op = aster::rhi::BlendOp::Add,
+       .source_alpha_factor = aster::rhi::BlendFactor::One,
+       .destination_alpha_factor = aster::rhi::BlendFactor::OneMinusSourceAlpha,
+       .alpha_op = aster::rhi::BlendOp::Add,
+       .color_write_mask = aster::rhi::kColorWriteAll});
+  const std::uint64_t solid_key = aster::rhi::graphicsPipelineCacheKey(pipeline);
+  pipeline.rasterizer.polygon_mode = aster::rhi::PolygonMode::Line;
+  const std::uint64_t wire_key = aster::rhi::graphicsPipelineCacheKey(pipeline);
+  assert(solid_key != 0u);
+  assert(wire_key != solid_key);
+  pipeline.rasterizer.polygon_mode = aster::rhi::PolygonMode::Fill;
+  pipeline.depth_test = false;
+  const std::uint64_t no_depth_key = aster::rhi::graphicsPipelineCacheKey(pipeline);
+  assert(no_depth_key != solid_key);
+
+  aster::rhi::FramebufferDesc framebuffer;
+  framebuffer.width = 128u;
+  framebuffer.height = 64u;
+  framebuffer.color_attachments.push_back({.format = aster::rhi::ImageFormat::Bgra8Unorm,
+                                           .load_op = aster::rhi::AttachmentLoadOp::Clear,
+                                           .store_op = aster::rhi::AttachmentStoreOp::Store,
+                                           .initial_state = aster::rhi::ResourceState::Undefined,
+                                           .final_state =
+                                               aster::rhi::ResourceState::ColorAttachment,
+                                           .transient = true});
+  framebuffer.has_depth_stencil_attachment = true;
+  assert(framebuffer.color_attachments.front().transient);
+  assert(framebuffer.depth_stencil_attachment.subresources.aspect_mask ==
+         aster::rhi::textureAspectBit(aster::rhi::TextureAspect::Depth));
 }
 
 void testFrameGraphContract() {
@@ -686,7 +798,9 @@ constexpr TestCase kTestCases[] = {
     {"showcase_lab_scenes", testShowcaseLabSceneContracts},
     {"software_preview_renderer", testSoftwarePreviewRendererProducesImage},
     {"material_render_policies", testMaterialRenderPolicies},
+    {"runtime_light_policy", testRuntimeLightPolicy},
     {"rhi_resource_registry", testRhiResourceRegistryContract},
+    {"rhi_explicit_gpu_contracts", testRhiExplicitGpuContracts},
     {"frame_graph", testFrameGraphContract},
     {"backend_kinds", testBackendKindContract},
     {"material_compiler", testMaterialCompilerContract},

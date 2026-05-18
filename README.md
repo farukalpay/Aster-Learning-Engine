@@ -8,7 +8,9 @@ Aster; it is not the engine itself.
 The current renderer/RHI v1 spine is deliberately measured by contracts rather
 than by folder names: the same `Scene`, materials, meshes, render graph, frame
 stats, and diagnostics feed the software reference renderer, native Metal, and
-the D3D12 offscreen/readback path.
+the D3D12 offscreen/readback path. RHI descriptors now expose explicit barrier,
+attachment, pipeline-state, render-pass compatibility, and cache-key details so
+backends share more than matching type names.
 
 Start here: [docs/START_HERE.md](docs/START_HERE.md)
 
@@ -49,7 +51,7 @@ object.material = aster::makeMaterial({
     .base_color = {0.55f, 0.48f, 0.40f},
     .roughness = 0.68f,
     .metallic = 0.0f,
-    .surface_pattern = aster::SurfacePattern::CaveRock,
+    .surface_profile = aster::MaterialSurfaceProfile::StratifiedRock,
     .procedural = {.micro_normal_strength = 0.32f, .height_shading = 0.20f},
 });
 scene.objects().push_back(object);
@@ -96,8 +98,9 @@ Run built-in lab scenes:
 - Procedural geometry and mesh tooling for terrain, caves, tubes, cables,
   fracture pieces, water, architecture, vegetation, projected meshes, and
   generated scenery.
-- Material/shader contracts for `.astermat` parsing, typed material graph nodes,
-  shader variants, texture validation, render quality profiles, and hot reload.
+- Material/shader contracts for `.astermat` parsing, generic surface profiles,
+  typed material graph nodes, shader variants, texture validation, render
+  quality profiles, and hot reload.
 - A Rust runtime planner for frustum culling, draw-key grouping, translucent
   ordering, diagnostics, and offline asset-tool validation.
 - Thin executable entrypoints for Lumen Run, Studio, offline preview rendering,

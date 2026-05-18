@@ -78,28 +78,186 @@ if(WIN32)
 endif()
 add_dependencies(aster_runtime aster_rust_runtime)
 
-file(GLOB_RECURSE ASTER_SOURCES CONFIGURE_DEPENDS
-  "${PROJECT_SOURCE_DIR}/src/*.cpp"
-)
-
 set(ASTER_GAME_SDK_SOURCES
   "${PROJECT_SOURCE_DIR}/src/game_sdk/game_sdk.cpp"
 )
-list(REMOVE_ITEM ASTER_SOURCES ${ASTER_GAME_SDK_SOURCES})
+
+set(ASTER_CORE_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/core/clock.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/fixed_timestep.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/frame_time_stats.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/profiler.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/work_budget.cpp"
+  "${PROJECT_SOURCE_DIR}/src/math/transform.cpp"
+)
+
+set(ASTER_RHI_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/rhi/resource_registry.cpp"
+)
+
+set(ASTER_FRAMEGRAPH_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/framegraph/frame_graph.cpp"
+  "${PROJECT_SOURCE_DIR}/src/framegraph/graph_compiler.cpp"
+  "${PROJECT_SOURCE_DIR}/src/framegraph/transient_resource_allocator.cpp"
+)
+
+set(ASTER_ASSET_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/asset/compiled_scene_asset.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/mesh_pipeline.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/scene_asset_importer.cpp"
+)
+
+set(ASTER_MATERIAL_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/material/material_asset.cpp"
+  "${PROJECT_SOURCE_DIR}/src/material/material_compiler.cpp"
+  "${PROJECT_SOURCE_DIR}/src/material/material_graph.cpp"
+  "${PROJECT_SOURCE_DIR}/src/material/material_instance.cpp"
+  "${PROJECT_SOURCE_DIR}/src/material/material_parameter_block.cpp"
+)
+
+set(ASTER_TEXTURE_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/texture/texture_asset.cpp"
+  "${PROJECT_SOURCE_DIR}/src/texture/texture_atlas.cpp"
+  "${PROJECT_SOURCE_DIR}/src/texture/texture_compressor.cpp"
+  "${PROJECT_SOURCE_DIR}/src/texture/texture_debug.cpp"
+  "${PROJECT_SOURCE_DIR}/src/texture/texture_importer.cpp"
+  "${PROJECT_SOURCE_DIR}/src/texture/texture_streamer.cpp"
+)
+
+set(ASTER_SHADER_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/shader/shader_compiler.cpp"
+  "${PROJECT_SOURCE_DIR}/src/shader/shader_hot_reload.cpp"
+  "${PROJECT_SOURCE_DIR}/src/shader/shader_library.cpp"
+  "${PROJECT_SOURCE_DIR}/src/shader/shader_reflection.cpp"
+  "${PROJECT_SOURCE_DIR}/src/shader/shader_variant.cpp"
+)
+
+set(ASTER_RENDER_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/render/camera.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/frame_capture.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/material_compiler.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/native_render_backend_null.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/render_backend_common.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/render_device.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/render_graph.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/render_graph_executor.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/render_quality.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/render_scene.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/software_framebuffer.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/software_preview_renderer.cpp"
+)
 
 if(APPLE)
-  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_linux.cpp")
-  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_windows.cpp")
-  list(APPEND ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_macos.mm")
-  list(APPEND ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/render/render_device_metal.mm")
+  list(APPEND ASTER_RENDER_SOURCES
+    "${PROJECT_SOURCE_DIR}/src/render/render_device_metal.mm"
+  )
 elseif(WIN32)
-  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_linux.cpp")
-  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_macos.mm")
-  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/render/native_render_backend_stub.cpp")
+  list(APPEND ASTER_RENDER_SOURCES
+    "${PROJECT_SOURCE_DIR}/src/render/render_device_d3d12.cpp"
+  )
 else()
-  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_macos.mm")
-  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_windows.cpp")
-  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/render/render_device_d3d12.cpp")
+  list(APPEND ASTER_RENDER_SOURCES
+    "${PROJECT_SOURCE_DIR}/src/render/native_render_backend_stub.cpp"
+  )
+endif()
+
+set(ASTER_GEOMETRY_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/geometry/architectural_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/brush_level_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/cable_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/castle_course.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/cave_system.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/cave_web_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/energy_conduit_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/fracture_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/generated_scenery.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/implicit_surface.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/mesh_cut.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/mesh_modeling.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/mesh_projection.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/nature_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/stroke_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/terrain_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/terrain_sculpt.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/tube_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/voxel_cave.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/voxel_structure.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/water_mesh.cpp"
+)
+
+set(ASTER_SCENE_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/scene/avatar.cpp"
+  "${PROJECT_SOURCE_DIR}/src/scene/scene.cpp"
+  "${PROJECT_SOURCE_DIR}/src/scene/scene_coherence.cpp"
+  "${PROJECT_SOURCE_DIR}/src/scene/scene_trace.cpp"
+)
+
+set(ASTER_PHYSICS_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/physics/climb_locomotion.cpp"
+  "${PROJECT_SOURCE_DIR}/src/physics/contact_query.cpp"
+  "${PROJECT_SOURCE_DIR}/src/physics/fluid_locomotion.cpp"
+  "${PROJECT_SOURCE_DIR}/src/physics/physics_world.cpp"
+  "${PROJECT_SOURCE_DIR}/src/physics/placement_validation.cpp"
+  "${PROJECT_SOURCE_DIR}/src/physics/surface_support.cpp"
+  "${PROJECT_SOURCE_DIR}/src/physics/terrain_contact.cpp"
+)
+
+set(ASTER_SYSTEMS_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/systems/animation_system.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/creature_motion.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/equipment_system.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/interaction_system.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/inventory_system.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/item_system.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/light_system.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/mining_system.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/particle_system.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/player_motion.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/third_person_camera.cpp"
+)
+
+set(ASTER_AI_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/ai/behavior_tree.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ai/steering.cpp"
+)
+
+set(ASTER_INPUT_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/input/control_scheme.cpp"
+)
+
+set(ASTER_UI_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/ui/control_legend.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ui/editor_ui.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ui/hud_layer.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ui/inventory_overlay.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ui/ui_canvas.cpp"
+)
+
+set(ASTER_NET_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/net/net_message.cpp"
+  "${PROJECT_SOURCE_DIR}/src/net/node_router.cpp"
+  "${PROJECT_SOURCE_DIR}/src/net/tcp_node.cpp"
+)
+
+set(ASTER_SAMPLES_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run_interaction.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run_mining.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run_scene.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run_simulation.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run_validation.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/showcase_scenes.cpp"
+)
+
+set(ASTER_PLATFORM_SOURCES)
+
+if(APPLE)
+  list(APPEND ASTER_PLATFORM_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_macos.mm")
+elseif(WIN32)
+  list(APPEND ASTER_PLATFORM_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_windows.cpp")
+else()
+  list(APPEND ASTER_PLATFORM_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_linux.cpp")
 
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
@@ -131,8 +289,8 @@ else()
       DEPENDS "${protocol_xml}"
       VERBATIM
     )
-    list(APPEND ASTER_SOURCES "${protocol_code}" "${protocol_header}")
-    set(ASTER_SOURCES "${ASTER_SOURCES}" PARENT_SCOPE)
+    list(APPEND ASTER_PLATFORM_SOURCES "${protocol_code}" "${protocol_header}")
+    set(ASTER_PLATFORM_SOURCES "${ASTER_PLATFORM_SOURCES}" PARENT_SCOPE)
   endfunction()
 
   aster_generate_wayland_protocol(
@@ -149,7 +307,54 @@ else()
   )
 endif()
 
-list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/kernel/kernel.cpp")
+set(ASTER_ENGINE_COMPILE_DEFINITIONS
+  ASTER_HAS_PROFILING_RUNTIME=$<IF:$<BOOL:${ASTER_ENABLE_PROFILING}>,1,0>
+  ASTER_HAS_NETWORK_TRANSPORT=$<IF:$<BOOL:${ASTER_BUILD_NETWORK}>,1,0>
+)
+
+function(aster_configure_engine_compile_target target_name)
+  target_include_directories(${target_name} PUBLIC
+    ${PROJECT_SOURCE_DIR}/include
+  )
+  if(UNIX AND NOT APPLE)
+    target_include_directories(${target_name} PRIVATE ${ASTER_WAYLAND_PROTOCOL_DIR})
+    target_link_libraries(${target_name} PRIVATE PkgConfig::WAYLAND_CLIENT)
+  endif()
+  target_compile_definitions(${target_name} PUBLIC ${ASTER_ENGINE_COMPILE_DEFINITIONS})
+  if(MSVC)
+    target_compile_options(${target_name} PRIVATE /W4 /permissive-)
+  else()
+    target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
+endfunction()
+
+set(ASTER_ENGINE_OBJECT_TARGETS)
+function(aster_add_engine_object_library target_name)
+  add_library(${target_name} OBJECT ${ARGN})
+  set_target_properties(${target_name} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  aster_configure_engine_compile_target(${target_name})
+  list(APPEND ASTER_ENGINE_OBJECT_TARGETS ${target_name})
+  set(ASTER_ENGINE_OBJECT_TARGETS "${ASTER_ENGINE_OBJECT_TARGETS}" PARENT_SCOPE)
+endfunction()
+
+aster_add_engine_object_library(aster_core_objects ${ASTER_CORE_SOURCES})
+aster_add_engine_object_library(aster_rhi_objects ${ASTER_RHI_SOURCES})
+aster_add_engine_object_library(aster_framegraph_objects ${ASTER_FRAMEGRAPH_SOURCES})
+aster_add_engine_object_library(aster_asset_objects ${ASTER_ASSET_SOURCES})
+aster_add_engine_object_library(aster_material_objects ${ASTER_MATERIAL_SOURCES})
+aster_add_engine_object_library(aster_texture_objects ${ASTER_TEXTURE_SOURCES})
+aster_add_engine_object_library(aster_shader_objects ${ASTER_SHADER_SOURCES})
+aster_add_engine_object_library(aster_render_objects ${ASTER_RENDER_SOURCES})
+aster_add_engine_object_library(aster_geometry_objects ${ASTER_GEOMETRY_SOURCES})
+aster_add_engine_object_library(aster_scene_objects ${ASTER_SCENE_SOURCES})
+aster_add_engine_object_library(aster_physics_objects ${ASTER_PHYSICS_SOURCES})
+aster_add_engine_object_library(aster_systems_objects ${ASTER_SYSTEMS_SOURCES})
+aster_add_engine_object_library(aster_ai_objects ${ASTER_AI_SOURCES})
+aster_add_engine_object_library(aster_input_objects ${ASTER_INPUT_SOURCES})
+aster_add_engine_object_library(aster_ui_objects ${ASTER_UI_SOURCES})
+aster_add_engine_object_library(aster_net_objects ${ASTER_NET_SOURCES})
+aster_add_engine_object_library(aster_samples_objects ${ASTER_SAMPLES_SOURCES})
+aster_add_engine_object_library(aster_platform_objects ${ASTER_PLATFORM_SOURCES})
 
 add_library(aster_game_sdk STATIC ${ASTER_GAME_SDK_SOURCES})
 add_library(aster::game_sdk ALIAS aster_game_sdk)
@@ -164,9 +369,12 @@ else()
   target_compile_options(aster_game_sdk PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-add_library(aster_engine_internal STATIC ${ASTER_SOURCES})
+add_library(aster_engine_internal STATIC)
 add_library(aster ALIAS aster_engine_internal)
-add_dependencies(aster_engine_internal aster_rust_runtime)
+foreach(engine_object_target IN LISTS ASTER_ENGINE_OBJECT_TARGETS)
+  target_sources(aster_engine_internal PRIVATE $<TARGET_OBJECTS:${engine_object_target}>)
+endforeach()
+add_dependencies(aster_engine_internal aster_rust_runtime ${ASTER_ENGINE_OBJECT_TARGETS})
 set_target_properties(aster_engine_internal PROPERTIES
   POSITION_INDEPENDENT_CODE ON
   CXX_VISIBILITY_PRESET hidden
@@ -197,15 +405,8 @@ elseif(WIN32)
 endif()
 
 target_compile_definitions(aster_engine_internal PUBLIC
-  ASTER_HAS_PROFILING_RUNTIME=$<IF:$<BOOL:${ASTER_ENABLE_PROFILING}>,1,0>
-  ASTER_HAS_NETWORK_TRANSPORT=$<IF:$<BOOL:${ASTER_BUILD_NETWORK}>,1,0>
+  ${ASTER_ENGINE_COMPILE_DEFINITIONS}
 )
-
-if(MSVC)
-  target_compile_options(aster_engine_internal PRIVATE /W4 /permissive-)
-else()
-  target_compile_options(aster_engine_internal PRIVATE -Wall -Wextra -Wpedantic)
-endif()
 
 add_library(aster_kernel SHARED src/kernel/kernel.cpp)
 add_library(aster::kernel ALIAS aster_kernel)
@@ -342,7 +543,9 @@ if(ASTER_BUILD_TESTS)
       showcase_lab_scenes
       software_preview_renderer
       material_render_policies
+      runtime_light_policy
       rhi_resource_registry
+      rhi_explicit_gpu_contracts
       frame_graph
       backend_kinds
       material_compiler

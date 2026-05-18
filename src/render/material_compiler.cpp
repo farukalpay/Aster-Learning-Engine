@@ -52,7 +52,7 @@ void appendU64(std::uint64_t &hash, const std::uint64_t value) {
 } // namespace
 
 bool materialHasProceduralPermutation(const Material &material) {
-  return material.surface_pattern != SurfacePattern::None ||
+  return resolveMaterialSurfaceProfile(material) != MaterialSurfaceProfile::Plain ||
          material.procedural.macro_variation > 0.0f ||
          material.procedural.micro_normal_strength > 0.0f ||
          material.procedural.roughness_variation > 0.0f ||
@@ -85,7 +85,7 @@ CompiledMaterial compileMaterialForRendering(const Material &material,
   if (materialWritesDepth(material)) {
     compiled.permutation_flags |= materialPermutationFlagBit(MaterialPermutationFlag::DepthWrite);
   }
-  if (material.surface_pattern == SurfacePattern::ContactShadow) {
+  if (resolveMaterialSurfaceProfile(material) == MaterialSurfaceProfile::ContactShadow) {
     compiled.permutation_flags |= materialPermutationFlagBit(MaterialPermutationFlag::ContactShadow);
   }
   if (material.shader_variant_key != 0u || !material.asset_id.empty()) {
@@ -98,6 +98,7 @@ CompiledMaterial compileMaterialForRendering(const Material &material,
   appendEnum(hash, material.alpha_mode);
   appendEnum(hash, material.depth_write);
   appendEnum(hash, material.cull_mode);
+  appendEnum(hash, resolveMaterialSurfaceProfile(material));
   appendEnum(hash, material.surface_pattern);
   appendFloat(hash, material.pattern_scale.x);
   appendFloat(hash, material.pattern_scale.y);

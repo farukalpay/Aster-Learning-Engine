@@ -369,7 +369,7 @@ Vec3 courseCellAlbedo(const Hit &hit) {
                 std::clamp(hit.material.pattern_contrast, 0.0f, 1.0f));
 }
 
-Vec3 weatheredMetalAlbedo(const Hit &hit) {
+Vec3 corrodedMetalAlbedo(const Hit &hit) {
   const float detail = std::max(hit.material.detail_scale, 0.001f);
   const float broad = projectedFbm(hit.position, hit.normal, detail * 0.16f, 307.0f);
   const float fine = projectedFbm(hit.position + hit.normal * 0.05f, hit.normal, detail * 0.74f,
@@ -406,35 +406,29 @@ Vec3 weldBeadAlbedo(const Hit &hit) {
 }
 
 Vec3 previewAlbedo(const Hit &hit) {
-  switch (hit.material.surface_pattern) {
-  case SurfacePattern::CourseCells:
-  case SurfacePattern::WeatheredStone:
+  switch (resolveMaterialSurfaceProfile(hit.material)) {
+  case MaterialSurfaceProfile::Masonry:
     return courseCellAlbedo(hit);
-  case SurfacePattern::WeatheredMetal:
-    return weatheredMetalAlbedo(hit);
-  case SurfacePattern::WeldBead:
+  case MaterialSurfaceProfile::CorrodedMetal:
+    return corrodedMetalAlbedo(hit);
+  case MaterialSurfaceProfile::WeldBead:
     return weldBeadAlbedo(hit);
-  case SurfacePattern::None:
-  case SurfacePattern::FiberStrands:
-  case SurfacePattern::GrassSoil:
-  case SurfacePattern::WaterSurface:
-  case SurfacePattern::SoilPath:
-  case SurfacePattern::TerrainBlend:
-  case SurfacePattern::FurFibers:
-  case SurfacePattern::LayeredTerrain:
-  case SurfacePattern::PaintedWood:
-  case SurfacePattern::Foliage:
-  case SurfacePattern::IridescentScales:
-  case SurfacePattern::AmberResin:
-  case SurfacePattern::FeatherVanes:
-  case SurfacePattern::TwigNest:
-  case SurfacePattern::ReptileScales:
-  case SurfacePattern::CaveRock:
-  case SurfacePattern::CoalVein:
-  case SurfacePattern::ContactShadow:
-  case SurfacePattern::CaveWeb:
-  case SurfacePattern::CaveSkitterChitin:
-  case SurfacePattern::CaveSkitterEye:
+  case MaterialSurfaceProfile::Auto:
+  case MaterialSurfaceProfile::Plain:
+  case MaterialSurfaceProfile::OrganicFiber:
+  case MaterialSurfaceProfile::TerrainLayer:
+  case MaterialSurfaceProfile::Liquid:
+  case MaterialSurfaceProfile::Foliage:
+  case MaterialSurfaceProfile::Resin:
+  case MaterialSurfaceProfile::PaintedWood:
+  case MaterialSurfaceProfile::Feather:
+  case MaterialSurfaceProfile::Scales:
+  case MaterialSurfaceProfile::StratifiedRock:
+  case MaterialSurfaceProfile::MineralVein:
+  case MaterialSurfaceProfile::ContactShadow:
+  case MaterialSurfaceProfile::FilamentWeb:
+  case MaterialSurfaceProfile::ChitinShell:
+  case MaterialSurfaceProfile::EmissiveLens:
     break;
   }
 
@@ -510,7 +504,9 @@ Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
       add_light(sun_dir, settings.sun_light.color * settings.sun_light.intensity);
     }
   }
-  for (const Light &light : settings.light_rig) {
+  const std::vector<Light> selected_lights =
+      selectRenderLights(settings.light_rig, hit.position, settings.light_policy);
+  for (const Light &light : selected_lights) {
     if (light.intensity <= 0.0f) {
       continue;
     }

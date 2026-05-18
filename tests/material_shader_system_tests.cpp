@@ -44,9 +44,10 @@ std::string sampleMaterialSource() {
   return R"mat(
 material TestWetRock {
   schema_version: 1
-  name: "Test Wet Rock"
-  shading_model: LitPBR
-  blend_mode: Masked
+	  name: "Test Wet Rock"
+	  shading_model: LitPBR
+	  surface_profile: stratified-rock
+	  blend_mode: Masked
   cull_mode: None
   receives_decals: true
   receives_shadows: true
@@ -116,7 +117,10 @@ void testMaterialAssetParserAndCompiler() {
   assert(compiled.binding_layout.bindings.size() == loaded.value.textures.size() + 2u);
   assert(compiled.fallback_material.material.asset_id == loaded.value.id);
   assert(compiled.fallback_material.material.double_sided);
-  assert(compiled.fallback_material.material.surface_pattern == aster::SurfacePattern::CaveRock);
+	  assert(compiled.fallback_material.material.surface_profile ==
+	         aster::MaterialSurfaceProfile::StratifiedRock);
+	  assert(aster::resolveMaterialSurfaceProfile(compiled.fallback_material.material) ==
+	         aster::MaterialSurfaceProfile::StratifiedRock);
   assert((compiled.fallback_material.permutation_flags &
           aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::ShaderVariant)) != 0u);
 

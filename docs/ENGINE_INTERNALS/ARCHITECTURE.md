@@ -110,8 +110,10 @@ Camera contracts, render-scene packets, mesh data, renderer settings, software
 framebuffer capture, and `RenderDevice`. macOS uses an owned Metal backend for
 real-time scene rendering. The software renderer remains the deterministic
 fallback, capture path, preview path, and reference implementation.
-`SurfacePattern` is the shared procedural material contract across native and
-software rendering.
+`MaterialSurfaceProfile` is the shared procedural material contract across
+native and software rendering. Legacy `SurfacePattern` values are accepted as
+authoring and sample compatibility hints, then resolved to generic profiles
+before shader permutation, preview, native uniform upload, and software shading.
 
 Render quality policy is explicit. `RenderQualityProfile` groups the quality
 stack that turns the renderer factory line into shippable images: PBR material
@@ -130,6 +132,15 @@ and resource barriers. The default frame graph currently spans
 and `capture` passes. Runtime rendering now visits those semantic passes through
 the compiled graph executor so pass order is a renderer contract rather than an
 open-coded sequence in each draw loop.
+
+RHI descriptors must carry explicit GPU contract details, not just backend-ish
+names. `ResourceBarrier` includes stage masks, access masks, image layouts,
+subresource ranges, queue ownership transfer, and transient attachment intent.
+`GraphicsPipelineDesc` includes rasterizer, multisample, depth-stencil, color
+blend attachment, vertex input, render-pass compatibility, dynamic state, and a
+pipeline cache key path. The older coarse `ResourceState`, color/depth format,
+and blend/depth booleans remain compatibility shorthands that resolve into the
+stricter contract.
 
 `crates/aster_runtime`
 
@@ -267,12 +278,20 @@ GPU backend entry point for conformance work, not a finished Windows presentatio
 renderer. Window presentation on Windows still uses the software framebuffer
 path today.
 
-Procedural material evaluation is pattern-driven rather than sample-specific.
-Terrain, water, cave rock, coal veins, foliage, fur, amber, wood, stone, scales,
-feathers, weathered metal, weld beads, and fiber patterns are selected through
-`Material::surface_pattern` and parameterized by material fields. New patterns
-should extend that contract in both renderers rather than adding sample-side
-shader branches.
+Procedural material evaluation is profile-driven rather than sample-specific.
+Terrain layers, liquids, masonry, organic fibers, resin, painted wood, foliage,
+feathers, scales, stratified rock, mineral veins, filament webs, chitin shells,
+emissive lenses, corroded metal, and weld beads are selected through
+`Material::surface_profile` and parameterized by material fields. New visual
+families should extend that contract in both renderers rather than adding
+sample-side shader branches. Game-facing `SurfacePattern` names remain as
+compatibility aliases and are mapped through `resolveMaterialSurfaceProfile`.
+
+Point lighting is runtime policy, not a fixed-size demo rig. `RendererSettings`
+owns a dynamic `LightRig` plus `RenderLightPolicy`; render backends select the
+active lights for a frame, clamp them to the backend uniform capacity, and sort
+by distance-weighted energy when a scene submits more lights than the current
+budget.
 
 Material compilation is split from runtime scene packets. Authoring imports flow
 through a shared compiler step that produces permutation flags, a stable cache
@@ -305,14 +324,18 @@ use deterministic fixed timing so generated media stays reproducible.
 
 ## Build Policy
 
-CMake builds `aster_engine_internal` for repository apps/tests and
-`aster_kernel` as the exported ABI facade. Platform source selection is based on
-the host OS. Linux builds require `wayland-client`, `wayland-protocols`, and
-`wayland-scanner`; CMake generates the xdg-shell, relative-pointer, and
-pointer-constraints protocol bindings into the build tree. Cargo is a required
-build dependency and builds the Rust `aster_runtime` static library before
-linking the internal engine target. Windows builds link the Win32 platform
-libraries required by the adapter.
+CMake builds module object targets for core/math, RHI, framegraph, asset,
+material, texture, shader, render, geometry, scene, physics, systems, AI, input,
+UI, networking, samples, and platform adapters, then aggregates them into
+`aster_engine_internal` for repository apps/tests. Source membership is explicit;
+new engine files should be added to the owning module target rather than swept
+up by a recursive glob. `aster_kernel` remains the exported ABI facade. Platform
+source selection is based on the host OS. Linux builds require `wayland-client`,
+`wayland-protocols`, and `wayland-scanner`; CMake generates the xdg-shell,
+relative-pointer, and pointer-constraints protocol bindings into the build tree.
+Cargo is a required build dependency and builds the Rust `aster_runtime` static
+library before linking the internal engine target. Windows builds link the Win32
+platform libraries required by the adapter.
 
 The engine and sample should build without fetching source code at configure or
 build time. Linux's `libwayland-client` dependency is an explicit platform

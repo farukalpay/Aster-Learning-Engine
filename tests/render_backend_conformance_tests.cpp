@@ -435,12 +435,12 @@ aster::RendererSettings makeContractSettings() {
   settings.sun_light.direction_to_light = {-0.44f, 0.80f, 0.32f};
   settings.sun_light.color = {1.0f, 0.78f, 0.52f};
   settings.sun_light.intensity = 1.30f;
-  settings.light_rig = {{
+  settings.light_rig = {
       aster::Light{{-1.4f, 2.2f, 1.6f}, {4.5f, 2.6f, 1.4f}, 1.0f, 0.85f},
       aster::Light{{1.3f, 1.4f, -1.4f}, {0.8f, 1.7f, 2.4f}, 1.0f, 1.0f},
       aster::Light{{0.0f, 1.2f, 1.2f}, {1.8f, 1.1f, 0.6f}, 1.0f, 1.1f},
       aster::Light{{0.8f, 0.8f, -0.6f}, {1.8f, 0.7f, 0.2f}, 1.0f, 0.65f},
-  }};
+  };
   settings.grounding.enabled = true;
   settings.grounding.contact_shadows = true;
   settings.grounding.auto_contact_shadows = true;

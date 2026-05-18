@@ -88,10 +88,14 @@ engine contracts from papers that were useful as background context.
 - Inspectable render settings
 - Engine-level material alpha, depth, render-queue, procedural surface, and
   camera-occlusion contracts
-- Shared `SurfacePattern` procedural material behavior across the software
-  renderer and native Metal backend
+- Shared `MaterialSurfaceProfile` procedural material behavior across the
+  software renderer and native Metal backend, with legacy `SurfacePattern`
+  authoring aliases resolved before runtime shading
 - Typed graphics resource handles, a resource registry, and a compiled frame
   graph for renderer-facing resource lifetime and pass dependency diagnostics
+- RHI barrier, framebuffer attachment, and graphics pipeline descriptors with
+  explicit stage/access/layout/subresource, render-pass compatibility, and
+  pipeline cache identity fields
 - Object-level camera culling, sorted translucent worksets, and frame-local
   object-uniform streaming in the native renderer
 - Required Rust frame planning for renderer-facing packets, including frustum

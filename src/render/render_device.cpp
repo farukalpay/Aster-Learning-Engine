@@ -122,10 +122,8 @@ float valueNoise(const aster::Vec3 p) {
   return std::lerp(nxy0, nxy1, f.z);
 }
 
-bool isTerrainPattern(const aster::SurfacePattern pattern) {
-  return pattern == aster::SurfacePattern::GrassSoil ||
-         pattern == aster::SurfacePattern::TerrainBlend ||
-         pattern == aster::SurfacePattern::LayeredTerrain;
+bool isTerrainProfile(const aster::MaterialSurfaceProfile profile) {
+  return profile == aster::MaterialSurfaceProfile::TerrainLayer;
 }
 
 float projectedNoise(const aster::Vec3 world_position, aster::Vec3 normal, const float scale,
@@ -163,7 +161,8 @@ float terrainFbm(const aster::Vec3 world_position, const aster::Vec3 normal, con
 
 aster::Vec3 terrainLayeredAlbedo(const aster::Material &material, const aster::Vec3 world_position,
                                  const aster::Vec3 normal) {
-  const float pattern_id = static_cast<float>(static_cast<int>(material.surface_pattern));
+  const float pattern_id = static_cast<float>(
+      aster::materialSurfaceProfileId(aster::resolveMaterialSurfaceProfile(material)));
   const float detail_scale = std::max(material.detail_scale, 0.001f);
   const float macro_scale = 0.018f + std::sqrt(detail_scale) * 0.011f;
   const float mid_scale = 0.055f + detail_scale * 0.018f;
@@ -209,7 +208,8 @@ aster::Vec3 terrainLayeredAlbedo(const aster::Material &material, const aster::V
 
 aster::Vec3 patternSamplePosition(const aster::Material &material, const aster::Vec3 world_position,
                                   const aster::Vec3 normal, const double frame_seconds) {
-  const float pattern_id = static_cast<float>(static_cast<int>(material.surface_pattern));
+  const float pattern_id = static_cast<float>(
+      aster::materialSurfaceProfileId(aster::resolveMaterialSurfaceProfile(material)));
   const float scale = std::max(material.detail_scale, 0.001f);
   return world_position * scale + normal * 0.73f +
          aster::Vec3{pattern_id * 0.17f, pattern_id * 0.31f,
@@ -244,7 +244,7 @@ aster::Vec3 structuredStoneAlbedo(const aster::Material &material, const aster::
   return mixVec(block, material.base_color * 0.36f, line * 0.70f);
 }
 
-aster::Vec3 caveRockAlbedo(const aster::Material &material, const aster::Vec3 world_position,
+aster::Vec3 stratifiedRockAlbedo(const aster::Material &material, const aster::Vec3 world_position,
                            const aster::Vec3 normal) {
   const float strata =
       0.5f + 0.5f * std::sin((world_position.y * material.pattern_scale.y +
@@ -264,7 +264,7 @@ aster::Vec3 caveRockAlbedo(const aster::Material &material, const aster::Vec3 wo
   return aster::clamp(albedo * (0.82f + fine * 0.22f), 0.0f, 4.0f);
 }
 
-aster::Vec3 coalVeinAlbedo(const aster::Material &material, const aster::Vec3 world_position,
+aster::Vec3 mineralVeinAlbedo(const aster::Material &material, const aster::Vec3 world_position,
                            const aster::Vec3 normal) {
   const float vein_a = ridge(projectedFbm(material, world_position, normal, 0.32f, 71.0f));
   const float vein_b =
@@ -291,7 +291,7 @@ aster::Vec3 organicFiberAlbedo(const aster::Material &material, const aster::Vec
   return mixVec(dark, light, strand_mask * (0.56f + material.pattern_contrast * 0.28f));
 }
 
-aster::Vec3 caveWebAlbedo(const aster::Material &material, const aster::Vec3 world_position,
+aster::Vec3 filamentWebAlbedo(const aster::Material &material, const aster::Vec3 world_position,
                           const aster::Vec3 normal, const aster::Vec2 uv) {
   const float along = uv.x * std::max(material.pattern_scale.y, 0.001f);
   const float across = std::abs(uv.y - 0.5f) * 2.0f;
@@ -309,14 +309,14 @@ aster::Vec3 caveWebAlbedo(const aster::Material &material, const aster::Vec3 wor
                       0.0f, 4.0f);
 }
 
-aster::Vec3 caveSkitterEyeAlbedo(const aster::Material &material,
-                                 const aster::Vec3 world_position, const aster::Vec3 normal);
+aster::Vec3 emissiveLensAlbedo(const aster::Material &material,
+                               const aster::Vec3 world_position, const aster::Vec3 normal);
 
-aster::Vec3 caveSkitterChitinAlbedo(const aster::Material &material,
-                                    const aster::Vec3 world_position, const aster::Vec3 normal,
-                                    const aster::Vec2 uv) {
+aster::Vec3 chitinShellAlbedo(const aster::Material &material,
+                              const aster::Vec3 world_position, const aster::Vec3 normal,
+                              const aster::Vec2 uv) {
   if (uv.x > 0.90f && uv.y < 0.28f) {
-    return caveSkitterEyeAlbedo(material, world_position, normal);
+    return emissiveLensAlbedo(material, world_position, normal);
   }
   const float texel_x = std::floor(uv.x * std::max(material.pattern_scale.x, 1.0f));
   const float texel_y = std::floor(uv.y * std::max(material.pattern_scale.y, 1.0f));
@@ -342,8 +342,8 @@ aster::Vec3 caveSkitterChitinAlbedo(const aster::Material &material,
   return aster::clamp(albedo, 0.0f, 4.0f);
 }
 
-aster::Vec3 caveSkitterEyeAlbedo(const aster::Material &material,
-                                 const aster::Vec3 world_position, const aster::Vec3 normal) {
+aster::Vec3 emissiveLensAlbedo(const aster::Material &material,
+                               const aster::Vec3 world_position, const aster::Vec3 normal) {
   const float wet = smoothstep(0.45f, 0.96f,
                                projectedFbm(material, world_position, normal, 1.9f, 283.0f));
   return aster::clamp(material.base_color * (0.62f + wet * 0.44f) +
@@ -396,8 +396,8 @@ aster::Vec3 amberAlbedo(const aster::Material &material, const aster::Vec3 world
          material.emission_color * (0.08f + smoothstep(0.70f, 0.98f, streak) * 0.16f);
 }
 
-aster::Vec3 weatheredMetalAlbedo(const aster::Material &material, const aster::Vec3 world_position,
-                                 const aster::Vec3 normal) {
+aster::Vec3 corrodedMetalAlbedo(const aster::Material &material, const aster::Vec3 world_position,
+                                const aster::Vec3 normal) {
   const float detail = std::max(material.detail_scale, 0.001f);
   const float broad = projectedFbm(material, world_position, normal, 0.16f, 307.0f);
   const float fine = projectedFbm(material, world_position + normal * 0.05f, normal, 0.74f, 331.0f);
@@ -521,12 +521,13 @@ aster::Vec3 applyProceduralLayer(const aster::Material &material, const aster::V
 
 aster::Vec3 proceduralSurfaceNormal(const aster::Material &material,
                                     const aster::Vec3 world_position, const aster::Vec3 normal) {
-  if (material.surface_pattern == aster::SurfacePattern::ContactShadow ||
-      material.surface_pattern == aster::SurfacePattern::WaterSurface) {
+  const aster::MaterialSurfaceProfile profile = aster::resolveMaterialSurfaceProfile(material);
+  if (profile == aster::MaterialSurfaceProfile::ContactShadow ||
+      profile == aster::MaterialSurfaceProfile::Liquid) {
     return normal;
   }
 
-  const float terrain_gain = isTerrainPattern(material.surface_pattern) ? 0.44f : 0.28f;
+  const float terrain_gain = isTerrainProfile(profile) ? 0.44f : 0.28f;
   const float inferred_strength = material.detail_strength * terrain_gain;
   const float explicit_strength = std::max(material.procedural.micro_normal_strength, 0.0f);
   const float strength = std::clamp(std::max(inferred_strength, explicit_strength), 0.0f, 1.20f);
@@ -536,10 +537,10 @@ aster::Vec3 proceduralSurfaceNormal(const aster::Material &material,
 
   const float detail = std::max(material.detail_scale, 0.001f);
   const float macro_gain = 1.0f + std::max(material.procedural.macro_variation, 0.0f) * 0.34f;
+  const float profile_id = static_cast<float>(aster::materialSurfaceProfileId(profile));
   const aster::Vec3 p =
       world_position * (0.55f * detail * macro_gain) +
-      aster::Vec3{static_cast<float>(static_cast<int>(material.surface_pattern)) * 0.23f, 0.0f,
-                  static_cast<float>(static_cast<int>(material.surface_pattern)) * 0.41f};
+      aster::Vec3{profile_id * 0.23f, 0.0f, profile_id * 0.41f};
   const aster::Vec3 bump{valueNoise(p + aster::Vec3{11.1f, 2.3f, 0.7f}) - 0.5f,
                          (valueNoise(p + aster::Vec3{5.7f, 13.1f, 3.2f}) - 0.5f) * 0.35f,
                          valueNoise(p + aster::Vec3{2.9f, 7.4f, 17.6f}) - 0.5f};
@@ -550,59 +551,63 @@ aster::Vec3 proceduralSurfaceNormal(const aster::Material &material,
 aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 world_position,
                            const aster::Vec3 normal, const aster::Vec2 uv,
                            const double frame_seconds) {
-  if (material.surface_pattern == aster::SurfacePattern::ContactShadow) {
+  const aster::MaterialSurfaceProfile profile = aster::resolveMaterialSurfaceProfile(material);
+  if (profile == aster::MaterialSurfaceProfile::ContactShadow) {
     return {0.0f, 0.0f, 0.0f};
   }
 
-  const float pattern_id = static_cast<float>(static_cast<int>(material.surface_pattern));
+  const float pattern_id = static_cast<float>(aster::materialSurfaceProfileId(profile));
   const aster::Vec3 sample_position =
       patternSamplePosition(material, world_position, normal, frame_seconds);
   const float broad = valueNoise(sample_position * 0.37f);
   const float fine = valueNoise(sample_position * 1.91f);
   const float procedural_weight =
-      material.surface_pattern == aster::SurfacePattern::None
+      profile == aster::MaterialSurfaceProfile::Plain
           ? saturate(material.detail_strength + material.procedural.macro_variation * 0.22f)
           : saturate(0.16f + material.detail_strength + material.pattern_contrast * 0.55f +
                      std::abs(material.pattern_depth) * 1.35f +
                      material.procedural.macro_variation * 0.24f);
-  if (isTerrainPattern(material.surface_pattern)) {
+  if (isTerrainProfile(profile)) {
     return applyProceduralLayer(material, world_position, normal,
                                 terrainLayeredAlbedo(material, world_position, normal));
   }
-  switch (material.surface_pattern) {
-  case aster::SurfacePattern::CourseCells:
-  case aster::SurfacePattern::WeatheredStone:
+  switch (profile) {
+  case aster::MaterialSurfaceProfile::Masonry:
     return applyProceduralLayer(
         material, world_position, normal,
         aster::clamp(structuredStoneAlbedo(material, world_position, normal), 0.0f, 4.0f));
-  case aster::SurfacePattern::CaveRock:
+  case aster::MaterialSurfaceProfile::StratifiedRock:
     return applyProceduralLayer(material, world_position, normal,
-                                caveRockAlbedo(material, world_position, normal));
-  case aster::SurfacePattern::CoalVein:
+                                stratifiedRockAlbedo(material, world_position, normal));
+  case aster::MaterialSurfaceProfile::MineralVein:
     return applyProceduralLayer(material, world_position, normal,
-                                coalVeinAlbedo(material, world_position, normal));
-  case aster::SurfacePattern::WaterSurface:
+                                mineralVeinAlbedo(material, world_position, normal));
+  case aster::MaterialSurfaceProfile::Liquid:
     return applyProceduralLayer(material, world_position, normal,
                                 liquidAlbedo(material, world_position, uv, frame_seconds));
-  case aster::SurfacePattern::FurFibers:
-  case aster::SurfacePattern::FiberStrands:
-    return aster::clamp(
-        organicFiberAlbedo(material, world_position, normal, uv, pattern_id + 151.0f), 0.0f, 4.0f);
-  case aster::SurfacePattern::CaveWeb:
+  case aster::MaterialSurfaceProfile::OrganicFiber: {
+    const aster::Vec3 fiber =
+        organicFiberAlbedo(material, world_position, normal, uv, pattern_id + 151.0f);
+    const aster::Vec3 twig_tint = material.surface_pattern == aster::SurfacePattern::TwigNest
+                                      ? aster::Vec3{0.90f, 0.78f, 0.58f}
+                                      : aster::Vec3{1.0f, 1.0f, 1.0f};
+    return aster::clamp(fiber * twig_tint, 0.0f, 4.0f);
+  }
+  case aster::MaterialSurfaceProfile::FilamentWeb:
     return applyProceduralLayer(material, world_position, normal,
-                                caveWebAlbedo(material, world_position, normal, uv));
-  case aster::SurfacePattern::CaveSkitterChitin:
+                                filamentWebAlbedo(material, world_position, normal, uv));
+  case aster::MaterialSurfaceProfile::ChitinShell:
     return applyProceduralLayer(material, world_position, normal,
-                                caveSkitterChitinAlbedo(material, world_position, normal, uv));
-  case aster::SurfacePattern::CaveSkitterEye:
-    return caveSkitterEyeAlbedo(material, world_position, normal);
-  case aster::SurfacePattern::Foliage:
+                                chitinShellAlbedo(material, world_position, normal, uv));
+  case aster::MaterialSurfaceProfile::EmissiveLens:
+    return emissiveLensAlbedo(material, world_position, normal);
+  case aster::MaterialSurfaceProfile::Foliage:
     return applyProceduralLayer(
         material, world_position, normal,
         aster::clamp(foliageAlbedo(material, world_position, normal, uv), 0.0f, 4.0f));
-  case aster::SurfacePattern::AmberResin:
+  case aster::MaterialSurfaceProfile::Resin:
     return aster::clamp(amberAlbedo(material, world_position, normal), 0.0f, 4.0f);
-  case aster::SurfacePattern::PaintedWood: {
+  case aster::MaterialSurfaceProfile::PaintedWood: {
     const float grain = ridge(projectedFbm(material, world_position, normal, 0.52f, 167.0f));
     const float rings =
         0.5f + 0.5f * std::sin((world_position.y * material.pattern_scale.y +
@@ -613,7 +618,7 @@ aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 wo
     const aster::Vec3 warm = material.base_color * aster::Vec3{1.18f, 0.96f, 0.68f};
     return aster::clamp(mixVec(dark, warm, smoothstep(0.18f, 0.92f, rings)), 0.0f, 4.0f);
   }
-  case aster::SurfacePattern::FeatherVanes: {
+  case aster::MaterialSurfaceProfile::Feather: {
     const float central = 1.0f - smoothstep(0.025f, 0.18f, std::abs(uv.x - 0.5f));
     const float barb =
         0.5f + 0.5f * std::sin((uv.y * material.pattern_scale.y + uv.x * 3.0f) * kTau);
@@ -621,8 +626,7 @@ aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 wo
                                  smoothstep(0.26f, 0.88f, barb));
     return aster::clamp(mixVec(feather, feather * 1.35f, central * 0.34f), 0.0f, 4.0f);
   }
-  case aster::SurfacePattern::IridescentScales:
-  case aster::SurfacePattern::ReptileScales: {
+  case aster::MaterialSurfaceProfile::Scales: {
     const aster::Vec2 scaled{uv.x * std::max(material.pattern_scale.x, 0.001f),
                              uv.y * std::max(material.pattern_scale.y, 0.001f)};
     const aster::Vec2 cell{fractValue(scaled.x), fractValue(scaled.y)};
@@ -633,22 +637,16 @@ aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 wo
                material.base_color * aster::Vec3{1.22f, 1.02f, 0.68f}, hue_shift);
     return aster::clamp(mixVec(material.base_color * 0.62f, scale_color, shell), 0.0f, 4.0f);
   }
-  case aster::SurfacePattern::TwigNest:
-    return aster::clamp(organicFiberAlbedo(material, world_position, normal, uv, 193.0f) *
-                            aster::Vec3{0.90f, 0.78f, 0.58f},
-                        0.0f, 4.0f);
-  case aster::SurfacePattern::WeatheredMetal:
+  case aster::MaterialSurfaceProfile::CorrodedMetal:
     return applyProceduralLayer(material, world_position, normal,
-                                weatheredMetalAlbedo(material, world_position, normal));
-  case aster::SurfacePattern::WeldBead:
+                                corrodedMetalAlbedo(material, world_position, normal));
+  case aster::MaterialSurfaceProfile::WeldBead:
     return applyProceduralLayer(material, world_position, normal,
                                 weldBeadAlbedo(material, world_position, normal, uv));
-  case aster::SurfacePattern::None:
-  case aster::SurfacePattern::GrassSoil:
-  case aster::SurfacePattern::SoilPath:
-  case aster::SurfacePattern::TerrainBlend:
-  case aster::SurfacePattern::LayeredTerrain:
-  case aster::SurfacePattern::ContactShadow:
+  case aster::MaterialSurfaceProfile::Auto:
+  case aster::MaterialSurfaceProfile::Plain:
+  case aster::MaterialSurfaceProfile::TerrainLayer:
+  case aster::MaterialSurfaceProfile::ContactShadow:
     break;
   }
   const float uv_wave = std::sin((uv.x * std::max(material.pattern_scale.x, 0.001f) +
@@ -726,7 +724,9 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
     }
   }
 
-  for (const aster::Light &light : settings.light_rig) {
+  const std::vector<aster::Light> selected_lights =
+      aster::selectRenderLights(settings.light_rig, world_position, settings.light_policy);
+  for (const aster::Light &light : selected_lights) {
     const aster::Vec3 light_vector = light.position - world_position;
     const float distance_sq = std::max(aster::dot(light_vector, light_vector), 0.0001f);
     const aster::Vec3 light_dir = aster::normalize(light_vector);
@@ -806,7 +806,8 @@ aster::FaceCullMode objectCullMode(const aster::RenderObject &object,
 }
 
 bool isContactShadowUtility(const aster::RenderObject &object) {
-  return object.material.surface_pattern == aster::SurfacePattern::ContactShadow;
+  return aster::resolveMaterialSurfaceProfile(object.material) ==
+         aster::MaterialSurfaceProfile::ContactShadow;
 }
 
 LocalBounds primitiveLocalBounds(const aster::MeshPrimitive primitive) {
@@ -928,6 +929,7 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
   shadow.material.roughness = 1.0f;
   shadow.material.opacity = std::clamp(
       grounding.contact_shadow_strength * object.contact_shadow_strength * fade, 0.0f, 0.85f);
+  shadow.material.surface_profile = aster::MaterialSurfaceProfile::ContactShadow;
   shadow.material.surface_pattern = aster::SurfacePattern::ContactShadow;
   shadow.material.alpha_mode = aster::MaterialAlphaMode::Blend;
   shadow.material.depth_write = aster::MaterialDepthWrite::Disabled;
@@ -1071,6 +1073,52 @@ std::string_view renderBackendKindName(const RenderBackendKind kind) {
     return "unknown";
   }
   return "unknown";
+}
+
+LightRig defaultLightRig() {
+  return {
+      Light{{-5.8f, 7.2f, 3.8f}, {29.0f, 27.0f, 23.0f}, 1.0f},
+      Light{{4.7f, 3.6f, 2.0f}, {11.0f, 12.0f, 13.5f}, 1.0f},
+      Light{{0.2f, 3.8f, -8.8f}, {14.0f, 10.5f, 7.8f}, 1.0f},
+      Light{{0.0f, 2.0f, 4.8f}, {7.0f, 6.7f, 7.2f}, 1.0f},
+  };
+}
+
+std::vector<Light> selectRenderLights(const LightRig &lights, const Vec3 reference_position,
+                                      const RenderLightPolicy &policy) {
+  std::vector<Light> active;
+  active.reserve(lights.size());
+  for (const Light &light : lights) {
+    if (light.intensity > policy.min_intensity) {
+      active.push_back(light);
+    }
+  }
+
+  const std::size_t budget =
+      std::min({active.size(), policy.max_point_lights, kRenderLightUniformCapacity});
+  if (active.size() <= budget) {
+    return active;
+  }
+  if (budget == 0u) {
+    active.clear();
+    return active;
+  }
+  if (policy.distance_weighted) {
+    const auto score = [reference_position](const Light &light) {
+      const Vec3 delta = light.position - reference_position;
+      const float distance_sq =
+          std::max(dot(delta, delta), light.source_radius * light.source_radius + 0.0001f);
+      const float energy =
+          light.color.x * 0.2126f + light.color.y * 0.7152f + light.color.z * 0.0722f;
+      return std::max(energy, 0.0f) * std::max(light.intensity, 0.0f) / distance_sq;
+    };
+    std::partial_sort(active.begin(), active.begin() + static_cast<std::ptrdiff_t>(budget),
+                      active.end(), [&](const Light &lhs, const Light &rhs) {
+                        return score(lhs) > score(rhs);
+                      });
+  }
+  active.resize(budget);
+  return active;
 }
 
 namespace {

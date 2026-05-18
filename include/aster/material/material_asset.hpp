@@ -82,6 +82,7 @@ struct MaterialAsset {
   std::string id;
   std::string name;
   MaterialShadingModel shading_model = MaterialShadingModel::LitPBR;
+  MaterialSurfaceProfile surface_profile = MaterialSurfaceProfile::Auto;
   MaterialBlendMode blend_mode = MaterialBlendMode::Opaque;
   MaterialAssetCullMode cull_mode = MaterialAssetCullMode::Back;
   bool receives_decals = false;

@@ -117,12 +117,12 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
   settings.atmosphere.fog_start = 8.0f;
   settings.atmosphere.fog_end = 18.0f;
   settings.atmosphere.fog_strength = 0.10f;
-  settings.light_rig = {{
+  settings.light_rig = {
       aster::Light{{-3.6f, 3.8f, 2.6f}, {16.0f, 13.5f, 10.0f}, 1.0f, 0.7f},
       aster::Light{{3.6f, 2.2f, 1.8f}, {5.0f, 6.8f, 9.5f}, 1.0f, 0.9f},
       aster::Light{{0.8f, 3.4f, -3.4f}, {7.5f, 6.4f, 5.0f}, 1.0f, 1.1f},
       aster::Light{{0.0f, 1.0f, 3.4f}, {1.8f, 2.1f, 2.5f}, 1.0f, 1.2f},
-  }};
+  };
 
   if (scene_name == "architecture") {
     settings.exposure = 1.16f;

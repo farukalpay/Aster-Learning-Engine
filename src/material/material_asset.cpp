@@ -50,6 +50,78 @@ std::string readTextFile(const std::filesystem::path &path) {
   return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
 
+std::string normalizedName(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  std::replace(value.begin(), value.end(), '_', '-');
+  return value;
+}
+
+std::optional<MaterialSurfaceProfile> surfaceProfileForName(const std::string &raw_value) {
+  const std::string value = normalizedName(raw_value);
+  if (value == "auto") {
+    return MaterialSurfaceProfile::Auto;
+  }
+  if (value == "plain" || value == "none") {
+    return MaterialSurfaceProfile::Plain;
+  }
+  if (value == "masonry" || value == "course-cells" || value == "weathered-stone") {
+    return MaterialSurfaceProfile::Masonry;
+  }
+  if (value == "organic-fiber" || value == "fiber-strands" || value == "fur-fibers" ||
+      value == "twig-nest") {
+    return MaterialSurfaceProfile::OrganicFiber;
+  }
+  if (value == "terrain-layer" || value == "grass-soil" || value == "soil-path" ||
+      value == "terrain-blend" || value == "layered-terrain") {
+    return MaterialSurfaceProfile::TerrainLayer;
+  }
+  if (value == "liquid" || value == "water-surface") {
+    return MaterialSurfaceProfile::Liquid;
+  }
+  if (value == "foliage") {
+    return MaterialSurfaceProfile::Foliage;
+  }
+  if (value == "resin" || value == "amber-resin") {
+    return MaterialSurfaceProfile::Resin;
+  }
+  if (value == "painted-wood" || value == "wood") {
+    return MaterialSurfaceProfile::PaintedWood;
+  }
+  if (value == "feather" || value == "feather-vanes") {
+    return MaterialSurfaceProfile::Feather;
+  }
+  if (value == "scales" || value == "iridescent-scales" || value == "reptile-scales") {
+    return MaterialSurfaceProfile::Scales;
+  }
+  if (value == "stratified-rock" || value == "cave-rock" || value == "rock") {
+    return MaterialSurfaceProfile::StratifiedRock;
+  }
+  if (value == "mineral-vein" || value == "coal-vein" || value == "ore-vein") {
+    return MaterialSurfaceProfile::MineralVein;
+  }
+  if (value == "contact-shadow") {
+    return MaterialSurfaceProfile::ContactShadow;
+  }
+  if (value == "filament-web" || value == "cave-web" || value == "web") {
+    return MaterialSurfaceProfile::FilamentWeb;
+  }
+  if (value == "chitin-shell" || value == "cave-skitter-chitin" || value == "chitin") {
+    return MaterialSurfaceProfile::ChitinShell;
+  }
+  if (value == "emissive-lens" || value == "cave-skitter-eye" || value == "glowing-eye") {
+    return MaterialSurfaceProfile::EmissiveLens;
+  }
+  if (value == "corroded-metal" || value == "weathered-metal" || value == "rusted-metal") {
+    return MaterialSurfaceProfile::CorrodedMetal;
+  }
+  if (value == "weld-bead" || value == "weld") {
+    return MaterialSurfaceProfile::WeldBead;
+  }
+  return std::nullopt;
+}
+
 class Lexer {
 public:
   Lexer(std::string_view source, std::filesystem::path path,
@@ -373,6 +445,13 @@ private:
       } else {
         addError(field, "unknown shading_model '" + value + "'");
       }
+    } else if (field.text == "surface_profile") {
+      const std::optional<MaterialSurfaceProfile> profile = surfaceProfileForName(value);
+      if (profile.has_value()) {
+        asset.surface_profile = *profile;
+      } else {
+        addError(field, "unknown surface_profile '" + value + "'");
+      }
     } else if (field.text == "blend_mode") {
       if (value == "Opaque" || value == "opaque") {
         asset.blend_mode = MaterialBlendMode::Opaque;
@@ -695,8 +774,10 @@ Material resolveMaterialAssetFallback(const MaterialAsset &asset) {
   desc.pattern_depth = paramOr(asset, "pattern_depth", desc.procedural.height_shading);
   desc.pattern_contrast = paramOr(asset, "pattern_contrast", 0.0f);
   desc.pattern_mortar = paramOr(asset, "pattern_mortar", 0.08f);
-  if (materialFeatureSet(asset).triplanar || asset.id.find("cave") != std::string::npos) {
-    desc.surface_pattern = SurfacePattern::CaveRock;
+  desc.surface_profile = asset.surface_profile;
+  if (desc.surface_profile == MaterialSurfaceProfile::Auto &&
+      (materialFeatureSet(asset).triplanar || materialFeatureSet(asset).height)) {
+    desc.surface_profile = MaterialSurfaceProfile::StratifiedRock;
   }
   desc.double_sided = asset.cull_mode == MaterialAssetCullMode::None;
   switch (asset.cull_mode) {

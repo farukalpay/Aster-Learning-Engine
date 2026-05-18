@@ -91,12 +91,12 @@ aster::RendererSettings previewSettings(const std::string &debug_mode) {
   settings.atmosphere.fog_start = 4.0f;
   settings.atmosphere.fog_end = 10.0f;
   settings.atmosphere.fog_strength = debug_mode == "fog" ? 0.44f : 0.08f;
-  settings.light_rig = {{
+  settings.light_rig = {
       aster::Light{{-2.4f, 2.8f, 2.2f}, {12.0f, 9.5f, 6.0f}, 1.0f, 0.6f},
       aster::Light{{2.6f, 1.4f, 1.8f}, {4.8f, 6.0f, 8.5f}, 1.0f, 0.8f},
       aster::Light{{0.0f, 2.5f, -2.5f}, {5.0f, 4.2f, 3.0f}, 1.0f, 1.0f},
       aster::Light{{0.0f, 0.8f, 2.5f}, {2.0f, 2.1f, 2.4f}, 1.0f, 1.2f},
-  }};
+  };
   return settings;
 }
 

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace aster {
@@ -52,6 +53,28 @@ enum class SurfacePattern {
   CaveSkitterEye,
   WeatheredMetal,
   WeldBead,
+};
+
+enum class MaterialSurfaceProfile : std::uint32_t {
+  Auto = 0,
+  Plain = 1,
+  Masonry = 2,
+  OrganicFiber = 3,
+  TerrainLayer = 4,
+  Liquid = 5,
+  Foliage = 6,
+  Resin = 7,
+  PaintedWood = 8,
+  Feather = 9,
+  Scales = 10,
+  StratifiedRock = 11,
+  MineralVein = 12,
+  ContactShadow = 13,
+  FilamentWeb = 14,
+  ChitinShell = 15,
+  EmissiveLens = 16,
+  CorrodedMetal = 17,
+  WeldBead = 18,
 };
 
 enum class FaceCullMode {
@@ -162,6 +185,7 @@ struct Material {
   float detail_scale = 1.0f;
   float edge_wear = 0.0f;
   float ambient_occlusion = 1.0f;
+  MaterialSurfaceProfile surface_profile = MaterialSurfaceProfile::Auto;
   SurfacePattern surface_pattern = SurfacePattern::None;
   Vec2 pattern_scale{1.0f, 1.0f};
   float pattern_depth = 0.0f;
@@ -190,6 +214,7 @@ struct MaterialDesc {
   float detail_scale = 1.0f;
   float edge_wear = 0.0f;
   float ambient_occlusion = 1.0f;
+  MaterialSurfaceProfile surface_profile = MaterialSurfaceProfile::Auto;
   SurfacePattern surface_pattern = SurfacePattern::None;
   Vec2 pattern_scale{1.0f, 1.0f};
   float pattern_depth = 0.0f;
@@ -207,6 +232,10 @@ struct MaterialDesc {
 
 [[nodiscard]] Material makeMaterial(const MaterialDesc &desc);
 [[nodiscard]] Material makeSupportSurfaceMaterial(Material material);
+[[nodiscard]] MaterialSurfaceProfile surfaceProfileForPattern(SurfacePattern pattern);
+[[nodiscard]] MaterialSurfaceProfile resolveMaterialSurfaceProfile(const Material &material);
+[[nodiscard]] std::uint32_t materialSurfaceProfileId(MaterialSurfaceProfile profile);
+[[nodiscard]] std::string_view materialSurfaceProfileName(MaterialSurfaceProfile profile);
 [[nodiscard]] MaterialRenderQueue classifyMaterialRenderQueue(const Material &material);
 [[nodiscard]] bool materialWritesDepth(const Material &material);
 [[nodiscard]] bool allowsCameraOcclusionFade(const Material &material);

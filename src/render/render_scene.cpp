@@ -312,7 +312,8 @@ RenderMaterialKey renderMaterialKeyForObject(const RenderObject &object) {
   const MaterialRenderQueue queue = classifyMaterialRenderQueue(object.material);
   const bool writes_depth = materialWritesDepth(object.material);
   const bool double_sided = isDoubleSidedMaterial(object.material);
-  const bool contact_shadow = object.material.surface_pattern == SurfacePattern::ContactShadow;
+  const bool contact_shadow =
+      resolveMaterialSurfaceProfile(object.material) == MaterialSurfaceProfile::ContactShadow;
   if (object.material.compiled_permutation_key == 0u) {
     appendKey(hash, materialPermutationKey(object.material));
   }
