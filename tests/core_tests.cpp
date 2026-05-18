@@ -62,13 +62,18 @@ void testMat3AndNormalMatrix() {
       aster::mat3FromColumns({2.0f, 0.0f, 0.0f}, {0.0f, 3.0f, 0.0f}, {0.0f, 0.0f, 4.0f});
   expectNear(aster::determinant(basis), 24.0f, 0.0001f);
 
-  const aster::Mat3 round_trip = basis * aster::inverse(basis);
+  const aster::MathResult<aster::Mat3> inv_basis = aster::inverse(basis);
+  assert(inv_basis);
+  const aster::Mat3 round_trip = basis * inv_basis.value;
   const aster::Mat3 identity = aster::identity3();
   for (std::size_t i = 0; i < round_trip.m.size(); ++i) {
     expectNear(round_trip.m[i], identity.m[i], 0.0001f);
   }
 
-  const aster::Mat3 normal_matrix = aster::normalMatrix(aster::scale({2.0f, 4.0f, 0.5f}));
+  const aster::MathResult<aster::Mat3> normal_matrix_result =
+      aster::normalMatrix(aster::scale({2.0f, 4.0f, 0.5f}));
+  assert(normal_matrix_result);
+  const aster::Mat3 normal_matrix = normal_matrix_result.value;
   const aster::Vec3 transformed_normal = normal_matrix * aster::Vec3{0.0f, 4.0f, 0.0f};
   expectNear(transformed_normal.x, 0.0f, 0.0001f);
   expectNear(transformed_normal.y, 1.0f, 0.0001f);
@@ -76,7 +81,7 @@ void testMat3AndNormalMatrix() {
 
   const aster::Mat3 singular =
       aster::mat3FromColumns({1.0f, 0.0f, 0.0f}, {2.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f});
-  assert(!aster::try_inverse(singular).has_value());
+  assert(!aster::inverse(singular));
 }
 
 void testMatrixInverseAndDeterminant() {
@@ -85,7 +90,9 @@ void testMatrixInverseAndDeterminant() {
                                 aster::scale({1.5f, 2.0f, 0.75f});
   expectNear(aster::determinant(transform), 2.25f, 0.0005f);
 
-  const aster::Mat4 round_trip = transform * aster::inverse(transform);
+  const aster::MathResult<aster::Mat4> inv_transform = aster::inverse(transform);
+  assert(inv_transform);
+  const aster::Mat4 round_trip = transform * inv_transform.value;
   const aster::Mat4 identity = aster::identity();
   for (std::size_t i = 0; i < round_trip.m.size(); ++i) {
     expectNear(round_trip.m[i], identity.m[i], 0.001f);
@@ -93,21 +100,16 @@ void testMatrixInverseAndDeterminant() {
 
   const aster::Vec3 point{0.25f, 0.5f, -0.75f};
   const aster::Vec3 restored =
-      aster::transformPoint(aster::inverse(transform), aster::transformPoint(transform, point));
+      aster::transformPoint(inv_transform.value, aster::transformPoint(transform, point));
   expectNear(restored.x, point.x, 0.001f);
   expectNear(restored.y, point.y, 0.001f);
   expectNear(restored.z, point.z, 0.001f);
 
   const aster::Mat4 singular = aster::scale({1.0f, 0.0f, 1.0f});
-  assert(!aster::try_inverse(singular).has_value());
-  assert(!aster::try_normalMatrix(singular).has_value());
-  bool threw = false;
-  try {
-    (void)aster::inverse(singular);
-  } catch (const std::runtime_error &) {
-    threw = true;
-  }
-  assert(threw);
+  const aster::MathResult<aster::Mat4> singular_inverse = aster::inverse(singular);
+  assert(!singular_inverse);
+  assert(singular_inverse.diagnostics.error == aster::MathError::SingularMatrix);
+  assert(!aster::normalMatrix(singular));
 }
 
 void testTransformContract() {
@@ -158,21 +160,27 @@ void testReverseZProjectionAndCamera() {
     return clip.z / clip.w;
   };
 
-  const aster::Mat4 perspective =
+  const aster::MathResult<aster::Mat4> perspective_result =
       aster::perspective(aster::radians(60.0f), 1.0f, near_plane, far_plane);
+  assert(perspective_result);
+  const aster::Mat4 perspective = perspective_result.value;
   expectNear(ndc_z(perspective, {0.0f, 0.0f, -near_plane}), 1.0f, 0.0001f);
   expectNear(ndc_z(perspective, {0.0f, 0.0f, -far_plane}), 0.0f, 0.0001f);
 
   const aster::ProjectionPolicy forward_no{aster::CoordinateHandedness::RightHanded,
                                            aster::ClipDepthRange::NegativeOneToOne,
                                            aster::DepthDirection::ForwardZ};
-  const aster::Mat4 forward_no_perspective =
+  const aster::MathResult<aster::Mat4> forward_no_perspective_result =
       aster::perspective(aster::radians(60.0f), 1.0f, near_plane, far_plane, forward_no);
+  assert(forward_no_perspective_result);
+  const aster::Mat4 forward_no_perspective = forward_no_perspective_result.value;
   expectNear(ndc_z(forward_no_perspective, {0.0f, 0.0f, -near_plane}), -1.0f, 0.0001f);
   expectNear(ndc_z(forward_no_perspective, {0.0f, 0.0f, -far_plane}), 1.0f, 0.0001f);
 
-  const aster::Mat4 ortho =
+  const aster::MathResult<aster::Mat4> ortho_result =
       aster::orthographic(-2.0f, 2.0f, -1.0f, 1.0f, near_plane, far_plane);
+  assert(ortho_result);
+  const aster::Mat4 ortho = ortho_result.value;
   expectNear(ndc_z(ortho, {0.0f, 0.0f, -near_plane}), 1.0f, 0.0001f);
   expectNear(ndc_z(ortho, {0.0f, 0.0f, -far_plane}), 0.0f, 0.0001f);
 
@@ -182,10 +190,18 @@ void testReverseZProjectionAndCamera() {
   camera.near_plane = near_plane;
   camera.far_plane = far_plane;
   const aster::Mat4 view_projection = camera.viewProjectionMatrix(4.0f / 3.0f);
-  const aster::Mat4 clip_to_world = aster::inverse(view_projection);
+  const aster::MathResult<aster::Mat4> clip_to_world_result = aster::inverse(view_projection);
+  assert(clip_to_world_result);
+  const aster::Mat4 clip_to_world = clip_to_world_result.value;
   const aster::Vec3 world{0.2f, -0.1f, 0.0f};
-  const aster::Vec3 window = aster::project(world, view_projection, {}, {800.0f, 600.0f});
-  const aster::Vec3 restored = aster::unproject(window, clip_to_world, {}, {800.0f, 600.0f});
+  const aster::MathResult<aster::Vec3> window_result =
+      aster::project(world, view_projection, {}, {800.0f, 600.0f});
+  assert(window_result);
+  const aster::Vec3 window = window_result.value;
+  const aster::MathResult<aster::Vec3> restored_result =
+      aster::unproject(window, clip_to_world, {}, {800.0f, 600.0f});
+  assert(restored_result);
+  const aster::Vec3 restored = restored_result.value;
   expectNear(restored.x, world.x, 0.001f);
   expectNear(restored.y, world.y, 0.001f);
   expectNear(restored.z, world.z, 0.001f);

@@ -4,6 +4,9 @@
 #include "aster/kernel/abi.h"
 
 #include "aster/core/config.hpp"
+#include "aster/math/geometry.hpp"
+#include "aster/math/quat.hpp"
+#include "aster/math/transform.hpp"
 #include "aster/platform/window.hpp"
 #include "aster/render/frame_capture.hpp"
 #include "aster/render/mesh.hpp"
@@ -166,6 +169,115 @@ template <typename Handle> AsterStatus destroyHandle(Handle handle, const std::u
 
 aster::Vec3 vec(const AsterVec3 value) {
   return {value.x, value.y, value.z};
+}
+
+aster::Vec2 vec(const AsterVec2 value) {
+  return {value.x, value.y};
+}
+
+AsterVec3 abiVec(const aster::Vec3 value) {
+  return {value.x, value.y, value.z};
+}
+
+aster::Quat quat(const AsterQuat value) {
+  return {value.x, value.y, value.z, value.w};
+}
+
+AsterQuat abiQuat(const aster::Quat value) {
+  return {value.x, value.y, value.z, value.w};
+}
+
+aster::Mat4 mat4(const AsterMat4 &value) {
+  aster::Mat4 out{};
+  for (std::size_t index = 0; index < out.m.size(); ++index) {
+    out.m[index] = value.m[index];
+  }
+  return out;
+}
+
+AsterMat4 abiMat4(const aster::Mat4 &value) {
+  AsterMat4 out{};
+  for (std::size_t index = 0; index < value.m.size(); ++index) {
+    out.m[index] = value.m[index];
+  }
+  return out;
+}
+
+aster::MathPolicy mathPolicy(const AsterMathPolicy *policy) {
+  if (policy == nullptr || policy->size < sizeof(AsterMathPolicy) ||
+      policy->version != ASTER_KERNEL_STRUCT_VERSION_1) {
+    return aster::defaultMathPolicy();
+  }
+  return {.absolute_epsilon = policy->absolute_epsilon > 0.0f ? policy->absolute_epsilon : 0.000001f,
+          .relative_epsilon = policy->relative_epsilon > 0.0f ? policy->relative_epsilon : 0.00001f,
+          .max_iterations = policy->max_iterations,
+          .deterministic = policy->deterministic != 0u,
+          .debug_strict = policy->debug_strict != 0u};
+}
+
+AsterMathError abiMathError(const aster::MathError error) {
+  switch (error) {
+  case aster::MathError::InvalidArgument:
+    return ASTER_MATH_ERROR_INVALID_ARGUMENT;
+  case aster::MathError::NonFiniteInput:
+    return ASTER_MATH_ERROR_NON_FINITE_INPUT;
+  case aster::MathError::DegenerateInput:
+    return ASTER_MATH_ERROR_DEGENERATE_INPUT;
+  case aster::MathError::SingularMatrix:
+    return ASTER_MATH_ERROR_SINGULAR_MATRIX;
+  case aster::MathError::UnsupportedPolicy:
+    return ASTER_MATH_ERROR_UNSUPPORTED_POLICY;
+  case aster::MathError::None:
+  default:
+    return ASTER_MATH_ERROR_NONE;
+  }
+}
+
+void writeMathDiagnostics(AsterMathDiagnostics *out, const aster::MathDiagnostics &diagnostics) {
+  if (out == nullptr) {
+    return;
+  }
+  out->size = sizeof(AsterMathDiagnostics);
+  out->version = ASTER_KERNEL_STRUCT_VERSION_1;
+  out->error = abiMathError(diagnostics.error);
+  out->determinant = diagnostics.determinant;
+  out->condition_hint = diagnostics.condition_hint;
+  out->message = diagnostics.message == nullptr ? "" : diagnostics.message;
+}
+
+void writeMathOk(AsterMathDiagnostics *out) {
+  writeMathDiagnostics(out, {});
+}
+
+AsterStatus statusFromMath(const aster::MathDiagnostics &diagnostics) {
+  switch (diagnostics.error) {
+  case aster::MathError::InvalidArgument:
+  case aster::MathError::NonFiniteInput:
+  case aster::MathError::DegenerateInput:
+  case aster::MathError::SingularMatrix:
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      diagnostics.message == nullptr ? "math operation failed" : diagnostics.message);
+  case aster::MathError::UnsupportedPolicy:
+    return makeStatus(ASTER_STATUS_UNSUPPORTED,
+                      diagnostics.message == nullptr ? "math policy is unsupported" : diagnostics.message);
+  case aster::MathError::None:
+  default:
+    return aster_kernel_status_ok();
+  }
+}
+
+aster::ProjectionPolicy projectionPolicy(const AsterMathCoordinateHandedness handedness,
+                                         const AsterMathClipDepthRange depth_range,
+                                         const AsterMathDepthDirection depth_direction) {
+  return {.handedness = handedness == ASTER_MATH_COORDINATE_LEFT_HANDED
+                            ? aster::CoordinateHandedness::LeftHanded
+                            : aster::CoordinateHandedness::RightHanded,
+          .depth_range = depth_range == ASTER_MATH_CLIP_DEPTH_NEGATIVE_ONE_TO_ONE
+                             ? aster::ClipDepthRange::NegativeOneToOne
+                             : aster::ClipDepthRange::ZeroToOne,
+          .depth_direction = depth_direction == ASTER_MATH_DEPTH_FORWARD_Z
+                                 ? aster::DepthDirection::ForwardZ
+                                 : aster::DepthDirection::ReverseZ};
 }
 
 aster::MeshPrimitive meshPrimitive(const AsterKernelMeshPrimitive primitive) {
@@ -440,6 +552,323 @@ AsterStatus aster_kernel_status_from_code(const AsterStatusCode code) {
   default:
     return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "internal error");
   }
+}
+
+AsterMathPolicy aster_kernel_math_default_policy(void) {
+  const aster::MathPolicy policy = aster::defaultMathPolicy();
+  return {sizeof(AsterMathPolicy), ASTER_KERNEL_STRUCT_VERSION_1, policy.absolute_epsilon,
+          policy.relative_epsilon, policy.max_iterations, policy.deterministic ? 1u : 0u,
+          policy.debug_strict ? 1u : 0u};
+}
+
+AsterStatus aster_kernel_math_vec3_dot(const AsterVec3 lhs, const AsterVec3 rhs,
+                                       float *out_value) {
+  if (out_value == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_value is null");
+  }
+  *out_value = aster::dot(vec(lhs), vec(rhs));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_vec3_cross(const AsterVec3 lhs, const AsterVec3 rhs,
+                                         AsterVec3 *out_value) {
+  if (out_value == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_value is null");
+  }
+  *out_value = abiVec(aster::cross(vec(lhs), vec(rhs)));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_vec3_length(const AsterVec3 value, float *out_value) {
+  if (out_value == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_value is null");
+  }
+  *out_value = aster::length(vec(value));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_vec3_normalize(const AsterVec3 value,
+                                             const AsterMathPolicy *policy,
+                                             AsterVec3 *out_value,
+                                             AsterMathDiagnostics *out_diagnostics) {
+  if (out_value == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_value is null");
+  }
+  const aster::MathPolicy internal_policy = mathPolicy(policy);
+  const aster::MathResult<aster::Vec3> result =
+      aster::safeNormalize(vec(value), internal_policy.absolute_epsilon);
+  *out_value = abiVec(result.value);
+  writeMathDiagnostics(out_diagnostics, result.diagnostics);
+  return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
+}
+
+AsterStatus aster_kernel_math_mat4_identity(AsterMat4 *out_matrix) {
+  if (out_matrix == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_matrix is null");
+  }
+  *out_matrix = abiMat4(aster::identity());
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_mat4_multiply(const AsterMat4 *lhs, const AsterMat4 *rhs,
+                                            AsterMat4 *out_matrix) {
+  if (lhs == nullptr || rhs == nullptr || out_matrix == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "matrix pointer is null");
+  }
+  *out_matrix = abiMat4(mat4(*lhs) * mat4(*rhs));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_mat4_inverse(const AsterMat4 *matrix,
+                                           const AsterMathPolicy *policy,
+                                           AsterMat4 *out_matrix,
+                                           AsterMathDiagnostics *out_diagnostics) {
+  if (matrix == nullptr || out_matrix == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "matrix pointer is null");
+  }
+  const aster::MathResult<aster::Mat4> result =
+      aster::inverse(mat4(*matrix), mathPolicy(policy));
+  *out_matrix = abiMat4(result.value);
+  writeMathDiagnostics(out_diagnostics, result.diagnostics);
+  return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
+}
+
+AsterStatus aster_kernel_math_mat4_compose_trs(const AsterTransform *transform,
+                                               AsterMat4 *out_matrix) {
+  if (transform == nullptr || out_matrix == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "transform or out_matrix is null");
+  }
+  const aster::Mat4 matrix = aster::translation(vec(transform->position)) *
+                             aster::mat4FromQuat(quat(transform->rotation)) *
+                             aster::scale(vec(transform->scale));
+  *out_matrix = abiMat4(matrix);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_mat4_decompose_trs(
+    const AsterMat4 *matrix, AsterTransform *out_transform, AsterVec3 *out_skew,
+    AsterVec4 *out_perspective, AsterMathDiagnostics *out_diagnostics) {
+  if (matrix == nullptr || out_transform == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "matrix or out_transform is null");
+  }
+  const aster::Mat4 m = mat4(*matrix);
+  const aster::Vec3 translation_value{m.m[12], m.m[13], m.m[14]};
+  aster::Vec3 columns[3] = {{m.m[0], m.m[1], m.m[2]},
+                            {m.m[4], m.m[5], m.m[6]},
+                            {m.m[8], m.m[9], m.m[10]}};
+  const aster::Vec3 scale_value{aster::length(columns[0]), aster::length(columns[1]),
+                                aster::length(columns[2])};
+  if (scale_value.x <= 0.000001f || scale_value.y <= 0.000001f ||
+      scale_value.z <= 0.000001f) {
+    const aster::MathDiagnostics diagnostics{aster::MathError::DegenerateInput, 0.0f, 0.0f,
+                                             "TRS decomposition requires non-zero scale axes."};
+    writeMathDiagnostics(out_diagnostics, diagnostics);
+    return statusFromMath(diagnostics);
+  }
+  columns[0] /= scale_value.x;
+  columns[1] /= scale_value.y;
+  columns[2] /= scale_value.z;
+  const aster::Quat rotation = aster::quatFromMat3(aster::mat3FromColumns(columns[0], columns[1],
+                                                                          columns[2]));
+  out_transform->position = abiVec(translation_value);
+  out_transform->rotation = abiQuat(rotation);
+  out_transform->scale = abiVec(scale_value);
+  if (out_skew != nullptr) {
+    *out_skew = {0.0f, 0.0f, 0.0f};
+  }
+  if (out_perspective != nullptr) {
+    *out_perspective = {0.0f, 0.0f, 0.0f, 1.0f};
+  }
+  writeMathOk(out_diagnostics);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_mat4_perspective(
+    const float vertical_fov_radians, const float aspect_ratio, const float near_plane,
+    const float far_plane, const AsterMathCoordinateHandedness handedness,
+    const AsterMathClipDepthRange depth_range, const AsterMathDepthDirection depth_direction,
+    AsterMat4 *out_matrix, AsterMathDiagnostics *out_diagnostics) {
+  if (out_matrix == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_matrix is null");
+  }
+  const aster::MathResult<aster::Mat4> result = aster::perspective(
+      vertical_fov_radians, aspect_ratio, near_plane, far_plane,
+      projectionPolicy(handedness, depth_range, depth_direction));
+  *out_matrix = abiMat4(result.value);
+  writeMathDiagnostics(out_diagnostics, result.diagnostics);
+  return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
+}
+
+AsterStatus aster_kernel_math_mat4_orthographic(
+    const float left, const float right, const float bottom, const float top,
+    const float near_plane, const float far_plane, const AsterMathCoordinateHandedness handedness,
+    const AsterMathClipDepthRange depth_range, const AsterMathDepthDirection depth_direction,
+    AsterMat4 *out_matrix, AsterMathDiagnostics *out_diagnostics) {
+  if (out_matrix == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_matrix is null");
+  }
+  const aster::MathResult<aster::Mat4> result = aster::orthographic(
+      left, right, bottom, top, near_plane, far_plane,
+      projectionPolicy(handedness, depth_range, depth_direction));
+  *out_matrix = abiMat4(result.value);
+  writeMathDiagnostics(out_diagnostics, result.diagnostics);
+  return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
+}
+
+AsterStatus aster_kernel_math_mat4_look_at(
+    const AsterVec3 eye, const AsterVec3 target, const AsterVec3 up,
+    const AsterMathCoordinateHandedness handedness, AsterMat4 *out_matrix,
+    AsterMathDiagnostics *out_diagnostics) {
+  if (out_matrix == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_matrix is null");
+  }
+  const aster::MathResult<aster::Mat4> result =
+      aster::lookAt(vec(eye), vec(target), vec(up),
+                    handedness == ASTER_MATH_COORDINATE_LEFT_HANDED
+                        ? aster::CoordinateHandedness::LeftHanded
+                        : aster::CoordinateHandedness::RightHanded);
+  *out_matrix = abiMat4(result.value);
+  writeMathDiagnostics(out_diagnostics, result.diagnostics);
+  return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
+}
+
+AsterStatus aster_kernel_math_project(const AsterVec3 point, const AsterMat4 *world_to_clip,
+                                      const AsterVec2 viewport_origin,
+                                      const AsterVec2 viewport_size, AsterVec3 *out_window,
+                                      AsterMathDiagnostics *out_diagnostics) {
+  if (world_to_clip == nullptr || out_window == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "project pointer is null");
+  }
+  const aster::MathResult<aster::Vec3> result =
+      aster::project(vec(point), mat4(*world_to_clip), vec(viewport_origin), vec(viewport_size));
+  *out_window = abiVec(result.value);
+  writeMathDiagnostics(out_diagnostics, result.diagnostics);
+  return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
+}
+
+AsterStatus aster_kernel_math_unproject(const AsterVec3 window, const AsterMat4 *clip_to_world,
+                                        const AsterVec2 viewport_origin,
+                                        const AsterVec2 viewport_size, AsterVec3 *out_point,
+                                        AsterMathDiagnostics *out_diagnostics) {
+  if (clip_to_world == nullptr || out_point == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "unproject pointer is null");
+  }
+  const aster::MathResult<aster::Vec3> result =
+      aster::unproject(vec(window), mat4(*clip_to_world), vec(viewport_origin), vec(viewport_size));
+  *out_point = abiVec(result.value);
+  writeMathDiagnostics(out_diagnostics, result.diagnostics);
+  return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
+}
+
+AsterStatus aster_kernel_math_quat_identity(AsterQuat *out_quat) {
+  if (out_quat == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_quat is null");
+  }
+  *out_quat = abiQuat(aster::identityQuat());
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_quat_axis_angle(const AsterVec3 axis, const float radians,
+                                              AsterQuat *out_quat,
+                                              AsterMathDiagnostics *out_diagnostics) {
+  if (out_quat == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_quat is null");
+  }
+  const aster::MathResult<aster::Quat> result = aster::axisAngleSafe(vec(axis), radians);
+  *out_quat = abiQuat(result.value);
+  writeMathDiagnostics(out_diagnostics, result.diagnostics);
+  return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
+}
+
+AsterStatus aster_kernel_math_quat_slerp(const AsterQuat lhs, const AsterQuat rhs, const float t,
+                                         AsterQuat *out_quat) {
+  if (out_quat == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_quat is null");
+  }
+  *out_quat = abiQuat(aster::slerp(quat(lhs), quat(rhs), t));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_quat_rotate_vec3(const AsterQuat rotation, const AsterVec3 value,
+                                               AsterVec3 *out_value) {
+  if (out_value == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_value is null");
+  }
+  *out_value = abiVec(aster::rotate(quat(rotation), vec(value)));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_quat_inverse(const AsterQuat value, AsterQuat *out_quat,
+                                           AsterMathDiagnostics *out_diagnostics) {
+  if (out_quat == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_quat is null");
+  }
+  const aster::MathResult<aster::Quat> result = aster::inverse(quat(value));
+  *out_quat = abiQuat(result.value);
+  writeMathDiagnostics(out_diagnostics, result.diagnostics);
+  return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
+}
+
+AsterStatus aster_kernel_math_intersect_ray_plane(
+    const AsterRay3 ray, const AsterPlane3 plane, float *out_distance, AsterVec3 *out_point,
+    AsterMathDiagnostics *out_diagnostics) {
+  if (out_distance == nullptr || out_point == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "ray-plane output pointer is null");
+  }
+  const aster::RayHit3 hit =
+      aster::intersectRayPlane(vec(ray.origin), aster::normalize(vec(ray.direction)),
+                               {vec(plane.normal), plane.distance});
+  if (!hit.hit || (ray.max_distance > 0.0f && hit.distance > ray.max_distance)) {
+    const aster::MathDiagnostics diagnostics{aster::MathError::DegenerateInput, 0.0f, 0.0f,
+                                             "Ray does not intersect the plane."};
+    writeMathDiagnostics(out_diagnostics, diagnostics);
+    return statusFromMath(diagnostics);
+  }
+  *out_distance = hit.distance;
+  *out_point = abiVec(hit.point);
+  writeMathOk(out_diagnostics);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_intersect_ray_triangle(
+    const AsterRay3 ray, const AsterVec3 a, const AsterVec3 b, const AsterVec3 c,
+    float *out_distance, AsterVec3 *out_barycentric, AsterMathDiagnostics *out_diagnostics) {
+  if (out_distance == nullptr || out_barycentric == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "ray-triangle output pointer is null");
+  }
+  const aster::RayHit3 hit = aster::intersectRayTriangle(
+      vec(ray.origin), aster::normalize(vec(ray.direction)), vec(a), vec(b), vec(c));
+  if (!hit.hit || (ray.max_distance > 0.0f && hit.distance > ray.max_distance)) {
+    const aster::MathDiagnostics diagnostics{aster::MathError::DegenerateInput, 0.0f, 0.0f,
+                                             "Ray does not intersect the triangle."};
+    writeMathDiagnostics(out_diagnostics, diagnostics);
+    return statusFromMath(diagnostics);
+  }
+  *out_distance = hit.distance;
+  *out_barycentric = {hit.barycentric.u, hit.barycentric.v, hit.barycentric.w};
+  writeMathOk(out_diagnostics);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_math_intersect_ray_sphere(
+    const AsterRay3 ray, const AsterSphere3 sphere, float *out_distance, AsterVec3 *out_point,
+    AsterVec3 *out_normal, AsterMathDiagnostics *out_diagnostics) {
+  if (out_distance == nullptr || out_point == nullptr || out_normal == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "ray-sphere output pointer is null");
+  }
+  const aster::RayHit3 hit = aster::intersectRaySphere(
+      vec(ray.origin), aster::normalize(vec(ray.direction)), {vec(sphere.center), sphere.radius});
+  if (!hit.hit || (ray.max_distance > 0.0f && hit.distance > ray.max_distance)) {
+    const aster::MathDiagnostics diagnostics{aster::MathError::DegenerateInput, 0.0f, 0.0f,
+                                             "Ray does not intersect the sphere."};
+    writeMathDiagnostics(out_diagnostics, diagnostics);
+    return statusFromMath(diagnostics);
+  }
+  *out_distance = hit.distance;
+  *out_point = abiVec(hit.point);
+  *out_normal = abiVec(hit.normal);
+  writeMathOk(out_diagnostics);
+  return aster_kernel_status_ok();
 }
 
 AsterStatus aster_kernel_engine_create(const AsterEngineDesc *desc,

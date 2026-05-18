@@ -487,6 +487,7 @@ if(ASTER_BUILD_TESTS)
   endfunction()
 
   aster_add_test(aster_core_tests tests/core_tests.cpp)
+  aster_add_test(aster_math_tests tests/math_tests.cpp)
   aster_add_test(aster_geometry_tests tests/geometry_tests.cpp)
   add_executable(aster_asset_cache_tests tests/asset_cache_tests.cpp)
   target_link_libraries(aster_asset_cache_tests PRIVATE aster_engine_internal)

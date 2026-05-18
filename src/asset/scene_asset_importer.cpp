@@ -587,8 +587,8 @@ Mat4 nodeMatrix(const Json &node) {
 }
 
 Vec3 transformNormal(const Mat4 &matrix, const Vec3 value) {
-  if (const std::optional<Mat3> normal_matrix = try_normalMatrix(matrix)) {
-    const Vec3 transformed = *normal_matrix * value;
+  if (const MathResult<Mat3> normal_matrix = normalMatrix(matrix)) {
+    const Vec3 transformed = normal_matrix.value * value;
     if (length(transformed) > 0.0001f) {
       return normalize(transformed);
     }

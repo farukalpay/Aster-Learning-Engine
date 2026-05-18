@@ -654,6 +654,101 @@ private:
   AsterRendererHandle handle_ = nullptr;
 };
 
+namespace math {
+
+[[nodiscard]] inline AsterMathPolicy defaultPolicy() noexcept {
+  return aster_kernel_math_default_policy();
+}
+
+[[nodiscard]] inline Result<float> dot(const AsterVec3 lhs, const AsterVec3 rhs) noexcept {
+  float value = 0.0f;
+  const Status status(aster_kernel_math_vec3_dot(lhs, rhs, &value));
+  if (!status) {
+    return Result<float>(status);
+  }
+  return Result<float>(std::move(value));
+}
+
+[[nodiscard]] inline Result<AsterVec3> cross(const AsterVec3 lhs, const AsterVec3 rhs) noexcept {
+  AsterVec3 value{};
+  const Status status(aster_kernel_math_vec3_cross(lhs, rhs, &value));
+  if (!status) {
+    return Result<AsterVec3>(status);
+  }
+  return Result<AsterVec3>(std::move(value));
+}
+
+[[nodiscard]] inline Result<AsterVec3> normalize(
+    const AsterVec3 value, const AsterMathPolicy &policy = defaultPolicy(),
+    AsterMathDiagnostics *diagnostics = nullptr) noexcept {
+  AsterVec3 out{};
+  const Status status(
+      aster_kernel_math_vec3_normalize(value, &policy, &out, diagnostics));
+  if (!status) {
+    return Result<AsterVec3>(status);
+  }
+  return Result<AsterVec3>(std::move(out));
+}
+
+[[nodiscard]] inline Result<AsterMat4> inverse(
+    const AsterMat4 &matrix, const AsterMathPolicy &policy = defaultPolicy(),
+    AsterMathDiagnostics *diagnostics = nullptr) noexcept {
+  AsterMat4 out{};
+  const Status status(aster_kernel_math_mat4_inverse(&matrix, &policy, &out, diagnostics));
+  if (!status) {
+    return Result<AsterMat4>(status);
+  }
+  return Result<AsterMat4>(std::move(out));
+}
+
+[[nodiscard]] inline Result<AsterMat4> composeTrs(const AsterTransform &transform) noexcept {
+  AsterMat4 out{};
+  const Status status(aster_kernel_math_mat4_compose_trs(&transform, &out));
+  if (!status) {
+    return Result<AsterMat4>(status);
+  }
+  return Result<AsterMat4>(std::move(out));
+}
+
+[[nodiscard]] inline Result<AsterMat4> perspective(
+    const float vertical_fov_radians, const float aspect_ratio, const float near_plane,
+    const float far_plane,
+    const AsterMathCoordinateHandedness handedness = ASTER_MATH_COORDINATE_RIGHT_HANDED,
+    const AsterMathClipDepthRange depth_range = ASTER_MATH_CLIP_DEPTH_ZERO_TO_ONE,
+    const AsterMathDepthDirection depth_direction = ASTER_MATH_DEPTH_REVERSE_Z,
+    AsterMathDiagnostics *diagnostics = nullptr) noexcept {
+  AsterMat4 out{};
+  const Status status(aster_kernel_math_mat4_perspective(
+      vertical_fov_radians, aspect_ratio, near_plane, far_plane, handedness, depth_range,
+      depth_direction, &out, diagnostics));
+  if (!status) {
+    return Result<AsterMat4>(status);
+  }
+  return Result<AsterMat4>(std::move(out));
+}
+
+[[nodiscard]] inline Result<AsterQuat> axisAngle(
+    const AsterVec3 axis, const float radians, AsterMathDiagnostics *diagnostics = nullptr) noexcept {
+  AsterQuat out{};
+  const Status status(aster_kernel_math_quat_axis_angle(axis, radians, &out, diagnostics));
+  if (!status) {
+    return Result<AsterQuat>(status);
+  }
+  return Result<AsterQuat>(std::move(out));
+}
+
+[[nodiscard]] inline Result<AsterVec3> rotate(const AsterQuat rotation,
+                                              const AsterVec3 value) noexcept {
+  AsterVec3 out{};
+  const Status status(aster_kernel_math_quat_rotate_vec3(rotation, value, &out));
+  if (!status) {
+    return Result<AsterVec3>(status);
+  }
+  return Result<AsterVec3>(std::move(out));
+}
+
+} // namespace math
+
 [[nodiscard]] inline AsterStringView stringView(const char *text, const size_t size) noexcept {
   return {text, size};
 }

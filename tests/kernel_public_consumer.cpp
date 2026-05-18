@@ -4,11 +4,27 @@
 #include "aster/kernel/api.hpp"
 
 #include <cassert>
+#include <cmath>
 #include <cstring>
 
 int main() {
   const AsterAbiVersion version = aster::kernel::abiVersion();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
+  assert(version.major == 3u);
+
+  const auto normalized = aster::kernel::math::normalize({3.0f, 0.0f, 4.0f});
+  assert(normalized);
+  assert(std::abs(normalized.value().x - 0.6f) < 0.00001f);
+  assert(std::abs(normalized.value().z - 0.8f) < 0.00001f);
+
+  const auto projection =
+      aster::kernel::math::perspective(1.0f, 1.0f, 0.01f, 100.0f);
+  assert(projection);
+
+  const AsterTransform transform{{1.0f, 2.0f, 3.0f}, {0.0f, 0.0f, 0.0f, 1.0f},
+                                 {1.0f, 1.0f, 1.0f}};
+  const auto matrix = aster::kernel::math::composeTrs(transform);
+  assert(matrix);
 
   auto engine = aster::kernel::Engine::create();
   assert(engine);

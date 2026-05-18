@@ -23,8 +23,8 @@
 extern "C" {
 #endif
 
-#define ASTER_KERNEL_ABI_MAJOR 2u
-#define ASTER_KERNEL_ABI_MINOR 2u
+#define ASTER_KERNEL_ABI_MAJOR 3u
+#define ASTER_KERNEL_ABI_MINOR 0u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -188,6 +188,40 @@ typedef enum AsterKernelFrameDiagnosticKind {
   ASTER_KERNEL_FRAME_DIAGNOSTIC_CAPABILITY_MISMATCH = 5
 } AsterKernelFrameDiagnosticKind;
 
+typedef enum AsterMathError {
+  ASTER_MATH_ERROR_NONE = 0,
+  ASTER_MATH_ERROR_INVALID_ARGUMENT = 1,
+  ASTER_MATH_ERROR_NON_FINITE_INPUT = 2,
+  ASTER_MATH_ERROR_DEGENERATE_INPUT = 3,
+  ASTER_MATH_ERROR_SINGULAR_MATRIX = 4,
+  ASTER_MATH_ERROR_UNSUPPORTED_POLICY = 5
+} AsterMathError;
+
+typedef enum AsterMathCoordinateHandedness {
+  ASTER_MATH_COORDINATE_RIGHT_HANDED = 0,
+  ASTER_MATH_COORDINATE_LEFT_HANDED = 1
+} AsterMathCoordinateHandedness;
+
+typedef enum AsterMathClipDepthRange {
+  ASTER_MATH_CLIP_DEPTH_ZERO_TO_ONE = 0,
+  ASTER_MATH_CLIP_DEPTH_NEGATIVE_ONE_TO_ONE = 1
+} AsterMathClipDepthRange;
+
+typedef enum AsterMathDepthDirection {
+  ASTER_MATH_DEPTH_FORWARD_Z = 0,
+  ASTER_MATH_DEPTH_REVERSE_Z = 1
+} AsterMathDepthDirection;
+
+typedef enum AsterMathSemanticSpace {
+  ASTER_MATH_SPACE_UNTYPED = 0,
+  ASTER_MATH_SPACE_LOCAL = 1,
+  ASTER_MATH_SPACE_WORLD = 2,
+  ASTER_MATH_SPACE_VIEW = 3,
+  ASTER_MATH_SPACE_CLIP = 4,
+  ASTER_MATH_SPACE_NDC = 5,
+  ASTER_MATH_SPACE_SCREEN = 6
+} AsterMathSemanticSpace;
+
 enum {
   ASTER_KERNEL_WINDOW_FLAG_HEADLESS = 1u << 0u,
   ASTER_KERNEL_RENDERER_FLAG_FORCE_SOFTWARE = 1u << 0u,
@@ -218,6 +252,101 @@ typedef struct AsterVec4 {
   float z;
   float w;
 } AsterVec4;
+
+typedef struct AsterDVec2 {
+  double x;
+  double y;
+} AsterDVec2;
+
+typedef struct AsterDVec3 {
+  double x;
+  double y;
+  double z;
+} AsterDVec3;
+
+typedef struct AsterDVec4 {
+  double x;
+  double y;
+  double z;
+  double w;
+} AsterDVec4;
+
+typedef struct AsterMat2 {
+  float m[4];
+} AsterMat2;
+
+typedef struct AsterMat3 {
+  float m[9];
+} AsterMat3;
+
+typedef struct AsterMat4 {
+  float m[16];
+} AsterMat4;
+
+typedef struct AsterDMat2 {
+  double m[4];
+} AsterDMat2;
+
+typedef struct AsterDMat3 {
+  double m[9];
+} AsterDMat3;
+
+typedef struct AsterDMat4 {
+  double m[16];
+} AsterDMat4;
+
+typedef struct AsterQuat {
+  float x;
+  float y;
+  float z;
+  float w;
+} AsterQuat;
+
+typedef struct AsterTransform {
+  AsterVec3 position;
+  AsterQuat rotation;
+  AsterVec3 scale;
+} AsterTransform;
+
+typedef struct AsterRay3 {
+  AsterVec3 origin;
+  AsterVec3 direction;
+  float max_distance;
+} AsterRay3;
+
+typedef struct AsterPlane3 {
+  AsterVec3 normal;
+  float distance;
+} AsterPlane3;
+
+typedef struct AsterAabb3 {
+  AsterVec3 min;
+  AsterVec3 max;
+} AsterAabb3;
+
+typedef struct AsterSphere3 {
+  AsterVec3 center;
+  float radius;
+} AsterSphere3;
+
+typedef struct AsterMathPolicy {
+  size_t size;
+  uint32_t version;
+  float absolute_epsilon;
+  float relative_epsilon;
+  uint32_t max_iterations;
+  uint32_t deterministic;
+  uint32_t debug_strict;
+} AsterMathPolicy;
+
+typedef struct AsterMathDiagnostics {
+  size_t size;
+  uint32_t version;
+  AsterMathError error;
+  float determinant;
+  float condition_hint;
+  const char *message;
+} AsterMathDiagnostics;
 
 typedef struct AsterExtent2D {
   uint32_t width;
@@ -458,6 +587,66 @@ typedef struct AsterCaptureDesc {
 ASTER_KERNEL_API AsterAbiVersion aster_kernel_abi_version(void);
 ASTER_KERNEL_API AsterStatus aster_kernel_status_ok(void);
 ASTER_KERNEL_API AsterStatus aster_kernel_status_from_code(AsterStatusCode code);
+
+ASTER_KERNEL_API AsterMathPolicy aster_kernel_math_default_policy(void);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_vec3_dot(AsterVec3 lhs, AsterVec3 rhs,
+                                                        float *out_value);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_vec3_cross(AsterVec3 lhs, AsterVec3 rhs,
+                                                          AsterVec3 *out_value);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_vec3_length(AsterVec3 value, float *out_value);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_math_vec3_normalize(AsterVec3 value, const AsterMathPolicy *policy,
+                                 AsterVec3 *out_value, AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_mat4_identity(AsterMat4 *out_matrix);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_mat4_multiply(const AsterMat4 *lhs,
+                                                             const AsterMat4 *rhs,
+                                                             AsterMat4 *out_matrix);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_mat4_inverse(
+    const AsterMat4 *matrix, const AsterMathPolicy *policy, AsterMat4 *out_matrix,
+    AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_mat4_compose_trs(const AsterTransform *transform,
+                                                                AsterMat4 *out_matrix);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_mat4_decompose_trs(
+    const AsterMat4 *matrix, AsterTransform *out_transform, AsterVec3 *out_skew,
+    AsterVec4 *out_perspective, AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_mat4_perspective(
+    float vertical_fov_radians, float aspect_ratio, float near_plane, float far_plane,
+    AsterMathCoordinateHandedness handedness, AsterMathClipDepthRange depth_range,
+    AsterMathDepthDirection depth_direction, AsterMat4 *out_matrix,
+    AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_mat4_orthographic(
+    float left, float right, float bottom, float top, float near_plane, float far_plane,
+    AsterMathCoordinateHandedness handedness, AsterMathClipDepthRange depth_range,
+    AsterMathDepthDirection depth_direction, AsterMat4 *out_matrix,
+    AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_mat4_look_at(
+    AsterVec3 eye, AsterVec3 target, AsterVec3 up, AsterMathCoordinateHandedness handedness,
+    AsterMat4 *out_matrix, AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_project(
+    AsterVec3 point, const AsterMat4 *world_to_clip, AsterVec2 viewport_origin,
+    AsterVec2 viewport_size, AsterVec3 *out_window, AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_unproject(
+    AsterVec3 window, const AsterMat4 *clip_to_world, AsterVec2 viewport_origin,
+    AsterVec2 viewport_size, AsterVec3 *out_point, AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_quat_identity(AsterQuat *out_quat);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_quat_axis_angle(
+    AsterVec3 axis, float radians, AsterQuat *out_quat, AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_quat_slerp(AsterQuat lhs, AsterQuat rhs, float t,
+                                                          AsterQuat *out_quat);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_quat_rotate_vec3(AsterQuat rotation,
+                                                                AsterVec3 value,
+                                                                AsterVec3 *out_value);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_quat_inverse(
+    AsterQuat value, AsterQuat *out_quat, AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_intersect_ray_plane(
+    AsterRay3 ray, AsterPlane3 plane, float *out_distance, AsterVec3 *out_point,
+    AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_intersect_ray_triangle(
+    AsterRay3 ray, AsterVec3 a, AsterVec3 b, AsterVec3 c, float *out_distance,
+    AsterVec3 *out_barycentric, AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_intersect_ray_sphere(
+    AsterRay3 ray, AsterSphere3 sphere, float *out_distance, AsterVec3 *out_point,
+    AsterVec3 *out_normal, AsterMathDiagnostics *out_diagnostics);
 
 ASTER_KERNEL_API AsterStatus aster_kernel_engine_create(const AsterEngineDesc *desc,
                                                         AsterEngineHandle *out_engine);

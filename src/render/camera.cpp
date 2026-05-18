@@ -51,17 +51,19 @@ float clipFarDepth(const ProjectionPolicy policy) {
 } // namespace
 
 Mat4 Camera::viewMatrix() const {
-  return lookAt(eye, target, up, projection_policy.handedness);
+  const MathResult<Mat4> view = lookAt(eye, target, up, projection_policy.handedness);
+  return view ? view.value : identity();
 }
 
 Mat4 Camera::projectionMatrix(const float aspect_ratio) const {
-  Mat4 out = projection_mode == CameraProjectionMode::Orthographic
-                 ? orthographic(-orthographic_height * aspect_ratio * 0.5f,
-                                orthographic_height * aspect_ratio * 0.5f,
-                                -orthographic_height * 0.5f, orthographic_height * 0.5f,
-                                near_plane, far_plane, projection_policy)
-                 : perspective(vertical_fov, aspect_ratio, near_plane, far_plane,
-                               projection_policy);
+  MathResult<Mat4> projection =
+      projection_mode == CameraProjectionMode::Orthographic
+          ? orthographic(-orthographic_height * aspect_ratio * 0.5f,
+                         orthographic_height * aspect_ratio * 0.5f,
+                         -orthographic_height * 0.5f, orthographic_height * 0.5f, near_plane,
+                         far_plane, projection_policy)
+          : perspective(vertical_fov, aspect_ratio, near_plane, far_plane, projection_policy);
+  Mat4 out = projection ? projection.value : identity();
   if (jitter.x != 0.0f || jitter.y != 0.0f) {
     out.m[8] += jitter.x;
     out.m[9] += jitter.y;
@@ -77,13 +79,16 @@ CameraRay Camera::screenRay(const Vec2 pointer, const Vec2 viewport_size) const 
   const float width = std::max(viewport_size.x, 1.0f);
   const float height = std::max(viewport_size.y, 1.0f);
   const float aspect = width / height;
-  const Mat4 clip_to_world = inverse(viewProjectionMatrix(aspect));
+  const MathResult<Mat4> clip_to_world_result = inverse(viewProjectionMatrix(aspect));
+  const Mat4 clip_to_world = clip_to_world_result ? clip_to_world_result.value : identity();
   const float near_depth = clipNearDepth(projection_policy);
   const float far_depth = clipFarDepth(projection_policy);
-  const Vec3 near_point =
+  const MathResult<Vec3> near_result =
       aster::unproject({pointer.x, pointer.y, near_depth}, clip_to_world, {}, {width, height});
-  const Vec3 far_point =
+  const MathResult<Vec3> far_result =
       aster::unproject({pointer.x, pointer.y, far_depth}, clip_to_world, {}, {width, height});
+  const Vec3 near_point = near_result ? near_result.value : eye;
+  const Vec3 far_point = far_result ? far_result.value : target;
   const Vec3 origin =
       projection_mode == CameraProjectionMode::Perspective ? eye : near_point;
   return {origin, normalize(far_point - near_point)};
@@ -92,7 +97,13 @@ CameraRay Camera::screenRay(const Vec2 pointer, const Vec2 viewport_size) const 
 Vec3 Camera::unproject(const Vec3 window, const Vec2 viewport_size) const {
   const float width = std::max(viewport_size.x, 1.0f);
   const float height = std::max(viewport_size.y, 1.0f);
-  return aster::unproject(window, inverse(viewProjectionMatrix(width / height)), {}, {width, height});
+  const MathResult<Mat4> clip_to_world = inverse(viewProjectionMatrix(width / height));
+  if (!clip_to_world) {
+    return {};
+  }
+  const MathResult<Vec3> result =
+      aster::unproject(window, clip_to_world.value, {}, {width, height});
+  return result ? result.value : Vec3{};
 }
 
 CameraFrustum Camera::frustum(const float aspect_ratio) const {

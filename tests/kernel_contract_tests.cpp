@@ -4,6 +4,7 @@
 #include "aster/kernel/api.hpp"
 
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <cstddef>
 #include <fstream>
@@ -42,6 +43,26 @@ static_assert(std::is_standard_layout_v<AsterFrameForensicsCounts>);
 static_assert(std::is_standard_layout_v<AsterFramePassStats>);
 static_assert(std::is_standard_layout_v<AsterFrameDiagnosticEvent>);
 static_assert(std::is_standard_layout_v<AsterCaptureDesc>);
+static_assert(std::is_standard_layout_v<AsterVec2>);
+static_assert(std::is_standard_layout_v<AsterVec3>);
+static_assert(std::is_standard_layout_v<AsterVec4>);
+static_assert(std::is_standard_layout_v<AsterDVec2>);
+static_assert(std::is_standard_layout_v<AsterDVec3>);
+static_assert(std::is_standard_layout_v<AsterDVec4>);
+static_assert(std::is_standard_layout_v<AsterMat2>);
+static_assert(std::is_standard_layout_v<AsterMat3>);
+static_assert(std::is_standard_layout_v<AsterMat4>);
+static_assert(std::is_standard_layout_v<AsterDMat2>);
+static_assert(std::is_standard_layout_v<AsterDMat3>);
+static_assert(std::is_standard_layout_v<AsterDMat4>);
+static_assert(std::is_standard_layout_v<AsterQuat>);
+static_assert(std::is_standard_layout_v<AsterTransform>);
+static_assert(std::is_standard_layout_v<AsterRay3>);
+static_assert(std::is_standard_layout_v<AsterPlane3>);
+static_assert(std::is_standard_layout_v<AsterAabb3>);
+static_assert(std::is_standard_layout_v<AsterSphere3>);
+static_assert(std::is_standard_layout_v<AsterMathPolicy>);
+static_assert(std::is_standard_layout_v<AsterMathDiagnostics>);
 static_assert(sizeof(AsterStatusCode) == sizeof(std::int32_t));
 static_assert(offsetof(AsterStatus, size) == 0u);
 static_assert(offsetof(AsterStatus, version) > offsetof(AsterStatus, size));
@@ -89,9 +110,9 @@ void testAbiHeaderStaysPlainC() {
 void testStatusAndEngineLifecycle() {
   const AsterAbiVersion version = aster_kernel_abi_version();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
-  assert(version.major == 2u);
+  assert(version.major == 3u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 1u);
+  assert(version.minor == 0u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -113,7 +134,54 @@ void testStatusAndEngineLifecycle() {
   assert(engine == nullptr);
 }
 
-void testRendererAbi2Lifecycle() {
+void testMathAbi3Contracts() {
+  const AsterMathPolicy policy = aster_kernel_math_default_policy();
+  assert(policy.size == sizeof(AsterMathPolicy));
+  assert(policy.version == ASTER_KERNEL_STRUCT_VERSION_1);
+  assert(policy.absolute_epsilon > 0.0f);
+
+  float dot = 0.0f;
+  assert(aster_kernel_math_vec3_dot({1.0f, 2.0f, 3.0f}, {4.0f, 5.0f, 6.0f}, &dot).code ==
+         ASTER_STATUS_OK);
+  assert(std::abs(dot - 32.0f) < 0.00001f);
+
+  AsterMathDiagnostics diagnostics{};
+  AsterVec3 normalized{};
+  assert(aster_kernel_math_vec3_normalize({0.0f, 0.0f, 0.0f}, &policy, &normalized,
+                                          &diagnostics)
+             .code == ASTER_STATUS_INVALID_ARGUMENT);
+  assert(diagnostics.error == ASTER_MATH_ERROR_DEGENERATE_INPUT);
+
+  AsterMat4 identity{};
+  assert(aster_kernel_math_mat4_identity(&identity).code == ASTER_STATUS_OK);
+  AsterMat4 inverse{};
+  diagnostics = {};
+  assert(aster_kernel_math_mat4_inverse(&identity, &policy, &inverse, &diagnostics).code ==
+         ASTER_STATUS_OK);
+  assert(diagnostics.error == ASTER_MATH_ERROR_NONE);
+  assert(std::abs(inverse.m[0] - 1.0f) < 0.00001f);
+  assert(std::abs(inverse.m[5] - 1.0f) < 0.00001f);
+  assert(std::abs(inverse.m[10] - 1.0f) < 0.00001f);
+  assert(std::abs(inverse.m[15] - 1.0f) < 0.00001f);
+
+  AsterMat4 singular{};
+  diagnostics = {};
+  assert(aster_kernel_math_mat4_inverse(&singular, &policy, &inverse, &diagnostics).code ==
+         ASTER_STATUS_INVALID_ARGUMENT);
+  assert(diagnostics.error == ASTER_MATH_ERROR_SINGULAR_MATRIX);
+
+  AsterQuat rotation{};
+  diagnostics = {};
+  assert(aster_kernel_math_quat_axis_angle({0.0f, 1.0f, 0.0f}, 1.57079632679f, &rotation,
+                                           &diagnostics)
+             .code == ASTER_STATUS_OK);
+  AsterVec3 rotated{};
+  assert(aster_kernel_math_quat_rotate_vec3(rotation, {0.0f, 0.0f, -1.0f}, &rotated).code ==
+         ASTER_STATUS_OK);
+  assert(std::abs(rotated.x + 1.0f) < 0.0001f);
+}
+
+void testRendererAbi3Lifecycle() {
   AsterEngineHandle engine = nullptr;
   const AsterEngineDesc engine_desc{sizeof(AsterEngineDesc),
                                     ASTER_KERNEL_STRUCT_VERSION_1,
@@ -234,7 +302,7 @@ void testRendererAbi2Lifecycle() {
   assert(pass_stats.name.size > 0u);
 
   const std::filesystem::path capture_path =
-      std::filesystem::temp_directory_path() / "aster_kernel_renderer_abi2.ppm";
+      std::filesystem::temp_directory_path() / "aster_kernel_renderer_abi3.ppm";
   const std::string capture_string = capture_path.string();
   const AsterCaptureDesc capture{sizeof(AsterCaptureDesc),
                                  ASTER_KERNEL_STRUCT_VERSION_1,
@@ -254,7 +322,7 @@ void testRendererAbi2Lifecycle() {
   assert(aster_kernel_engine_destroy(engine).code == ASTER_STATUS_OK);
 }
 
-void testShaderCompilerAbi2() {
+void testShaderCompilerAbi3() {
   AsterEngineHandle engine = nullptr;
   const AsterEngineDesc engine_desc{sizeof(AsterEngineDesc),
                                     ASTER_KERNEL_STRUCT_VERSION_1,
@@ -269,7 +337,7 @@ void testShaderCompilerAbi2() {
                                             ASTER_KERNEL_SHADER_BACKEND_D3D12_HLSL,
                                             {modules, 1u, sizeof(AsterShaderModuleSource)},
                                             {"fs_main", 7u},
-                                            {"abi2-test", 9u},
+                                            {"abi3-test", 9u},
                                             1ull};
   AsterShaderArtifactHandle shader = nullptr;
   assert(aster_kernel_shader_compile(engine, &compile_desc, &shader).code == ASTER_STATUS_OK);
@@ -308,6 +376,29 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_abi_version",
       "aster_kernel_status_ok",
       "aster_kernel_status_from_code",
+      "aster_kernel_math_default_policy",
+      "aster_kernel_math_vec3_dot",
+      "aster_kernel_math_vec3_cross",
+      "aster_kernel_math_vec3_length",
+      "aster_kernel_math_vec3_normalize",
+      "aster_kernel_math_mat4_identity",
+      "aster_kernel_math_mat4_multiply",
+      "aster_kernel_math_mat4_inverse",
+      "aster_kernel_math_mat4_compose_trs",
+      "aster_kernel_math_mat4_decompose_trs",
+      "aster_kernel_math_mat4_perspective",
+      "aster_kernel_math_mat4_orthographic",
+      "aster_kernel_math_mat4_look_at",
+      "aster_kernel_math_project",
+      "aster_kernel_math_unproject",
+      "aster_kernel_math_quat_identity",
+      "aster_kernel_math_quat_axis_angle",
+      "aster_kernel_math_quat_slerp",
+      "aster_kernel_math_quat_rotate_vec3",
+      "aster_kernel_math_quat_inverse",
+      "aster_kernel_math_intersect_ray_plane",
+      "aster_kernel_math_intersect_ray_triangle",
+      "aster_kernel_math_intersect_ray_sphere",
       "aster_kernel_engine_create",
       "aster_kernel_engine_destroy",
       "aster_kernel_engine_last_status",
@@ -353,6 +444,29 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_abi_version;
   (void)&aster_kernel_status_ok;
   (void)&aster_kernel_status_from_code;
+  (void)&aster_kernel_math_default_policy;
+  (void)&aster_kernel_math_vec3_dot;
+  (void)&aster_kernel_math_vec3_cross;
+  (void)&aster_kernel_math_vec3_length;
+  (void)&aster_kernel_math_vec3_normalize;
+  (void)&aster_kernel_math_mat4_identity;
+  (void)&aster_kernel_math_mat4_multiply;
+  (void)&aster_kernel_math_mat4_inverse;
+  (void)&aster_kernel_math_mat4_compose_trs;
+  (void)&aster_kernel_math_mat4_decompose_trs;
+  (void)&aster_kernel_math_mat4_perspective;
+  (void)&aster_kernel_math_mat4_orthographic;
+  (void)&aster_kernel_math_mat4_look_at;
+  (void)&aster_kernel_math_project;
+  (void)&aster_kernel_math_unproject;
+  (void)&aster_kernel_math_quat_identity;
+  (void)&aster_kernel_math_quat_axis_angle;
+  (void)&aster_kernel_math_quat_slerp;
+  (void)&aster_kernel_math_quat_rotate_vec3;
+  (void)&aster_kernel_math_quat_inverse;
+  (void)&aster_kernel_math_intersect_ray_plane;
+  (void)&aster_kernel_math_intersect_ray_triangle;
+  (void)&aster_kernel_math_intersect_ray_sphere;
   (void)&aster_kernel_engine_create;
   (void)&aster_kernel_engine_destroy;
   (void)&aster_kernel_engine_last_status;
@@ -399,8 +513,9 @@ void testManifestNamesMatchLinkedApi() {
 int main() {
   testAbiHeaderStaysPlainC();
   testStatusAndEngineLifecycle();
-  testRendererAbi2Lifecycle();
-  testShaderCompilerAbi2();
+  testMathAbi3Contracts();
+  testRendererAbi3Lifecycle();
+  testShaderCompilerAbi3();
   testCppWrapperUsesResultStatus();
   testManifestNamesMatchLinkedApi();
   return 0;
