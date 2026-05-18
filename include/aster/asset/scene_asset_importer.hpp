@@ -30,6 +30,9 @@ struct SceneTextureDependency {
 struct SceneMaterialSlot {
   std::string name;
   Material material{};
+  std::uint64_t permutation_key = 0u;
+  std::uint32_t permutation_flags = 0u;
+  std::string pipeline_tag;
   bool has_base_color_texture = false;
   bool has_metallic_roughness_texture = false;
   bool has_normal_texture = false;

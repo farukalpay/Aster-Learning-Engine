@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const CACHE_MAGIC: [u8; 8] = *b"ASTRCV1\0";
-pub const CACHE_VERSION: u32 = 1;
+pub const CACHE_VERSION: u32 = 2;
 pub const COMPILER_VERSION: u32 = 1;
 pub const CACHE_ENDIAN_MARKER: u32 = 0x1234_5678;
 
@@ -341,6 +341,9 @@ pub struct Material {
     pub has_metallic_roughness_texture: bool,
     pub has_normal_texture: bool,
     pub has_occlusion_texture: bool,
+    pub permutation_key: u64,
+    pub permutation_flags: u32,
+    pub pipeline_tag: String,
     pub texture_dependencies: Vec<TextureDependency>,
 }
 
@@ -365,6 +368,9 @@ impl Default for Material {
             has_metallic_roughness_texture: false,
             has_normal_texture: false,
             has_occlusion_texture: false,
+            permutation_key: 0,
+            permutation_flags: 0,
+            pipeline_tag: String::new(),
             texture_dependencies: Vec::new(),
         }
     }
@@ -733,10 +739,128 @@ pub fn hex_hash(hash: &[u8; 32]) -> String {
 }
 
 fn default_material() -> Material {
-    Material {
+    let mut material = Material {
         name: "Default".to_string(),
         ..Material::default()
+    };
+    compile_material_for_rendering(&mut material);
+    material
+}
+
+const MATERIAL_FLAG_TEXTURED: u32 = 1 << 0;
+const MATERIAL_FLAG_PROCEDURAL: u32 = 1 << 1;
+const MATERIAL_FLAG_TRANSPARENT: u32 = 1 << 2;
+const MATERIAL_FLAG_DOUBLE_SIDED: u32 = 1 << 3;
+const MATERIAL_FLAG_DEPTH_WRITE: u32 = 1 << 4;
+const MATERIAL_FLAG_CONTACT_SHADOW: u32 = 1 << 5;
+
+fn material_has_texture_dependencies(material: &Material) -> bool {
+    material.has_base_color_texture
+        || material.has_metallic_roughness_texture
+        || material.has_normal_texture
+        || material.has_occlusion_texture
+        || material
+            .texture_dependencies
+            .iter()
+            .any(|dependency| !dependency.role.is_empty())
+}
+
+fn material_is_transparent(material: &Material) -> bool {
+    material.alpha_mode == AlphaMode::Blend || material.opacity < 0.999
+}
+
+fn material_writes_depth(material: &Material) -> bool {
+    match material.depth_write {
+        DepthWrite::Enabled => true,
+        DepthWrite::Disabled => false,
+        DepthWrite::Auto => !material_is_transparent(material),
     }
+}
+
+fn material_permutation_flags(material: &Material) -> u32 {
+    let mut flags = 0u32;
+    if material_has_texture_dependencies(material) {
+        flags |= MATERIAL_FLAG_TEXTURED;
+    }
+    if material_is_transparent(material) {
+        flags |= MATERIAL_FLAG_TRANSPARENT;
+    }
+    if material.double_sided {
+        flags |= MATERIAL_FLAG_DOUBLE_SIDED;
+    }
+    if material_writes_depth(material) {
+        flags |= MATERIAL_FLAG_DEPTH_WRITE;
+    }
+    flags
+}
+
+fn append_key(hash: &mut u64, bytes: &[u8]) {
+    for byte in bytes {
+        *hash ^= u64::from(*byte);
+        *hash = hash.wrapping_mul(1_099_511_628_211);
+    }
+}
+
+fn append_u32_key(hash: &mut u64, value: u32) {
+    append_key(hash, &value.to_le_bytes());
+}
+
+fn append_f32_key(hash: &mut u64, value: f32) {
+    append_key(hash, &value.to_le_bytes());
+}
+
+fn material_pipeline_tag(material: &Material, flags: u32) -> String {
+    let mut tag = String::new();
+    tag.push_str(if material_is_transparent(material) {
+        "transparent"
+    } else {
+        "opaque"
+    });
+    tag.push_str(if material_writes_depth(material) {
+        ".depth-write"
+    } else {
+        ".depth-read"
+    });
+    tag.push_str(if material.double_sided {
+        ".double-sided"
+    } else {
+        ".culled"
+    });
+    if flags & MATERIAL_FLAG_TEXTURED != 0 {
+        tag.push_str(".textured");
+    }
+    if flags & MATERIAL_FLAG_PROCEDURAL != 0 {
+        tag.push_str(".procedural");
+    }
+    if flags & MATERIAL_FLAG_CONTACT_SHADOW != 0 {
+        tag.push_str(".contact-shadow");
+    }
+    tag
+}
+
+fn compile_material_for_rendering(material: &mut Material) {
+    let flags = material_permutation_flags(material);
+    let mut hash = 1_469_598_103_934_665_603u64;
+    append_u32_key(&mut hash, flags);
+    append_u32_key(&mut hash, 0); // MaterialRenderRole::Surface
+    append_u32_key(&mut hash, material.alpha_mode as u32);
+    append_u32_key(&mut hash, material.depth_write as u32);
+    append_u32_key(&mut hash, 1); // FaceCullMode::Back
+    append_u32_key(&mut hash, 0); // SurfacePattern::None
+    append_f32_key(&mut hash, 1.0);
+    append_f32_key(&mut hash, 1.0);
+    append_f32_key(&mut hash, 0.0);
+    append_f32_key(&mut hash, 0.0);
+    append_f32_key(&mut hash, 0.08);
+    append_f32_key(&mut hash, 0.0);
+    append_f32_key(&mut hash, 0.0);
+    append_f32_key(&mut hash, 0.0);
+    append_f32_key(&mut hash, 0.0);
+    append_f32_key(&mut hash, 0.0);
+    append_key(&mut hash, material.name.as_bytes());
+    material.permutation_flags = flags;
+    material.permutation_key = hash;
+    material.pipeline_tag = material_pipeline_tag(material, flags);
 }
 
 fn build_metadata(
@@ -1006,6 +1130,7 @@ fn import_material(data: &AssetData, source: &Value) -> Result<Material> {
             _ => material.alpha_mode = AlphaMode::Opaque,
         }
     }
+    compile_material_for_rendering(&mut material);
     Ok(material)
 }
 
@@ -2120,6 +2245,9 @@ fn write_materials_chunk(materials: &[Material]) -> Result<Vec<u8>> {
         out.extend_from_slice(&[0u8; 3]);
         write_u32(&mut out, material.alpha_mode as u32);
         write_u32(&mut out, material.depth_write as u32);
+        write_u64(&mut out, material.permutation_key);
+        write_u32(&mut out, material.permutation_flags);
+        write_string(&mut out, &material.pipeline_tag)?;
         write_u32(
             &mut out,
             checked_usize_to_u32(material.texture_dependencies.len())?,
@@ -2164,6 +2292,9 @@ fn read_materials_chunk(bytes: &[u8]) -> Result<Vec<Material>> {
             2 => DepthWrite::Disabled,
             _ => DepthWrite::Auto,
         };
+        let permutation_key = read_u64(bytes, &mut cursor)?;
+        let permutation_flags = read_u32(bytes, &mut cursor)?;
+        let pipeline_tag = read_string(bytes, &mut cursor)?;
         let dependency_count = read_u32(bytes, &mut cursor)? as usize;
         let mut texture_dependencies = Vec::with_capacity(dependency_count);
         for _ in 0..dependency_count {
@@ -2194,6 +2325,9 @@ fn read_materials_chunk(bytes: &[u8]) -> Result<Vec<Material>> {
             has_metallic_roughness_texture,
             has_normal_texture,
             has_occlusion_texture,
+            permutation_key,
+            permutation_flags,
+            pipeline_tag,
             texture_dependencies,
         });
     }
@@ -2647,6 +2781,14 @@ mod tests {
         assert_eq!(asset.materials[1].alpha_mode, AlphaMode::Masked);
         assert!(asset.materials[1].double_sided);
         assert!(asset.materials[1].has_normal_texture);
+        assert_ne!(asset.materials[1].permutation_key, 0);
+        assert!(asset.materials[1].permutation_flags & MATERIAL_FLAG_TEXTURED != 0);
+        assert!(asset.materials[1].permutation_flags & MATERIAL_FLAG_DOUBLE_SIDED != 0);
+        assert!(asset.materials[1].permutation_flags & MATERIAL_FLAG_DEPTH_WRITE != 0);
+        assert_eq!(
+            asset.materials[1].pipeline_tag,
+            "opaque.depth-write.double-sided.textured"
+        );
         assert_eq!(asset.meshes[0].diagnostics.invalid_normals, 4);
         assert_eq!(asset.meshes[0].diagnostics.degenerate_triangles, 1);
         assert_eq!(asset.meshes[0].mesh.indices.len(), 6);

@@ -3,6 +3,8 @@
 
 #include "test_support.hpp"
 
+#include "aster/render/material_compiler.hpp"
+
 #include <cassert>
 #include <cstdlib>
 #include <filesystem>
@@ -46,7 +48,7 @@ void testCompiledSceneAssetCacheLoad() {
 
   const aster::SceneAsset asset = aster::loadCompiledSceneAsset(cache);
   assert(asset.cache_metadata.valid);
-  assert(asset.cache_metadata.cache_version == 1u);
+  assert(asset.cache_metadata.cache_version == 2u);
   assert(asset.cache_metadata.material_count == 2u);
   assert(asset.cache_metadata.mesh_count == 1u);
   assert(asset.cache_metadata.collision_mesh_count == 1u);
@@ -65,6 +67,22 @@ void testCompiledSceneAssetCacheLoad() {
   assert(material.material.double_sided);
   assert(material.material.alpha_mode == aster::MaterialAlphaMode::Masked);
   assert(aster::classifyMaterialRenderQueue(material.material) == aster::MaterialRenderQueue::Masked);
+  assert(material.permutation_key != 0u);
+  assert(material.material.compiled_permutation_key == material.permutation_key);
+  assert(material.permutation_flags == material.material.compiled_permutation_flags);
+  assert((material.permutation_flags &
+          aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::Textured)) != 0u);
+  assert((material.permutation_flags &
+          aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::DoubleSided)) != 0u);
+  assert((material.permutation_flags &
+          aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::DepthWrite)) != 0u);
+  assert(material.pipeline_tag.find("opaque.depth-write.double-sided.textured") !=
+         std::string::npos);
+  const aster::CompiledMaterial expected_material =
+      aster::compileMaterialForRendering(material.material, true, material.name);
+  assert(expected_material.permutation_key == material.permutation_key);
+  assert(expected_material.permutation_flags == material.permutation_flags);
+  assert(expected_material.pipeline_tag == material.pipeline_tag);
 
   assert(asset.mesh_chunks.size() == 1u);
   const aster::SceneMeshChunk &mesh = asset.mesh_chunks.front();

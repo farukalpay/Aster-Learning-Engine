@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <string>
+#include <string_view>
 
 namespace {
 
@@ -62,6 +63,78 @@ void checkboxRow(aster::UiCanvas &canvas, const std::string &label, bool &value,
     canvas.checkbox({x, y, width, row_height}, label, value, id);
   }
   y += row_height + 3.0f;
+}
+
+void textRow(aster::UiCanvas &canvas, const std::string_view label, const std::string_view value,
+             const float x, float &y, const float width, const float visible_top,
+             const float visible_bottom) {
+  constexpr float kRowHeight = 20.0f;
+  if (y >= visible_top && y + kRowHeight <= visible_bottom) {
+    canvas.text(label, {x, y}, kDim, 1.22f);
+    const float value_scale =
+        canvas.fittedTextScale(value, std::max(width * 0.52f, 0.0f), 1.18f, 0.82f);
+    const float value_width = canvas.textWidth(value, value_scale);
+    canvas.text(value, {x + width - value_width, y}, kText, value_scale);
+  }
+  y += kRowHeight;
+}
+
+std::string yesNo(const bool value) {
+  return value ? "yes" : "no";
+}
+
+void drawBackendSummary(aster::UiCanvas &canvas, const aster::EditorRuntimeModel &runtime,
+                        const float x, float &y, const float width, const float visible_top,
+                        const float visible_bottom) {
+  section(canvas, "Backend", x, y, width);
+  textRow(canvas, "Name", runtime.backend.name, x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Kind", aster::renderBackendKindName(runtime.backend.kind), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "GPU", yesNo(runtime.backend.gpu), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Shader materials", yesNo(runtime.backend.supports_shader_materials), x, y,
+          width, visible_top, visible_bottom);
+  textRow(canvas, "Instancing", yesNo(runtime.backend.supports_instancing), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Capture", yesNo(runtime.backend.supports_capture), x, y, width, visible_top,
+          visible_bottom);
+}
+
+void drawGraphSummary(aster::UiCanvas &canvas, std::size_t &selected_pass,
+                      const aster::FixedRenderGraph *graph, const float x, float &y,
+                      const float width, const float visible_top, const float visible_bottom) {
+  section(canvas, "Render Graph", x, y, width);
+  if (graph == nullptr || graph->passes.empty()) {
+    textRow(canvas, "Passes", "0", x, y, width, visible_top, visible_bottom);
+    return;
+  }
+  if (selected_pass >= graph->passes.size()) {
+    selected_pass = graph->passes.size() - 1u;
+  }
+  const std::string pass_count = std::to_string(graph->passes.size());
+  textRow(canvas, "Passes", pass_count, x, y, width, visible_top, visible_bottom);
+  const float button_width = std::max((width - 8.0f) * 0.5f, 72.0f);
+  if (y >= visible_top && y + 34.0f <= visible_bottom) {
+    if (canvas.button({x, y, button_width, 30.0f}, "Prev", "graph.prev") &&
+        selected_pass > 0u) {
+      --selected_pass;
+    }
+    if (canvas.button({x + width - button_width, y, button_width, 30.0f}, "Next",
+                      "graph.next") &&
+        selected_pass + 1u < graph->passes.size()) {
+      ++selected_pass;
+    }
+  }
+  y += 38.0f;
+  const aster::RenderGraphPassDesc &pass = graph->passes[selected_pass];
+  const std::string pass_label =
+      std::to_string(selected_pass + 1u) + " " +
+      std::string(aster::renderGraphPassName(pass.pass));
+  textRow(canvas, "Selected", pass_label, x, y, width, visible_top, visible_bottom);
+  char buffer[64]{};
+  std::snprintf(buffer, sizeof(buffer), "0x%08x", pass.reads);
+  textRow(canvas, "Reads", buffer, x, y, width, visible_top, visible_bottom);
+  std::snprintf(buffer, sizeof(buffer), "0x%08x", pass.writes);
+  textRow(canvas, "Writes", buffer, x, y, width, visible_top, visible_bottom);
 }
 
 void drawFramePanel(aster::UiCanvas &canvas, const aster::UiRect panel,
@@ -145,7 +218,7 @@ void EditorUi::beginFrame(const Vec2 viewport_size, const ControlSnapshot &input
 }
 
 void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &settings,
-                    const FrameStats &stats) {
+                    const FrameStats &stats, const EditorRuntimeModel &runtime) {
   const Vec2 viewport = canvas_.viewportSize();
   const float panel_height = std::max(320.0f, viewport.y - kPanelMargin * 2.0f);
   const float panel_width = std::min(
@@ -209,6 +282,11 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
               "cull", visible_top, panel_bottom);
   checkboxRow(canvas_, "Multisampling", settings.pipeline.multisampling, x, y, width, "msaa",
               visible_top, panel_bottom);
+  y += 8.0f;
+  drawBackendSummary(canvas_, runtime, x, y, width, visible_top, panel_bottom);
+  y += 8.0f;
+  drawGraphSummary(canvas_, selected_graph_pass_, runtime.render_graph, x, y, width, visible_top,
+                   panel_bottom);
   y += 8.0f;
   drawSceneSummary(canvas_, scene, x, y, width, visible_top, panel_bottom);
   const float content_height = y + kPanelPad + renderer_panel_scroll_ - panel.y;

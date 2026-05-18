@@ -6,6 +6,7 @@
 #include "aster/asset/mesh_pipeline.hpp"
 #include "aster/core/profiler.hpp"
 #include "aster/math/color.hpp"
+#include "aster/render/material_compiler.hpp"
 #include "aster/render/software_framebuffer.hpp"
 #include "aster/scene/scene.hpp"
 #include "native_render_backend.hpp"
@@ -1053,6 +1054,42 @@ namespace aster {
 RenderDevice::RenderDevice() = default;
 RenderDevice::~RenderDevice() = default;
 
+std::string_view renderBackendKindName(const RenderBackendKind kind) {
+  switch (kind) {
+  case RenderBackendKind::Software:
+    return "software";
+  case RenderBackendKind::Metal:
+    return "metal";
+  case RenderBackendKind::D3D12:
+    return "d3d12";
+  case RenderBackendKind::Unknown:
+    return "unknown";
+  }
+  return "unknown";
+}
+
+namespace {
+
+RenderBackendCapabilities softwareCapabilities() {
+  const std::uint32_t graph_resources =
+      renderGraphResourceBit(RenderGraphResource::SceneColor) |
+      renderGraphResourceBit(RenderGraphResource::SceneDepth) |
+      renderGraphResourceBit(RenderGraphResource::UiOverlay) |
+      renderGraphResourceBit(RenderGraphResource::CaptureReadback);
+  return {.kind = RenderBackendKind::Software,
+          .name = "Aster Learning Software Rasterizer",
+          .gpu = false,
+          .supports_shader_materials = true,
+          .supports_texture_sampling = false,
+          .supports_instancing = false,
+          .supports_capture = true,
+          .supports_ui_composite = true,
+          .supports_gpu_timestamps = false,
+          .graph_resource_mask = graph_resources};
+}
+
+} // namespace
+
 const CpuMesh &RenderDevice::meshForPrimitive(const MeshPrimitive primitive) const {
   switch (primitive) {
   case MeshPrimitive::Box:
@@ -1163,6 +1200,7 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
 
 void RenderDevice::initialize() {
   ASTER_PROFILE_SCOPE("RenderDevice::initialize");
+  render_graph_ = makeFixedRenderGraph(true, true);
   const MeshProcessOptions mesh_options = renderMeshOptions();
   box_ = prepareMeshForRendering(makeBox(), mesh_options);
   sphere_ =
@@ -1197,6 +1235,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.frame_seconds = frame_seconds;
   stats.framebuffer_width = framebuffer_width;
   stats.framebuffer_height = framebuffer_height;
+  stats.graph_passes = render_graph_.passes.size();
 
   if (framebuffer_width <= 0 || framebuffer_height <= 0) {
     return stats;
@@ -1233,7 +1272,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     };
     framebuffer.resize(framebuffer_width, framebuffer_height);
     framebuffer.clearTransparent();
-    FrameStats native_stats = native_backend_->render(scene, plan, camera, settings, meshes,
+    FrameStats native_stats = native_backend_->render(scene, plan, camera, settings, render_graph_, meshes,
                                                       framebuffer_width, framebuffer_height,
                                                       frame_seconds);
     native_stats.visible_objects = plan.diagnostics.visible_objects;
@@ -1245,6 +1284,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     native_stats.dynamic_mesh_cache_entries =
         custom_mesh_cache_.size() + custom_mesh_resource_cache_.size();
     native_stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
+    native_stats.graph_passes = render_graph_.passes.size();
+    native_stats.backend_feature_mask = native_backend_->capabilities().graph_resource_mask;
     return native_stats;
   }
 
@@ -1297,6 +1338,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   }
   const auto encode_end = std::chrono::steady_clock::now();
   stats.render_encode_seconds = std::chrono::duration<double>(encode_end - encode_start).count();
+  stats.backend_feature_mask = softwareCapabilities().graph_resource_mask;
 
   return stats;
 }
@@ -1306,6 +1348,17 @@ const char *RenderDevice::backendName() const {
     return native_backend_->backendName();
   }
   return "Aster Learning Software Rasterizer";
+}
+
+RenderBackendCapabilities RenderDevice::backendCapabilities() const {
+  if (native_backend_ != nullptr) {
+    return native_backend_->capabilities();
+  }
+  return softwareCapabilities();
+}
+
+const FixedRenderGraph &RenderDevice::renderGraph() const {
+  return render_graph_;
 }
 
 } // namespace aster

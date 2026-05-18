@@ -4,6 +4,7 @@
 #include "aster/asset/scene_asset_importer.hpp"
 
 #include "aster/math/mat4.hpp"
+#include "aster/render/material_compiler.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -448,6 +449,13 @@ SceneMaterialSlot importedMaterialSlot(const Json *source) {
   SceneMaterialSlot out;
   if (source == nullptr) {
     out.name = "Default";
+    const CompiledMaterial compiled = compileMaterialForRendering(out.material, false, out.name);
+    out.material = compiled.material;
+    out.material.compiled_permutation_key = compiled.permutation_key;
+    out.material.compiled_permutation_flags = compiled.permutation_flags;
+    out.permutation_key = compiled.permutation_key;
+    out.permutation_flags = compiled.permutation_flags;
+    out.pipeline_tag = compiled.pipeline_tag;
     return out;
   }
   if (const Json *name = source->find("name")) {
@@ -494,6 +502,16 @@ SceneMaterialSlot importedMaterialSlot(const Json *source) {
       out.material.alpha_mode = MaterialAlphaMode::Opaque;
     }
   }
+  const bool has_textures = out.has_base_color_texture || out.has_metallic_roughness_texture ||
+                            out.has_normal_texture || out.has_occlusion_texture;
+  const CompiledMaterial compiled =
+      compileMaterialForRendering(out.material, has_textures, out.name);
+  out.material = compiled.material;
+  out.material.compiled_permutation_key = compiled.permutation_key;
+  out.material.compiled_permutation_flags = compiled.permutation_flags;
+  out.permutation_key = compiled.permutation_key;
+  out.permutation_flags = compiled.permutation_flags;
+  out.pipeline_tag = compiled.pipeline_tag;
   return out;
 }
 

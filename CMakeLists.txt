@@ -95,9 +95,11 @@ if(APPLE)
 elseif(WIN32)
   list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_linux.cpp")
   list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_macos.mm")
+  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/render/native_render_backend_stub.cpp")
 else()
   list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_macos.mm")
   list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_windows.cpp")
+  list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/render/render_device_d3d12.cpp")
 
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
@@ -186,7 +188,7 @@ if(APPLE)
     "-framework QuartzCore"
   )
 elseif(WIN32)
-  target_link_libraries(aster_engine_internal PUBLIC User32 Gdi32 Ws2_32)
+  target_link_libraries(aster_engine_internal PUBLIC User32 Gdi32 Ws2_32 D3D12 DXGI)
 endif()
 
 target_compile_definitions(aster_engine_internal PUBLIC
@@ -330,6 +332,8 @@ if(ASTER_BUILD_TESTS)
       industrial_pipe_scene
       software_preview_renderer
       material_render_policies
+      fixed_render_graph
+      material_compiler
       rust_render_frame_plan
       scene_coherence_energy
       scene_trace_validation

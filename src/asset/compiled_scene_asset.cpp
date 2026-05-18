@@ -19,7 +19,7 @@ namespace aster {
 namespace {
 
 constexpr std::array<std::uint8_t, 8> kCacheMagic{'A', 'S', 'T', 'R', 'C', 'V', '1', '\0'};
-constexpr std::uint32_t kCacheVersion = 1u;
+constexpr std::uint32_t kCacheVersion = 2u;
 constexpr std::uint32_t kEndianMarker = 0x12345678u;
 constexpr std::size_t kHeaderSize = 88u;
 constexpr std::size_t kChunkEntrySize = 56u;
@@ -234,6 +234,11 @@ private:
     reader.skip(3u);
     slot.material.alpha_mode = alphaModeFromValue(reader.u32());
     slot.material.depth_write = depthWriteFromValue(reader.u32());
+    slot.permutation_key = reader.u64();
+    slot.permutation_flags = reader.u32();
+    slot.pipeline_tag = reader.string();
+    slot.material.compiled_permutation_key = slot.permutation_key;
+    slot.material.compiled_permutation_flags = slot.permutation_flags;
     const std::size_t dependency_count = checkedSize(reader.u32());
     slot.texture_dependencies.reserve(dependency_count);
     for (std::size_t dependency_index = 0; dependency_index < dependency_count;

@@ -3,7 +3,7 @@
 
 #include "native_render_backend.hpp"
 
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(_WIN32)
 
 namespace aster {
 

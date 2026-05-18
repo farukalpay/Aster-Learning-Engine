@@ -255,7 +255,8 @@ int main(int argc, char **argv) {
       aster::FrameStats displayed_stats = stats;
       displayed_stats.frame_seconds = dt;
 
-      ui.draw(scene, camera, settings, displayed_stats);
+      ui.draw(scene, camera, settings, displayed_stats,
+              {.backend = renderer.backendCapabilities(), .render_graph = &renderer.renderGraph()});
       ui.endFrame();
       if (collect_frame_sample) {
         ui_times.addSample(clock.now() - ui_start);

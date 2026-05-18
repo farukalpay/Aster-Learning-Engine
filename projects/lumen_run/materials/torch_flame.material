@@ -7,5 +7,14 @@
   "emission_strength": 0.66,
   "roughness": 0.42,
   "metallic": 0.0,
+  "opacity": 0.82,
+  "double_sided": true,
+  "alpha_mode": "blend",
+  "depth_write": "disabled",
+  "surface_pattern": "none",
+  "compiler_hints": {
+    "permutation": "transparent-emissive",
+    "fallback": "software"
+  },
   "tags": ["surface.emissive", "item.torch"]
 }

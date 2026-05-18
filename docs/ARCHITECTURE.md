@@ -110,6 +110,13 @@ fallback, capture path, preview path, and reference implementation.
 `SurfacePattern` is the shared procedural material contract across native and
 software rendering.
 
+`RenderDevice` is the renderer orchestrator. Backend implementations own API-
+specific resource creation, encode work, and presentation details. The fixed
+render graph contract is shared across backends and currently spans
+`scene-color-depth`, `opaque`, `contact-shadow`, `transparent`, `ui-composite`,
+and `capture` passes, with explicit lifetime tags for frame-local and readback
+resources.
+
 `crates/aster_runtime`
 
 Required Rust runtime code behind a stable C ABI. The runtime owns frame render
@@ -238,12 +245,21 @@ Native capture waits for the Metal scene command buffer, reads the scene texture
 and composites the software UI overlay using the same top-left framebuffer
 origin as live presentation.
 
+Windows now has a D3D12 bootstrap backend that validates device and command queue
+creation, reports backend capabilities, and preserves the software framebuffer
+capture path. It is a second GPU backend entry point, not a finished scene
+renderer. Full scene drawing still lives in the Metal and software paths.
+
 Procedural material evaluation is pattern-driven rather than sample-specific.
 Terrain, water, cave rock, coal veins, foliage, fur, amber, wood, stone, scales,
 feathers, weathered metal, weld beads, and fiber patterns are selected through
 `Material::surface_pattern` and parameterized by material fields. New patterns
 should extend that contract in both renderers rather than adding sample-side
 shader branches.
+
+Material compilation is split from runtime scene packets. Authoring imports flow
+through a shared compiler step that produces permutation flags, a stable cache
+key, and a pipeline tag before runtime binding.
 
 Renderer policy belongs in `src/render` and `crates/aster_runtime`. Scene
 description belongs in `src/scene` and `src/samples`. App files should only
@@ -310,8 +326,10 @@ extract a reusable engine or SDK contract.
   focused absolute pointer motion instead of silently inventing unsupported
   pointer warping.
 - Windows has a native Win32 window/input/software presentation path. Native
-  Windows GPU rendering is still future work behind `RenderDevice`; app code
-  should not branch on that backend.
+  Windows GPU rendering is represented by a bootstrap D3D12 backend that
+  validates device creation and capability reporting. It does not yet replace
+  the Metal/software draw path for full scene rendering; app code should still
+  treat Metal and software as the production renderers today.
 - The scene importer supports the subset of JSON scene data exercised by
   generated tests and engine-authored scenes. Expanding file-format coverage
   should extend that importer without

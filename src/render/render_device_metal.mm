@@ -920,6 +920,7 @@ public:
   aster::FrameStats render(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
                            const aster::OrbitCamera &camera,
                            const aster::RendererSettings &settings,
+                           const aster::FixedRenderGraph &graph,
                            const aster::PreparedRenderMeshes &meshes, const int framebuffer_width,
                            const int framebuffer_height, const double frame_seconds) override {
     ASTER_PROFILE_SCOPE("MetalNativeRenderBackend::render");
@@ -927,6 +928,8 @@ public:
     stats.frame_seconds = frame_seconds;
     stats.framebuffer_width = framebuffer_width;
     stats.framebuffer_height = framebuffer_height;
+    stats.graph_passes = graph.passes.size();
+    stats.backend_feature_mask = capabilities().graph_resource_mask;
     if (device_ == nil || queue_ == nil || framebuffer_width <= 0 || framebuffer_height <= 0) {
       return stats;
     }
@@ -1147,6 +1150,24 @@ public:
 
   const char *backendName() const override {
     return "Aster Native Metal Rasterizer";
+  }
+
+  aster::RenderBackendCapabilities capabilities() const override {
+    const std::uint32_t graph_resources =
+        aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor) |
+        aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth) |
+        aster::renderGraphResourceBit(aster::RenderGraphResource::UiOverlay) |
+        aster::renderGraphResourceBit(aster::RenderGraphResource::CaptureReadback);
+    return {.kind = aster::RenderBackendKind::Metal,
+            .name = "Aster Native Metal Rasterizer",
+            .gpu = true,
+            .supports_shader_materials = true,
+            .supports_texture_sampling = false,
+            .supports_instancing = true,
+            .supports_capture = true,
+            .supports_ui_composite = true,
+            .supports_gpu_timestamps = false,
+            .graph_resource_mask = graph_resources};
   }
 
 private:

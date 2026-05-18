@@ -194,6 +194,71 @@ void testMaterialRenderPolicies() {
   assert(!aster::allowsCameraOcclusionFade(support));
 }
 
+void testFixedRenderGraphContract() {
+  const aster::FixedRenderGraph graph = aster::makeFixedRenderGraph();
+  assert(graph.resources.size() == 4u);
+  assert(graph.resources[0].resource == aster::RenderGraphResource::SceneColor);
+  assert(graph.resources[0].lifetime == aster::RenderGraphResourceLifetime::Frame);
+  assert(graph.resources[3].resource == aster::RenderGraphResource::CaptureReadback);
+  assert(graph.resources[3].lifetime == aster::RenderGraphResourceLifetime::Readback);
+  assert(graph.passes.size() == 6u);
+  assert(graph.passes[0].pass == aster::RenderGraphPass::SceneColorDepth);
+  assert(graph.passes[1].pass == aster::RenderGraphPass::Opaque);
+  assert(graph.passes[2].pass == aster::RenderGraphPass::ContactShadow);
+  assert(graph.passes[3].pass == aster::RenderGraphPass::Transparent);
+  assert(graph.passes[4].pass == aster::RenderGraphPass::UiComposite);
+  assert(graph.passes[5].pass == aster::RenderGraphPass::Capture);
+  const std::uint32_t color =
+      aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor);
+  const std::uint32_t depth =
+      aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth);
+  const std::uint32_t ui = aster::renderGraphResourceBit(aster::RenderGraphResource::UiOverlay);
+  const std::uint32_t capture =
+      aster::renderGraphResourceBit(aster::RenderGraphResource::CaptureReadback);
+  assert(graph.passes[0].reads == 0u && graph.passes[0].writes == (color | depth));
+  assert(graph.passes[1].reads == (color | depth) && graph.passes[1].writes == (color | depth));
+  assert(graph.passes[2].reads == (color | depth) && graph.passes[2].writes == (color | depth));
+  assert(graph.passes[3].reads == (color | depth) && graph.passes[3].writes == color);
+  assert(graph.passes[4].reads == (color | ui) && graph.passes[4].writes == color);
+  assert(graph.passes[5].reads == color && graph.passes[5].writes == capture);
+  assert(aster::renderGraphPassName(graph.passes[0].pass) == "scene-color-depth");
+  assert(aster::renderGraphResourceName(aster::RenderGraphResource::UiOverlay) == "ui-overlay");
+  assert(aster::renderGraphResourceLifetimeName(aster::RenderGraphResourceLifetime::Readback) ==
+         "readback");
+}
+
+void testMaterialCompilerContract() {
+  aster::Material opaque = aster::makeMaterial({.base_color = {0.45f, 0.40f, 0.32f}});
+  const aster::CompiledMaterial opaque_compiled =
+      aster::compileMaterialForRendering(opaque, false, "material.opaque");
+  const aster::CompiledMaterial opaque_repeated =
+      aster::compileMaterialForRendering(opaque, false, "material.opaque");
+  assert(opaque_compiled.permutation_key == opaque_repeated.permutation_key);
+  assert(opaque_compiled.permutation_flags == opaque_repeated.permutation_flags);
+  assert(opaque_compiled.pipeline_tag == "opaque.depth-write.culled");
+
+  const aster::CompiledMaterial textured =
+      aster::compileMaterialForRendering(opaque, true, "material.opaque");
+  assert(textured.permutation_key != opaque_compiled.permutation_key);
+  assert((textured.permutation_flags &
+          aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::Textured)) != 0u);
+
+  aster::Material translucent =
+      aster::makeMaterial({.base_color = {0.25f, 0.30f, 0.40f},
+                           .opacity = 0.5f,
+                           .double_sided = true,
+                           .alpha_mode = aster::MaterialAlphaMode::Blend,
+                           .depth_write = aster::MaterialDepthWrite::Disabled});
+  const aster::CompiledMaterial translucent_compiled =
+      aster::compileMaterialForRendering(translucent, false, "material.glass");
+  assert(aster::isMaterialTranslucent(translucent_compiled.material));
+  assert(translucent_compiled.pipeline_tag == "transparent.depth-read.double-sided");
+  assert((translucent_compiled.permutation_flags &
+          aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::Transparent)) != 0u);
+  assert((translucent_compiled.permutation_flags &
+          aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::DoubleSided)) != 0u);
+}
+
 void testRustRenderFramePlanContracts() {
   aster::Scene scene;
   const aster::Material opaque = aster::makeMaterial({.base_color = {0.4f, 0.3f, 0.2f}});
@@ -511,6 +576,8 @@ constexpr TestCase kTestCases[] = {
     {"industrial_pipe_scene", testIndustrialPipeSceneContract},
     {"software_preview_renderer", testSoftwarePreviewRendererProducesImage},
     {"material_render_policies", testMaterialRenderPolicies},
+    {"fixed_render_graph", testFixedRenderGraphContract},
+    {"material_compiler", testMaterialCompilerContract},
     {"rust_render_frame_plan", testRustRenderFramePlanContracts},
     {"scene_coherence_energy", testSceneCoherenceEnergy},
     {"scene_trace_validation", testSceneTraceValidation},

@@ -6,6 +6,7 @@
 #include "aster/math/vec.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/mesh.hpp"
+#include "aster/render/render_graph.hpp"
 #include "aster/render/render_scene.hpp"
 
 #include <array>
@@ -23,6 +24,26 @@ class Scene;
 enum class MeshPrimitive;
 class NativeRenderBackend;
 struct RenderObject;
+
+enum class RenderBackendKind {
+  Software,
+  Metal,
+  D3D12,
+  Unknown,
+};
+
+struct RenderBackendCapabilities {
+  RenderBackendKind kind = RenderBackendKind::Unknown;
+  const char *name = "Unknown Renderer";
+  bool gpu = false;
+  bool supports_shader_materials = false;
+  bool supports_texture_sampling = false;
+  bool supports_instancing = false;
+  bool supports_capture = false;
+  bool supports_ui_composite = false;
+  bool supports_gpu_timestamps = false;
+  std::uint32_t graph_resource_mask = 0u;
+};
 
 struct Light {
   Vec3 position{};
@@ -132,6 +153,8 @@ struct FrameStats {
   std::size_t visibility_hint_objects = 0;
   std::size_t dynamic_mesh_objects = 0;
   std::size_t dynamic_mesh_cache_entries = 0;
+  std::size_t graph_passes = 0;
+  std::uint32_t backend_feature_mask = 0u;
   double rust_plan_seconds = 0.0;
   double render_encode_seconds = 0.0;
 };
@@ -150,6 +173,8 @@ public:
                     int framebuffer_width, int framebuffer_height, double frame_seconds);
 
   [[nodiscard]] const char *backendName() const;
+  [[nodiscard]] RenderBackendCapabilities backendCapabilities() const;
+  [[nodiscard]] const FixedRenderGraph &renderGraph() const;
 
 private:
   [[nodiscard]] const CpuMesh &meshForPrimitive(MeshPrimitive primitive) const;
@@ -173,6 +198,9 @@ private:
       custom_mesh_resource_last_seen_;
   std::uint64_t mesh_cache_frame_ = 0u;
   RenderScene render_scene_;
+  FixedRenderGraph render_graph_;
 };
+
+[[nodiscard]] std::string_view renderBackendKindName(RenderBackendKind kind);
 
 } // namespace aster

@@ -11,6 +11,11 @@ namespace aster {
 
 class Scene;
 
+struct EditorRuntimeModel {
+  RenderBackendCapabilities backend{};
+  const FixedRenderGraph *render_graph = nullptr;
+};
+
 class EditorUi {
 public:
   EditorUi() = default;
@@ -21,7 +26,8 @@ public:
 
   void initialize();
   void beginFrame(Vec2 viewport_size, const ControlSnapshot &input);
-  void draw(Scene &scene, OrbitCamera &camera, RendererSettings &settings, const FrameStats &stats);
+  void draw(Scene &scene, OrbitCamera &camera, RendererSettings &settings, const FrameStats &stats,
+            const EditorRuntimeModel &runtime = {});
   void endFrame();
   void shutdown();
 
@@ -32,6 +38,7 @@ private:
   UiCanvas canvas_;
   ControlSnapshot input_{};
   float renderer_panel_scroll_ = 0.0f;
+  std::size_t selected_graph_pass_ = 0u;
   bool initialized_ = false;
 };
 

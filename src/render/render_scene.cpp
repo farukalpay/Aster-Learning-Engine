@@ -4,6 +4,7 @@
 #include "aster/render/render_scene.hpp"
 
 #include "aster/core/profiler.hpp"
+#include "aster/render/material_compiler.hpp"
 #include "aster/render/render_device.hpp"
 
 #include <algorithm>
@@ -297,11 +298,16 @@ RenderMeshId renderMeshIdForObject(const RenderObject &object) {
 }
 
 RenderMaterialKey renderMaterialKeyForObject(const RenderObject &object) {
-  std::uint64_t hash = 1469598103934665603ull;
+  std::uint64_t hash = object.material.compiled_permutation_key != 0u
+                           ? object.material.compiled_permutation_key
+                           : 1469598103934665603ull;
   const MaterialRenderQueue queue = classifyMaterialRenderQueue(object.material);
   const bool writes_depth = materialWritesDepth(object.material);
   const bool double_sided = isDoubleSidedMaterial(object.material);
   const bool contact_shadow = object.material.surface_pattern == SurfacePattern::ContactShadow;
+  if (object.material.compiled_permutation_key == 0u) {
+    appendKey(hash, materialPermutationKey(object.material));
+  }
   appendKey(hash, queue);
   appendKey(hash, writes_depth);
   appendKey(hash, double_sided);

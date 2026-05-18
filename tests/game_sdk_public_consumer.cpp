@@ -73,6 +73,11 @@ void testLumenProjectAuthoringDocumentsLoad() {
       aster::sdk::loadMaterialDocument(project_root / "materials" / "torch_flame.material");
   assert(material.ok());
   assert(material.value.emission_strength > 0.0f);
+  assert(material.value.alpha_mode == "blend");
+  assert(material.value.depth_write == "disabled");
+  assert(material.value.double_sided);
+  assert(material.value.opacity < 1.0f);
+  assert(material.value.compiler_hints.at("permutation") == "transparent-emissive");
 
   const auto item = aster::sdk::loadItemDocument(project_root / "items" / "torch.item");
   assert(item.ok());

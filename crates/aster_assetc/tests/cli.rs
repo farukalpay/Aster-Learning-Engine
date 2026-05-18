@@ -124,7 +124,7 @@ fn compile_and_inspect_runtime_cache() {
         String::from_utf8_lossy(&inspect.stderr)
     );
     let stdout = String::from_utf8_lossy(&inspect.stdout);
-    assert!(stdout.contains("Aster cache v1"));
+    assert!(stdout.contains("Aster cache v2"));
     assert!(stdout.contains("materials=2"));
     assert!(stdout.contains("meshes=1"));
     assert!(stdout.contains("collision_meshes=1"));

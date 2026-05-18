@@ -28,9 +28,11 @@ public:
   virtual bool initialize() = 0;
   virtual FrameStats render(const Scene &scene, const FrameRenderPlan &plan,
                             const OrbitCamera &camera, const RendererSettings &settings,
+                            const FixedRenderGraph &graph,
                             const PreparedRenderMeshes &meshes, int framebuffer_width,
                             int framebuffer_height, double frame_seconds) = 0;
   [[nodiscard]] virtual const char *backendName() const = 0;
+  [[nodiscard]] virtual RenderBackendCapabilities capabilities() const = 0;
 };
 
 [[nodiscard]] std::unique_ptr<NativeRenderBackend> createNativeRenderBackend();

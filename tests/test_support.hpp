@@ -55,6 +55,7 @@
 #include "aster/physics/surface_support.hpp"
 #include "aster/physics/terrain_contact.hpp"
 #include "aster/render/camera.hpp"
+#include "aster/render/material_compiler.hpp"
 #include "aster/render/mesh.hpp"
 #include "aster/render/render_device.hpp"
 #include "aster/render/render_scene.hpp"

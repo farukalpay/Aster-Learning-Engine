@@ -174,6 +174,8 @@ struct Material {
   MaterialDepthWrite depth_write = MaterialDepthWrite::Auto;
   CameraOcclusionPolicy camera_occlusion = CameraOcclusionPolicy::Fade;
   ProceduralSurfaceLayer procedural{};
+  std::uint64_t compiled_permutation_key = 0u;
+  std::uint32_t compiled_permutation_flags = 0u;
 };
 
 struct MaterialDesc {

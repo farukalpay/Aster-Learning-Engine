@@ -1461,7 +1461,21 @@ LoadResult<MaterialDocument> parseMaterialDocument(std::string_view source_text,
         readFloatOr(root, "metallic", result.diagnostics, source_path, "$", result.value.metallic);
     result.value.emission_strength = readFloatOr(root, "emission_strength", result.diagnostics,
                                                  source_path, "$", result.value.emission_strength);
+    result.value.opacity =
+        readFloatOr(root, "opacity", result.diagnostics, source_path, "$", result.value.opacity);
+    result.value.double_sided =
+        readBoolOr(root, "double_sided", result.diagnostics, source_path, "$",
+                   result.value.double_sided);
+    result.value.alpha_mode = readStringOr(root, "alpha_mode", result.diagnostics, source_path,
+                                           "$", result.value.alpha_mode);
+    result.value.depth_write = readStringOr(root, "depth_write", result.diagnostics, source_path,
+                                             "$", result.value.depth_write);
+    result.value.surface_pattern =
+        readStringOr(root, "surface_pattern", result.diagnostics, source_path, "$",
+                     result.value.surface_pattern);
     result.value.texture_slots = readPathMap(root, "textures", result.diagnostics, source_path, "$");
+    result.value.compiler_hints = readStringMap(root, "compiler_hints", result.diagnostics,
+                                                source_path, "$");
     result.value.tags = readTags(root, "tags", result.diagnostics, source_path, "$");
   } catch (const std::exception &error) {
     addDiagnostic(result.diagnostics, source_path, "$", error.what());

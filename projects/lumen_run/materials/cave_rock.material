@@ -5,5 +5,12 @@
   "base_color": [0.22, 0.20, 0.18],
   "roughness": 0.86,
   "metallic": 0.0,
+  "double_sided": true,
+  "alpha_mode": "opaque",
+  "depth_write": "auto",
+  "surface_pattern": "cave-rock",
+  "compiler_hints": {
+    "permutation": "opaque-procedural-cave"
+  },
   "tags": ["surface.rock", "lumen.cave"]
 }

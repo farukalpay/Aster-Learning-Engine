@@ -39,6 +39,12 @@ The checked-in images are generated from the current build.
 - A macOS native Metal renderer with depth, translucent sorting, procedural
   material shading, contact shadows, fog, tonemapping, frame pacing, and UI
   composition.
+- A renderer/RHI v1 spine: `RenderDevice` orchestrates backend selection, fixed
+  render graph passes, backend capability queries, and material permutation
+  artifacts.
+- A Windows D3D12 bootstrap backend for device creation, capability reporting,
+  frame clear, and capture-path smoke coverage. Full Windows scene rendering is
+  still future work.
 - A deterministic software renderer used for fallback presentation, capture,
   preview rendering, and renderer diagnostics.
 - Reusable systems for player motion, creature motion, interaction, inventory,
@@ -133,6 +139,15 @@ measuring raw throughput or debugging the render loop.
 
 Set `ASTER_FORCE_SOFTWARE_RENDERER=1` on macOS to use the deterministic
 software fallback.
+
+Renderer backend status today:
+
+| Platform | Backend | Status |
+| --- | --- | --- |
+| macOS | Metal | Native scene renderer |
+| Windows | D3D12 | Bootstrap backend; clears/captures through the software framebuffer path |
+| Linux | Software | Wayland/X11 presentation with deterministic software rendering |
+| Any | Software | Reference fallback, capture, and preview path |
 
 On Linux, Aster prefers Wayland when `WAYLAND_DISPLAY` is available and falls
 back to the raw X11 adapter when only `DISPLAY` is set. Use
@@ -239,8 +254,9 @@ Aster v1 has native desktop paths for macOS, Linux, and Windows behind the same
 - Windows uses a native Win32 adapter for the window/event loop, DPI awareness,
   keyboard and mouse state, raw mouse deltas while the cursor is disabled,
   cursor clipping/visibility, GDI/DIB software presentation, and waitable-timer
-  frame pacing. Native Windows GPU rendering is still future work; the software
-  renderer is the Windows presentation path today.
+  frame pacing. The D3D12 backend currently bootstraps device/queue ownership and
+  capability diagnostics; full Windows GPU scene rendering is still future work,
+  with the software renderer remaining the production Windows draw path today.
 
 ## Authorship
 

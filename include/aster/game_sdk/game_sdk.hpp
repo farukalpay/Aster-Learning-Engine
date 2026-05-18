@@ -388,7 +388,13 @@ struct MaterialDocument {
   float roughness = 0.55f;
   float metallic = 0.0f;
   float emission_strength = 0.0f;
+  float opacity = 1.0f;
+  bool double_sided = false;
+  std::string alpha_mode = "opaque";
+  std::string depth_write = "auto";
+  std::string surface_pattern = "none";
   std::map<std::string, std::filesystem::path> texture_slots;
+  std::map<std::string, std::string> compiler_hints;
   std::vector<GameplayTag> tags;
 };
 

@@ -1479,6 +1479,11 @@ void testSceneAssetNormalTangentImport() {
   assert(asset.material_slots[1].material.alpha_mode == aster::MaterialAlphaMode::Masked);
   assert(aster::classifyMaterialRenderQueue(asset.material_slots[1].material) ==
          aster::MaterialRenderQueue::Masked);
+  assert(asset.material_slots[1].permutation_key != 0u);
+  assert(asset.material_slots[1].material.compiled_permutation_key ==
+         asset.material_slots[1].permutation_key);
+  assert((asset.material_slots[1].permutation_flags &
+          aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::Textured)) != 0u);
   assert(!asset.mesh_chunks.front().mesh.vertices.empty());
   assert(asset.mesh_chunks.front().mesh.indices.size() == 6u);
   assert(asset.mesh_chunks.front().diagnostics.generated_tangents == 6u);
