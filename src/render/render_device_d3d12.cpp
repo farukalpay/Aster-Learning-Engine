@@ -130,6 +130,12 @@ aster::rhi::DeviceCapabilities d3d12CapabilityTable() {
   table.capture = true;
   table.ui_composite = false;
   table.gpu_timestamps = false;
+  table.storage_buffers = true;
+  table.texture_arrays = true;
+  table.shadow_maps = false;
+  table.debug_markers = false;
+  table.hdr_render_targets = false;
+  table.msaa = false;
   table.color_format_mask =
       aster::rhi::imageFormatCapabilityBit(aster::rhi::ImageFormat::Bgra8Unorm);
   table.depth_format_mask =
@@ -153,6 +159,7 @@ aster::RenderBackendCapabilities d3d12Capabilities() {
   const std::uint32_t graph_resources =
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor) |
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth) |
+      aster::renderGraphResourceBit(aster::RenderGraphResource::LightClusters) |
       aster::renderGraphResourceBit(aster::RenderGraphResource::CaptureReadback);
   return {.kind = aster::RenderBackendKind::D3D12,
           .name = "Aster Native D3D12 Rasterizer",
@@ -556,6 +563,12 @@ public:
           const auto pass_start = std::chrono::steady_clock::now();
           const std::size_t draws_before = stats.draw_calls;
           switch (invocation.semantic) {
+          case aster::RenderGraphPass::LightCull:
+          case aster::RenderGraphPass::ShadowAtlas:
+          case aster::RenderGraphPass::SceneLighting:
+          case aster::RenderGraphPass::VolumetricFog:
+          case aster::RenderGraphPass::ReflectionProbe:
+            break;
           case aster::RenderGraphPass::Opaque:
             for (const aster::FrameRenderDrawGroup &group : plan.groups) {
               if (group.pass == aster::FrameRenderPass::Opaque) {
@@ -878,7 +891,8 @@ private:
             : object.transform.matrix();
     const float aspect_ratio =
         static_cast<float>(std::max(width_, 1)) / static_cast<float>(std::max(height_, 1));
-    const aster::Mat4 mvp = camera.projectionMatrix(aspect_ratio) * camera.viewMatrix() * model;
+    const aster::Mat4 mvp =
+        camera.projectionMatrix(aspect_ratio).value * camera.viewMatrix().value * model;
     D3D12ObjectUniforms uniforms;
     std::memcpy(uniforms.model, model.m.data(), sizeof(uniforms.model));
     std::memcpy(uniforms.model_view_projection, mvp.m.data(),

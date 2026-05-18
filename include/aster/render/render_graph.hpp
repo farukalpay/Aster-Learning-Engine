@@ -12,8 +12,13 @@ namespace aster {
 
 enum class RenderGraphPass : std::uint32_t {
   SceneColorDepth,
+  LightCull,
+  ShadowAtlas,
   Opaque,
   ContactShadow,
+  SceneLighting,
+  VolumetricFog,
+  ReflectionProbe,
   Transparent,
   UiComposite,
   Capture,
@@ -22,6 +27,10 @@ enum class RenderGraphPass : std::uint32_t {
 enum class RenderGraphResource : std::uint32_t {
   SceneColor,
   SceneDepth,
+  LightClusters,
+  ShadowAtlas,
+  VolumetricFog,
+  ReflectionProbes,
   UiOverlay,
   CaptureReadback,
 };

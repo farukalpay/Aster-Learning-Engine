@@ -246,6 +246,30 @@ void testRuntimeLightPolicy() {
   const std::vector<aster::Light> unbounded = aster::selectRenderLights(
       lights, {}, {.max_point_lights = aster::kRenderLightUniformCapacity + 32u});
   assert(unbounded.size() == lights.size());
+
+  aster::OrbitCamera camera;
+  camera.target = {6.0f, 0.0f, 0.0f};
+  camera.radius = 12.0f;
+  aster::ClusteredLightPolicy clustered;
+  clustered.enabled = true;
+  clustered.cluster_count_x = 4u;
+  clustered.cluster_count_y = 3u;
+  clustered.cluster_count_z = 2u;
+  clustered.max_visible_lights = 7u;
+  clustered.max_lights_per_cluster = 3u;
+  const aster::ClusteredLightGrid grid =
+      aster::buildClusteredLightGrid(lights, camera, 128, 72, clustered);
+  assert(grid.cluster_count_x == 4u);
+  assert(grid.cluster_count_y == 3u);
+  assert(grid.cluster_count_z == 2u);
+  assert(grid.cluster_offsets.size() == 25u);
+  assert(grid.visible_lights.size() == 7u);
+  assert(grid.fallback_used);
+  assert(!grid.assignments.empty());
+  assert(grid.cluster_offsets.back() == grid.assignments.size());
+  for (std::size_t i = 1u; i < grid.assignments.size(); ++i) {
+    assert(grid.assignments[i - 1u].cluster_index <= grid.assignments[i].cluster_index);
+  }
 }
 
 void testRhiResourceRegistryContract() {
@@ -381,36 +405,59 @@ void testFrameGraphContract() {
   const aster::FixedRenderGraph graph = aster::makeFixedRenderGraph();
   assert(graph.valid());
   assert(graph.validation_errors.empty());
-  assert(graph.resources.size() == 4u);
+  assert(graph.resources.size() == 8u);
   assert(graph.resources[0].name == "scene-color");
   assert(graph.resources[0].desc.lifetime == aster::framegraph::ResourceLifetime::Transient);
-  assert(graph.resources[2].name == "ui-overlay");
-  assert(graph.resources[2].desc.lifetime == aster::framegraph::ResourceLifetime::Imported);
-  assert(graph.resources[3].name == "capture-readback");
-  assert(graph.resources[3].desc.lifetime == aster::framegraph::ResourceLifetime::Readback);
-  assert(graph.passes.size() == 6u);
+  assert(graph.resources[2].name == "light-clusters");
+  assert(graph.resources[6].name == "ui-overlay");
+  assert(graph.resources[6].desc.lifetime == aster::framegraph::ResourceLifetime::Imported);
+  assert(graph.resources[7].name == "capture-readback");
+  assert(graph.resources[7].desc.lifetime == aster::framegraph::ResourceLifetime::Readback);
+  assert(graph.passes.size() == 11u);
   assert(graph.passes[0].name == "scene-color-depth");
-  assert(graph.passes[1].name == "opaque");
-  assert(graph.passes[2].name == "contact-shadow");
-  assert(graph.passes[3].name == "transparent");
-  assert(graph.passes[4].name == "ui-composite");
-  assert(graph.passes[5].name == "capture");
+  assert(graph.passes[1].name == "light-cull");
+  assert(graph.passes[2].name == "shadow-atlas");
+  assert(graph.passes[3].name == "opaque");
+  assert(graph.passes[4].name == "contact-shadow");
+  assert(graph.passes[5].name == "scene-lighting");
+  assert(graph.passes[6].name == "volumetric-fog");
+  assert(graph.passes[7].name == "reflection-probe");
+  assert(graph.passes[8].name == "transparent");
+  assert(graph.passes[9].name == "ui-composite");
+  assert(graph.passes[10].name == "capture");
   const std::uint32_t color =
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor);
   const std::uint32_t depth =
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth);
+  const std::uint32_t light_clusters =
+      aster::renderGraphResourceBit(aster::RenderGraphResource::LightClusters);
+  const std::uint32_t shadow_atlas =
+      aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas);
+  const std::uint32_t volumetric_fog =
+      aster::renderGraphResourceBit(aster::RenderGraphResource::VolumetricFog);
+  const std::uint32_t reflection_probes =
+      aster::renderGraphResourceBit(aster::RenderGraphResource::ReflectionProbes);
   const std::uint32_t ui = aster::renderGraphResourceBit(aster::RenderGraphResource::UiOverlay);
   const std::uint32_t capture =
       aster::renderGraphResourceBit(aster::RenderGraphResource::CaptureReadback);
   assert(graph.passes[0].read_mask == 0u && graph.passes[0].write_mask == (color | depth));
-  assert(graph.passes[1].read_mask == (color | depth) &&
-         graph.passes[1].write_mask == (color | depth));
-  assert(graph.passes[2].read_mask == (color | depth) &&
-         graph.passes[2].write_mask == (color | depth));
-  assert(graph.passes[3].read_mask == (color | depth) && graph.passes[3].write_mask == color);
-  assert(graph.passes[4].read_mask == (color | ui) && graph.passes[4].write_mask == color);
-  assert(graph.passes[5].read_mask == color && graph.passes[5].write_mask == capture);
-  assert(graph.transient_resource_count == 2u);
+  assert(graph.passes[1].read_mask == depth && graph.passes[1].write_mask == light_clusters);
+  assert(graph.passes[2].read_mask == light_clusters && graph.passes[2].write_mask == shadow_atlas);
+  assert(graph.passes[3].read_mask == (color | depth | light_clusters | shadow_atlas) &&
+         graph.passes[3].write_mask == (color | depth));
+  assert(graph.passes[4].read_mask == (color | depth) &&
+         graph.passes[4].write_mask == (color | depth));
+  assert(graph.passes[5].read_mask == (color | depth | light_clusters) &&
+         graph.passes[5].write_mask == color);
+  assert(graph.passes[6].read_mask == (depth | light_clusters) &&
+         graph.passes[6].write_mask == volumetric_fog);
+  assert(graph.passes[7].read_mask == color && graph.passes[7].write_mask == reflection_probes);
+  assert(graph.passes[8].read_mask ==
+             (color | depth | light_clusters | volumetric_fog | reflection_probes) &&
+         graph.passes[8].write_mask == color);
+  assert(graph.passes[9].read_mask == (color | ui) && graph.passes[9].write_mask == color);
+  assert(graph.passes[10].read_mask == color && graph.passes[10].write_mask == capture);
+  assert(graph.transient_resource_count == 6u);
   assert(!graph.barriers.empty());
   const std::string dump = aster::framegraph::dumpFrameGraph(graph);
   assert(dump.find("scene-color-depth") != std::string::npos);
@@ -423,9 +470,10 @@ void testFrameGraphContract() {
   assert(executed == graph.passes.size());
   assert(executed_passes.size() == graph.passes.size());
   assert(executed_passes[0] == aster::RenderGraphPass::SceneColorDepth);
-  assert(executed_passes[1] == aster::RenderGraphPass::Opaque);
-  assert(executed_passes[2] == aster::RenderGraphPass::ContactShadow);
-  assert(executed_passes[3] == aster::RenderGraphPass::Transparent);
+  assert(executed_passes[1] == aster::RenderGraphPass::LightCull);
+  assert(executed_passes[3] == aster::RenderGraphPass::Opaque);
+  assert(executed_passes[4] == aster::RenderGraphPass::ContactShadow);
+  assert(executed_passes[8] == aster::RenderGraphPass::Transparent);
 
   aster::framegraph::FrameGraph invalid_graph;
   const auto dangling = invalid_graph.addResource("dangling", {});

@@ -220,8 +220,8 @@ private:
   for (std::size_t i = 0; i < count; ++i) {
     SceneMaterialSlot slot;
     slot.name = reader.string();
-    slot.material.base_color = reader.vec3();
-    slot.material.emission_color = reader.vec3();
+    slot.material.base_color = LinearRgb{reader.vec3()};
+    slot.material.emission_color = EmissionColor{reader.vec3()};
     slot.material.roughness = reader.f32();
     slot.material.metallic = reader.f32();
     slot.material.emission_strength = reader.f32();

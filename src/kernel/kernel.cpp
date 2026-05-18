@@ -179,6 +179,37 @@ AsterVec3 abiVec(const aster::Vec3 value) {
   return {value.x, value.y, value.z};
 }
 
+aster::Viewport viewport(const AsterViewport *value) {
+  if (value == nullptr) {
+    return {};
+  }
+  return {.origin = vec(value->origin),
+          .size = vec(value->size),
+          .origin_convention = value->origin_top_left != 0u
+                                   ? aster::ViewportOrigin::TopLeft
+                                   : aster::ViewportOrigin::BottomLeft};
+}
+
+aster::WorldPoint worldPoint(const AsterWorldPoint value) {
+  return aster::WorldPoint{vec(value.value)};
+}
+
+aster::ScreenPoint screenPoint(const AsterScreenPoint value) {
+  return aster::ScreenPoint{vec(value.value)};
+}
+
+AsterWorldPoint abiWorldPoint(const aster::WorldPoint value) {
+  return {abiVec(value.value)};
+}
+
+AsterScreenPoint abiScreenPoint(const aster::ScreenPoint value) {
+  return {abiVec(value.value)};
+}
+
+AsterWorldRay abiWorldRay(const aster::WorldRay &value) {
+  return {abiWorldPoint(value.origin), abiVec(value.direction.value), value.max_distance};
+}
+
 aster::Quat quat(const AsterQuat value) {
   return {value.x, value.y, value.z, value.w};
 }
@@ -278,6 +309,14 @@ aster::ProjectionPolicy projectionPolicy(const AsterMathCoordinateHandedness han
           .depth_direction = depth_direction == ASTER_MATH_DEPTH_FORWARD_Z
                                  ? aster::DepthDirection::ForwardZ
                                  : aster::DepthDirection::ReverseZ};
+}
+
+aster::ProjectionPolicy projectionPolicy(const AsterProjectionConvention *convention) {
+  if (convention == nullptr) {
+    return aster::defaultProjectionPolicy();
+  }
+  return projectionPolicy(convention->handedness, convention->depth_range,
+                          convention->depth_direction);
 }
 
 aster::MeshPrimitive meshPrimitive(const AsterKernelMeshPrimitive primitive) {
@@ -397,10 +436,20 @@ AsterKernelShaderResourceKind shaderResourceKind(const aster::ShaderResourceKind
 
 AsterKernelRenderGraphPass renderGraphPass(const aster::RenderGraphPass pass) {
   switch (pass) {
+  case aster::RenderGraphPass::LightCull:
+    return ASTER_KERNEL_RENDER_PASS_LIGHT_CULL;
+  case aster::RenderGraphPass::ShadowAtlas:
+    return ASTER_KERNEL_RENDER_PASS_SHADOW_ATLAS;
   case aster::RenderGraphPass::Opaque:
     return ASTER_KERNEL_RENDER_PASS_OPAQUE;
   case aster::RenderGraphPass::ContactShadow:
     return ASTER_KERNEL_RENDER_PASS_CONTACT_SHADOW;
+  case aster::RenderGraphPass::SceneLighting:
+    return ASTER_KERNEL_RENDER_PASS_SCENE_LIGHTING;
+  case aster::RenderGraphPass::VolumetricFog:
+    return ASTER_KERNEL_RENDER_PASS_VOLUMETRIC_FOG;
+  case aster::RenderGraphPass::ReflectionProbe:
+    return ASTER_KERNEL_RENDER_PASS_REFLECTION_PROBE;
   case aster::RenderGraphPass::Transparent:
     return ASTER_KERNEL_RENDER_PASS_TRANSPARENT;
   case aster::RenderGraphPass::UiComposite:
@@ -438,6 +487,8 @@ AsterKernelFrameDiagnosticKind diagnosticKind(const aster::FrameDiagnosticKind k
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_RESOURCE_LIFETIME_HAZARD;
   case aster::FrameDiagnosticKind::CapabilityMismatch:
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_CAPABILITY_MISMATCH;
+  case aster::FrameDiagnosticKind::ClusteredLightingFallback:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_CLUSTERED_LIGHTING_FALLBACK;
   case aster::FrameDiagnosticKind::BackendFallback:
   default:
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_BACKEND_FALLBACK;
@@ -732,30 +783,51 @@ AsterStatus aster_kernel_math_mat4_look_at(
   return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
 }
 
-AsterStatus aster_kernel_math_project(const AsterVec3 point, const AsterMat4 *world_to_clip,
-                                      const AsterVec2 viewport_origin,
-                                      const AsterVec2 viewport_size, AsterVec3 *out_window,
-                                      AsterMathDiagnostics *out_diagnostics) {
-  if (world_to_clip == nullptr || out_window == nullptr) {
-    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "project pointer is null");
+AsterStatus aster_kernel_math_world_to_screen(const AsterWorldPoint point,
+                                              const AsterMat4 *world_to_clip,
+                                              const AsterViewport *viewport_desc,
+                                              AsterScreenPoint *out_screen,
+                                              AsterMathDiagnostics *out_diagnostics) {
+  if (world_to_clip == nullptr || viewport_desc == nullptr || out_screen == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world_to_screen pointer is null");
   }
-  const aster::MathResult<aster::Vec3> result =
-      aster::project(vec(point), mat4(*world_to_clip), vec(viewport_origin), vec(viewport_size));
-  *out_window = abiVec(result.value);
+  const aster::MathResult<aster::ScreenPoint> result =
+      aster::project(worldPoint(point), aster::WorldToClip{mat4(*world_to_clip)},
+                     viewport(viewport_desc));
+  *out_screen = abiScreenPoint(result.value);
   writeMathDiagnostics(out_diagnostics, result.diagnostics);
   return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
 }
 
-AsterStatus aster_kernel_math_unproject(const AsterVec3 window, const AsterMat4 *clip_to_world,
-                                        const AsterVec2 viewport_origin,
-                                        const AsterVec2 viewport_size, AsterVec3 *out_point,
-                                        AsterMathDiagnostics *out_diagnostics) {
-  if (clip_to_world == nullptr || out_point == nullptr) {
-    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "unproject pointer is null");
+AsterStatus aster_kernel_math_screen_to_world(const AsterScreenPoint screen,
+                                              const AsterMat4 *clip_to_world,
+                                              const AsterViewport *viewport_desc,
+                                              AsterWorldPoint *out_point,
+                                              AsterMathDiagnostics *out_diagnostics) {
+  if (clip_to_world == nullptr || viewport_desc == nullptr || out_point == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "screen_to_world pointer is null");
   }
-  const aster::MathResult<aster::Vec3> result =
-      aster::unproject(vec(window), mat4(*clip_to_world), vec(viewport_origin), vec(viewport_size));
-  *out_point = abiVec(result.value);
+  const aster::MathResult<aster::WorldPoint> result =
+      aster::unproject(screenPoint(screen), aster::ClipToWorld{mat4(*clip_to_world)},
+                       viewport(viewport_desc));
+  *out_point = abiWorldPoint(result.value);
+  writeMathDiagnostics(out_diagnostics, result.diagnostics);
+  return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
+}
+
+AsterStatus aster_kernel_math_screen_to_world_ray(
+    const AsterScreenPoint screen, const AsterMat4 *clip_to_world,
+    const AsterViewport *viewport_desc, const AsterProjectionConvention *convention,
+    const AsterWorldPoint perspective_eye, AsterWorldRay *out_ray,
+    AsterMathDiagnostics *out_diagnostics) {
+  if (clip_to_world == nullptr || viewport_desc == nullptr || out_ray == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "screen_to_world_ray pointer is null");
+  }
+  const aster::MathResult<aster::WorldRay> result = aster::screenRay(
+      screenPoint(screen), aster::ClipToWorld{mat4(*clip_to_world)}, viewport(viewport_desc),
+      projectionPolicy(convention), aster::RayOriginPolicy::PerspectiveEye,
+      worldPoint(perspective_eye));
+  *out_ray = abiWorldRay(result.value);
   writeMathDiagnostics(out_diagnostics, result.diagnostics);
   return result ? aster_kernel_status_ok() : statusFromMath(result.diagnostics);
 }
@@ -1032,7 +1104,8 @@ AsterStatus aster_kernel_scene_add_object(const AsterSceneHandle scene,
   if (validMaterial(desc->material)) {
     object.material = desc->material->material;
   } else {
-    object.material = aster::makeMaterial({.base_color = {0.8f, 0.82f, 0.86f}});
+    object.material =
+        aster::makeMaterial({.base_color = aster::LinearRgb{0.8f, 0.82f, 0.86f}});
   }
   object.transform.position = vec(desc->position);
   object.transform.rotation = aster::quatFromEulerXyz(vec(desc->rotation));
@@ -1341,8 +1414,9 @@ AsterStatus aster_kernel_material_create(const AsterEngineHandle engine,
   try {
     auto *material = new AsterMaterialHandle__();
     material->label = stringFromView(desc->debug_label);
-    material->material = aster::makeMaterial({.base_color = vec(desc->base_color),
-                                              .emission_color = vec(desc->emission_color),
+    material->material = aster::makeMaterial({.base_color = aster::LinearRgb{vec(desc->base_color)},
+                                              .emission_color =
+                                                  aster::EmissionColor{vec(desc->emission_color)},
                                               .roughness = desc->roughness > 0.0f ? desc->roughness : 0.55f,
                                               .metallic = desc->metallic,
                                               .emission_strength = desc->emission_strength,

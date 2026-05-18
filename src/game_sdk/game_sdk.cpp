@@ -1451,10 +1451,13 @@ LoadResult<MaterialDocument> parseMaterialDocument(std::string_view source_text,
     result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
     result.value.id = readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
     result.value.name = readStringOr(root, "name", result.diagnostics, source_path, "$", {});
-    result.value.base_color =
+    const Vec3 base_color =
         readVec3Or(root, "base_color", result.diagnostics, source_path, "$", {1.0f, 1.0f, 1.0f});
-    result.value.emission_color =
+    result.value.base_color = aster::LinearRgb{base_color.x, base_color.y, base_color.z};
+    const Vec3 emission_color =
         readVec3Or(root, "emission_color", result.diagnostics, source_path, "$", {});
+    result.value.emission_color =
+        aster::EmissionColor{emission_color.x, emission_color.y, emission_color.z};
     result.value.roughness = readFloatOr(root, "roughness", result.diagnostics, source_path, "$",
                                          result.value.roughness);
     result.value.metallic =

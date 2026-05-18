@@ -53,6 +53,12 @@ aster::rhi::DeviceCapabilities metalCapabilityTable() {
   table.capture = true;
   table.ui_composite = true;
   table.gpu_timestamps = false;
+  table.storage_buffers = true;
+  table.texture_arrays = true;
+  table.shadow_maps = false;
+  table.debug_markers = false;
+  table.hdr_render_targets = false;
+  table.msaa = false;
   table.color_format_mask =
       aster::rhi::imageFormatCapabilityBit(aster::rhi::ImageFormat::Rgba8Unorm) |
       aster::rhi::imageFormatCapabilityBit(aster::rhi::ImageFormat::Bgra8Unorm);
@@ -69,6 +75,7 @@ aster::rhi::DeviceCapabilities metalCapabilityTable() {
   table.presentation = aster::rhi::PresentationMode::MetalLayer;
   table.limits.max_color_attachments = 1u;
   table.limits.max_uniform_buffers_per_stage = 2u;
+  table.limits.max_storage_buffers_per_stage = 4u;
   table.limits.max_bind_groups = 3u;
   table.limits.max_vertex_attributes = 4u;
   table.limits.max_texture_dimension_2d = 16384u;
@@ -1152,6 +1159,12 @@ public:
           const auto pass_start = std::chrono::steady_clock::now();
           const std::size_t draws_before = stats.draw_calls;
           switch (invocation.semantic) {
+          case aster::RenderGraphPass::LightCull:
+          case aster::RenderGraphPass::ShadowAtlas:
+          case aster::RenderGraphPass::SceneLighting:
+          case aster::RenderGraphPass::VolumetricFog:
+          case aster::RenderGraphPass::ReflectionProbe:
+            break;
           case aster::RenderGraphPass::Opaque:
             for (const aster::FrameRenderDrawGroup &group : plan.groups) {
               if (group.pass == aster::FrameRenderPass::Opaque) {
@@ -1204,6 +1217,7 @@ public:
     const std::uint32_t graph_resources =
         aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth) |
+        aster::renderGraphResourceBit(aster::RenderGraphResource::LightClusters) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::UiOverlay) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::CaptureReadback);
     return {.kind = aster::RenderBackendKind::Metal,
@@ -1332,7 +1346,8 @@ private:
             : object.transform.matrix();
     const float aspect_ratio =
         static_cast<float>(std::max(width_, 1)) / static_cast<float>(std::max(height_, 1));
-    const aster::Mat4 mvp = camera.projectionMatrix(aspect_ratio) * camera.viewMatrix() * model;
+    const aster::Mat4 mvp =
+        camera.projectionMatrix(aspect_ratio).value * camera.viewMatrix().value * model;
     MetalObjectUniforms out;
     std::memcpy(out.model, model.m.data(), sizeof(out.model));
     std::memcpy(out.model_view_projection, mvp.m.data(), sizeof(out.model_view_projection));

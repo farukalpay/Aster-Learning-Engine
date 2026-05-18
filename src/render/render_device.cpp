@@ -274,7 +274,8 @@ aster::Vec3 mineralVeinAlbedo(const aster::Material &material, const aster::Vec3
       smoothstep(0.50f, 0.95f, projectedFbm(material, world_position, normal, 1.55f, 97.0f));
   aster::Vec3 coal = material.base_color * (0.54f + sheen * 0.32f);
   const aster::Vec3 warm_vein =
-      mixVec({0.22f, 0.15f, 0.075f}, material.emission_color + material.base_color, 0.35f);
+      mixVec({0.22f, 0.15f, 0.075f}, material.emission_color.value + material.base_color.value,
+             0.35f);
   return mixVec(coal, warm_vein, vein * 0.78f);
 }
 
@@ -346,8 +347,8 @@ aster::Vec3 emissiveLensAlbedo(const aster::Material &material,
                                const aster::Vec3 world_position, const aster::Vec3 normal) {
   const float wet = smoothstep(0.45f, 0.96f,
                                projectedFbm(material, world_position, normal, 1.9f, 283.0f));
-  return aster::clamp(material.base_color * (0.62f + wet * 0.44f) +
-                          material.emission_color * (0.28f + wet * 0.34f),
+  return aster::clamp(material.base_color.value * (0.62f + wet * 0.44f) +
+                          material.emission_color.value * (0.28f + wet * 0.34f),
                       0.0f, 4.0f);
 }
 
@@ -664,7 +665,7 @@ aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 wo
                           (macro_patch * 0.18f - macro_stain * 0.08f) * macro_weight;
   return applyProceduralLayer(
       material, world_position, normal,
-      aster::clamp(material.base_color * std::lerp(1.0f, variation, procedural_weight), 0.0f,
+      aster::clamp(material.base_color.value * std::lerp(1.0f, variation, procedural_weight), 0.0f,
                    4.0f));
 }
 
@@ -1001,7 +1002,7 @@ void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mes
   const float aspect_ratio = static_cast<float>(std::max(framebuffer.width(), 1)) /
                              static_cast<float>(std::max(framebuffer.height(), 1));
   const aster::Mat4 model_view_projection =
-      camera.projectionMatrix(aspect_ratio) * camera.viewMatrix() * model;
+      camera.projectionMatrix(aspect_ratio).value * camera.viewMatrix().value * model;
   const aster::FaceCullMode cull_mode =
       objectCullMode(object, camera_position, settings.pipeline.back_face_culling);
   const bool alpha_blend =
@@ -1122,6 +1123,92 @@ std::vector<Light> selectRenderLights(const LightRig &lights, const Vec3 referen
   return active;
 }
 
+ClusteredLightGrid buildClusteredLightGrid(const LightRig &lights, const OrbitCamera &camera,
+                                           const int framebuffer_width,
+                                           const int framebuffer_height,
+                                           const ClusteredLightPolicy &policy) {
+  ClusteredLightGrid grid;
+  if (!policy.enabled || policy.mode == ClusteredLightCullingMode::Disabled ||
+      framebuffer_width <= 0 || framebuffer_height <= 0) {
+    return grid;
+  }
+
+  grid.cluster_count_x = std::max(policy.cluster_count_x, 1u);
+  grid.cluster_count_y = std::max(policy.cluster_count_y, 1u);
+  grid.cluster_count_z = std::max(policy.cluster_count_z, 1u);
+  const std::uint32_t cluster_count =
+      grid.cluster_count_x * grid.cluster_count_y * grid.cluster_count_z;
+  grid.cluster_offsets.assign(static_cast<std::size_t>(cluster_count) + 1u, 0u);
+
+  RenderLightPolicy visible_policy;
+  visible_policy.max_point_lights =
+      std::min<std::size_t>(std::max<std::size_t>(policy.max_visible_lights, 1u),
+                            kRenderLightUniformCapacity);
+  visible_policy.distance_weighted = true;
+  visible_policy.min_intensity = 0.0f;
+  grid.visible_lights = selectRenderLights(lights, camera.target, visible_policy);
+  grid.fallback_used = grid.visible_lights.size() < lights.size();
+
+  const float aspect = static_cast<float>(std::max(framebuffer_width, 1)) /
+                       static_cast<float>(std::max(framebuffer_height, 1));
+  const Mat4 view_projection = camera.viewProjectionMatrix(aspect).value;
+  const Vec3 eye = camera.position();
+  const Vec3 forward = normalize(camera.target - eye);
+  const float near_plane = std::max(camera.near_plane, 0.001f);
+  const float far_plane = std::max(camera.far_plane, near_plane + 0.001f);
+  const std::uint32_t max_lights_per_cluster = std::max(policy.max_lights_per_cluster, 1u);
+  std::vector<std::uint32_t> per_cluster_count(cluster_count, 0u);
+
+  const auto cluster_index_for = [&](const Light &light) -> std::uint32_t {
+    const Vec4 clip =
+        view_projection * Vec4{light.position.x, light.position.y, light.position.z, 1.0f};
+    const float inv_w = std::abs(clip.w) > 0.000001f ? 1.0f / clip.w : 1.0f;
+    const float ndc_x = std::clamp(clip.x * inv_w, -1.0f, 1.0f);
+    const float ndc_y = std::clamp(clip.y * inv_w, -1.0f, 1.0f);
+    const float depth = std::clamp(dot(light.position - eye, forward), near_plane, far_plane);
+    const float depth_t = (depth - near_plane) / std::max(far_plane - near_plane, 0.001f);
+    const std::uint32_t x = std::min(
+        static_cast<std::uint32_t>(((ndc_x * 0.5f) + 0.5f) * grid.cluster_count_x),
+        grid.cluster_count_x - 1u);
+    const std::uint32_t y = std::min(
+        static_cast<std::uint32_t>((1.0f - ((ndc_y * 0.5f) + 0.5f)) * grid.cluster_count_y),
+        grid.cluster_count_y - 1u);
+    const std::uint32_t z =
+        std::min(static_cast<std::uint32_t>(depth_t * grid.cluster_count_z),
+                 grid.cluster_count_z - 1u);
+    return (z * grid.cluster_count_y + y) * grid.cluster_count_x + x;
+  };
+
+  for (std::uint32_t light_index = 0u;
+       light_index < static_cast<std::uint32_t>(grid.visible_lights.size()); ++light_index) {
+    const std::uint32_t cluster_index = cluster_index_for(grid.visible_lights[light_index]);
+    if (per_cluster_count[cluster_index] >= max_lights_per_cluster) {
+      grid.overflowed = true;
+      if (policy.fallback == ClusteredLightFallbackPolicy::DisableOverflow) {
+        continue;
+      }
+    }
+    ++per_cluster_count[cluster_index];
+    grid.assignments.push_back({.cluster_index = cluster_index, .light_index = light_index});
+  }
+
+  std::sort(grid.assignments.begin(), grid.assignments.end(),
+            [](const ClusteredLightAssignment &lhs, const ClusteredLightAssignment &rhs) {
+              if (lhs.cluster_index != rhs.cluster_index) {
+                return lhs.cluster_index < rhs.cluster_index;
+              }
+              return lhs.light_index < rhs.light_index;
+            });
+  std::fill(grid.cluster_offsets.begin(), grid.cluster_offsets.end(), 0u);
+  for (const ClusteredLightAssignment &assignment : grid.assignments) {
+    ++grid.cluster_offsets[static_cast<std::size_t>(assignment.cluster_index) + 1u];
+  }
+  for (std::size_t i = 1u; i < grid.cluster_offsets.size(); ++i) {
+    grid.cluster_offsets[i] += grid.cluster_offsets[i - 1u];
+  }
+  return grid;
+}
+
 namespace {
 
 rhi::DeviceCapabilities softwareCapabilityTable() {
@@ -1133,6 +1220,12 @@ rhi::DeviceCapabilities softwareCapabilityTable() {
   table.capture = true;
   table.ui_composite = true;
   table.gpu_timestamps = false;
+  table.storage_buffers = false;
+  table.texture_arrays = false;
+  table.shadow_maps = false;
+  table.debug_markers = false;
+  table.hdr_render_targets = false;
+  table.msaa = false;
   table.color_format_mask = rhi::imageFormatCapabilityBit(rhi::ImageFormat::Bgra8Unorm) |
                             rhi::imageFormatCapabilityBit(rhi::ImageFormat::Rgba8Unorm);
   table.depth_format_mask = rhi::imageFormatCapabilityBit(rhi::ImageFormat::Depth32Float);
@@ -1154,6 +1247,7 @@ RenderBackendCapabilities softwareCapabilities() {
   const std::uint32_t graph_resources =
       renderGraphResourceBit(RenderGraphResource::SceneColor) |
       renderGraphResourceBit(RenderGraphResource::SceneDepth) |
+      renderGraphResourceBit(RenderGraphResource::LightClusters) |
       renderGraphResourceBit(RenderGraphResource::UiOverlay) |
       renderGraphResourceBit(RenderGraphResource::CaptureReadback);
   return {.kind = RenderBackendKind::SoftwareReference,
@@ -1488,6 +1582,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                            framebuffer_height);
   const RenderBackendCapabilities active_capabilities =
       native_backend_ != nullptr ? native_backend_->capabilities() : softwareCapabilities();
+  const ClusteredLightGrid clustered_lights =
+      buildClusteredLightGrid(settings.light_rig, camera, framebuffer_width, framebuffer_height,
+                              settings.clustered_lighting);
   MaterialFrameSummary material_summary =
       analyzeMaterialFrame(scene, plan, active_capabilities, material_artifact_cache_,
                            previous_transparent_order_);
@@ -1507,6 +1604,25 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.material_permutations = material_summary.material_permutations;
   stats.material_variant_cache_hits = material_summary.material_variant_cache_hits;
   stats.material_variant_cache_misses = material_summary.material_variant_cache_misses;
+  stats.active_point_lights =
+      settings.clustered_lighting.enabled
+          ? clustered_lights.visible_lights.size()
+          : selectRenderLights(settings.light_rig, camera.target, settings.light_policy).size();
+  stats.clustered_light_clusters =
+      static_cast<std::size_t>(clustered_lights.cluster_count_x) * clustered_lights.cluster_count_y *
+      clustered_lights.cluster_count_z;
+  stats.clustered_light_assignments = clustered_lights.assignments.size();
+  if (clustered_lights.fallback_used || clustered_lights.overflowed) {
+    last_forensics_.events.push_back(
+        {.kind = FrameDiagnosticKind::ClusteredLightingFallback,
+         .severity = FrameDiagnosticSeverity::Info,
+         .pass = "light-cull",
+         .label = "clustered-forward-v1",
+         .message = clustered_lights.overflowed
+                        ? "Clustered lighting exceeded the per-cluster light budget."
+                        : "Clustered lighting clamped visible lights to the backend contract.",
+         .value = clustered_lights.assignments.size()});
+  }
   stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
   stats.graph_compile_seconds = graph_compile_seconds_;
   stats.backend_kind_value =
@@ -1543,6 +1659,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     native_stats.material_permutations = material_summary.material_permutations;
     native_stats.material_variant_cache_hits = material_summary.material_variant_cache_hits;
     native_stats.material_variant_cache_misses = material_summary.material_variant_cache_misses;
+    native_stats.active_point_lights = stats.active_point_lights;
+    native_stats.clustered_light_clusters = stats.clustered_light_clusters;
+    native_stats.clustered_light_assignments = stats.clustered_light_assignments;
     native_stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
     native_stats.graph_passes = render_graph_.passes.size();
     native_stats.graph_resources = render_graph_.resources.size();
@@ -1598,6 +1717,12 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     const auto pass_start = std::chrono::steady_clock::now();
     const std::size_t draws_before = stats.draw_calls;
     switch (invocation.semantic) {
+    case RenderGraphPass::LightCull:
+    case RenderGraphPass::ShadowAtlas:
+    case RenderGraphPass::SceneLighting:
+    case RenderGraphPass::VolumetricFog:
+    case RenderGraphPass::ReflectionProbe:
+      break;
     case RenderGraphPass::Opaque:
       for (const FrameRenderDrawGroup &group : plan.groups) {
         if (group.pass == FrameRenderPass::Opaque) {
@@ -1629,9 +1754,12 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
          .pipeline_switches = invocation.semantic == RenderGraphPass::Opaque
                                   ? material_summary.pipeline_switches
                                   : 0u,
-         .material_permutations = invocation.semantic == RenderGraphPass::Opaque
-                                      ? material_summary.material_permutations
-                                      : 0u,
+         .material_permutations =
+             invocation.semantic == RenderGraphPass::Opaque
+                 ? material_summary.material_permutations
+                 : (invocation.semantic == RenderGraphPass::LightCull
+                        ? clustered_lights.assignments.size()
+                        : 0u),
          .encode_seconds = std::chrono::duration<double>(pass_end - pass_start).count()});
   });
   const auto encode_end = std::chrono::steady_clock::now();

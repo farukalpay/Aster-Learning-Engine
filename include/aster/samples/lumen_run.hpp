@@ -119,11 +119,14 @@ public:
   [[nodiscard]] Vec3 prismRelayFocusPosition() const;
   void relocatePlayer(Vec3 position, float facing_yaw = 0.0f);
   [[nodiscard]] Vec3 caveFrameReportPosition(float progress_distance) const;
+  [[nodiscard]] Vec3 caveFrameReportLookTarget(float progress_distance, float look_ahead) const;
+  [[nodiscard]] float caveFrameReportCameraYaw(float progress_distance) const;
   [[nodiscard]] float resolveCameraRadius(Vec3 target, float yaw, float pitch,
                                           float desired_radius) const;
   void updateRenderInterpolation(float alpha);
   void setAvatarPreviewYaw(float yaw);
   void clearAvatarPreviewYaw();
+  void setPlayerAvatarVisible(bool visible);
   void setAvatarPointTarget(Vec3 target);
   bool pointAvatarAtRay(Vec3 origin, Vec3 direction, float max_distance = 90.0f);
   void clearAvatarPointTarget();
@@ -394,6 +397,7 @@ private:
   float player_facing_yaw_ = 0.0f;
   float player_preview_yaw_ = 0.0f;
   bool player_preview_yaw_enabled_ = false;
+  bool player_avatar_visible_ = true;
   float player_avatar_support_extent_ = 0.0f;
   Vec3 player_render_position_{0.0f, 0.28f, 0.0f};
   bool player_avatar_pose_valid_ = false;

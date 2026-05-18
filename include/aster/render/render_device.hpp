@@ -56,6 +56,10 @@ struct Light {
   Vec3 color{};
   float intensity = 1.0f;
   float source_radius = 0.0f;
+  float range = 0.0f;
+  std::uint32_t emissive_source_tag = 0u;
+  std::uint32_t flicker_profile_id = 0u;
+  bool casts_shadow = false;
 };
 
 struct DirectionalLight {
@@ -79,9 +83,52 @@ struct RenderLightPolicy {
   float min_intensity = 0.0f;
 };
 
+enum class ClusteredLightCullingMode : std::uint32_t {
+  Disabled,
+  CpuReference,
+};
+
+enum class ClusteredLightFallbackPolicy : std::uint32_t {
+  SelectNearest,
+  DisableOverflow,
+};
+
+struct ClusteredLightPolicy {
+  bool enabled = false;
+  ClusteredLightCullingMode mode = ClusteredLightCullingMode::CpuReference;
+  ClusteredLightFallbackPolicy fallback = ClusteredLightFallbackPolicy::SelectNearest;
+  std::uint32_t cluster_count_x = 8u;
+  std::uint32_t cluster_count_y = 4u;
+  std::uint32_t cluster_count_z = 8u;
+  std::size_t max_visible_lights = kRenderLightUniformCapacity;
+  std::uint32_t max_lights_per_cluster = 8u;
+  float default_light_range = 12.0f;
+};
+
+struct ClusteredLightAssignment {
+  std::uint32_t cluster_index = 0u;
+  std::uint32_t light_index = 0u;
+};
+
+struct ClusteredLightGrid {
+  std::uint32_t cluster_count_x = 0u;
+  std::uint32_t cluster_count_y = 0u;
+  std::uint32_t cluster_count_z = 0u;
+  std::vector<Light> visible_lights;
+  std::vector<std::uint32_t> cluster_offsets;
+  std::vector<ClusteredLightAssignment> assignments;
+  bool overflowed = false;
+  bool fallback_used = false;
+};
+
 [[nodiscard]] LightRig defaultLightRig();
 [[nodiscard]] std::vector<Light> selectRenderLights(const LightRig &lights, Vec3 reference_position,
                                                     const RenderLightPolicy &policy);
+[[nodiscard]] ClusteredLightGrid buildClusteredLightGrid(const LightRig &lights,
+                                                         const OrbitCamera &camera,
+                                                         int framebuffer_width,
+                                                         int framebuffer_height,
+                                                         const ClusteredLightPolicy &policy);
 
 struct GroundingSettings {
   bool enabled = false;
@@ -147,6 +194,7 @@ struct RendererSettings {
   DirectionalLight sun_light{};
   LightRig light_rig = defaultLightRig();
   RenderLightPolicy light_policy{};
+  ClusteredLightPolicy clustered_lighting{};
   GroundingSettings grounding{};
   AtmosphereSettings atmosphere{};
   GraphicsPipelineState pipeline{};
@@ -177,6 +225,9 @@ struct FrameStats {
   std::size_t material_permutations = 0;
   std::size_t material_variant_cache_hits = 0;
   std::size_t material_variant_cache_misses = 0;
+  std::size_t active_point_lights = 0;
+  std::size_t clustered_light_clusters = 0;
+  std::size_t clustered_light_assignments = 0;
   std::size_t resource_lifetime_warnings = 0;
   std::uint32_t backend_feature_mask = 0u;
   std::uint32_t backend_kind_value = 0u;
@@ -207,6 +258,7 @@ enum class FrameDiagnosticKind : std::uint32_t {
   NearPlaneClipping,
   ResourceLifetimeHazard,
   CapabilityMismatch,
+  ClusteredLightingFallback,
 };
 
 struct FrameDiagnosticEvent {

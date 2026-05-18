@@ -48,7 +48,7 @@ fully driven by SDK documents.
 Stable public ABI and C++ wrappers. Kernel headers must not include broad engine
 headers, STL containers in ABI structs, native platform types, renderer backend
 types, or sample-owned state. Public resources cross this boundary only as
-opaque handles with matching destroy functions. ABI 2.2 includes a public
+opaque handles with matching destroy functions. ABI 4 includes a public
 renderer path for windows, renderer instances, scenes, meshes, materials, shader
 artifacts, render pipelines, captures, frame stats, frame forensics, and backend
 capability tables.
@@ -64,8 +64,12 @@ from sample code, renderer internals, and kernel ABI handles.
 
 Vector, matrix, transform, color, and procedural noise utilities. This layer is
 standard C++ only and does not depend on platform, renderer, game, or UI code.
-These headers are internal source contracts unless re-exposed through the kernel
-ABI.
+The default spatial path is typed: local/world/view/clip/NDC/screen points,
+directions, normals, rays, viewports, and transform wrappers encode the space
+contract in function signatures. Aster defaults are column-major storage,
+column-vector multiplication, right-handed view, zero-to-one reverse-Z depth,
+and top-left screen origin. These headers are internal source contracts unless
+re-exposed through the kernel ABI.
 
 `include/aster/asset`
 
@@ -171,7 +175,10 @@ product executables.
 Renderable scene data. Scene objects carry transforms, materials, object flags,
 and optional generated meshes. Materials expose explicit alpha, depth, render
 queue, procedural surface, and camera-occlusion policy through `MaterialDesc`
-and related helpers. Scene data does not own platform resources.
+and related helpers. Runtime color fields are typed as `LinearRgb` and
+`EmissionColor`; artist-facing sRGB input must convert at importer or authoring
+boundaries before it reaches renderer code. Scene data does not own platform
+resources.
 
 `include/aster/systems`
 

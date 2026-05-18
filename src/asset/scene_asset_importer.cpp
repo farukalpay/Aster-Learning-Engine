@@ -4,6 +4,7 @@
 #include "aster/asset/scene_asset_importer.hpp"
 
 #include "aster/math/mat4.hpp"
+#include "aster/math/color.hpp"
 #include "aster/render/material_compiler.hpp"
 
 #include <algorithm>
@@ -464,9 +465,9 @@ SceneMaterialSlot importedMaterialSlot(const Json *source) {
   }
   if (const Json *pbr = source->find("pbrMetallicRoughness")) {
     if (const Json *base = pbr->find("baseColorFactor"); base != nullptr && base->array.size() >= 3u) {
-      out.material.base_color = {static_cast<float>(base->array[0].numeric(1.0)),
-                                 static_cast<float>(base->array[1].numeric(1.0)),
-                                 static_cast<float>(base->array[2].numeric(1.0))};
+      out.material.base_color = srgbToLinear(Srgb{static_cast<float>(base->array[0].numeric(1.0)),
+                                                  static_cast<float>(base->array[1].numeric(1.0)),
+                                                  static_cast<float>(base->array[2].numeric(1.0))});
       if (base->array.size() >= 4u) {
         out.material.opacity = static_cast<float>(base->array[3].numeric(1.0));
       }
@@ -482,9 +483,11 @@ SceneMaterialSlot importedMaterialSlot(const Json *source) {
   }
   if (const Json *emissive = source->find("emissiveFactor");
       emissive != nullptr && emissive->array.size() >= 3u) {
-    out.material.emission_color = {static_cast<float>(emissive->array[0].numeric()),
-                                   static_cast<float>(emissive->array[1].numeric()),
-                                   static_cast<float>(emissive->array[2].numeric())};
+    const LinearRgb emission =
+        srgbToLinear(Srgb{static_cast<float>(emissive->array[0].numeric()),
+                          static_cast<float>(emissive->array[1].numeric()),
+                          static_cast<float>(emissive->array[2].numeric())});
+    out.material.emission_color = EmissionColor{emission.value};
     out.material.emission_strength = std::max(
         {out.material.emission_color.x, out.material.emission_color.y, out.material.emission_color.z});
   }

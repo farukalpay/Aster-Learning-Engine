@@ -436,8 +436,8 @@ Vec3 previewAlbedo(const Hit &hit) {
   const float broad = projectedFbm(hit.position, hit.normal, detail * 0.22f, 19.0f);
   const float fine = projectedFbm(hit.position, hit.normal, detail * 0.84f, 29.0f);
   const float weight = saturate(hit.material.detail_strength + hit.material.pattern_contrast * 0.24f);
-  return clamp(hit.material.base_color * std::lerp(1.0f, 0.86f + broad * 0.20f + fine * 0.08f,
-                                                   weight),
+  return clamp(hit.material.base_color.value *
+                   std::lerp(1.0f, 0.86f + broad * 0.20f + fine * 0.08f, weight),
                0.0f, 4.0f);
 }
 
@@ -562,9 +562,9 @@ SoftwareFrameBuffer renderSoftwarePreview(const Scene &scene, const OrbitCamera 
           const float sample_y =
               static_cast<float>(y) + (static_cast<float>(sy) + 0.5f) / samples_per_axis;
           const CameraRay camera_ray =
-              camera.screenRay({sample_x, sample_y},
-                               {static_cast<float>(options.width),
-                                static_cast<float>(options.height)});
+              camera.screenRay(ScreenPoint{sample_x, sample_y, 0.0f},
+                               Viewport{{}, {static_cast<float>(options.width),
+                                             static_cast<float>(options.height)}});
           const Ray ray{camera_ray.origin, camera_ray.direction};
           const Hit hit = trace(ray, prepared_scene);
           accumulated = accumulated + (hit.valid ? shade(hit, ray, options.settings)

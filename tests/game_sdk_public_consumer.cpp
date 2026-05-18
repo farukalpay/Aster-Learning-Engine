@@ -72,6 +72,7 @@ void testLumenProjectAuthoringDocumentsLoad() {
   const auto material =
       aster::sdk::loadMaterialDocument(project_root / "materials" / "torch_flame.material");
   assert(material.ok());
+  assert(material.value.emission_color.x > 0.0f);
   assert(material.value.emission_strength > 0.0f);
   assert(material.value.alpha_mode == "blend");
   assert(material.value.depth_write == "disabled");

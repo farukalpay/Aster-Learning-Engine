@@ -10,7 +10,7 @@
 
 namespace aster {
 
-using CameraRay = Ray3;
+using CameraRay = WorldRay;
 
 enum class CameraProjectionMode {
   Perspective,
@@ -46,11 +46,11 @@ struct Camera {
   float far_plane = 120.0f;
   Vec2 jitter{};
 
-  [[nodiscard]] Mat4 viewMatrix() const;
-  [[nodiscard]] Mat4 projectionMatrix(float aspect_ratio) const;
-  [[nodiscard]] Mat4 viewProjectionMatrix(float aspect_ratio) const;
-  [[nodiscard]] CameraRay screenRay(Vec2 pointer, Vec2 viewport_size) const;
-  [[nodiscard]] Vec3 unproject(Vec3 window, Vec2 viewport_size) const;
+  [[nodiscard]] WorldToView viewMatrix() const;
+  [[nodiscard]] ViewToClip projectionMatrix(float aspect_ratio) const;
+  [[nodiscard]] WorldToClip viewProjectionMatrix(float aspect_ratio) const;
+  [[nodiscard]] CameraRay screenRay(ScreenPoint pointer, Viewport viewport) const;
+  [[nodiscard]] WorldPoint unproject(ScreenPoint window, Viewport viewport) const;
   [[nodiscard]] CameraFrustum frustum(float aspect_ratio) const;
 };
 
@@ -61,10 +61,10 @@ public:
 
   [[nodiscard]] Vec3 position() const;
   [[nodiscard]] Camera camera() const;
-  [[nodiscard]] CameraRay screenRay(Vec2 pointer, Vec2 viewport_size) const;
-  [[nodiscard]] Mat4 viewMatrix() const;
-  [[nodiscard]] Mat4 projectionMatrix(float aspect_ratio) const;
-  [[nodiscard]] Mat4 viewProjectionMatrix(float aspect_ratio) const;
+  [[nodiscard]] CameraRay screenRay(ScreenPoint pointer, Viewport viewport) const;
+  [[nodiscard]] WorldToView viewMatrix() const;
+  [[nodiscard]] ViewToClip projectionMatrix(float aspect_ratio) const;
+  [[nodiscard]] WorldToClip viewProjectionMatrix(float aspect_ratio) const;
   [[nodiscard]] CameraFrustum frustum(float aspect_ratio) const;
 
   Vec3 target{0.0f, 0.9f, 0.0f};

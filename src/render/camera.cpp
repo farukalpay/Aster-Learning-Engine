@@ -37,25 +37,14 @@ Plane3 combineRows(const Mat4 &matrix, const int row_a, const float scale_a, con
                            rowValue(matrix, row_b, 3) * scale_b);
 }
 
-float clipNearDepth(const ProjectionPolicy policy) {
-  if (policy.depth_direction == DepthDirection::ReverseZ) {
-    return 1.0f;
-  }
-  return policy.depth_range == ClipDepthRange::NegativeOneToOne ? -1.0f : 0.0f;
-}
-
-float clipFarDepth(const ProjectionPolicy policy) {
-  return policy.depth_direction == DepthDirection::ReverseZ ? 0.0f : 1.0f;
-}
-
 } // namespace
 
-Mat4 Camera::viewMatrix() const {
+WorldToView Camera::viewMatrix() const {
   const MathResult<Mat4> view = lookAt(eye, target, up, projection_policy.handedness);
-  return view ? view.value : identity();
+  return WorldToView{view ? view.value : identity()};
 }
 
-Mat4 Camera::projectionMatrix(const float aspect_ratio) const {
+ViewToClip Camera::projectionMatrix(const float aspect_ratio) const {
   MathResult<Mat4> projection =
       projection_mode == CameraProjectionMode::Orthographic
           ? orthographic(-orthographic_height * aspect_ratio * 0.5f,
@@ -68,46 +57,49 @@ Mat4 Camera::projectionMatrix(const float aspect_ratio) const {
     out.m[8] += jitter.x;
     out.m[9] += jitter.y;
   }
-  return out;
+  return ViewToClip{out};
 }
 
-Mat4 Camera::viewProjectionMatrix(const float aspect_ratio) const {
-  return projectionMatrix(aspect_ratio) * viewMatrix();
+WorldToClip Camera::viewProjectionMatrix(const float aspect_ratio) const {
+  return WorldToClip{projectionMatrix(aspect_ratio).value * viewMatrix().value};
 }
 
-CameraRay Camera::screenRay(const Vec2 pointer, const Vec2 viewport_size) const {
-  const float width = std::max(viewport_size.x, 1.0f);
-  const float height = std::max(viewport_size.y, 1.0f);
+CameraRay Camera::screenRay(const ScreenPoint pointer, const Viewport viewport) const {
+  const float width = std::max(viewport.size.x, 1.0f);
+  const float height = std::max(viewport.size.y, 1.0f);
   const float aspect = width / height;
-  const MathResult<Mat4> clip_to_world_result = inverse(viewProjectionMatrix(aspect));
-  const Mat4 clip_to_world = clip_to_world_result ? clip_to_world_result.value : identity();
-  const float near_depth = clipNearDepth(projection_policy);
-  const float far_depth = clipFarDepth(projection_policy);
-  const MathResult<Vec3> near_result =
-      aster::unproject({pointer.x, pointer.y, near_depth}, clip_to_world, {}, {width, height});
-  const MathResult<Vec3> far_result =
-      aster::unproject({pointer.x, pointer.y, far_depth}, clip_to_world, {}, {width, height});
-  const Vec3 near_point = near_result ? near_result.value : eye;
-  const Vec3 far_point = far_result ? far_result.value : target;
-  const Vec3 origin =
-      projection_mode == CameraProjectionMode::Perspective ? eye : near_point;
-  return {origin, normalize(far_point - near_point)};
+  Viewport sanitized_viewport = viewport;
+  sanitized_viewport.size = {width, height};
+  const MathResult<Mat4> clip_to_world_result = inverse(viewProjectionMatrix(aspect).value);
+  const ClipToWorld clip_to_world{clip_to_world_result ? clip_to_world_result.value : identity()};
+  const RayOriginPolicy origin_policy = projection_mode == CameraProjectionMode::Perspective
+                                            ? RayOriginPolicy::PerspectiveEye
+                                            : RayOriginPolicy::NearPlane;
+  const MathResult<WorldRay> ray =
+      aster::screenRay(pointer, clip_to_world, sanitized_viewport, projection_policy,
+                       origin_policy, WorldPoint{eye});
+  if (ray) {
+    return ray.value;
+  }
+  return {WorldPoint{eye}, Direction{normalizeOr(target - eye, {0.0f, 0.0f, -1.0f})}};
 }
 
-Vec3 Camera::unproject(const Vec3 window, const Vec2 viewport_size) const {
-  const float width = std::max(viewport_size.x, 1.0f);
-  const float height = std::max(viewport_size.y, 1.0f);
-  const MathResult<Mat4> clip_to_world = inverse(viewProjectionMatrix(width / height));
+WorldPoint Camera::unproject(const ScreenPoint window, const Viewport viewport) const {
+  const float width = std::max(viewport.size.x, 1.0f);
+  const float height = std::max(viewport.size.y, 1.0f);
+  Viewport sanitized_viewport = viewport;
+  sanitized_viewport.size = {width, height};
+  const MathResult<Mat4> clip_to_world = inverse(viewProjectionMatrix(width / height).value);
   if (!clip_to_world) {
     return {};
   }
-  const MathResult<Vec3> result =
-      aster::unproject(window, clip_to_world.value, {}, {width, height});
-  return result ? result.value : Vec3{};
+  const MathResult<WorldPoint> result =
+      aster::unproject(window, ClipToWorld{clip_to_world.value}, sanitized_viewport);
+  return result ? result.value : WorldPoint{};
 }
 
 CameraFrustum Camera::frustum(const float aspect_ratio) const {
-  const Mat4 matrix = viewProjectionMatrix(aspect_ratio);
+  const Mat4 matrix = viewProjectionMatrix(aspect_ratio).value;
   CameraFrustum out;
   out.planes[static_cast<std::size_t>(FrustumPlane::Left)] = combineRows(matrix, 3, 1.0f, 0, 1.0f);
   out.planes[static_cast<std::size_t>(FrustumPlane::Right)] = combineRows(matrix, 3, 1.0f, 0, -1.0f);
@@ -165,19 +157,19 @@ Camera OrbitCamera::camera() const {
   return out;
 }
 
-CameraRay OrbitCamera::screenRay(const Vec2 pointer, const Vec2 viewport_size) const {
-  return camera().screenRay(pointer, viewport_size);
+CameraRay OrbitCamera::screenRay(const ScreenPoint pointer, const Viewport viewport) const {
+  return camera().screenRay(pointer, viewport);
 }
 
-Mat4 OrbitCamera::viewMatrix() const {
+WorldToView OrbitCamera::viewMatrix() const {
   return camera().viewMatrix();
 }
 
-Mat4 OrbitCamera::projectionMatrix(const float aspect_ratio) const {
+ViewToClip OrbitCamera::projectionMatrix(const float aspect_ratio) const {
   return camera().projectionMatrix(aspect_ratio);
 }
 
-Mat4 OrbitCamera::viewProjectionMatrix(const float aspect_ratio) const {
+WorldToClip OrbitCamera::viewProjectionMatrix(const float aspect_ratio) const {
   return camera().viewProjectionMatrix(aspect_ratio);
 }
 

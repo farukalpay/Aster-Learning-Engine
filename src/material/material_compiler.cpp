@@ -30,6 +30,7 @@ CompiledMaterialAsset compileMaterialAssetForRendering(const MaterialAsset &asse
   compiled.asset = asset;
   compiled.diagnostics = validateMaterialAsset(asset);
   compiled.variant = shaderVariantKeyForMaterial(asset);
+  compiled.graph = materialGraphForAsset(asset);
   compiled.binding_layout = bindingLayoutForMaterial(asset);
 
   Material fallback = resolveMaterialAssetFallback(asset);

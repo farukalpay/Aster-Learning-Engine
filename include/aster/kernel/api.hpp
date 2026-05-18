@@ -727,6 +727,43 @@ namespace math {
   return Result<AsterMat4>(std::move(out));
 }
 
+[[nodiscard]] inline Result<AsterScreenPoint> worldToScreen(
+    const AsterWorldPoint point, const AsterMat4 &world_to_clip, const AsterViewport &viewport,
+    AsterMathDiagnostics *diagnostics = nullptr) noexcept {
+  AsterScreenPoint out{};
+  const Status status(aster_kernel_math_world_to_screen(point, &world_to_clip, &viewport, &out,
+                                                        diagnostics));
+  if (!status) {
+    return Result<AsterScreenPoint>(status);
+  }
+  return Result<AsterScreenPoint>(std::move(out));
+}
+
+[[nodiscard]] inline Result<AsterWorldPoint> screenToWorld(
+    const AsterScreenPoint screen, const AsterMat4 &clip_to_world, const AsterViewport &viewport,
+    AsterMathDiagnostics *diagnostics = nullptr) noexcept {
+  AsterWorldPoint out{};
+  const Status status(aster_kernel_math_screen_to_world(screen, &clip_to_world, &viewport, &out,
+                                                        diagnostics));
+  if (!status) {
+    return Result<AsterWorldPoint>(status);
+  }
+  return Result<AsterWorldPoint>(std::move(out));
+}
+
+[[nodiscard]] inline Result<AsterWorldRay> screenToWorldRay(
+    const AsterScreenPoint screen, const AsterMat4 &clip_to_world, const AsterViewport &viewport,
+    const AsterProjectionConvention &convention, const AsterWorldPoint perspective_eye,
+    AsterMathDiagnostics *diagnostics = nullptr) noexcept {
+  AsterWorldRay out{};
+  const Status status(aster_kernel_math_screen_to_world_ray(
+      screen, &clip_to_world, &viewport, &convention, perspective_eye, &out, diagnostics));
+  if (!status) {
+    return Result<AsterWorldRay>(status);
+  }
+  return Result<AsterWorldRay>(std::move(out));
+}
+
 [[nodiscard]] inline Result<AsterQuat> axisAngle(
     const AsterVec3 axis, const float radians, AsterMathDiagnostics *diagnostics = nullptr) noexcept {
   AsterQuat out{};

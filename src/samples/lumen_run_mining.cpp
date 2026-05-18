@@ -145,9 +145,9 @@ void LumenRun::spawnMiningFractureEffect(const Vec3 center, Vec3 normal, Vec3 ha
     object.material.edge_wear = std::max(object.material.edge_wear, 0.34f + fill * 0.18f);
     object.material.pattern_depth = std::max(object.material.pattern_depth, 0.16f);
     object.material.pattern_contrast = std::max(object.material.pattern_contrast, 0.30f);
-    object.material.emission_color = object.material.emission_strength > 0.0f
-                                         ? object.material.emission_color
-                                         : Vec3{0.54f, 0.38f, 0.24f};
+    if (object.material.emission_strength <= 0.0f) {
+      object.material.emission_color = {0.54f, 0.38f, 0.24f};
+    }
     object.material.emission_strength =
         std::max(object.material.emission_strength, 0.070f + volume_factor * 0.035f);
     object.camera_occlusion_fade = false;

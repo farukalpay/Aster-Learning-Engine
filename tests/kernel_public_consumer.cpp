@@ -10,7 +10,7 @@
 int main() {
   const AsterAbiVersion version = aster::kernel::abiVersion();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
-  assert(version.major == 3u);
+  assert(version.major == 4u);
 
   const auto normalized = aster::kernel::math::normalize({3.0f, 0.0f, 4.0f});
   assert(normalized);

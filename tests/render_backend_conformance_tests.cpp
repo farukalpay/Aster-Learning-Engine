@@ -440,7 +440,16 @@ aster::RendererSettings makeContractSettings() {
       aster::Light{{1.3f, 1.4f, -1.4f}, {0.8f, 1.7f, 2.4f}, 1.0f, 1.0f},
       aster::Light{{0.0f, 1.2f, 1.2f}, {1.8f, 1.1f, 0.6f}, 1.0f, 1.1f},
       aster::Light{{0.8f, 0.8f, -0.6f}, {1.8f, 0.7f, 0.2f}, 1.0f, 0.65f},
+      aster::Light{{-0.6f, 0.9f, -1.8f}, {0.5f, 1.2f, 2.1f}, 1.0f, 0.70f},
+      aster::Light{{1.9f, 1.7f, 0.3f}, {2.4f, 1.2f, 0.5f}, 1.0f, 0.95f},
   };
+  settings.clustered_lighting.enabled = true;
+  settings.clustered_lighting.cluster_count_x = 4u;
+  settings.clustered_lighting.cluster_count_y = 3u;
+  settings.clustered_lighting.cluster_count_z = 4u;
+  settings.clustered_lighting.max_visible_lights = 16u;
+  settings.clustered_lighting.max_lights_per_cluster = 6u;
+  settings.light_policy.max_point_lights = settings.clustered_lighting.max_visible_lights;
   settings.grounding.enabled = true;
   settings.grounding.contact_shadows = true;
   settings.grounding.auto_contact_shadows = true;
@@ -527,6 +536,9 @@ void assertRenderableFrame(const RenderResult &result) {
   assert(result.stats.visible_objects >= 4u);
   assert(result.stats.material_permutations >= 3u);
   assert(result.stats.material_variant_cache_misses >= 1u);
+  assert(result.stats.active_point_lights > 4u);
+  assert(result.stats.clustered_light_clusters == 48u);
+  assert(result.stats.clustered_light_assignments >= result.stats.active_point_lights);
   assert(!result.forensics.passes.empty());
   assert(result.metrics.hash != 0u);
   assert(result.metrics.alpha_ratio > 0.90);
@@ -584,6 +596,8 @@ void testBackendCapabilityTableContracts() {
           aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::AlphaBlend)) != 0ull);
   assert(software_table.max_sampled_textures_per_material == 0u);
   assert(!software_table.texture_sampling);
+  assert(!software_table.storage_buffers);
+  assert(!software_table.shadow_maps);
 
   const RenderResult native = renderContractFrame(false);
   if (native.backend.kind == aster::RenderBackendKind::Metal) {
@@ -599,6 +613,12 @@ void testBackendCapabilityTableContracts() {
   if (native.backend.kind != aster::RenderBackendKind::Null) {
     assert(native.backend.capability_table.max_color_attachments == 1u);
     assert(!native.backend.capability_table.texture_sampling);
+    if (native.backend.kind == aster::RenderBackendKind::Metal ||
+        native.backend.kind == aster::RenderBackendKind::D3D12) {
+      assert(native.backend.capability_table.storage_buffers);
+      assert(native.backend.capability_table.texture_arrays);
+      assert(!native.backend.capability_table.shadow_maps);
+    }
   }
 }
 

@@ -187,6 +187,20 @@ void applyRenderQualityProfile(RendererSettings &settings, const RenderQualityPr
   settings.atmosphere.fog_strength = profile.fog.density;
   settings.atmosphere.saturation = profile.post.saturation;
   settings.atmosphere.contrast = profile.post.contrast;
+  settings.clustered_lighting.enabled = profile.tier != RenderQualityTier::Prototype;
+  settings.clustered_lighting.cluster_count_x =
+      profile.tier == RenderQualityTier::Cinematic ? 16u : 8u;
+  settings.clustered_lighting.cluster_count_y =
+      profile.tier == RenderQualityTier::Cinematic ? 8u : 4u;
+  settings.clustered_lighting.cluster_count_z =
+      profile.tier == RenderQualityTier::Cinematic ? 16u : 8u;
+  settings.clustered_lighting.max_visible_lights =
+      profile.tier == RenderQualityTier::Cinematic ? kRenderLightUniformCapacity : 32u;
+  settings.clustered_lighting.max_lights_per_cluster =
+      profile.tier == RenderQualityTier::Cinematic ? 12u : 8u;
+  settings.light_policy.max_point_lights =
+      settings.clustered_lighting.enabled ? settings.clustered_lighting.max_visible_lights
+                                          : kDefaultRenderLightBudget;
 }
 
 TextureImportOptions textureImportOptionsForQuality(const RenderQualityProfile &profile,

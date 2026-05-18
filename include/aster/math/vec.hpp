@@ -5,10 +5,12 @@
 
 #include "aster/math/result.hpp"
 
+#include <cassert>
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <type_traits>
 
 namespace aster {
@@ -23,10 +25,20 @@ template <typename T> struct Vec<T, 2> {
   T y{};
 
   [[nodiscard]] constexpr T &operator[](const std::size_t index) {
-    return index == 0u ? x : y;
+    assert(index < dimensions);
+    return uncheckedAt(index);
   }
 
   [[nodiscard]] constexpr const T &operator[](const std::size_t index) const {
+    assert(index < dimensions);
+    return uncheckedAt(index);
+  }
+
+  [[nodiscard]] constexpr T &uncheckedAt(const std::size_t index) {
+    return index == 0u ? x : y;
+  }
+
+  [[nodiscard]] constexpr const T &uncheckedAt(const std::size_t index) const {
     return index == 0u ? x : y;
   }
 };
@@ -40,6 +52,7 @@ template <typename T> struct Vec<T, 3> {
   T z{};
 
   [[nodiscard]] constexpr T &operator[](const std::size_t index) {
+    assert(index < dimensions);
     if (index == 0u) {
       return x;
     }
@@ -50,6 +63,27 @@ template <typename T> struct Vec<T, 3> {
   }
 
   [[nodiscard]] constexpr const T &operator[](const std::size_t index) const {
+    assert(index < dimensions);
+    if (index == 0u) {
+      return x;
+    }
+    if (index == 1u) {
+      return y;
+    }
+    return z;
+  }
+
+  [[nodiscard]] constexpr T &uncheckedAt(const std::size_t index) {
+    if (index == 0u) {
+      return x;
+    }
+    if (index == 1u) {
+      return y;
+    }
+    return z;
+  }
+
+  [[nodiscard]] constexpr const T &uncheckedAt(const std::size_t index) const {
     if (index == 0u) {
       return x;
     }
@@ -70,6 +104,7 @@ template <typename T> struct Vec<T, 4> {
   T w{};
 
   [[nodiscard]] constexpr T &operator[](const std::size_t index) {
+    assert(index < dimensions);
     if (index == 0u) {
       return x;
     }
@@ -83,6 +118,33 @@ template <typename T> struct Vec<T, 4> {
   }
 
   [[nodiscard]] constexpr const T &operator[](const std::size_t index) const {
+    assert(index < dimensions);
+    if (index == 0u) {
+      return x;
+    }
+    if (index == 1u) {
+      return y;
+    }
+    if (index == 2u) {
+      return z;
+    }
+    return w;
+  }
+
+  [[nodiscard]] constexpr T &uncheckedAt(const std::size_t index) {
+    if (index == 0u) {
+      return x;
+    }
+    if (index == 1u) {
+      return y;
+    }
+    if (index == 2u) {
+      return z;
+    }
+    return w;
+  }
+
+  [[nodiscard]] constexpr const T &uncheckedAt(const std::size_t index) const {
     if (index == 0u) {
       return x;
     }
@@ -116,6 +178,97 @@ using BVec2 = Vec2T<bool>;
 using BVec3 = Vec3T<bool>;
 using BVec4 = Vec4T<bool>;
 
+template <typename Tag> struct SemanticVec3 {
+  union {
+    Vec3 value;
+    struct {
+      float x;
+      float y;
+      float z;
+    };
+  };
+
+  constexpr SemanticVec3() : value{} {}
+  constexpr SemanticVec3(const float x_value, const float y_value, const float z_value)
+      : value{x_value, y_value, z_value} {}
+  constexpr SemanticVec3(const Vec3 vec) : value(vec) {}
+  constexpr SemanticVec3(const SemanticVec3 &) = default;
+  constexpr SemanticVec3 &operator=(const SemanticVec3 &) = default;
+
+  [[nodiscard]] constexpr operator Vec3() const {
+    return value;
+  }
+
+  constexpr SemanticVec3 &operator=(const Vec3 vec) {
+    value = vec;
+    return *this;
+  }
+
+  constexpr SemanticVec3 &operator=(std::initializer_list<float> values) {
+    std::size_t index = 0u;
+    for (const float component : values) {
+      if (index < 3u) {
+        value[index] = component;
+      }
+      ++index;
+    }
+    assert(index == 3u);
+    return *this;
+  }
+};
+
+template <typename Tag> struct SemanticVec4 {
+  union {
+    Vec4 value;
+    struct {
+      float x;
+      float y;
+      float z;
+      float w;
+    };
+  };
+
+  constexpr SemanticVec4() : value{} {}
+  constexpr SemanticVec4(const float x_value, const float y_value, const float z_value,
+                         const float w_value)
+      : value{x_value, y_value, z_value, w_value} {}
+  constexpr SemanticVec4(const Vec4 vec) : value(vec) {}
+  constexpr SemanticVec4(const SemanticVec4 &) = default;
+  constexpr SemanticVec4 &operator=(const SemanticVec4 &) = default;
+
+  [[nodiscard]] constexpr operator Vec4() const {
+    return value;
+  }
+
+  constexpr SemanticVec4 &operator=(const Vec4 vec) {
+    value = vec;
+    return *this;
+  }
+
+  constexpr SemanticVec4 &operator=(std::initializer_list<float> values) {
+    std::size_t index = 0u;
+    for (const float component : values) {
+      if (index < 4u) {
+        value[index] = component;
+      }
+      ++index;
+    }
+    assert(index == 4u);
+    return *this;
+  }
+};
+
+template <typename Tag> struct SemanticScalar {
+  float value = 0.0f;
+
+  constexpr SemanticScalar() = default;
+  constexpr explicit SemanticScalar(const float scalar) : value(scalar) {}
+
+  [[nodiscard]] constexpr operator float() const {
+    return value;
+  }
+};
+
 struct Degrees {
   float value = 0.0f;
 };
@@ -132,10 +285,6 @@ struct Seconds {
   float value = 0.0f;
 };
 
-template <typename Tag> struct SemanticVec3 {
-  Vec3 value{};
-};
-
 struct WorldPointTag {};
 struct LocalPointTag {};
 struct ViewPointTag {};
@@ -144,15 +293,38 @@ struct NdcPointTag {};
 struct ScreenPointTag {};
 struct DirectionTag {};
 struct NormalTag {};
+struct LinearRgbTag {};
+struct SrgbTag {};
+struct HdrColorTag {};
+struct EmissionColorTag {};
+struct AlphaTag {};
+struct LuminanceTag {};
+struct LocalToWorldTag {};
+struct WorldToViewTag {};
+struct ViewToClipTag {};
+struct WorldToClipTag {};
+struct ClipToWorldTag {};
 
 using WorldPoint = SemanticVec3<WorldPointTag>;
 using LocalPoint = SemanticVec3<LocalPointTag>;
 using ViewPoint = SemanticVec3<ViewPointTag>;
-using ClipPoint = SemanticVec3<ClipPointTag>;
+using ClipPoint = SemanticVec4<ClipPointTag>;
 using NdcPoint = SemanticVec3<NdcPointTag>;
 using ScreenPoint = SemanticVec3<ScreenPointTag>;
 using Direction = SemanticVec3<DirectionTag>;
 using Normal = SemanticVec3<NormalTag>;
+using LinearRgb = SemanticVec3<LinearRgbTag>;
+using Srgb = SemanticVec3<SrgbTag>;
+using HdrColor = SemanticVec3<HdrColorTag>;
+using EmissionColor = SemanticVec3<EmissionColorTag>;
+using Alpha = SemanticScalar<AlphaTag>;
+using Luminance = SemanticScalar<LuminanceTag>;
+
+struct WorldRay {
+  WorldPoint origin{};
+  Direction direction{0.0f, 0.0f, -1.0f};
+  float max_distance = 0.0f;
+};
 
 template <typename T, std::size_t N>
 [[nodiscard]] inline constexpr Vec<T, N> operator+(const Vec<T, N> lhs, const Vec<T, N> rhs) {
@@ -237,6 +409,85 @@ inline constexpr Vec<T, N> &operator/=(Vec<T, N> &lhs, const S rhs) {
   return lhs;
 }
 
+template <typename Tag>
+[[nodiscard]] inline constexpr SemanticVec3<Tag> operator+(const SemanticVec3<Tag> lhs,
+                                                           const Vec3 rhs) {
+  return SemanticVec3<Tag>{lhs.value + rhs};
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr SemanticVec3<Tag> operator+(const Vec3 lhs,
+                                                           const SemanticVec3<Tag> rhs) {
+  return SemanticVec3<Tag>{lhs + rhs.value};
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr SemanticVec3<Tag> operator+(const SemanticVec3<Tag> lhs,
+                                                           const SemanticVec3<Tag> rhs) {
+  return SemanticVec3<Tag>{lhs.value + rhs.value};
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr SemanticVec3<Tag> operator-(const SemanticVec3<Tag> lhs,
+                                                           const Vec3 rhs) {
+  return SemanticVec3<Tag>{lhs.value - rhs};
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr SemanticVec3<Tag> operator-(const SemanticVec3<Tag> lhs,
+                                                           const SemanticVec3<Tag> rhs) {
+  return SemanticVec3<Tag>{lhs.value - rhs.value};
+}
+
+template <typename Tag, typename S>
+[[nodiscard]] inline constexpr SemanticVec3<Tag> operator*(const SemanticVec3<Tag> value,
+                                                           const S scalar) {
+  return SemanticVec3<Tag>{value.value * scalar};
+}
+
+template <typename Tag, typename S>
+[[nodiscard]] inline constexpr SemanticVec3<Tag> operator*(const S scalar,
+                                                           const SemanticVec3<Tag> value) {
+  return SemanticVec3<Tag>{value.value * scalar};
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr SemanticVec3<Tag> operator*(const SemanticVec3<Tag> lhs,
+                                                           const Vec3 rhs) {
+  return SemanticVec3<Tag>{lhs.value * rhs};
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr SemanticVec3<Tag> operator*(const Vec3 lhs,
+                                                           const SemanticVec3<Tag> rhs) {
+  return SemanticVec3<Tag>{lhs * rhs.value};
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr SemanticVec3<Tag> operator*(const SemanticVec3<Tag> lhs,
+                                                           const SemanticVec3<Tag> rhs) {
+  return SemanticVec3<Tag>{lhs.value * rhs.value};
+}
+
+template <typename Tag, typename S>
+[[nodiscard]] inline constexpr SemanticVec3<Tag> operator/(const SemanticVec3<Tag> value,
+                                                           const S scalar) {
+  return SemanticVec3<Tag>{value.value / scalar};
+}
+
+template <typename Tag>
+inline constexpr SemanticVec3<Tag> &operator+=(SemanticVec3<Tag> &lhs, const Vec3 rhs) {
+  lhs = lhs.value + rhs;
+  return lhs;
+}
+
+template <typename Tag>
+inline constexpr SemanticVec3<Tag> &operator+=(SemanticVec3<Tag> &lhs,
+                                               const SemanticVec3<Tag> rhs) {
+  lhs = lhs.value + rhs.value;
+  return lhs;
+}
+
 template <typename T, std::size_t N>
 [[nodiscard]] inline constexpr bool operator==(const Vec<T, N> lhs, const Vec<T, N> rhs) {
   for (std::size_t i = 0; i < N; ++i) {
@@ -250,6 +501,15 @@ template <typename T, std::size_t N>
 template <typename T, std::size_t N>
 [[nodiscard]] inline constexpr bool operator!=(const Vec<T, N> lhs, const Vec<T, N> rhs) {
   return !(lhs == rhs);
+}
+
+template <typename T, std::size_t N>
+[[nodiscard]] inline constexpr MathResult<T> checkedAt(const Vec<T, N> value,
+                                                       const std::size_t index) {
+  if (index >= N) {
+    return MathResult<T>::failure(MathError::InvalidArgument, "Vector index is out of range.");
+  }
+  return MathResult<T>::success(value.uncheckedAt(index));
 }
 
 template <typename T, std::size_t N>
@@ -502,6 +762,105 @@ inline constexpr float degrees(const float radians_value) {
 
 inline constexpr float degrees(const Radians radians_value) {
   return degrees(radians_value.value);
+}
+
+template <typename T> [[nodiscard]] inline constexpr bool exactEqual(const T lhs, const T rhs) {
+  return lhs == rhs;
+}
+
+template <typename T, std::size_t N>
+[[nodiscard]] inline constexpr bool exactEqual(const Vec<T, N> lhs, const Vec<T, N> rhs) {
+  for (std::size_t i = 0; i < N; ++i) {
+    if (lhs[i] != rhs[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr bool exactEqual(const SemanticVec3<Tag> lhs,
+                                               const SemanticVec3<Tag> rhs) {
+  return exactEqual(lhs.value, rhs.value);
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr bool exactEqual(const SemanticVec4<Tag> lhs,
+                                               const SemanticVec4<Tag> rhs) {
+  return exactEqual(lhs.value, rhs.value);
+}
+
+template <typename T>
+[[nodiscard]] inline constexpr bool nearEqual(const T lhs, const T rhs,
+                                              const T absolute_epsilon =
+                                                  ScalarTraits<T>::defaultAbsoluteEpsilon(),
+                                              const T relative_epsilon =
+                                                  ScalarTraits<T>::defaultRelativeEpsilon()) {
+  return nearlyEqual(lhs, rhs, absolute_epsilon, relative_epsilon);
+}
+
+template <typename T, std::size_t N>
+[[nodiscard]] inline constexpr bool nearEqual(const Vec<T, N> lhs, const Vec<T, N> rhs,
+                                              const T absolute_epsilon =
+                                                  ScalarTraits<T>::defaultAbsoluteEpsilon(),
+                                              const T relative_epsilon =
+                                                  ScalarTraits<T>::defaultRelativeEpsilon()) {
+  for (std::size_t i = 0; i < N; ++i) {
+    if (!nearEqual(lhs[i], rhs[i], absolute_epsilon, relative_epsilon)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr bool nearEqual(const SemanticVec3<Tag> lhs,
+                                              const SemanticVec3<Tag> rhs,
+                                              const float absolute_epsilon =
+                                                  ScalarTraits<float>::defaultAbsoluteEpsilon(),
+                                              const float relative_epsilon =
+                                                  ScalarTraits<float>::defaultRelativeEpsilon()) {
+  return nearEqual(lhs.value, rhs.value, absolute_epsilon, relative_epsilon);
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr bool nearEqual(const SemanticVec4<Tag> lhs,
+                                              const SemanticVec4<Tag> rhs,
+                                              const float absolute_epsilon =
+                                                  ScalarTraits<float>::defaultAbsoluteEpsilon(),
+                                              const float relative_epsilon =
+                                                  ScalarTraits<float>::defaultRelativeEpsilon()) {
+  return nearEqual(lhs.value, rhs.value, absolute_epsilon, relative_epsilon);
+}
+
+template <typename T> [[nodiscard]] inline constexpr bool ulpsEqual(const T lhs, const T rhs,
+                                                                    const std::uint64_t max_ulps) {
+  return almostEqualUlps(lhs, rhs, max_ulps);
+}
+
+template <typename T, std::size_t N>
+[[nodiscard]] inline constexpr bool ulpsEqual(const Vec<T, N> lhs, const Vec<T, N> rhs,
+                                              const std::uint64_t max_ulps) {
+  for (std::size_t i = 0; i < N; ++i) {
+    if (!ulpsEqual(lhs[i], rhs[i], max_ulps)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr bool ulpsEqual(const SemanticVec3<Tag> lhs,
+                                              const SemanticVec3<Tag> rhs,
+                                              const std::uint64_t max_ulps) {
+  return ulpsEqual(lhs.value, rhs.value, max_ulps);
+}
+
+template <typename Tag>
+[[nodiscard]] inline constexpr bool ulpsEqual(const SemanticVec4<Tag> lhs,
+                                              const SemanticVec4<Tag> rhs,
+                                              const std::uint64_t max_ulps) {
+  return ulpsEqual(lhs.value, rhs.value, max_ulps);
 }
 
 struct Ray3 {

@@ -189,24 +189,25 @@ void testReverseZProjectionAndCamera() {
   camera.target = {0.0f, 0.0f, 0.0f};
   camera.near_plane = near_plane;
   camera.far_plane = far_plane;
-  const aster::Mat4 view_projection = camera.viewProjectionMatrix(4.0f / 3.0f);
-  const aster::MathResult<aster::Mat4> clip_to_world_result = aster::inverse(view_projection);
+  const aster::WorldToClip view_projection = camera.viewProjectionMatrix(4.0f / 3.0f);
+  const aster::MathResult<aster::Mat4> clip_to_world_result = aster::inverse(view_projection.value);
   assert(clip_to_world_result);
-  const aster::Mat4 clip_to_world = clip_to_world_result.value;
-  const aster::Vec3 world{0.2f, -0.1f, 0.0f};
-  const aster::MathResult<aster::Vec3> window_result =
-      aster::project(world, view_projection, {}, {800.0f, 600.0f});
+  const aster::ClipToWorld clip_to_world{clip_to_world_result.value};
+  const aster::WorldPoint world{0.2f, -0.1f, 0.0f};
+  const aster::Viewport viewport{{}, {800.0f, 600.0f}};
+  const aster::MathResult<aster::ScreenPoint> window_result =
+      aster::project(world, view_projection, viewport);
   assert(window_result);
-  const aster::Vec3 window = window_result.value;
-  const aster::MathResult<aster::Vec3> restored_result =
-      aster::unproject(window, clip_to_world, {}, {800.0f, 600.0f});
+  const aster::ScreenPoint window = window_result.value;
+  const aster::MathResult<aster::WorldPoint> restored_result =
+      aster::unproject(window, clip_to_world, viewport);
   assert(restored_result);
-  const aster::Vec3 restored = restored_result.value;
+  const aster::WorldPoint restored = restored_result.value;
   expectNear(restored.x, world.x, 0.001f);
   expectNear(restored.y, world.y, 0.001f);
   expectNear(restored.z, world.z, 0.001f);
 
-  const aster::CameraRay ray = camera.screenRay({400.0f, 300.0f}, {800.0f, 600.0f});
+  const aster::CameraRay ray = camera.screenRay({400.0f, 300.0f, 0.0f}, viewport);
   expectNear(ray.origin.x, camera.eye.x, 0.0001f);
   expectNear(ray.origin.y, camera.eye.y, 0.0001f);
   expectNear(ray.origin.z, camera.eye.z, 0.0001f);
@@ -223,6 +224,17 @@ void testReverseZProjectionAndCamera() {
 }
 
 void testColorPipeline() {
+  const aster::LinearRgb linear_white = aster::srgbToLinear(aster::Srgb{1.0f, 1.0f, 1.0f});
+  expectNear(linear_white.x, 1.0f, 0.0001f);
+  const aster::LinearRgb linear_mid = aster::srgbToLinear(aster::Srgb{0.5f, 0.5f, 0.5f});
+  expectNear(linear_mid.x, 0.2140f, 0.001f);
+  const aster::Srgb restored_mid = aster::linearToSrgb(linear_mid);
+  expectNear(restored_mid.x, 0.5f, 0.001f);
+  const aster::EmissionColor emission{0.25f, 0.50f, 1.0f};
+  const aster::HdrColor hdr_emission = aster::emissionToHdr(emission, 4.0f);
+  expectNear(hdr_emission.z, 4.0f, 0.0001f);
+  const aster::Luminance luma = aster::relativeLuminance(aster::LinearRgb{1.0f, 1.0f, 1.0f});
+  expectNear(luma.value, 1.0f, 0.0001f);
   const aster::Vec3 mapped = aster::aces_tonemap({2.0f, 1.0f, 0.25f});
   assert(mapped.x <= 1.0f && mapped.x >= 0.0f);
   assert(mapped.y <= 1.0f && mapped.y >= 0.0f);

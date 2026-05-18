@@ -260,6 +260,33 @@ Vec3 LumenRun::caveFrameReportPosition(const float progress_distance) const {
   return frame.floor_center + frame.up * playerSupportExtent();
 }
 
+Vec3 LumenRun::caveFrameReportLookTarget(const float progress_distance,
+                                         const float look_ahead) const {
+  if (cave_sections_.empty()) {
+    return player_position_ + Vec3{0.0f, 0.62f, 0.0f};
+  }
+  const AuthoredCaveSection &section =
+      cave_sections_.size() > 1u ? cave_sections_[1u] : cave_sections_.front();
+  const CaveTunnelFrame frame =
+      sampleCaveTunnelFrameAtDistance(section.tunnel, std::max(progress_distance, 0.0f));
+  const Vec3 tangent = length(frame.tangent) > 0.0001f ? normalize(frame.tangent)
+                                                       : Vec3{0.0f, 0.0f, -1.0f};
+  return frame.floor_center + frame.up * 0.88f + tangent * std::max(look_ahead, 0.0f);
+}
+
+float LumenRun::caveFrameReportCameraYaw(const float progress_distance) const {
+  if (cave_sections_.empty()) {
+    return 0.0f;
+  }
+  const AuthoredCaveSection &section =
+      cave_sections_.size() > 1u ? cave_sections_[1u] : cave_sections_.front();
+  const CaveTunnelFrame frame =
+      sampleCaveTunnelFrameAtDistance(section.tunnel, std::max(progress_distance, 0.0f));
+  const Vec3 tangent = length(frame.tangent) > 0.0001f ? normalize(frame.tangent)
+                                                       : Vec3{0.0f, 0.0f, -1.0f};
+  return std::atan2(-tangent.x, -tangent.z);
+}
+
 void LumenRun::relocatePlayer(Vec3 position, const float facing_yaw) {
   const TerrainSurfaceSample ground =
       sampleWorldSupport({{position.x, position.z}, position.y, 0.64f, 6.0f});
@@ -300,6 +327,13 @@ void LumenRun::updateRenderInterpolation(const float alpha) {
   AvatarPose render_pose = player_avatar_pose_;
   render_pose.position = avatarPosePosition(player_render_position_);
   applyAvatarPose(scene_, player_avatar_, player_avatar_instance_, render_pose);
+  if (!player_avatar_visible_) {
+    for (const std::size_t object_index : player_avatar_instance_.object_indices) {
+      if (object_index < scene_.objects().size()) {
+        hideRenderObject(scene_.objects()[object_index]);
+      }
+    }
+  }
 }
 
 float LumenRun::resolveCameraRadius(const Vec3 target, const float yaw, const float pitch,
@@ -382,6 +416,19 @@ void LumenRun::setAvatarPreviewYaw(const float yaw) {
 
 void LumenRun::clearAvatarPreviewYaw() {
   player_preview_yaw_enabled_ = false;
+}
+
+void LumenRun::setPlayerAvatarVisible(const bool visible) {
+  player_avatar_visible_ = visible;
+  if (visible) {
+    player_avatar_pose_valid_ = false;
+    return;
+  }
+  for (const std::size_t object_index : player_avatar_instance_.object_indices) {
+    if (object_index < scene_.objects().size()) {
+      hideRenderObject(scene_.objects()[object_index]);
+    }
+  }
 }
 
 void LumenRun::setCaveDebugOverlayEnabled(const bool enabled) {
@@ -1005,6 +1052,44 @@ CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
     }
     append_authored_fixtures(section_sample, section.wall_fixtures, path_length);
     append_authored_fixtures(section_sample, section.secondary_wall_fixtures, path_length);
+  }
+  for (const CoalOreNode &ore : coal_ores_) {
+    if (ore.collected) {
+      continue;
+    }
+    const float distance = length(ore.position - position);
+    if (distance > 9.5f) {
+      continue;
+    }
+    const float health_ratio =
+        ore.max_health > 0 ? static_cast<float>(ore.health) / static_cast<float>(ore.max_health)
+                           : 1.0f;
+    const float mined_gain = 1.0f + (1.0f - clamp(health_ratio, 0.0f, 1.0f)) * 0.55f;
+    candidates.push_back(
+        {.sample = {.position = ore.position + ore.normal * 0.10f,
+                    .color = {0.80f, 0.42f, 0.13f},
+                    .intensity = (0.42f + ore.hit_flash * 0.55f) * mined_gain,
+                    .source_radius = std::max(ore.radius * 2.4f, 0.45f),
+                    .tunnel_t = best_sample.tunnel_t},
+         .distance = distance,
+         .score = distance * 0.72f + 0.45f});
+  }
+  for (const CaveSkitter &skitter : cave_skitters_) {
+    if (skitter.dead) {
+      continue;
+    }
+    const float distance = length(skitter.state.position - position);
+    if (distance > 7.0f) {
+      continue;
+    }
+    candidates.push_back(
+        {.sample = {.position = skitter.state.position + Vec3{0.0f, 0.13f, 0.0f},
+                    .color = {0.78f, 0.08f, 0.035f},
+                    .intensity = 0.26f + skitter.bite_flash * 0.42f + skitter.hit_flash * 0.18f,
+                    .source_radius = 0.32f,
+                    .tunnel_t = best_sample.tunnel_t},
+         .distance = distance,
+         .score = distance * 0.80f + 0.70f});
   }
 
   std::sort(

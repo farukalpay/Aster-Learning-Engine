@@ -72,6 +72,12 @@ struct DeviceCapabilities {
   bool capture = false;
   bool ui_composite = false;
   bool gpu_timestamps = false;
+  bool storage_buffers = false;
+  bool texture_arrays = false;
+  bool shadow_maps = false;
+  bool debug_markers = false;
+  bool hdr_render_targets = false;
+  bool msaa = false;
   std::uint64_t color_format_mask = 0u;
   std::uint64_t depth_format_mask = 0u;
   std::uint64_t sample_count_mask = 0u;

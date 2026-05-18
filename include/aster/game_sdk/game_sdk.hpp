@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "aster/math/vec.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -383,8 +385,8 @@ struct MaterialDocument {
   std::uint32_t schema_version = 0u;
   AssetId id;
   std::string name;
-  Vec3 base_color{1.0f, 1.0f, 1.0f};
-  Vec3 emission_color{};
+  LinearRgb base_color{1.0f, 1.0f, 1.0f};
+  EmissionColor emission_color{};
   float roughness = 0.55f;
   float metallic = 0.0f;
   float emission_strength = 0.0f;

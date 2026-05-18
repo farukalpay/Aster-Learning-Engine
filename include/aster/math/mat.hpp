@@ -28,6 +28,55 @@ template <typename T, std::size_t Columns, std::size_t Rows> struct Mat {
   }
 };
 
+// Aster matrices are stored column-major and multiplied as column-vector transforms:
+// `clip = projection * view * model * local_position`. GPU upload code must preserve this
+// contract or explicitly transpose at the backend boundary.
+enum class MatrixStorageOrder {
+  ColumnMajor,
+  RowMajor,
+};
+
+enum class VectorConvention {
+  ColumnVector,
+  RowVector,
+};
+
+enum class ViewportOrigin {
+  TopLeft,
+  BottomLeft,
+};
+
+enum class YAxisConvention {
+  Up,
+  Down,
+};
+
+enum class WindingOrder {
+  CounterClockwise,
+  Clockwise,
+};
+
+enum class CullConvention {
+  Back,
+  Front,
+  None,
+};
+
+enum class CoordinateHandedness {
+  RightHanded,
+  LeftHanded,
+};
+
+enum class ClipDepthRange {
+  ZeroToOne,
+  NegativeOneToOne,
+};
+
+enum class DepthDirection {
+  ForwardZ,
+  ReverseZ,
+};
+
 template <typename T> using Mat2T = Mat<T, 2, 2>;
 template <typename T> using Mat3T = Mat<T, 3, 3>;
 template <typename T> using Mat4T = Mat<T, 4, 4>;
@@ -50,6 +99,48 @@ using Mat3x2 = Mat3x2T<float>;
 using Mat3x4 = Mat3x4T<float>;
 using Mat4x3 = Mat4x3T<float>;
 
+template <typename Tag> struct SemanticMat4 {
+  Mat4 value{};
+
+  constexpr SemanticMat4() = default;
+  constexpr SemanticMat4(const Mat4 matrix) : value(matrix) {}
+  constexpr SemanticMat4(const SemanticMat4 &) = default;
+  constexpr SemanticMat4 &operator=(const SemanticMat4 &) = default;
+
+  [[nodiscard]] constexpr operator Mat4() const {
+    return value;
+  }
+
+  constexpr SemanticMat4 &operator=(const Mat4 matrix) {
+    value = matrix;
+    return *this;
+  }
+};
+
+using LocalToWorld = SemanticMat4<LocalToWorldTag>;
+using WorldToView = SemanticMat4<WorldToViewTag>;
+using ViewToClip = SemanticMat4<ViewToClipTag>;
+using WorldToClip = SemanticMat4<WorldToClipTag>;
+using ClipToWorld = SemanticMat4<ClipToWorldTag>;
+
+struct Viewport {
+  Vec2 origin{};
+  Vec2 size{};
+  ViewportOrigin origin_convention = ViewportOrigin::TopLeft;
+};
+
+struct RenderConvention {
+  CoordinateHandedness handedness = CoordinateHandedness::RightHanded;
+  ClipDepthRange depth_range = ClipDepthRange::ZeroToOne;
+  DepthDirection depth_direction = DepthDirection::ReverseZ;
+  ViewportOrigin viewport_origin = ViewportOrigin::TopLeft;
+  bool y_flip = true;
+  MatrixStorageOrder matrix_storage = MatrixStorageOrder::ColumnMajor;
+  VectorConvention vector_convention = VectorConvention::ColumnVector;
+  WindingOrder winding = WindingOrder::CounterClockwise;
+  CullConvention cull = CullConvention::Back;
+};
+
 template <typename T, std::size_t Columns, std::size_t Rows>
 [[nodiscard]] inline constexpr T at(const Mat<T, Columns, Rows> &matrix, const int row,
                                     const int column) {
@@ -60,6 +151,17 @@ template <typename T, std::size_t Columns, std::size_t Rows>
 inline constexpr void setAt(Mat<T, Columns, Rows> &matrix, const int row, const int column,
                             const T value) {
   matrix.m[static_cast<std::size_t>(column) * Rows + static_cast<std::size_t>(row)] = value;
+}
+
+template <typename T, std::size_t Columns, std::size_t Rows>
+[[nodiscard]] inline constexpr MathResult<T> checkedAt(const Mat<T, Columns, Rows> &matrix,
+                                                       const std::size_t row,
+                                                       const std::size_t column) {
+  if (row >= Rows || column >= Columns) {
+    return MathResult<T>::failure(MathError::InvalidArgument, "Matrix index is out of range.");
+  }
+  return MathResult<T>::success(
+      matrix.m[static_cast<std::size_t>(column) * Rows + static_cast<std::size_t>(row)]);
 }
 
 template <typename T, std::size_t N> [[nodiscard]] inline constexpr Mat<T, N, N> identityMatrix() {
@@ -220,6 +322,44 @@ template <typename T, std::size_t Columns, std::size_t Rows>
 [[nodiscard]] inline bool allFinite(const Mat<T, Columns, Rows> &matrix) {
   for (const T value : matrix.m) {
     if (!isFiniteScalar(value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename T, std::size_t Columns, std::size_t Rows>
+[[nodiscard]] inline constexpr bool exactEqual(const Mat<T, Columns, Rows> &lhs,
+                                               const Mat<T, Columns, Rows> &rhs) {
+  for (std::size_t i = 0; i < lhs.m.size(); ++i) {
+    if (lhs.m[i] != rhs.m[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename T, std::size_t Columns, std::size_t Rows>
+[[nodiscard]] inline bool nearEqual(const Mat<T, Columns, Rows> &lhs,
+                                    const Mat<T, Columns, Rows> &rhs,
+                                    const T absolute_epsilon =
+                                        ScalarTraits<T>::defaultAbsoluteEpsilon(),
+                                    const T relative_epsilon =
+                                        ScalarTraits<T>::defaultRelativeEpsilon()) {
+  for (std::size_t i = 0; i < lhs.m.size(); ++i) {
+    if (!nearEqual(lhs.m[i], rhs.m[i], absolute_epsilon, relative_epsilon)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename T, std::size_t Columns, std::size_t Rows>
+[[nodiscard]] inline bool ulpsEqual(const Mat<T, Columns, Rows> &lhs,
+                                    const Mat<T, Columns, Rows> &rhs,
+                                    const std::uint64_t max_ulps) {
+  for (std::size_t i = 0; i < lhs.m.size(); ++i) {
+    if (!ulpsEqual(lhs.m[i], rhs.m[i], max_ulps)) {
       return false;
     }
   }

@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define ASTER_KERNEL_ABI_MAJOR 3u
+#define ASTER_KERNEL_ABI_MAJOR 4u
 #define ASTER_KERNEL_ABI_MINOR 0u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
@@ -166,11 +166,16 @@ typedef enum AsterKernelMaterialAlphaMode {
 
 typedef enum AsterKernelRenderGraphPass {
   ASTER_KERNEL_RENDER_PASS_SCENE_COLOR_DEPTH = 0,
-  ASTER_KERNEL_RENDER_PASS_OPAQUE = 1,
-  ASTER_KERNEL_RENDER_PASS_CONTACT_SHADOW = 2,
-  ASTER_KERNEL_RENDER_PASS_TRANSPARENT = 3,
-  ASTER_KERNEL_RENDER_PASS_UI_COMPOSITE = 4,
-  ASTER_KERNEL_RENDER_PASS_CAPTURE = 5
+  ASTER_KERNEL_RENDER_PASS_LIGHT_CULL = 1,
+  ASTER_KERNEL_RENDER_PASS_SHADOW_ATLAS = 2,
+  ASTER_KERNEL_RENDER_PASS_OPAQUE = 3,
+  ASTER_KERNEL_RENDER_PASS_CONTACT_SHADOW = 4,
+  ASTER_KERNEL_RENDER_PASS_SCENE_LIGHTING = 5,
+  ASTER_KERNEL_RENDER_PASS_VOLUMETRIC_FOG = 6,
+  ASTER_KERNEL_RENDER_PASS_REFLECTION_PROBE = 7,
+  ASTER_KERNEL_RENDER_PASS_TRANSPARENT = 8,
+  ASTER_KERNEL_RENDER_PASS_UI_COMPOSITE = 9,
+  ASTER_KERNEL_RENDER_PASS_CAPTURE = 10
 } AsterKernelRenderGraphPass;
 
 typedef enum AsterKernelFrameDiagnosticSeverity {
@@ -185,7 +190,8 @@ typedef enum AsterKernelFrameDiagnosticKind {
   ASTER_KERNEL_FRAME_DIAGNOSTIC_TRANSLUCENT_SORT_CHANGED = 2,
   ASTER_KERNEL_FRAME_DIAGNOSTIC_NEAR_PLANE_CLIPPING = 3,
   ASTER_KERNEL_FRAME_DIAGNOSTIC_RESOURCE_LIFETIME_HAZARD = 4,
-  ASTER_KERNEL_FRAME_DIAGNOSTIC_CAPABILITY_MISMATCH = 5
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_CAPABILITY_MISMATCH = 5,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_CLUSTERED_LIGHTING_FALLBACK = 6
 } AsterKernelFrameDiagnosticKind;
 
 typedef enum AsterMathError {
@@ -313,6 +319,48 @@ typedef struct AsterRay3 {
   AsterVec3 direction;
   float max_distance;
 } AsterRay3;
+
+typedef struct AsterWorldPoint {
+  AsterVec3 value;
+} AsterWorldPoint;
+
+typedef struct AsterViewPoint {
+  AsterVec3 value;
+} AsterViewPoint;
+
+typedef struct AsterClipPoint {
+  AsterVec4 value;
+} AsterClipPoint;
+
+typedef struct AsterNdcPoint {
+  AsterVec3 value;
+} AsterNdcPoint;
+
+typedef struct AsterScreenPoint {
+  AsterVec3 value;
+} AsterScreenPoint;
+
+typedef struct AsterWorldRay {
+  AsterWorldPoint origin;
+  AsterVec3 direction;
+  float max_distance;
+} AsterWorldRay;
+
+typedef struct AsterViewport {
+  AsterVec2 origin;
+  AsterVec2 size;
+  uint32_t origin_top_left;
+} AsterViewport;
+
+typedef struct AsterProjectionConvention {
+  AsterMathCoordinateHandedness handedness;
+  AsterMathClipDepthRange depth_range;
+  AsterMathDepthDirection depth_direction;
+  uint32_t viewport_origin_top_left;
+  uint32_t y_flip;
+  uint32_t column_major;
+  uint32_t column_vector;
+} AsterProjectionConvention;
 
 typedef struct AsterPlane3 {
   AsterVec3 normal;
@@ -622,12 +670,16 @@ ASTER_KERNEL_API AsterStatus aster_kernel_math_mat4_orthographic(
 ASTER_KERNEL_API AsterStatus aster_kernel_math_mat4_look_at(
     AsterVec3 eye, AsterVec3 target, AsterVec3 up, AsterMathCoordinateHandedness handedness,
     AsterMat4 *out_matrix, AsterMathDiagnostics *out_diagnostics);
-ASTER_KERNEL_API AsterStatus aster_kernel_math_project(
-    AsterVec3 point, const AsterMat4 *world_to_clip, AsterVec2 viewport_origin,
-    AsterVec2 viewport_size, AsterVec3 *out_window, AsterMathDiagnostics *out_diagnostics);
-ASTER_KERNEL_API AsterStatus aster_kernel_math_unproject(
-    AsterVec3 window, const AsterMat4 *clip_to_world, AsterVec2 viewport_origin,
-    AsterVec2 viewport_size, AsterVec3 *out_point, AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_world_to_screen(
+    AsterWorldPoint point, const AsterMat4 *world_to_clip, const AsterViewport *viewport,
+    AsterScreenPoint *out_screen, AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_screen_to_world(
+    AsterScreenPoint screen, const AsterMat4 *clip_to_world, const AsterViewport *viewport,
+    AsterWorldPoint *out_point, AsterMathDiagnostics *out_diagnostics);
+ASTER_KERNEL_API AsterStatus aster_kernel_math_screen_to_world_ray(
+    AsterScreenPoint screen, const AsterMat4 *clip_to_world, const AsterViewport *viewport,
+    const AsterProjectionConvention *convention, AsterWorldPoint perspective_eye,
+    AsterWorldRay *out_ray, AsterMathDiagnostics *out_diagnostics);
 ASTER_KERNEL_API AsterStatus aster_kernel_math_quat_identity(AsterQuat *out_quat);
 ASTER_KERNEL_API AsterStatus aster_kernel_math_quat_axis_angle(
     AsterVec3 axis, float radians, AsterQuat *out_quat, AsterMathDiagnostics *out_diagnostics);

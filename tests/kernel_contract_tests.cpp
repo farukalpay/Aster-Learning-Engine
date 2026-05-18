@@ -58,6 +58,14 @@ static_assert(std::is_standard_layout_v<AsterDMat4>);
 static_assert(std::is_standard_layout_v<AsterQuat>);
 static_assert(std::is_standard_layout_v<AsterTransform>);
 static_assert(std::is_standard_layout_v<AsterRay3>);
+static_assert(std::is_standard_layout_v<AsterWorldPoint>);
+static_assert(std::is_standard_layout_v<AsterViewPoint>);
+static_assert(std::is_standard_layout_v<AsterClipPoint>);
+static_assert(std::is_standard_layout_v<AsterNdcPoint>);
+static_assert(std::is_standard_layout_v<AsterScreenPoint>);
+static_assert(std::is_standard_layout_v<AsterWorldRay>);
+static_assert(std::is_standard_layout_v<AsterViewport>);
+static_assert(std::is_standard_layout_v<AsterProjectionConvention>);
 static_assert(std::is_standard_layout_v<AsterPlane3>);
 static_assert(std::is_standard_layout_v<AsterAabb3>);
 static_assert(std::is_standard_layout_v<AsterSphere3>);
@@ -110,7 +118,7 @@ void testAbiHeaderStaysPlainC() {
 void testStatusAndEngineLifecycle() {
   const AsterAbiVersion version = aster_kernel_abi_version();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
-  assert(version.major == 3u);
+  assert(version.major == 4u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
   assert(version.minor == 0u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
@@ -179,6 +187,53 @@ void testMathAbi3Contracts() {
   assert(aster_kernel_math_quat_rotate_vec3(rotation, {0.0f, 0.0f, -1.0f}, &rotated).code ==
          ASTER_STATUS_OK);
   assert(std::abs(rotated.x + 1.0f) < 0.0001f);
+
+  AsterMat4 projection{};
+  diagnostics = {};
+  assert(aster_kernel_math_mat4_perspective(
+             1.0f, 1.0f, 0.05f, 100.0f, ASTER_MATH_COORDINATE_RIGHT_HANDED,
+             ASTER_MATH_CLIP_DEPTH_ZERO_TO_ONE, ASTER_MATH_DEPTH_REVERSE_Z, &projection,
+             &diagnostics)
+             .code == ASTER_STATUS_OK);
+  AsterMat4 view{};
+  assert(aster_kernel_math_mat4_look_at({0.0f, 0.0f, 4.0f}, {0.0f, 0.0f, 0.0f},
+                                        {0.0f, 1.0f, 0.0f},
+                                        ASTER_MATH_COORDINATE_RIGHT_HANDED, &view,
+                                        &diagnostics)
+             .code == ASTER_STATUS_OK);
+  AsterMat4 world_to_clip{};
+  assert(aster_kernel_math_mat4_multiply(&projection, &view, &world_to_clip).code ==
+         ASTER_STATUS_OK);
+  AsterMat4 clip_to_world{};
+  assert(aster_kernel_math_mat4_inverse(&world_to_clip, &policy, &clip_to_world,
+                                        &diagnostics)
+             .code == ASTER_STATUS_OK);
+  const AsterViewport viewport{{0.0f, 0.0f}, {640.0f, 480.0f}, 1u};
+  const AsterWorldPoint world_point{{0.2f, -0.1f, 0.0f}};
+  AsterScreenPoint screen_point{};
+  assert(aster_kernel_math_world_to_screen(world_point, &world_to_clip, &viewport, &screen_point,
+                                           &diagnostics)
+             .code == ASTER_STATUS_OK);
+  AsterWorldPoint restored_point{};
+  assert(aster_kernel_math_screen_to_world(screen_point, &clip_to_world, &viewport,
+                                           &restored_point, &diagnostics)
+             .code == ASTER_STATUS_OK);
+  assert(std::abs(restored_point.value.x - world_point.value.x) < 0.002f);
+  assert(std::abs(restored_point.value.y - world_point.value.y) < 0.002f);
+  assert(std::abs(restored_point.value.z - world_point.value.z) < 0.002f);
+  const AsterProjectionConvention convention{ASTER_MATH_COORDINATE_RIGHT_HANDED,
+                                             ASTER_MATH_CLIP_DEPTH_ZERO_TO_ONE,
+                                             ASTER_MATH_DEPTH_REVERSE_Z,
+                                             1u,
+                                             1u,
+                                             1u,
+                                             1u};
+  AsterWorldRay world_ray{};
+  assert(aster_kernel_math_screen_to_world_ray(screen_point, &clip_to_world, &viewport,
+                                               &convention, {{0.0f, 0.0f, 4.0f}}, &world_ray,
+                                               &diagnostics)
+             .code == ASTER_STATUS_OK);
+  assert(world_ray.direction.z < -0.99f);
 }
 
 void testRendererAbi3Lifecycle() {
@@ -302,7 +357,7 @@ void testRendererAbi3Lifecycle() {
   assert(pass_stats.name.size > 0u);
 
   const std::filesystem::path capture_path =
-      std::filesystem::temp_directory_path() / "aster_kernel_renderer_abi3.ppm";
+      std::filesystem::temp_directory_path() / "aster_kernel_renderer_abi4.ppm";
   const std::string capture_string = capture_path.string();
   const AsterCaptureDesc capture{sizeof(AsterCaptureDesc),
                                  ASTER_KERNEL_STRUCT_VERSION_1,
@@ -337,7 +392,7 @@ void testShaderCompilerAbi3() {
                                             ASTER_KERNEL_SHADER_BACKEND_D3D12_HLSL,
                                             {modules, 1u, sizeof(AsterShaderModuleSource)},
                                             {"fs_main", 7u},
-                                            {"abi3-test", 9u},
+                                            {"abi4-test", 9u},
                                             1ull};
   AsterShaderArtifactHandle shader = nullptr;
   assert(aster_kernel_shader_compile(engine, &compile_desc, &shader).code == ASTER_STATUS_OK);
@@ -389,8 +444,9 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_math_mat4_perspective",
       "aster_kernel_math_mat4_orthographic",
       "aster_kernel_math_mat4_look_at",
-      "aster_kernel_math_project",
-      "aster_kernel_math_unproject",
+      "aster_kernel_math_world_to_screen",
+      "aster_kernel_math_screen_to_world",
+      "aster_kernel_math_screen_to_world_ray",
       "aster_kernel_math_quat_identity",
       "aster_kernel_math_quat_axis_angle",
       "aster_kernel_math_quat_slerp",
@@ -457,8 +513,9 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_math_mat4_perspective;
   (void)&aster_kernel_math_mat4_orthographic;
   (void)&aster_kernel_math_mat4_look_at;
-  (void)&aster_kernel_math_project;
-  (void)&aster_kernel_math_unproject;
+  (void)&aster_kernel_math_world_to_screen;
+  (void)&aster_kernel_math_screen_to_world;
+  (void)&aster_kernel_math_screen_to_world_ray;
   (void)&aster_kernel_math_quat_identity;
   (void)&aster_kernel_math_quat_axis_angle;
   (void)&aster_kernel_math_quat_slerp;

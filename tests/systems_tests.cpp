@@ -503,7 +503,8 @@ void testThirdPersonFollowController() {
   camera.yaw = 0.0f;
   camera.pitch = 0.0f;
   camera.radius = 4.0f;
-  const aster::CameraRay ray = camera.screenRay({400.0f, 300.0f}, {800.0f, 600.0f});
+  const aster::CameraRay ray =
+      camera.screenRay({400.0f, 300.0f, 0.0f}, aster::Viewport{{}, {800.0f, 600.0f}});
   assert(aster::length(ray.direction) > 0.99f);
   assert(ray.direction.z < -0.99f);
 }

@@ -426,28 +426,94 @@ void LumenRun::rebuildScene() {
                                  .wetness = 0.06f,
                                  .height_shading = 0.22f};
   Material cave_wall =
-      material({0.082f, 0.078f, 0.067f}, {0.012f, 0.009f, 0.005f}, 0.98f, 0.0f, 0.012f, 0.96f, 8.8f,
-               0.30f, 0.60f, SurfacePattern::CaveRock, {2.4f, 4.2f}, 0.120f, 0.94f, 0.060f);
+      material({0.108f, 0.112f, 0.104f}, {0.004f, 0.006f, 0.004f}, 0.97f, 0.0f, 0.006f, 1.18f, 12.4f,
+               0.34f, 0.54f, SurfacePattern::CaveRock, {2.9f, 5.6f}, 0.155f, 1.08f, 0.050f);
   cave_wall.cull_mode = FaceCullMode::Back;
   cave_wall.double_sided = true;
   cave_wall.camera_occlusion = CameraOcclusionPolicy::Solid;
-  cave_wall.procedural = {.macro_variation = 0.64f,
-                          .micro_normal_strength = 0.54f,
-                          .roughness_variation = 0.18f,
-                          .wetness = 0.10f,
-                          .height_shading = 0.24f};
+  cave_wall.asset_id = "material.cave_rock";
+  cave_wall.procedural = {.macro_variation = 0.78f,
+                          .micro_normal_strength = 0.62f,
+                          .roughness_variation = 0.24f,
+                          .wetness = 0.18f,
+                          .height_shading = 0.30f};
   Material cave_entrance_wall = cave_wall;
-  cave_entrance_wall.base_color = {0.190f, 0.172f, 0.132f};
-  cave_entrance_wall.emission_color = {0.052f, 0.032f, 0.014f};
-  cave_entrance_wall.emission_strength = 0.046f;
+  cave_entrance_wall.base_color = {0.132f, 0.124f, 0.104f};
+  cave_entrance_wall.emission_color = {0.026f, 0.020f, 0.012f};
+  cave_entrance_wall.emission_strength = 0.026f;
   cave_entrance_wall.ambient_occlusion = 0.54f;
   cave_entrance_wall.procedural.wetness = 0.12f;
   Material cave_floor = makeSupportSurfaceMaterial(cave_wall);
-  cave_floor.base_color = {0.130f, 0.114f, 0.088f};
-  cave_floor.pattern_scale = {3.2f, 4.4f};
-  cave_floor.pattern_depth = 0.085f;
-  cave_floor.ambient_occlusion = 0.48f;
-  cave_floor.procedural.wetness = 0.18f;
+  cave_floor.base_color = {0.086f, 0.083f, 0.070f};
+  cave_floor.pattern_scale = {4.0f, 5.8f};
+  cave_floor.pattern_depth = 0.118f;
+  cave_floor.ambient_occlusion = 0.42f;
+  cave_floor.procedural.wetness = 0.28f;
+  cave_floor.asset_id = "material.cave_rock";
+  Material cave_wet_streak =
+      material({0.044f, 0.046f, 0.041f}, {0.014f, 0.016f, 0.012f}, 0.42f, 0.0f, 0.018f, 1.10f,
+               18.0f, 0.02f, 0.38f, SurfacePattern::CaveRock, {1.3f, 9.2f}, 0.038f, 0.62f,
+               0.035f,
+               {.macro_variation = 0.42f,
+                .micro_normal_strength = 0.18f,
+                .roughness_variation = 0.34f,
+                .wetness = 0.82f,
+                .height_shading = 0.08f});
+  cave_wet_streak.opacity = 0.78f;
+  cave_wet_streak.alpha_mode = MaterialAlphaMode::Blend;
+  cave_wet_streak.depth_write = MaterialDepthWrite::Disabled;
+  cave_wet_streak.double_sided = true;
+  cave_wet_streak.cull_mode = FaceCullMode::None;
+  cave_wet_streak.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material cave_moss_patch =
+      material({0.065f, 0.115f, 0.054f}, {0.003f, 0.010f, 0.002f}, 0.92f, 0.0f, 0.004f, 0.72f,
+               14.0f, 0.04f, 0.70f, SurfacePattern::GrassSoil, {5.0f, 7.0f}, 0.020f, 0.48f,
+               0.065f,
+               {.macro_variation = 0.38f,
+                .micro_normal_strength = 0.26f,
+                .roughness_variation = 0.20f,
+                .wetness = 0.46f,
+                .height_shading = 0.06f});
+  cave_moss_patch.opacity = 0.82f;
+  cave_moss_patch.alpha_mode = MaterialAlphaMode::Blend;
+  cave_moss_patch.depth_write = MaterialDepthWrite::Disabled;
+  cave_moss_patch.double_sided = true;
+  cave_moss_patch.cull_mode = FaceCullMode::None;
+  cave_moss_patch.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material cave_scratch_mark =
+      material({0.235f, 0.205f, 0.160f}, {0.020f, 0.012f, 0.006f}, 0.74f, 0.0f, 0.010f, 0.46f,
+               22.0f, 0.18f, 0.66f, SurfacePattern::WeatheredStone, {18.0f, 3.0f}, 0.012f,
+               0.72f, 0.040f);
+  cave_scratch_mark.opacity = 0.72f;
+  cave_scratch_mark.alpha_mode = MaterialAlphaMode::Blend;
+  cave_scratch_mark.depth_write = MaterialDepthWrite::Disabled;
+  cave_scratch_mark.double_sided = true;
+  cave_scratch_mark.cull_mode = FaceCullMode::None;
+  cave_scratch_mark.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material cave_soot_rust =
+      material({0.034f, 0.033f, 0.030f}, {0.001f, 0.001f, 0.001f}, 0.97f, 0.02f, 0.0f, 0.58f,
+               10.0f, 0.34f, 0.46f, SurfacePattern::WeatheredMetal, {4.0f, 9.0f}, 0.016f, 0.68f,
+               0.050f);
+  cave_soot_rust.opacity = 0.34f;
+  cave_soot_rust.alpha_mode = MaterialAlphaMode::Blend;
+  cave_soot_rust.depth_write = MaterialDepthWrite::Disabled;
+  cave_soot_rust.double_sided = true;
+  cave_soot_rust.cull_mode = FaceCullMode::None;
+  cave_soot_rust.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material cave_dust_accumulation =
+      material({0.205f, 0.178f, 0.130f}, {0.004f, 0.003f, 0.002f}, 0.98f, 0.0f, 0.0f, 0.52f,
+               8.0f, 0.06f, 0.72f, SurfacePattern::SoilPath, {3.4f, 5.0f}, 0.014f, 0.36f,
+               0.070f,
+               {.macro_variation = 0.36f,
+                .micro_normal_strength = 0.10f,
+                .roughness_variation = 0.12f,
+                .height_shading = 0.035f});
+  cave_dust_accumulation.opacity = 0.64f;
+  cave_dust_accumulation.alpha_mode = MaterialAlphaMode::Blend;
+  cave_dust_accumulation.depth_write = MaterialDepthWrite::Disabled;
+  cave_dust_accumulation.double_sided = true;
+  cave_dust_accumulation.cull_mode = FaceCullMode::None;
+  cave_dust_accumulation.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_talus = makeSupportSurfaceMaterial(
       material({0.155f, 0.150f, 0.128f}, {0.010f, 0.008f, 0.005f}, 0.94f, 0.0f, 0.008f, 0.82f, 8.6f,
                0.30f, 0.62f, SurfacePattern::CaveRock, {2.8f, 5.4f}, 0.052f, 0.72f, 0.055f));
@@ -458,8 +524,9 @@ void LumenRun::rebuildScene() {
                            .wetness = 0.08f,
                            .height_shading = 0.14f};
   Material cave_calcite =
-      material({0.46f, 0.39f, 0.30f}, {0.035f, 0.024f, 0.014f}, 0.88f, 0.0f, 0.018f, 0.82f, 13.0f,
-               0.34f, 0.58f, SurfacePattern::CaveRock, {3.0f, 9.0f}, 0.095f, 0.88f, 0.050f);
+      material({0.215f, 0.208f, 0.184f}, {0.010f, 0.009f, 0.007f}, 0.91f, 0.0f, 0.004f, 0.92f,
+               12.0f, 0.30f, 0.62f, SurfacePattern::CaveRock, {3.0f, 9.0f}, 0.082f, 0.80f,
+               0.055f);
   cave_calcite.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_mineral_glow =
       material({0.72f, 0.46f, 0.24f}, {0.86f, 0.44f, 0.14f}, 0.28f, 0.0f, 0.30f, 0.36f, 12.0f,
@@ -901,6 +968,66 @@ void LumenRun::rebuildScene() {
                      rib_center + right * 0.385f, 0.016f, metal));
     }
     return visual;
+  };
+
+  const auto appendWallDecal = [&](const char *name, const Vec3 surface, const Vec3 normal,
+                                   const Vec3 up_hint, const Vec2 size, const Material &decal,
+                                   const float lift = 0.018f) {
+    const Vec3 n = length(normal) > 0.0001f ? normalize(normal) : Vec3{0.0f, 0.0f, 1.0f};
+    (void)up_hint;
+    const float yaw = std::atan2(n.x, n.z);
+    const float pitch = std::atan2(-n.y, std::max(std::sqrt(n.x * n.x + n.z * n.z), 0.0001f));
+    const Vec3 center = surface + n * lift;
+    const Vec3 scale{std::max(size.x, 0.02f), std::max(size.y, 0.02f), 0.010f};
+    keepCameraSolid(appendScenery(name, MeshPrimitive::Box, center, scale, {pitch, yaw, 0.0f},
+                                  decal));
+  };
+
+  const auto appendFloorDecal = [&](const char *name, const Vec3 center, const Vec3 tangent,
+                                    const Vec2 size, const Material &decal,
+                                    const float lift = 0.020f) {
+    const Vec3 t = length(tangent) > 0.0001f ? normalize(tangent) : Vec3{0.0f, 0.0f, -1.0f};
+    const float yaw = std::atan2(t.x, t.z);
+    const Vec3 scale{std::max(size.x, 0.04f), 0.010f, std::max(size.y, 0.04f)};
+    keepCameraSolid(appendScenery(name, MeshPrimitive::Box, center + Vec3{0.0f, lift, 0.0f}, scale,
+                                  {0.0f, yaw, 0.0f}, decal));
+  };
+
+  const auto appendCaveAgingPass = [&](const AuthoredCaveSection &section,
+                                       const bool deep_section) {
+    constexpr std::array<float, 7> kStations{0.12f, 0.22f, 0.34f, 0.48f, 0.60f, 0.74f, 0.88f};
+    for (std::size_t i = 0; i < kStations.size(); ++i) {
+      const CaveTunnelFrame frame = sampleCaveTunnelFrame(section.tunnel, kStations[i]);
+      const float side_sign = (i % 2u == 0u) ? -1.0f : 1.0f;
+      const Vec3 wall_normal = normalize(frame.side * side_sign + frame.up * 0.10f);
+      const Vec3 wall_base =
+          frame.floor_center + frame.side * (side_sign * frame.half_width * 0.86f) +
+          frame.up * (0.58f + 0.18f * static_cast<float>(i % 3u));
+      appendWallDecal(deep_section ? "Deep cave black wet wall streak"
+                                   : "Entry cave black wet wall streak",
+                      wall_base, wall_normal, frame.up,
+                      {0.24f + 0.05f * static_cast<float>(i % 2u),
+                       0.88f + 0.18f * static_cast<float>(i % 3u)},
+                      cave_wet_streak, 0.020f);
+      if (i % 2u == 1u) {
+        appendWallDecal(deep_section ? "Deep cave green fungus patch"
+                                     : "Entry cave green fungus patch",
+                        wall_base - frame.up * 0.28f + frame.tangent * 0.12f, wall_normal,
+                        frame.up, {0.46f, 0.28f}, cave_moss_patch, 0.022f);
+      }
+      if (i % 3u == 0u) {
+        appendWallDecal("Old mining pick scratches in cave wall",
+                        wall_base + frame.tangent * 0.20f + frame.up * 0.18f, wall_normal,
+                        frame.up, {0.56f, 0.12f}, cave_scratch_mark, 0.024f);
+      }
+
+      const Vec3 floor_center =
+          frame.floor_center + frame.tangent * (0.12f * static_cast<float>((i % 3u) - 1u));
+      appendFloorDecal(deep_section ? "Deep cave wet floor patch" : "Entry cave wet floor patch",
+                       floor_center, frame.tangent,
+                       {frame.floor_half_width * 0.78f, 0.52f + 0.08f * static_cast<float>(i % 2u)},
+                       (i % 2u == 0u) ? cave_wet_streak : cave_dust_accumulation, 0.018f);
+    }
   };
 
   auto appendGeneratedBeam = [&](const char *name, const std::shared_ptr<const CpuMesh> &mesh,
@@ -1768,12 +1895,25 @@ void LumenRun::rebuildScene() {
                                      {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f},
                                      {0.0f, 0.0f, 0.0f}, cave_wall);
   }
+  for (std::size_t section_index = 0u; section_index < cave_sections_.size(); ++section_index) {
+    appendCaveAgingPass(cave_sections_[section_index], section_index > 0u);
+  }
   for (const AuthoredCaveSection &section : cave_sections_) {
     for (const CaveWallFixturePlacement &fixture : section.wall_fixtures) {
       appendIndustrialWallLight(fixture, industrial_light_metal, industrial_red_lens);
+      appendWallDecal("Rust-stained cave wall around lamp", fixture.mount_position,
+                      fixture.normal, fixture.up, {0.72f, 0.52f}, cave_soot_rust, 0.014f);
+      appendWallDecal("Wet drip trail under cave lamp",
+                      fixture.mount_position - fixture.up * 0.52f + fixture.normal * 0.010f,
+                      fixture.normal, fixture.up, {0.18f, 0.82f}, cave_wet_streak, 0.018f);
     }
     for (const CaveWallFixturePlacement &fixture : section.secondary_wall_fixtures) {
       appendIndustrialWallLight(fixture, industrial_light_metal, industrial_red_lens);
+      appendWallDecal("Rust-stained cave wall around lamp", fixture.mount_position,
+                      fixture.normal, fixture.up, {0.60f, 0.44f}, cave_soot_rust, 0.014f);
+      appendWallDecal("Thin wet drip trail under cave lamp",
+                      fixture.mount_position - fixture.up * 0.48f + fixture.normal * 0.010f,
+                      fixture.normal, fixture.up, {0.12f, 0.68f}, cave_wet_streak, 0.018f);
     }
   }
 
@@ -1791,19 +1931,26 @@ void LumenRun::rebuildScene() {
       switch (feature.kind) {
       case CaveFeatureKind::Stalactite:
         name = mineral_accent ? "Cave iron-stained stalactite" : "Cave calcite stalactite";
-        position = feature.position + feature.normal * (feature.scale.y * 0.88f);
+        scale.x *= 0.42f;
+        scale.y *= 0.48f;
+        scale.z *= 0.42f;
+        position = feature.position + feature.normal * (scale.y * 0.88f);
         rotation = segmentRotation(feature.position, feature.position + feature.normal);
         break;
       case CaveFeatureKind::Stalagmite:
         name = mineral_accent ? "Cave iron-stained stalagmite" : "Cave calcite stalagmite";
-        position = feature.position + feature.normal * (feature.scale.y * 0.88f);
+        scale.x *= 0.40f;
+        scale.y *= 0.46f;
+        scale.z *= 0.40f;
+        position = feature.position + feature.normal * (scale.y * 0.88f);
         rotation = segmentRotation(feature.position, feature.position + feature.normal);
         break;
       case CaveFeatureKind::Column:
         name = mineral_accent ? "Cave iron-stained column" : "Cave calcite column";
         rotation = segmentRotation(feature.position, feature.position + feature.normal);
-        scale.x *= 1.12f;
-        scale.z *= 1.12f;
+        scale.x *= 0.52f;
+        scale.z *= 0.52f;
+        scale.y *= 0.64f;
         break;
       case CaveFeatureKind::WallShelf:
         name = mineral_accent ? "Cave iron-stained wall shelf" : "Cave flowstone wall shelf";
@@ -1811,6 +1958,19 @@ void LumenRun::rebuildScene() {
         break;
       }
       keepCameraSolid(appendScenery(name, primitive, position, scale, rotation, feature_material));
+      if (feature.kind == CaveFeatureKind::WallShelf && !mineral_accent) {
+        appendWallDecal("Damp moss layer on cave shelf", feature.position + feature.normal * 0.035f,
+                        feature.normal, {0.0f, 1.0f, 0.0f},
+                        {std::max(scale.x * 1.30f, 0.18f), std::max(scale.z * 0.72f, 0.10f)},
+                        cave_moss_patch, 0.016f);
+      }
+      if (mineral_accent) {
+        appendWallDecal("Fresh broken mineral interior",
+                        feature.position + feature.normal * std::max(scale.y * 0.22f, 0.04f),
+                        feature.normal, {0.0f, 1.0f, 0.0f},
+                        {std::max(scale.x * 0.62f, 0.12f), std::max(scale.z * 0.50f, 0.08f)},
+                        cave_scratch_mark, 0.018f);
+      }
     }
   };
   appendCaveFeatures(cave_complex.features, cave_spec.features);
@@ -1955,6 +2115,15 @@ void LumenRun::rebuildScene() {
                                         ore_scale, {0.0f, yaw, 0.0f}, coal_ore_material));
       coal_ores_.push_back({ore_position, ore.normal, ore_scale, ore.radius, kCoalOreMaxHealth,
                             kCoalOreMaxHealth, 2, index, false, 0.0f});
+      appendWallDecal("Mining scratch decals around coal seam",
+                      ore.position + ore.normal * std::max(ore.radius * 0.08f, 0.024f),
+                      ore.normal, {0.0f, 1.0f, 0.0f}, {ore.radius * 2.4f, ore.radius * 0.52f},
+                      cave_scratch_mark, 0.016f);
+      appendWallDecal("Wet mineral stain around coal seam",
+                      ore.position - Vec3{0.0f, ore.radius * 0.38f, 0.0f} +
+                          ore.normal * std::max(ore.radius * 0.05f, 0.018f),
+                      ore.normal, {0.0f, 1.0f, 0.0f}, {ore.radius * 1.4f, ore.radius * 1.8f},
+                      cave_wet_streak, 0.014f);
     }
   };
   appendCaveOreNodes(cave_complex.ore_nodes);

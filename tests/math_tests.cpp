@@ -28,6 +28,21 @@ void expectNearVec3(const aster::Vec3 actual, const aster::Vec3 expected,
 void testScalarAndNormalizePolicy() {
   assert(aster::nearlyEqual(1.0f, 1.0f + 0.0000001f));
   assert(aster::almostEqualUlps(1.0f, std::nextafter(1.0f, 2.0f), 1u));
+  assert(aster::exactEqual(aster::Vec3{1.0f, 2.0f, 3.0f}, aster::Vec3{1.0f, 2.0f, 3.0f}));
+  assert(!aster::exactEqual(aster::Vec3{1.0f, 2.0f, 3.0f},
+                            aster::Vec3{std::nextafter(1.0f, 2.0f), 2.0f, 3.0f}));
+  assert(aster::nearEqual(aster::Vec3{1.0f, 2.0f, 3.0f},
+                          aster::Vec3{1.0f + 0.0000001f, 2.0f, 3.0f}));
+  assert(aster::ulpsEqual(aster::Vec3{1.0f, 2.0f, 3.0f},
+                          aster::Vec3{std::nextafter(1.0f, 2.0f), 2.0f, 3.0f}, 1u));
+  const aster::MathResult<float> checked_component =
+      aster::checkedAt(aster::Vec3{4.0f, 5.0f, 6.0f}, 1u);
+  assert(checked_component);
+  assert(checked_component.value == 5.0f);
+  const aster::MathResult<float> out_of_range_component =
+      aster::checkedAt(aster::Vec3{4.0f, 5.0f, 6.0f}, 3u);
+  assert(!out_of_range_component);
+  assert(out_of_range_component.diagnostics.error == aster::MathError::InvalidArgument);
   assert(aster::isFiniteScalar(4.0f));
   assert(!aster::isFiniteScalar(std::numeric_limits<float>::infinity()));
   assert(aster::allFinite(aster::Vec3{1.0f, 2.0f, 3.0f}));
@@ -92,24 +107,49 @@ void testMatrixFamilyAndDiagnostics() {
 }
 
 void testProjectionRoundTrip() {
-  const aster::MathResult<aster::Mat4> projection =
-      aster::perspective(aster::radians(70.0f), 16.0f / 9.0f, 0.05f, 200.0f);
-  assert(projection);
-  const aster::MathResult<aster::Mat4> view =
-      aster::lookAt({0.0f, 1.0f, 4.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
-  assert(view);
-  const aster::Mat4 world_to_clip = projection.value * view.value;
-  const aster::MathResult<aster::Mat4> clip_to_world = aster::inverse(world_to_clip);
-  assert(clip_to_world);
+  const aster::ProjectionPolicy policies[] = {
+      {aster::CoordinateHandedness::RightHanded, aster::ClipDepthRange::ZeroToOne,
+       aster::DepthDirection::ReverseZ},
+      {aster::CoordinateHandedness::RightHanded, aster::ClipDepthRange::ZeroToOne,
+       aster::DepthDirection::ForwardZ},
+      {aster::CoordinateHandedness::RightHanded, aster::ClipDepthRange::NegativeOneToOne,
+       aster::DepthDirection::ReverseZ},
+      {aster::CoordinateHandedness::RightHanded, aster::ClipDepthRange::NegativeOneToOne,
+       aster::DepthDirection::ForwardZ},
+      {aster::CoordinateHandedness::LeftHanded, aster::ClipDepthRange::ZeroToOne,
+       aster::DepthDirection::ReverseZ},
+      {aster::CoordinateHandedness::LeftHanded, aster::ClipDepthRange::ZeroToOne,
+       aster::DepthDirection::ForwardZ},
+      {aster::CoordinateHandedness::LeftHanded, aster::ClipDepthRange::NegativeOneToOne,
+       aster::DepthDirection::ReverseZ},
+      {aster::CoordinateHandedness::LeftHanded, aster::ClipDepthRange::NegativeOneToOne,
+       aster::DepthDirection::ForwardZ},
+  };
 
-  const aster::Vec3 world{0.25f, -0.1f, -0.4f};
-  const aster::MathResult<aster::Vec3> window =
-      aster::project(world, world_to_clip, {0.0f, 0.0f}, {1280.0f, 720.0f});
-  assert(window);
-  const aster::MathResult<aster::Vec3> restored =
-      aster::unproject(window.value, clip_to_world.value, {0.0f, 0.0f}, {1280.0f, 720.0f});
-  assert(restored);
-  expectNearVec3(restored.value, world, 0.002f);
+  for (const aster::ProjectionPolicy policy : policies) {
+    const aster::MathResult<aster::Mat4> projection =
+        aster::perspective(aster::radians(70.0f), 16.0f / 9.0f, 0.05f, 200.0f, policy);
+    assert(projection);
+    const aster::MathResult<aster::Mat4> view =
+        aster::lookAt({0.0f, 1.0f, 4.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f},
+                      policy.handedness);
+    assert(view);
+    const aster::WorldToClip world_to_clip{projection.value * view.value};
+    const aster::MathResult<aster::Mat4> clip_to_world_matrix =
+        aster::inverse(world_to_clip.value);
+    assert(clip_to_world_matrix);
+    const aster::ClipToWorld clip_to_world{clip_to_world_matrix.value};
+
+    const aster::WorldPoint world{0.25f, -0.1f, 0.4f};
+    const aster::Viewport viewport{{0.0f, 0.0f}, {1280.0f, 720.0f}};
+    const aster::MathResult<aster::ScreenPoint> window =
+        aster::project(world, world_to_clip, viewport);
+    assert(window);
+    const aster::MathResult<aster::WorldPoint> restored =
+        aster::unproject(window.value, clip_to_world, viewport);
+    assert(restored);
+    expectNearVec3(restored.value, world.value, 0.002f);
+  }
 }
 
 void testQuaternionAndDualQuaternion() {
@@ -181,6 +221,11 @@ void testDeterministicRandomizedProperties() {
 void testSemanticWrapperTypes() {
   static_assert(!std::is_same_v<aster::WorldPoint, aster::LocalPoint>);
   static_assert(!std::is_same_v<aster::Direction, aster::Normal>);
+  using LocalTransform = aster::WorldPoint (*)(aster::LocalPoint, aster::LocalToWorld);
+  static_assert(std::is_invocable_r_v<aster::WorldPoint, LocalTransform, aster::LocalPoint,
+                                      aster::LocalToWorld>);
+  static_assert(!std::is_invocable_r_v<aster::WorldPoint, LocalTransform, aster::WorldPoint,
+                                       aster::LocalToWorld>);
   const aster::WorldPoint world{{1.0f, 2.0f, 3.0f}};
   const aster::Direction direction{{0.0f, 0.0f, -1.0f}};
   assert(world.value.x == 1.0f);

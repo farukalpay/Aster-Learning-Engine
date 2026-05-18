@@ -29,7 +29,9 @@ around engine capability, not sample-game marketing.
 
 ![Industrial pipe material preview](assets/screenshots/industrial_pipe.png)
 
-![Lumen Run sample game](assets/screenshots/lumen_run.png)
+![Lumen Run cave entry motion](assets/screenshots/lumen_cave_entry.gif)
+
+![Lumen Run cave interior](assets/screenshots/lumen_cave_interior.png)
 
 ## First Scene
 
@@ -48,7 +50,7 @@ object.name = "first shader ball";
 object.primitive = aster::MeshPrimitive::Sphere;
 object.transform.position = {0.0f, 0.6f, 0.0f};
 object.material = aster::makeMaterial({
-    .base_color = {0.55f, 0.48f, 0.40f},
+    .base_color = aster::LinearRgb{0.55f, 0.48f, 0.40f},
     .roughness = 0.68f,
     .metallic = 0.0f,
     .surface_profile = aster::MaterialSurfaceProfile::StratifiedRock,
@@ -63,6 +65,9 @@ renderer.prepareScene(scene);
 aster::OrbitCamera camera;
 camera.target = {0.0f, 0.55f, 0.0f};
 camera.radius = 4.0f;
+const aster::Viewport viewport{{}, {1280.0f, 720.0f}};
+const aster::WorldRay center_ray =
+    camera.screenRay(aster::ScreenPoint{640.0f, 360.0f, 0.0f}, viewport);
 
 aster::RendererSettings settings;
 settings.sun_light.enabled = true;
@@ -103,6 +108,12 @@ Run built-in lab scenes:
   quality profiles, and hot reload.
 - A Rust runtime planner for frustum culling, draw-key grouping, translucent
   ordering, diagnostics, and offline asset-tool validation.
+- A semantic math path where cameras and render helpers use typed
+  `WorldPoint`, `ClipPoint`, `NdcPoint`, `ScreenPoint`, `WorldRay`, and
+  `Viewport` contracts instead of ambiguous raw vectors.
+- Typed color/material math with runtime `LinearRgb` and `EmissionColor`,
+  explicit sRGB conversion helpers, and material importers that cross that
+  boundary deliberately.
 - Thin executable entrypoints for Lumen Run, Studio, offline preview rendering,
   Material Lab, and the networking probe.
 

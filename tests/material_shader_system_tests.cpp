@@ -3,6 +3,7 @@
 
 #include "aster/material/material_compiler.hpp"
 #include "aster/material/material_graph.hpp"
+#include "aster/math/color.hpp"
 #include "aster/shader/shader_compiler.hpp"
 #include "aster/shader/shader_hot_reload.hpp"
 #include "aster/render/render_quality.hpp"
@@ -114,8 +115,12 @@ void testMaterialAssetParserAndCompiler() {
   assert(compiled.variant.stable_hash != 0u);
   assert(compiled.variant.tag.find("LitPBR.Masked") != std::string::npos);
   assert(compiled.variant.tag.find("triplanar") != std::string::npos);
+  assert(compiled.graph.nodes.size() == loaded.value.layers.size());
+  assert(compiled.graph.nodes.front().op == aster::MaterialGraphOperation::TriplanarSample);
   assert(compiled.binding_layout.bindings.size() == loaded.value.textures.size() + 2u);
   assert(compiled.fallback_material.material.asset_id == loaded.value.id);
+  assert(aster::exactEqual(compiled.fallback_material.material.base_color,
+                           aster::LinearRgb{0.24f, 0.21f, 0.18f}));
   assert(compiled.fallback_material.material.double_sided);
 	  assert(compiled.fallback_material.material.surface_profile ==
 	         aster::MaterialSurfaceProfile::StratifiedRock);
@@ -123,6 +128,9 @@ void testMaterialAssetParserAndCompiler() {
 	         aster::MaterialSurfaceProfile::StratifiedRock);
   assert((compiled.fallback_material.permutation_flags &
           aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::ShaderVariant)) != 0u);
+
+  const aster::LinearRgb albedo_from_srgb = aster::srgbToLinear(aster::Srgb{0.5f, 0.5f, 0.5f});
+  assert(albedo_from_srgb.x > 0.21f && albedo_from_srgb.x < 0.22f);
 
   const aster::MaterialGraph graph = aster::materialGraphForAsset(loaded.value);
   assert(graph.nodes.size() == 2u);

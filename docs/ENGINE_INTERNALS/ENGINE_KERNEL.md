@@ -43,11 +43,19 @@ The kernel does not promise binary stability for the existing rich C++ engine
 headers. Cross-compiler stability is obtained by keeping the binary boundary in
 plain C and compiling C++ wrappers in the consuming toolchain.
 
+ABI 4 promotes spatial math through typed fixed-layout structs:
+`AsterWorldPoint`, `AsterScreenPoint`, `AsterWorldRay`, `AsterViewport`, and
+`AsterProjectionConvention`. The old ambiguous math projection calls were
+replaced by `aster_kernel_math_world_to_screen`,
+`aster_kernel_math_screen_to_world`, and
+`aster_kernel_math_screen_to_world_ray` so public consumers cross the same
+world/clip/NDC/screen boundary as the C++ camera and renderer code.
+
 ## Ownership And Lifetime
 
 Kernel resources are opaque handles. A handle returned by a kernel creation
 function is owned by the caller until it is passed to the matching destroy
-function. ABI 2.2 makes the renderer path constructible and inspectable through
+function. ABI 4 makes the renderer path constructible and inspectable through
 the public kernel: engine, window, scene, mesh, material, renderer, shader
 artifact, and render pipeline handles can be created and destroyed through
 fixed-layout C descriptors, with additive frame-forensics and backend capability

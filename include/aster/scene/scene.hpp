@@ -176,8 +176,8 @@ struct DynamicMeshResourceKeyHash {
 
 struct Material {
   std::string asset_id;
-  Vec3 base_color{1.0f, 1.0f, 1.0f};
-  Vec3 emission_color{0.0f, 0.0f, 0.0f};
+  LinearRgb base_color{1.0f, 1.0f, 1.0f};
+  EmissionColor emission_color{0.0f, 0.0f, 0.0f};
   float roughness = 0.55f;
   float metallic = 0.0f;
   float emission_strength = 0.0f;
@@ -205,8 +205,8 @@ struct Material {
 };
 
 struct MaterialDesc {
-  Vec3 base_color{1.0f, 1.0f, 1.0f};
-  Vec3 emission_color{0.0f, 0.0f, 0.0f};
+  LinearRgb base_color{1.0f, 1.0f, 1.0f};
+  EmissionColor emission_color{0.0f, 0.0f, 0.0f};
   float roughness = 0.55f;
   float metallic = 0.0f;
   float emission_strength = 0.0f;

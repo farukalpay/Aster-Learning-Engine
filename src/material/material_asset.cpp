@@ -752,15 +752,16 @@ std::uint64_t materialFeatureMask(const MaterialFeatureSet &features) {
 
 Material resolveMaterialAssetFallback(const MaterialAsset &asset) {
   MaterialDesc desc;
-  desc.base_color = {paramOr(asset, "base_color_r", 1.0f), paramOr(asset, "base_color_g", 1.0f),
-                     paramOr(asset, "base_color_b", 1.0f)};
+  desc.base_color = LinearRgb{paramOr(asset, "base_color_r", 1.0f),
+                              paramOr(asset, "base_color_g", 1.0f),
+                              paramOr(asset, "base_color_b", 1.0f)};
   desc.roughness = paramOr(asset, "roughness", paramOr(asset, "base_roughness", desc.roughness));
   desc.metallic = paramOr(asset, "metallic", desc.metallic);
   desc.opacity = paramOr(asset, "opacity", desc.opacity);
   desc.emission_strength = paramOr(asset, "emission_strength", desc.emission_strength);
-  desc.emission_color = {paramOr(asset, "emission_r", desc.emission_color.x),
-                         paramOr(asset, "emission_g", desc.emission_color.y),
-                         paramOr(asset, "emission_b", desc.emission_color.z)};
+  desc.emission_color = EmissionColor{paramOr(asset, "emission_r", desc.emission_color.x),
+                                      paramOr(asset, "emission_g", desc.emission_color.y),
+                                      paramOr(asset, "emission_b", desc.emission_color.z)};
   desc.detail_scale = paramOr(asset, "triplanar_scale", paramOr(asset, "detail_scale", 1.0f));
   desc.detail_strength = paramOr(asset, "detail_strength", 0.0f);
   desc.ambient_occlusion = paramOr(asset, "ambient_occlusion", paramOr(asset, "ao", 1.0f));

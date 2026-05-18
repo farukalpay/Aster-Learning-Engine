@@ -6,9 +6,20 @@ Aster builds a frame from engine data, not sample-specific code:
    optional custom meshes.
 2. `RenderScene` and the Rust planner produce visible instances, draw groups,
    translucent ordering, and diagnostics.
-3. `FixedRenderGraph` executes semantic passes: scene color/depth, opaque,
-   contact shadow, transparent, UI composite, and capture.
+3. `FixedRenderGraph` executes semantic passes: scene color/depth, light cull,
+   shadow atlas, opaque, contact shadow, scene lighting, volumetric fog,
+   reflection probe, transparent, UI composite, and capture.
 4. Backends consume the same plan and publish `FrameStats` plus `FrameForensics`.
+
+Clustered forward lighting v1 is a shared CPU-reference contract. It builds
+deterministic cluster lists from the camera and `LightRig` so software, Metal,
+and D3D12 can report the same visible-light budget before native GPU buffer
+consumption is wired.
+
+Camera and CPU projection code use the semantic spatial pipeline:
+`WorldPoint -> ClipPoint -> NdcPoint -> ScreenPoint`, with `Viewport` carrying
+screen-origin convention. Kernel ABI projection entrypoints mirror that contract
+as `world_to_screen`, `screen_to_world`, and `screen_to_world_ray`.
 
 Backend roles today:
 
