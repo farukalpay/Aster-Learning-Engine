@@ -357,6 +357,8 @@ void testLumenCaveVisualContracts() {
     assert(object.name.find("Opaque deep cave void") == std::string::npos);
     assert(object.name.find("connector roof seal") == std::string::npos);
     assert(object.name.find("connector crown blocker") == std::string::npos);
+    assert(object.name.find("green fungus") == std::string::npos);
+    assert(object.name.find("Damp moss layer") == std::string::npos);
     if (object.name == "Continuous streaming cave connector shell" ||
         object.name == "Walkable streaming cave connector floor" ||
         object.name == "Chunked procedural cave interior" ||
@@ -446,23 +448,38 @@ void testLumenCaveVisualContracts() {
   assert(parkour_chest_base != nullptr);
   assert(cave_floor_object != nullptr);
   assert(cave_floor_object->custom_mesh != nullptr);
-  const aster::TerrainSurfaceSample chest_entry_floor =
-      aster::sampleMeshSupport(*cave_floor_object->custom_mesh, cave_floor_object->transform,
-                               aster::SurfaceSupportQuery{{parkour_chest_base->transform.position.x,
-                                                           parkour_chest_base->transform.position.z}},
-                               0.46f);
-  aster::TerrainSurfaceSample chest_deep_floor{};
-  if (deep_cave_floor_object != nullptr && deep_cave_floor_object->custom_mesh != nullptr) {
-    chest_deep_floor =
-        aster::sampleMeshSupport(*deep_cave_floor_object->custom_mesh,
-                                 deep_cave_floor_object->transform,
-                                 aster::SurfaceSupportQuery{{parkour_chest_base->transform.position.x,
-                                                             parkour_chest_base->transform.position.z}},
-                                 0.46f);
-  }
-  float chest_floor_height = chest_entry_floor.valid ? chest_entry_floor.height : -1000.0f;
-  if (chest_deep_floor.valid) {
-    chest_floor_height = std::max(chest_floor_height, chest_deep_floor.height);
+  float chest_floor_height = -1000.0f;
+  for (const aster::Vec3 local_offset :
+       {aster::Vec3{0.0f, 0.0f, 0.0f},
+        aster::Vec3{-parkour_chest_base->transform.scale.x, 0.0f,
+                    -parkour_chest_base->transform.scale.z},
+        aster::Vec3{-parkour_chest_base->transform.scale.x, 0.0f,
+                    parkour_chest_base->transform.scale.z},
+        aster::Vec3{parkour_chest_base->transform.scale.x, 0.0f,
+                    -parkour_chest_base->transform.scale.z},
+        aster::Vec3{parkour_chest_base->transform.scale.x, 0.0f,
+                    parkour_chest_base->transform.scale.z}}) {
+    const aster::Vec3 sample_position =
+        parkour_chest_base->transform.position + aster::rotate(parkour_chest_base->transform.rotation,
+                                                               local_offset);
+    const aster::SurfaceSupportQuery query{{sample_position.x, sample_position.z},
+                                           parkour_chest_base->transform.position.y + 0.50f,
+                                           1.20f,
+                                           4.0f};
+    const aster::TerrainSurfaceSample chest_entry_floor =
+        aster::sampleMeshSupport(*cave_floor_object->custom_mesh, cave_floor_object->transform,
+                                 query, 0.30f);
+    if (chest_entry_floor.valid) {
+      chest_floor_height = std::max(chest_floor_height, chest_entry_floor.height);
+    }
+    if (deep_cave_floor_object != nullptr && deep_cave_floor_object->custom_mesh != nullptr) {
+      const aster::TerrainSurfaceSample chest_deep_floor =
+          aster::sampleMeshSupport(*deep_cave_floor_object->custom_mesh,
+                                   deep_cave_floor_object->transform, query, 0.30f);
+      if (chest_deep_floor.valid) {
+        chest_floor_height = std::max(chest_floor_height, chest_deep_floor.height);
+      }
+    }
   }
   assert(chest_floor_height > -999.0f);
   assert(parkour_chest_base->transform.position.y - parkour_chest_base->transform.scale.y >=
@@ -488,14 +505,15 @@ void testLumenDeepCaveCaptureLightingContract() {
   assert(!cave_light.wall_lights.empty());
 
   aster::RendererSettings settings;
-  settings.pipeline.clear_color = {0.005f, 0.005f, 0.005f};
-  settings.exposure = 0.98f;
-  settings.ambient_strength = 0.060f;
-  settings.ambient_floor = 0.018f;
-  settings.sky_ambient_color = {0.014f, 0.016f, 0.017f};
-  settings.ground_ambient_color = {0.014f, 0.014f, 0.013f};
+  settings.pipeline.clear_color = {0.001f, 0.001f, 0.001f};
+  settings.exposure = 0.86f;
+  settings.ambient_strength = 0.014f;
+  settings.ambient_floor = 0.0f;
+  settings.indirect_albedo_floor = 0.0f;
+  settings.sky_ambient_color = {0.003f, 0.003f, 0.004f};
+  settings.ground_ambient_color = {0.003f, 0.0025f, 0.002f};
   settings.sun_light.enabled = true;
-  settings.sun_light.intensity = 0.010f;
+  settings.sun_light.intensity = 0.0f;
   settings.sun_light.direction_to_light = {-0.46f, 0.86f, 0.30f};
   settings.atmosphere.enabled = false;
   for (const aster::CaveWallLightSample &light : cave_light.wall_lights) {
@@ -517,19 +535,30 @@ void testLumenDeepCaveCaptureLightingContract() {
   const std::span<const std::uint8_t> rgba = aster::activeFrameBuffer().rgba8();
   double mean_luma = 0.0;
   std::size_t red_dominant_pixels = 0u;
+  std::size_t bright_neutral_pixels = 0u;
+  std::size_t green_dominant_pixels = 0u;
   for (std::size_t i = 0; i + 3u < rgba.size(); i += 4u) {
     const double r = static_cast<double>(rgba[i + 0u]) / 255.0;
     const double g = static_cast<double>(rgba[i + 1u]) / 255.0;
     const double b = static_cast<double>(rgba[i + 2u]) / 255.0;
-    mean_luma += r * 0.2126 + g * 0.7152 + b * 0.0722;
+    const double luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
+    mean_luma += luma;
     if (rgba[i + 0u] > 54u && rgba[i + 0u] > rgba[i + 1u] * 2u &&
         rgba[i + 0u] > rgba[i + 2u] * 2u) {
       ++red_dominant_pixels;
     }
+    if (luma > 0.22 && std::abs(r - g) < 0.055 && std::abs(r - b) < 0.055) {
+      ++bright_neutral_pixels;
+    }
+    if (luma > 0.035 && g > r * 1.20 && g > b * 1.20) {
+      ++green_dominant_pixels;
+    }
   }
   mean_luma /= static_cast<double>(std::max<std::size_t>(rgba.size() / 4u, 1u));
-  assert(mean_luma < 0.28);
+  assert(mean_luma < 0.22);
   assert(red_dominant_pixels > 8u);
+  assert(bright_neutral_pixels < 420u);
+  assert(green_dominant_pixels < 32u);
 
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
@@ -608,6 +637,11 @@ void testLumenCaveTraversalAndLightingContracts() {
                            "cave transition exposed a rock prompt immediately after web mining");
 
   const aster::Vec3 traversal_target = run.caveFrameReportPosition(16.0f);
+  run.relocatePlayer(traversal_target + aster::Vec3{0.0f, 2.25f, 0.0f},
+                     run.caveFrameReportCameraYaw(16.0f));
+  const aster::Vec3 snapped_cave_position = run.playerPosition();
+  require_lumen_transition(std::abs(snapped_cave_position.y - traversal_target.y) < 0.45f,
+                           "player snapped to an upper terrain/roof surface instead of the cave floor");
   const auto planar_distance_to_target = [&](const aster::Vec3 position) {
     const aster::Vec2 delta{traversal_target.x - position.x, traversal_target.z - position.z};
     return aster::length(delta);

@@ -10,6 +10,7 @@
 #include "aster/texture/texture_atlas.hpp"
 #include "aster/texture/texture_debug.hpp"
 #include "aster/texture/texture_importer.hpp"
+#include "aster/texture/runtime_texture.hpp"
 
 #include <cassert>
 #include <chrono>
@@ -39,6 +40,36 @@ std::filesystem::path tempDir() {
 void writeText(const std::filesystem::path &path, const std::string &text) {
   std::ofstream file(path, std::ios::binary);
   file << text;
+  assert(file.good());
+}
+
+void writeKtx2Header(const std::filesystem::path &path, const std::uint32_t width,
+                     const std::uint32_t height, const std::uint32_t mip_count) {
+  std::ofstream file(path, std::ios::binary);
+  file.put(static_cast<char>(0xab));
+  file.write("KTX 20", 6);
+  file.put(static_cast<char>(0xbb));
+  file.put('\r');
+  file.put('\n');
+  file.put(static_cast<char>(0x1a));
+  file.put('\n');
+  const auto write_le32 = [&file](const std::uint32_t value) {
+    const char bytes[4] = {static_cast<char>(value & 0xffu),
+                           static_cast<char>((value >> 8u) & 0xffu),
+                           static_cast<char>((value >> 16u) & 0xffu),
+                           static_cast<char>((value >> 24u) & 0xffu)};
+    file.write(bytes, 4);
+  };
+  write_le32(37u);
+  write_le32(1u);
+  write_le32(width);
+  write_le32(height);
+  write_le32(0u);
+  write_le32(0u);
+  write_le32(1u);
+  write_le32(mip_count);
+  write_le32(1u);
+  file.write("ASTER_TEST_PAYLOAD_PADDING_0000", 30);
   assert(file.good());
 }
 
@@ -129,6 +160,7 @@ void testMaterialAssetParserAndCompiler() {
   assert(aster::exactEqual(compiled.fallback_material.material.base_color,
                            aster::LinearRgb{0.24f, 0.21f, 0.18f}));
   assert(compiled.fallback_material.material.double_sided);
+  assert(compiled.fallback_material.material.receives_shadows);
 	  assert(compiled.fallback_material.material.surface_profile ==
 	         aster::MaterialSurfaceProfile::StratifiedRock);
 	  assert(aster::resolveMaterialSurfaceProfile(compiled.fallback_material.material) ==
@@ -232,6 +264,8 @@ void testTextureValidationAndDebugContracts() {
   }
   assert(saw_srgb_albedo);
   assert(saw_linear_normal);
+  assert(aster::textureKindForRole("wetness") == aster::TextureKind::Wetness);
+  assert(aster::textureKindForRole("opacity") == aster::TextureKind::Opacity);
 
   std::vector<aster::TextureAssetMetadata> atlas_inputs = validation.textures;
   for (aster::TextureAssetMetadata &texture : atlas_inputs) {
@@ -242,6 +276,46 @@ void testTextureValidationAndDebugContracts() {
   assert(atlas.width == 32u);
   assert(atlas.height >= 8u);
   assert(atlas.entries.size() == atlas_inputs.size());
+
+  const std::filesystem::path dir = tempDir();
+  writeKtx2Header(dir / "rock_albedo.ktx2", 16u, 8u, 4u);
+  writeKtx2Header(dir / "rock_normal.ktx2", 16u, 8u, 4u);
+  writeKtx2Header(dir / "rock_orm.ktx2", 16u, 8u, 4u);
+  writeKtx2Header(dir / "rock_height.ktx2", 16u, 8u, 4u);
+  writeKtx2Header(dir / "wetness_mask.ktx2", 16u, 8u, 4u);
+  aster::MaterialAsset authored_asset = loaded.value;
+  authored_asset.source_path = dir / "wet_rock.astermat";
+  const aster::RuntimeTextureSet direct_set =
+      aster::runtimeTextureSetForMaterial(authored_asset, {}, {.require_existing_files = false});
+  aster::MaterialResourceLibrary library;
+  const bool added = library.addMaterialAsset(authored_asset, {}, {.require_existing_files = false});
+  assert(added);
+  (void)added;
+  const aster::MaterialRuntimeResource *resource = library.find("TestWetRock");
+  assert(resource != nullptr);
+  assert(direct_set.textures.size() == aster::materialRuntimeTextureRoles().size());
+  assert(resource->asset_id == "TestWetRock");
+  assert(resource->fallback_material.asset_id == "TestWetRock");
+  assert(resource->texture_set.textures.size() == aster::materialRuntimeTextureRoles().size());
+  const aster::RuntimeTexture *albedo = resource->texture_set.find("albedo");
+  const aster::RuntimeTexture *normal = resource->texture_set.find("normal");
+  const aster::RuntimeTexture *orm = resource->texture_set.find("orm");
+  const aster::RuntimeTexture *emissive = resource->texture_set.find("emissive");
+  const aster::RuntimeTexture *wetness = resource->texture_set.find("wetness");
+  const aster::RuntimeTexture *opacity = resource->texture_set.find("opacity");
+  assert(albedo != nullptr && albedo->valid && !albedo->fallback);
+  assert(normal != nullptr && normal->normal_convention == aster::TextureNormalConvention::OpenGlYUp);
+  assert(orm != nullptr && orm->kind == aster::TextureKind::ORM);
+  assert(emissive != nullptr && emissive->fallback);
+  assert(wetness != nullptr && wetness->kind == aster::TextureKind::Wetness);
+  assert(opacity != nullptr && opacity->kind == aster::TextureKind::Opacity && opacity->fallback);
+  assert(albedo->sampler.max_anisotropy >= 1.0f);
+  const aster::Vec3 albedo_sample = aster::sampleRuntimeTextureRgb(*albedo, {0.3f, 0.7f});
+  const aster::Vec4 normal_sample = aster::sampleRuntimeTexture(*normal, {0.3f, 0.7f});
+  const aster::Vec4 orm_sample = aster::sampleRuntimeTexture(*orm, {0.3f, 0.7f});
+  assert(albedo_sample.x > 0.0f || albedo_sample.y > 0.0f || albedo_sample.z > 0.0f);
+  assert(normal_sample.z > 0.9f);
+  assert(orm_sample.x >= 0.0f && orm_sample.y >= 0.0f && orm_sample.z >= 0.0f);
 }
 
 void testRenderQualityProfileContracts() {
@@ -258,6 +332,12 @@ void testRenderQualityProfileContracts() {
   assert(settings.grounding.contact_shadows);
   assert(settings.atmosphere.enabled);
   assert(settings.pipeline.tone_mapper == production.post.tone_mapper);
+  assert(settings.post.hdr_scene_color);
+  assert(settings.post.fxaa);
+  assert(settings.shadows.cascaded_directional);
+  assert(settings.shadows.directional_cascades == production.shadows.directional_cascades);
+  assert(settings.reflections.enabled);
+  assert(settings.reflections.static_local_probes);
 
   const aster::TextureImportOptions options =
       aster::textureImportOptionsForQuality(production, false);

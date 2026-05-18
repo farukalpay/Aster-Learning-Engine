@@ -175,6 +175,29 @@ void applyRenderQualityProfile(RendererSettings &settings, const RenderQualityPr
   settings.sun_light.color = profile.environment.sun_color;
   settings.sun_light.intensity = profile.environment.sun_intensity;
   settings.pipeline.tone_mapper = profile.post.tone_mapper;
+  settings.post.hdr_scene_color = true;
+  settings.post.bloom = profile.post.bloom_intensity > 0.0f;
+  settings.post.fxaa = profile.tier != RenderQualityTier::Prototype;
+  settings.post.bloom_threshold = profile.post.bloom_threshold;
+  settings.post.bloom_intensity = profile.post.bloom_intensity;
+  settings.post.color_grade_saturation = profile.post.saturation;
+  settings.post.color_grade_contrast = profile.post.contrast;
+  settings.shadows.enabled = profile.shadows.technique != ShadowTechnique::Disabled;
+  settings.shadows.cascaded_directional =
+      profile.shadows.technique == ShadowTechnique::CascadedDirectional;
+  settings.shadows.directional_cascades = profile.shadows.directional_cascades;
+  settings.shadows.atlas_size = profile.shadows.map_size;
+  settings.shadows.max_distance = profile.shadows.max_distance;
+  settings.shadows.receiver_bias = profile.shadows.receiver_bias;
+  settings.shadows.normal_bias = profile.shadows.normal_bias;
+  settings.shadows.pcf_radius = profile.shadows.softness;
+  settings.reflections.enabled = profile.reflections.mode != ReflectionProbeMode::Disabled;
+  settings.reflections.static_local_probes = profile.reflections.mode == ReflectionProbeMode::StaticLocal;
+  settings.reflections.probe_resolution = profile.reflections.probe_resolution;
+  settings.reflections.max_active_probes = profile.reflections.max_active_probes;
+  settings.reflections.fallback_intensity = profile.reflections.mode == ReflectionProbeMode::Disabled
+                                                ? 0.0f
+                                                : profile.environment.ambient_strength;
   settings.grounding.enabled = profile.shadows.technique != ShadowTechnique::Disabled;
   settings.grounding.contact_shadows = profile.shadows.technique != ShadowTechnique::Disabled;
   settings.grounding.auto_contact_shadows = profile.shadows.technique != ShadowTechnique::Disabled;

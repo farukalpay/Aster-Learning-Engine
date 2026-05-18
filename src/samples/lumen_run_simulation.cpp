@@ -320,8 +320,42 @@ float LumenRun::caveWebSlowScaleAt(const Vec3 position) const {
   return slow_scale;
 }
 
+TerrainSurfaceSample LumenRun::sampleCaveFloorSupport(const SurfaceSupportQuery &query) const {
+  if (!std::isfinite(query.reference_y) || cave_sections_.empty()) {
+    return {};
+  }
+
+  CaveInteriorSample cave_sample{};
+  const Vec3 reference{query.world_position.x, query.reference_y, query.world_position.y};
+  const AuthoredCaveSection *section = caveSectionAt(reference, &cave_sample);
+  if (section == nullptr) {
+    return {};
+  }
+
+  const bool inside_cave_plan =
+      cave_sample.tunnel_t >= section->tunnel.collision_start_t - 0.04f &&
+      cave_sample.lateral <= cave_sample.half_width * 1.28f &&
+      cave_sample.vertical >= -0.80f && cave_sample.vertical <= cave_sample.height * 2.15f;
+  if (!inside_cave_plan) {
+    return {};
+  }
+
+  SurfaceSupportQuery cave_query = query;
+  cave_query.max_above = std::max(cave_query.max_above, 0.42f);
+  cave_query.max_below = std::max(cave_query.max_below, 4.20f);
+  return cave_support_surfaces_.sample(cave_query);
+}
+
 TerrainSurfaceSample LumenRun::sampleWorldSupport(const SurfaceSupportQuery &query) const {
-  return support_surfaces_.sample(query);
+  const TerrainSurfaceSample world = support_surfaces_.sample(query);
+  const TerrainSurfaceSample cave_floor = sampleCaveFloorSupport(query);
+  if (!cave_floor.valid) {
+    return world;
+  }
+  if (!world.valid || world.height > cave_floor.height + 0.28f) {
+    return cave_floor;
+  }
+  return world;
 }
 
 void LumenRun::updateFishingVisual() {

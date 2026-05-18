@@ -29,6 +29,7 @@ struct SamplerDesc {
   AddressMode address_w = AddressMode::ClampToEdge;
   float min_lod = 0.0f;
   float max_lod = 1000.0f;
+  float max_anisotropy = 1.0f;
   std::string debug_label;
 };
 

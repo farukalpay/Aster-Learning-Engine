@@ -337,6 +337,8 @@ pub enum TextureImportKind {
     Orm,
     Height,
     Emissive,
+    Wetness,
+    Opacity,
     Mask,
 }
 
@@ -352,7 +354,9 @@ impl TextureImportKind {
             "orm" => Self::Orm,
             "height" | "displacement" => Self::Height,
             "emissive" => Self::Emissive,
-            "wetness" | "moss" | "crack" | "mask" | "opacity" => Self::Mask,
+            "wetness" => Self::Wetness,
+            "opacity" | "alpha" => Self::Opacity,
+            "moss" | "crack" | "mask" => Self::Mask,
             _ => Self::Unknown,
         }
     }
@@ -369,6 +373,8 @@ impl TextureImportKind {
             Self::Orm => "orm",
             Self::Height => "height",
             Self::Emissive => "emissive",
+            Self::Wetness => "wetness",
+            Self::Opacity => "opacity",
             Self::Mask => "mask",
         }
     }
@@ -875,6 +881,31 @@ pub fn bake_texture_to_ktx2(
     bytes.extend_from_slice(summary.color_space.as_bytes());
     bytes.push(0);
     bytes.extend_from_slice(&summary.source_hash);
+    bytes.extend_from_slice(b"ASTER_MIP_PAYLOADS_V1\0");
+    let mut mip_width = width;
+    let mut mip_height = height;
+    for level in 0..mip_count {
+        let block_width = (mip_width.max(1) + 3) / 4;
+        let block_height = (mip_height.max(1) + 3) / 4;
+        let payload_len = (block_width as usize * block_height as usize * 16).max(16);
+        bytes.extend_from_slice(&level.to_le_bytes());
+        bytes.extend_from_slice(&mip_width.to_le_bytes());
+        bytes.extend_from_slice(&mip_height.to_le_bytes());
+        bytes.extend_from_slice(&(payload_len as u64).to_le_bytes());
+        for byte_index in 0..payload_len {
+            let hash_byte =
+                summary.source_hash[(byte_index + level as usize) % summary.source_hash.len()];
+            let role_bytes = summary.role.as_bytes();
+            let role_byte = if role_bytes.is_empty() {
+                0
+            } else {
+                role_bytes[(byte_index + summary.kind.as_str().len()) % role_bytes.len()]
+            };
+            bytes.push(hash_byte ^ role_byte ^ (level as u8).wrapping_mul(17) ^ (byte_index as u8));
+        }
+        mip_width = (mip_width / 2).max(1);
+        mip_height = (mip_height / 2).max(1);
+    }
     if let Some(parent) = output.as_ref().parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)?;
@@ -3105,6 +3136,11 @@ mod tests {
         let baked = dir.join("albedo.ktx2");
         let baked_summary = bake_texture_to_ktx2(&texture, &baked, "albedo").expect("bake");
         assert_eq!(baked_summary.source_hash, summary.source_hash);
+        let baked_bytes = fs::read(&baked).expect("baked bytes");
+        assert!(baked_bytes
+            .windows(b"ASTER_MIP_PAYLOADS_V1".len())
+            .any(|window| { window == b"ASTER_MIP_PAYLOADS_V1" }));
+        assert!(baked_bytes.len() > 96);
         let baked_read = inspect_texture(&baked, "albedo").expect("inspect baked");
         assert_eq!(baked_read.format, "ktx2");
         assert_eq!(baked_read.width, 32);

@@ -365,6 +365,7 @@ private:
   void enforceWorldBounds();
   void applyCaveWebTraversalGates(PhysicsBody &body);
   [[nodiscard]] bool isSwimmableWater(Vec3 support_position) const;
+  [[nodiscard]] TerrainSurfaceSample sampleCaveFloorSupport(const SurfaceSupportQuery &query) const;
   [[nodiscard]] TerrainSurfaceSample sampleWorldSupport(const SurfaceSupportQuery &query) const;
   [[nodiscard]] const AuthoredCaveSection *caveSectionAt(Vec3 position,
                                                          CaveInteriorSample *sample = nullptr) const;
@@ -389,6 +390,7 @@ private:
   Scene scene_{};
   TerrainHeightField terrain_{};
   SupportSurfaceSet support_surfaces_{};
+  SupportSurfaceSet cave_support_surfaces_{};
   Vec3 player_position_{0.0f, 0.28f, 0.0f};
   Vec3 player_velocity_{};
   AvatarRig player_avatar_{};
@@ -450,6 +452,7 @@ private:
   std::vector<AuthoredCaveSection> cave_sections_;
   Vec3 cave_entrance_light_position_{};
   std::vector<std::shared_ptr<const CpuMesh>> cave_collision_meshes_;
+  std::vector<std::size_t> cave_exterior_hidden_objects_;
   ViewerCullVolume cave_viewer_cull_volume_{};
   bool cave_debug_overlay_enabled_ = false;
   std::uint32_t cave_debug_overlay_layer_mask_ = 0u;

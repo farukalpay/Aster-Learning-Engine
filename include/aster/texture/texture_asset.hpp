@@ -26,6 +26,8 @@ enum class TextureKind {
   ORM,
   Height,
   Emissive,
+  Wetness,
+  Opacity,
   Mask,
 };
 

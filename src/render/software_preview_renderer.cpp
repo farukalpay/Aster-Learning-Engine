@@ -523,7 +523,7 @@ Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
                                  settings.ambient_floor);
   Vec3 color = mixVec(settings.ground_ambient_color, settings.sky_ambient_color, sky) * albedo *
                    ambient +
-               albedo * 0.025f;
+               albedo * std::max(settings.indirect_albedo_floor, 0.0f);
 
   const float metallic = std::clamp(hit.material.metallic, 0.0f, 1.0f);
   const float roughness = effectiveRoughness(sample_hit);

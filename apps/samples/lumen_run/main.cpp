@@ -282,6 +282,7 @@ struct RenderEnvironmentBaseline {
   aster::AtmosphereSettings atmosphere{};
   aster::Vec3 clear_color{};
   float exposure = 1.0f;
+  float indirect_albedo_floor = 0.035f;
 };
 
 float caveCameraLookBlend(const aster::CaveLightingState &light) {
@@ -309,6 +310,7 @@ void restoreRenderEnvironment(aster::RendererSettings &settings,
   settings.atmosphere = baseline.atmosphere;
   settings.pipeline.clear_color = baseline.clear_color;
   settings.exposure = baseline.exposure;
+  settings.indirect_albedo_floor = baseline.indirect_albedo_floor;
 }
 
 void applyCaveRenderEnvironment(aster::RendererSettings &settings,
@@ -322,41 +324,44 @@ void applyCaveRenderEnvironment(aster::RendererSettings &settings,
   const float cave_depth = std::clamp(light.depth, 0.0f, 1.0f);
   const float chamber_fill = std::clamp(light.chamber, 0.0f, 1.0f);
   const float source_fill = std::clamp(light.wall_light, 0.0f, 1.0f);
-  const aster::Vec3 warm_ambient =
-      mixVec({0.018f, 0.019f, 0.018f}, light.wall_light_color * 0.022f, source_fill * 0.35f);
+  const aster::Vec3 red_source = {light.wall_light_color.x * 0.020f,
+                                  light.wall_light_color.y * 0.004f,
+                                  light.wall_light_color.z * 0.003f};
+  const aster::Vec3 cave_source_ambient =
+      mixVec({0.004f, 0.004f, 0.004f}, red_source, source_fill * 0.28f);
   const aster::Vec3 cave_sky_tint =
-      mixVec({0.014f, 0.016f, 0.017f}, warm_ambient, source_fill * 0.30f);
+      mixVec({0.003f, 0.003f, 0.004f}, cave_source_ambient, source_fill * 0.18f);
   const aster::Vec3 cave_ground_tint =
-      mixVec({0.014f, 0.014f, 0.013f}, warm_ambient * 0.72f, source_fill * 0.26f);
+      mixVec({0.003f, 0.0025f, 0.002f}, cave_source_ambient * 0.60f, source_fill * 0.16f);
 
   settings.ambient_strength =
       std::lerp(baseline.ambient_strength,
-                0.060f + source_fill * 0.014f + chamber_fill * 0.014f - cave_depth * 0.004f,
+                0.014f + source_fill * 0.004f + chamber_fill * 0.003f - cave_depth * 0.004f,
                 interior);
-  settings.ambient_floor =
-      std::lerp(baseline.ambient_floor, 0.018f + source_fill * 0.005f + chamber_fill * 0.005f,
-                interior);
+  settings.ambient_floor = std::lerp(baseline.ambient_floor, 0.0f, interior);
+  settings.indirect_albedo_floor = std::lerp(baseline.indirect_albedo_floor, 0.0f, interior);
   settings.sky_ambient_color = mixVec(baseline.sky_ambient_color, cave_sky_tint, interior);
   settings.ground_ambient_color = mixVec(baseline.ground_ambient_color, cave_ground_tint, interior);
   settings.pipeline.clear_color =
-      mixVec(baseline.clear_color, {0.005f, 0.005f, 0.005f}, interior);
+      mixVec(baseline.clear_color, {0.001f, 0.001f, 0.001f}, interior);
   settings.exposure =
-      std::lerp(baseline.exposure, 0.94f + source_fill * 0.04f + chamber_fill * 0.025f, interior);
+      std::lerp(baseline.exposure, 0.84f + source_fill * 0.035f + chamber_fill * 0.012f, interior);
   settings.atmosphere.fog_color =
-      mixVec(baseline.atmosphere.fog_color, {0.016f, 0.017f, 0.018f}, interior);
+      mixVec(baseline.atmosphere.fog_color, {0.004f, 0.003f, 0.003f}, interior);
   settings.atmosphere.fog_start = std::lerp(baseline.atmosphere.fog_start, 2.0f, interior);
   settings.atmosphere.fog_end =
-      std::lerp(baseline.atmosphere.fog_end, 9.4f + source_fill * 2.2f + chamber_fill * 2.0f,
+      std::lerp(baseline.atmosphere.fog_end, 6.8f + source_fill * 1.4f + chamber_fill * 1.2f,
                 interior);
   settings.atmosphere.fog_strength =
-      std::lerp(baseline.atmosphere.fog_strength, 0.34f + cave_depth * 0.12f, interior);
+      std::lerp(baseline.atmosphere.fog_strength, 0.46f + cave_depth * 0.20f, interior);
   settings.atmosphere.saturation =
-      std::lerp(baseline.atmosphere.saturation, 0.16f + source_fill * 0.015f, interior);
-  settings.atmosphere.contrast = std::lerp(baseline.atmosphere.contrast, 1.18f, interior);
+      std::lerp(baseline.atmosphere.saturation, 0.42f + source_fill * 0.20f, interior);
+  settings.atmosphere.contrast = std::lerp(baseline.atmosphere.contrast, 1.32f, interior);
   settings.sun_light.intensity =
-      std::lerp(baseline.sun_light.intensity, baseline.sun_light.intensity * 0.006f, interior);
+      std::lerp(baseline.sun_light.intensity, 0.0f, interior);
+  settings.style.unlit_mix = std::lerp(settings.style.unlit_mix, 0.0f, interior);
   for (std::size_t i = 0; i < settings.light_rig.size(); ++i) {
-    settings.light_rig[i].intensity *= std::lerp(1.0f, 0.018f, interior);
+    settings.light_rig[i].intensity *= std::lerp(1.0f, 0.0f, interior);
   }
 }
 
@@ -918,7 +923,8 @@ int main(int argc, char **argv) {
         .ground_ambient_color = settings.ground_ambient_color,
         .atmosphere = settings.atmosphere,
         .clear_color = settings.pipeline.clear_color,
-        .exposure = settings.exposure};
+        .exposure = settings.exposure,
+        .indirect_albedo_floor = settings.indirect_albedo_floor};
 
     aster::HudLayer hud;
     hud.initialize();
@@ -1271,6 +1277,7 @@ int main(int argc, char **argv) {
                                     static_cast<float>(frame_dt));
       }
       restoreRenderEnvironment(settings, base_render_environment);
+      aster::applyRenderStyleProfile(settings, render_style);
       if (const std::optional<aster::DynamicPointLight> light = game.pondAccentLight();
           light.has_value() && light->active) {
         settings.light_rig.push_back({light->position, light->color, light->intensity,
@@ -1288,19 +1295,14 @@ int main(int argc, char **argv) {
               {light.position, light.color, light.intensity, light.source_radius});
         }
       }
-      if (cave_light.entrance_light > 0.001f) {
-        settings.light_rig.push_back({cave_light.entrance_light_position,
-                                      {1.0f, 0.72f, 0.42f},
-                                      0.38f * cave_light.entrance_light,
-                                      3.2f});
-      }
       if (const std::optional<aster::DynamicPointLight> light = game.equippedLight();
           light.has_value() && light->active) {
-        const float cave_torch_gain = std::lerp(1.0f, 1.35f, cave_light.interior);
-        settings.light_rig.push_back({light->position, light->color,
-                                      light->intensity * cave_torch_gain, light->source_radius});
+        const float cave_torch_gain = std::lerp(1.0f, 0.0f, cave_light.interior);
+        if (cave_torch_gain > 0.001f) {
+          settings.light_rig.push_back({light->position, light->color,
+                                        light->intensity * cave_torch_gain, light->source_radius});
+        }
       }
-      aster::applyRenderStyleProfile(settings, render_style);
       if (collect_frame_sample) {
         update_times.addSample(clock.now() - update_start);
       }

@@ -11,6 +11,7 @@
 #include "aster/render/render_scene.hpp"
 #include "aster/rhi/device.hpp"
 #include "aster/rhi/resource_registry.hpp"
+#include "aster/texture/runtime_texture.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -206,10 +207,40 @@ struct LineOfSightFadeSettings {
   float max_object_radius = 4.20f;
 };
 
+struct RendererPostSettings {
+  bool hdr_scene_color = true;
+  bool bloom = false;
+  bool fxaa = false;
+  float bloom_threshold = 2.6f;
+  float bloom_intensity = 0.0f;
+  float color_grade_saturation = 1.0f;
+  float color_grade_contrast = 1.0f;
+};
+
+struct RendererShadowSettings {
+  bool enabled = false;
+  bool cascaded_directional = false;
+  std::uint32_t directional_cascades = 0u;
+  std::uint32_t atlas_size = 1024u;
+  float max_distance = 32.0f;
+  float receiver_bias = 0.014f;
+  float normal_bias = 0.012f;
+  float pcf_radius = 0.34f;
+};
+
+struct RendererReflectionSettings {
+  bool enabled = false;
+  bool static_local_probes = false;
+  std::uint32_t probe_resolution = 128u;
+  std::uint32_t max_active_probes = 0u;
+  float fallback_intensity = 1.0f;
+};
+
 struct RendererSettings {
   float exposure = 1.05f;
   float ambient_strength = 0.18f;
   float ambient_floor = 0.0f;
+  float indirect_albedo_floor = 0.035f;
   Vec3 sky_ambient_color{0.42f, 0.47f, 0.52f};
   Vec3 ground_ambient_color{0.20f, 0.17f, 0.13f};
   bool use_aces_tonemap = false;
@@ -223,6 +254,9 @@ struct RendererSettings {
   AtmosphereSettings atmosphere{};
   GraphicsPipelineState pipeline{};
   LineOfSightFadeSettings line_of_sight_fade{};
+  RendererPostSettings post{};
+  RendererShadowSettings shadows{};
+  RendererReflectionSettings reflections{};
   RenderStyleProfile style{};
 };
 
@@ -327,6 +361,7 @@ public:
 
   void initialize();
   void prepareScene(const Scene &scene);
+  void setMaterialResourceLibrary(std::shared_ptr<const MaterialResourceLibrary> library);
   FrameStats render(const Scene &scene, const OrbitCamera &camera, const RendererSettings &settings,
                     int framebuffer_width, int framebuffer_height, double frame_seconds);
 
@@ -334,6 +369,8 @@ public:
   [[nodiscard]] RenderBackendCapabilities backendCapabilities() const;
   [[nodiscard]] const FixedRenderGraph &renderGraph() const;
   [[nodiscard]] const FrameForensics &lastFrameForensics() const;
+  [[nodiscard]] const std::shared_ptr<const MaterialResourceLibrary> &materialResourceLibrary()
+      const noexcept;
 
 private:
   [[nodiscard]] const CpuMesh &meshForPrimitive(MeshPrimitive primitive) const;
@@ -366,6 +403,7 @@ private:
   std::unordered_map<DynamicMeshResourceKey, rhi::BufferHandle, DynamicMeshResourceKeyHash>
       dynamic_mesh_resource_handles_;
   std::unordered_map<std::uint64_t, MaterialPermutationArtifact> material_artifact_cache_;
+  std::shared_ptr<const MaterialResourceLibrary> material_library_;
   std::vector<std::size_t> previous_transparent_order_;
   FrameForensics last_forensics_;
 };

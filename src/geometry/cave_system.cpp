@@ -1477,9 +1477,9 @@ CaveComplex buildCaveComplex(const CaveComplexSpec &spec) {
   const float floor_half_width =
       spec.tunnel.floor_width * tunnelWidthScale(spec.tunnel, chest_t) * 0.5f;
   const float chest_side_offset =
-      std::clamp(floor_half_width - 0.58f, floor_half_width * 0.52f, floor_half_width * 0.86f);
+      std::clamp(floor_half_width * 0.42f, floor_half_width * 0.32f, floor_half_width * 0.58f);
   complex.chest_position =
-      evaluateCaveTunnelCenter(spec.tunnel, chest_t) + side * -chest_side_offset + up * 0.24f;
+      evaluateCaveTunnelCenter(spec.tunnel, chest_t) + side * -chest_side_offset + up * 0.12f;
   complex.chest_yaw = std::atan2(-tangent.x, -tangent.z);
   return complex;
 }

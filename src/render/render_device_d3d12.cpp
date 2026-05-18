@@ -17,6 +17,7 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +26,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -34,11 +36,16 @@ namespace {
 template <typename T> using ComPtr = Microsoft::WRL::ComPtr<T>;
 
 constexpr std::size_t kConstantBufferAlignment = 256u;
+constexpr std::size_t kD3D12MaterialTextureCount = 10u;
+constexpr std::array<std::string_view, kD3D12MaterialTextureCount> kD3D12MaterialTextureRoles{
+    "albedo", "normal", "orm",      "roughness", "metallic",
+    "ao",     "height", "emissive", "wetness",   "opacity"};
 
 struct D3D12Vertex {
   float position[4]{};
   float normal[4]{};
   float uv_ao[4]{};
+  float tangent[4]{};
 };
 
 struct D3D12LightUniform {
@@ -72,6 +79,9 @@ struct D3D12ObjectUniforms {
   float procedural_params[4]{};
   float procedural_params2[4]{};
   float material_flags[4]{};
+  float texture_flags0[4]{};
+  float texture_flags1[4]{};
+  float texture_flags2[4]{};
 };
 
 struct D3D12MeshBuffers {
@@ -80,6 +90,14 @@ struct D3D12MeshBuffers {
   D3D12_VERTEX_BUFFER_VIEW vertex_view{};
   D3D12_INDEX_BUFFER_VIEW index_view{};
   UINT index_count = 0u;
+};
+
+struct D3D12RuntimeTextureResource {
+  ComPtr<ID3D12Resource> texture;
+  ComPtr<ID3D12Resource> upload;
+  DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  UINT width = 1u;
+  UINT height = 1u;
 };
 
 std::size_t alignTo(const std::size_t value, const std::size_t alignment) {
@@ -133,7 +151,7 @@ aster::rhi::DeviceCapabilities d3d12CapabilityTable() {
   aster::rhi::DeviceCapabilities table;
   table.backend = aster::rhi::BackendKind::D3D12;
   table.shader_materials = true;
-  table.texture_sampling = false;
+  table.texture_sampling = true;
   table.instancing = true;
   table.capture = true;
   table.ui_composite = false;
@@ -149,6 +167,11 @@ aster::rhi::DeviceCapabilities d3d12CapabilityTable() {
   table.depth_format_mask =
       aster::rhi::imageFormatCapabilityBit(aster::rhi::ImageFormat::Depth32Float);
   table.sample_count_mask = aster::rhi::sampleCountCapabilityBit(1u);
+  table.sampler_filter_mask =
+      aster::rhi::filterModeCapabilityBit(aster::rhi::FilterMode::Linear);
+  table.sampler_address_mode_mask =
+      aster::rhi::addressModeCapabilityBit(aster::rhi::AddressMode::ClampToEdge) |
+      aster::rhi::addressModeCapabilityBit(aster::rhi::AddressMode::Repeat);
   table.blend_mode_mask = aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::Opaque) |
                           aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::AlphaBlend);
   table.shader_model = aster::rhi::ShaderModel::D3D12ShaderModel51;
@@ -156,8 +179,10 @@ aster::rhi::DeviceCapabilities d3d12CapabilityTable() {
   table.limits.max_color_attachments = 1u;
   table.limits.max_uniform_buffers_per_stage = 1u;
   table.limits.max_storage_buffers_per_stage = 1u;
-  table.limits.max_bind_groups = 1u;
-  table.limits.max_vertex_attributes = 4u;
+  table.limits.max_bind_groups = 3u;
+  table.limits.max_vertex_attributes = 5u;
+  table.limits.max_sampled_textures_per_material = 10u;
+  table.limits.max_samplers_per_material = 1u;
   table.limits.max_texture_dimension_2d = 16384u;
   table.limits.max_dynamic_uniform_bytes = 256u * 1024u;
   return table;
@@ -173,13 +198,32 @@ aster::RenderBackendCapabilities d3d12Capabilities() {
           .name = "Aster Native D3D12 Rasterizer",
           .gpu = true,
           .supports_shader_materials = true,
-          .supports_texture_sampling = false,
+          .supports_texture_sampling = true,
           .supports_instancing = true,
           .supports_capture = true,
           .supports_ui_composite = false,
           .supports_gpu_timestamps = false,
           .graph_resource_mask = graph_resources,
           .capability_table = d3d12CapabilityTable()};
+}
+
+const aster::MaterialRuntimeResource *
+runtimeResourceForObject(const aster::MaterialResourceLibrary *library,
+                         const aster::RenderObject &object) {
+  if (library == nullptr) {
+    return nullptr;
+  }
+  return library->findForMaterialIds(object.material_asset_id, object.material.asset_id);
+}
+
+aster::RenderObject materializedObjectForRuntimeMaterial(
+    const aster::RenderObject &object, const aster::MaterialRuntimeResource *runtime_material) {
+  if (runtime_material == nullptr) {
+    return object;
+  }
+  aster::RenderObject materialized = object;
+  materialized.material = runtime_material->fallback_material;
+  return materialized;
 }
 
 const char *d3dShaderSource() {
@@ -210,9 +254,23 @@ struct Object {
   float4 procedural_params;
   float4 procedural_params2;
   float4 material_flags;
+  float4 texture_flags0;
+  float4 texture_flags1;
+  float4 texture_flags2;
 };
 StructuredBuffer<Object> objects : register(t0);
-struct VSIn { float4 position : POSITION; float4 normal : NORMAL; float4 uv_ao : TEXCOORD0; };
+Texture2D tex_albedo : register(t1);
+Texture2D tex_normal : register(t2);
+Texture2D tex_orm : register(t3);
+Texture2D tex_roughness : register(t4);
+Texture2D tex_metallic : register(t5);
+Texture2D tex_ao : register(t6);
+Texture2D tex_height : register(t7);
+Texture2D tex_emissive : register(t8);
+Texture2D tex_wetness : register(t9);
+Texture2D tex_opacity : register(t10);
+SamplerState material_sampler : register(s0);
+struct VSIn { float4 position : POSITION; float4 normal : NORMAL; float4 uv_ao : TEXCOORD0; float4 tangent : TANGENT; };
 struct VSOut {
   float4 position : SV_Position;
   float3 world : TEXCOORD0;
@@ -220,6 +278,7 @@ struct VSOut {
   float2 uv : TEXCOORD2;
   float ao : TEXCOORD3;
   uint object_index : TEXCOORD4;
+  float4 tangent : TEXCOORD5;
 };
 float saturate1(float v) { return saturate(v); }
 float smooth1(float a, float b, float v) {
@@ -305,6 +364,22 @@ float projected_fbm(float3 world, float3 normal, float scale, float salt) {
   return norm > 0.0 ? sum / norm : 0.0;
 }
 float is_pattern(float pattern, float id) { return abs(pattern - id) < 0.5 ? 1.0 : 0.0; }
+float texture_flag(Object object, uint index) {
+  if (index < 4u) return object.texture_flags0[index];
+  if (index < 8u) return object.texture_flags1[index - 4u];
+  return object.texture_flags2[index - 8u];
+}
+float3 apply_normal_map(float3 normal, float4 tangent, float2 uv, float normal_y_sign) {
+  float3 encoded = tex_normal.Sample(material_sampler, uv).xyz * 2.0 - 1.0;
+  encoded.y *= normal_y_sign < 0.0 ? -1.0 : 1.0;
+  float3 n = normalize(normal);
+  float3 t = tangent.xyz - n * dot(n, tangent.xyz);
+  if (length(t) < 0.001) return n;
+  t = normalize(t);
+  float handedness = tangent.w < 0.0 ? -1.0 : 1.0;
+  float3 b = normalize(cross(n, t)) * handedness;
+  return normalize(t * encoded.x + b * encoded.y + n * max(encoded.z, 0.001));
+}
 float3 stratified_rock(float3 base, Object object, float3 world, float3 normal) {
   float strata = 0.5 + 0.5 * sin((world.y * object.pattern_params.z + world.z * 0.33 + world.x * 0.18) * 1.75);
   float broad = projected_fbm(world, normal, object.material_params.w * 0.10, 41.0);
@@ -346,6 +421,7 @@ VSOut vs_main(VSIn input, uint instance_id : SV_InstanceID) {
   outp.position = mul(object.mvp, local);
   outp.world = mul(object.model, local).xyz;
   outp.normal = normalize(mul(object.model, float4(input.normal.xyz, 0.0)).xyz);
+  outp.tangent = float4(normalize(mul(object.model, float4(input.tangent.xyz, 0.0)).xyz), input.tangent.w);
   outp.uv = input.uv_ao.xy;
   outp.ao = input.uv_ao.z;
   outp.object_index = instance_id;
@@ -362,18 +438,51 @@ float4 fs_main(VSOut input) : SV_Target0 {
   float3 normal = normalize(input.normal);
   if (length(normal) < 0.001) normal = float3(0.0, 1.0, 0.0);
   float3 sample_world = style_sample_world(input.world);
+  if (texture_flag(object, 1u) > 0.5) {
+    normal = apply_normal_map(normal, input.tangent, input.uv, object.texture_flags2.z);
+  }
   float3 albedo = material_albedo(object, sample_world, normal, input.uv);
+  if (texture_flag(object, 0u) > 0.5) albedo *= tex_albedo.Sample(material_sampler, input.uv).rgb;
+  float ao = saturate(object.pattern_params2.z * input.ao);
+  float layer_roughness = saturate(object.material_params.x);
+  float metallic = saturate(object.material_params.y);
+  if (texture_flag(object, 2u) > 0.5) {
+    float3 orm = tex_orm.Sample(material_sampler, input.uv).rgb;
+    ao *= orm.r;
+    layer_roughness = orm.g;
+    metallic = orm.b;
+  }
+  if (texture_flag(object, 3u) > 0.5) layer_roughness = tex_roughness.Sample(material_sampler, input.uv).r;
+  if (texture_flag(object, 4u) > 0.5) metallic = tex_metallic.Sample(material_sampler, input.uv).r;
+  if (texture_flag(object, 5u) > 0.5) ao *= tex_ao.Sample(material_sampler, input.uv).r;
+  if (texture_flag(object, 6u) > 0.5) {
+    float h = tex_height.Sample(material_sampler, input.uv).r;
+    albedo *= 0.82 + h * 0.30;
+  }
+  float wetness = saturate(object.procedural_params.w);
+  if (texture_flag(object, 8u) > 0.5) wetness = max(wetness, tex_wetness.Sample(material_sampler, input.uv).r);
+  layer_roughness = lerp(layer_roughness, min(layer_roughness, 0.16), wetness);
+  albedo = lerp(albedo, albedo * float3(0.74, 0.78, 0.82), wetness * 0.36);
+  if (texture_flag(object, 9u) > 0.5) opacity *= tex_opacity.Sample(material_sampler, input.uv).r;
+  float3 emissive_texture = texture_flag(object, 7u) > 0.5 ? tex_emissive.Sample(material_sampler, input.uv).rgb : float3(0.0, 0.0, 0.0);
   float sky = saturate(normal.y * 0.5 + 0.5);
-  float ambient = max(scene_exposure_ambient.y * saturate(object.pattern_params2.z * input.ao), scene_exposure_ambient.z);
-  float3 color = lerp(scene_ground_ambient.rgb, scene_sky_ambient.rgb, sky) * albedo * ambient + albedo * 0.035;
+  float ambient = max(scene_exposure_ambient.y * ao, scene_exposure_ambient.z);
+  float3 color = lerp(scene_ground_ambient.rgb, scene_sky_ambient.rgb, sky) * albedo * ambient + albedo * max(scene_lighting_params.y, 0.0);
   float3 view = normalize(scene_camera_time.xyz - input.world);
-  float layer_roughness = saturate(object.material_params.x + (noise3(sample_world * 0.37) - 0.5) * object.procedural_params.z * 0.18);
+  layer_roughness = saturate(layer_roughness + (noise3(sample_world * 0.37) - 0.5) * object.procedural_params.z * 0.18);
+  float env_gain = max(scene_lighting_params.z, 0.0);
+  if (env_gain > 0.0001) {
+    float3 reflected = reflect(-view, normal);
+    float env_sky = saturate(reflected.y * 0.5 + 0.5);
+    float3 env_color = lerp(scene_ground_ambient.rgb, scene_sky_ambient.rgb, env_sky);
+    color += env_color * env_gain * (0.06 + metallic * 0.52) * (1.0 - layer_roughness * 0.70);
+  }
   if (scene_sun_direction_enabled.w > 0.5) {
     float3 light_dir = normalize(scene_sun_direction_enabled.xyz);
     float ndotl = max(dot(normal, light_dir), 0.0);
     float3 h = normalize(light_dir + view);
-    float spec = pow(max(dot(normal, h), 0.0), lerp(64.0, 8.0, layer_roughness)) * (1.0 - layer_roughness) * 0.28;
-    color += (albedo * 0.78 * (ndotl * 0.86 + 0.14) + spec) * scene_sun_color_intensity.rgb * scene_sun_color_intensity.w;
+    float spec = pow(max(dot(normal, h), 0.0), lerp(64.0, 8.0, layer_roughness)) * (1.0 - layer_roughness) * lerp(0.28, 0.62, metallic);
+    color += (albedo * (0.78 - metallic * 0.40) * (ndotl * 0.86 + 0.14) + spec) * scene_sun_color_intensity.rgb * scene_sun_color_intensity.w;
   }
   for (uint i = 0; i < uint(scene_lighting_params.x); ++i) {
     float3 lv = scene_lights[i].position_radius.xyz - input.world;
@@ -388,7 +497,7 @@ float4 fs_main(VSOut input) : SV_Target0 {
   float luma = dot(color, float3(0.2126, 0.7152, 0.0722));
   color = lerp(float3(luma, luma, luma), color, saturate(scene_fog_params.z));
   color = (color - 0.5) * max(scene_fog_params.w, 0.0) + 0.5;
-  color += object.emission_strength.rgb * object.emission_strength.w * max(scene_style_params.y, 0.0);
+  color += (object.emission_strength.rgb + emissive_texture) * object.emission_strength.w * max(scene_style_params.y, 0.0);
   color = tonemap(color * scene_exposure_ambient.x);
   color = style_post(color);
   return float4(gamma_encode(color), opacity);
@@ -463,6 +572,7 @@ public:
                            const aster::PreparedRenderMeshes &meshes,
                            const int framebuffer_width, const int framebuffer_height,
                            const double frame_seconds,
+                           const aster::MaterialResourceLibrary *material_library,
                            aster::FrameForensics *forensics) override {
     ASTER_PROFILE_SCOPE("D3D12NativeRenderBackend::render");
     aster::FrameStats stats;
@@ -478,14 +588,21 @@ public:
     if (device_ == nullptr || framebuffer_width <= 0 || framebuffer_height <= 0 ||
         !ensureTargets(framebuffer_width, framebuffer_height) ||
         !ensureSceneUpload() || !ensureObjectUpload(std::max<std::size_t>(
-                                     plan.instances.size() + scene.objects().size(), 1u))) {
+                                     plan.instances.size() + scene.objects().size(), 1u)) ||
+        !ensureMaterialDescriptorHeap(
+            std::max<std::size_t>(plan.instances.size() + scene.objects().size(), 1u))) {
       return stats;
+    }
+    if (material_library != active_material_library_) {
+      clearMaterialTextureCache();
+      active_material_library_ = material_library;
     }
 
     evictRetiredMeshBuffers(meshes);
     width_ = framebuffer_width;
     height_ = framebuffer_height;
     object_cursor_ = 0u;
+    srv_descriptor_cursor_ = 0u;
     const auto encode_start = std::chrono::steady_clock::now();
     if (!beginCommandList()) {
       return stats;
@@ -505,13 +622,19 @@ public:
     command_list_->ClearRenderTargetView(rtv, clear, 0u, nullptr);
     command_list_->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0u, 0u, nullptr);
     command_list_->SetGraphicsRootSignature(root_signature_.Get());
+    ID3D12DescriptorHeap *descriptor_heaps[] = {srv_heap_.Get()};
+    command_list_->SetDescriptorHeaps(1u, descriptor_heaps);
     uploadSceneUniforms(camera, settings, frame_seconds);
     command_list_->SetGraphicsRootConstantBufferView(
         0u, scene_upload_->GetGPUVirtualAddress());
     command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     const auto draw_object = [&](const aster::RenderObject &object, const float opacity) {
-      const aster::CpuMesh *mesh = aster::render_backend::meshForObject(object, meshes);
+      const aster::MaterialRuntimeResource *runtime_material =
+          runtimeResourceForObject(material_library, object);
+      const aster::RenderObject materialized =
+          materializedObjectForRuntimeMaterial(object, runtime_material);
+      const aster::CpuMesh *mesh = aster::render_backend::meshForObject(materialized, meshes);
       if (mesh == nullptr || mesh->indices.empty()) {
         return;
       }
@@ -520,20 +643,27 @@ public:
         return;
       }
       const std::optional<std::size_t> object_index =
-          writeObjectUniform(object, camera, settings, frame_seconds, opacity);
+          writeObjectUniform(materialized, camera, settings, frame_seconds, opacity,
+                             runtime_material);
       if (!object_index.has_value()) {
         return;
       }
+      const D3D12_GPU_DESCRIPTOR_HANDLE material_textures =
+          bindMaterialTextures(runtime_material);
+      if (material_textures.ptr == 0u) {
+        return;
+      }
       const bool transparent =
-          opacity < 0.999f || aster::classifyMaterialRenderQueue(object.material) ==
+          opacity < 0.999f || aster::classifyMaterialRenderQueue(materialized.material) ==
                                   aster::MaterialRenderQueue::Translucent;
-      const bool biased = depthPolicyUsesBias(object.material.depth_policy);
+      const bool biased = depthPolicyUsesBias(materialized.material.depth_policy);
       command_list_->SetPipelineState(
           transparent ? (biased ? transparent_biased_pso_.Get() : transparent_pso_.Get())
                       : (biased ? opaque_biased_pso_.Get() : opaque_pso_.Get()));
       command_list_->SetGraphicsRootShaderResourceView(
           1u, object_upload_->GetGPUVirtualAddress() +
                   static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(*object_index * sizeof(D3D12ObjectUniforms)));
+      command_list_->SetGraphicsRootDescriptorTable(2u, material_textures);
       command_list_->IASetVertexBuffers(0u, 1u, &buffers->vertex_view);
       command_list_->IASetIndexBuffer(&buffers->index_view);
       command_list_->DrawIndexedInstanced(buffers->index_count, 1u, 0u, 0, 0u);
@@ -549,6 +679,20 @@ public:
         return;
       }
       const aster::RenderObject &first_object = scene.objects()[first_instance.object_index];
+      if (material_library != nullptr) {
+        for (std::size_t i = 0; i < group.instance_count; ++i) {
+          const std::size_t plan_index = group.first_instance + i;
+          if (plan_index >= plan.instances.size()) {
+            break;
+          }
+          const aster::FrameRenderInstance &instance = plan.instances[plan_index];
+          if (instance.object_index >= scene.objects().size()) {
+            continue;
+          }
+          draw_object(scene.objects()[instance.object_index], instance.opacity);
+        }
+        return;
+      }
       const aster::CpuMesh *mesh = aster::render_backend::meshForObject(first_object, meshes);
       if (mesh == nullptr || mesh->indices.empty()) {
         return;
@@ -569,7 +713,7 @@ public:
           continue;
         }
         if (!writeObjectUniform(scene.objects()[instance.object_index], camera, settings,
-                                frame_seconds, instance.opacity)
+                                frame_seconds, instance.opacity, nullptr)
                  .has_value()) {
           break;
         }
@@ -579,6 +723,10 @@ public:
         return;
       }
       const bool biased = depthPolicyUsesBias(first_object.material.depth_policy);
+      const D3D12_GPU_DESCRIPTOR_HANDLE material_textures = bindMaterialTextures(nullptr);
+      if (material_textures.ptr == 0u) {
+        return;
+      }
       command_list_->SetPipelineState(
           group.pass == aster::FrameRenderPass::Transparent
               ? (biased ? transparent_biased_pso_.Get() : transparent_pso_.Get())
@@ -586,6 +734,7 @@ public:
       command_list_->SetGraphicsRootShaderResourceView(
           1u, object_upload_->GetGPUVirtualAddress() +
                   static_cast<D3D12_GPU_VIRTUAL_ADDRESS>(first_uniform * sizeof(D3D12ObjectUniforms)));
+      command_list_->SetGraphicsRootDescriptorTable(2u, material_textures);
       command_list_->IASetVertexBuffers(0u, 1u, &buffers->vertex_view);
       command_list_->IASetIndexBuffer(&buffers->index_view);
       command_list_->DrawIndexedInstanced(buffers->index_count, static_cast<UINT>(written), 0u, 0,
@@ -674,7 +823,7 @@ public:
 
 private:
   bool createRootSignature() {
-    D3D12_ROOT_PARAMETER params[2]{};
+    D3D12_ROOT_PARAMETER params[3]{};
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     params[0].Descriptor.ShaderRegister = 0u;
     params[0].Descriptor.RegisterSpace = 0u;
@@ -684,9 +833,37 @@ private:
     params[1].Descriptor.RegisterSpace = 0u;
     params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
+    D3D12_DESCRIPTOR_RANGE texture_range{};
+    texture_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    texture_range.NumDescriptors = static_cast<UINT>(kD3D12MaterialTextureCount);
+    texture_range.BaseShaderRegister = 1u;
+    texture_range.RegisterSpace = 0u;
+    texture_range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[2].DescriptorTable.NumDescriptorRanges = 1u;
+    params[2].DescriptorTable.pDescriptorRanges = &texture_range;
+    params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    D3D12_STATIC_SAMPLER_DESC sampler{};
+    sampler.Filter = D3D12_FILTER_ANISOTROPIC;
+    sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler.MipLODBias = 0.0f;
+    sampler.MaxAnisotropy = 8u;
+    sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+    sampler.MinLOD = 0.0f;
+    sampler.MaxLOD = D3D12_FLOAT32_MAX;
+    sampler.ShaderRegister = 0u;
+    sampler.RegisterSpace = 0u;
+    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
     D3D12_ROOT_SIGNATURE_DESC desc{};
-    desc.NumParameters = 2u;
+    desc.NumParameters = 3u;
     desc.pParameters = params;
+    desc.NumStaticSamplers = 1u;
+    desc.pStaticSamplers = &sampler;
     desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     ComPtr<ID3DBlob> signature;
     ComPtr<ID3DBlob> error;
@@ -717,6 +894,8 @@ private:
         {"NORMAL", 0u, DXGI_FORMAT_R32G32B32A32_FLOAT, 0u, 16u,
          D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0u},
         {"TEXCOORD", 0u, DXGI_FORMAT_R32G32B32A32_FLOAT, 0u, 32u,
+         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0u},
+        {"TANGENT", 0u, DXGI_FORMAT_R32G32B32A32_FLOAT, 0u, 48u,
          D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0u},
     };
 
@@ -793,6 +972,176 @@ private:
   bool ensureObjectUpload(const std::size_t object_capacity) {
     object_capacity_ = object_capacity;
     return ensureUpload(object_upload_, object_capacity * sizeof(D3D12ObjectUniforms));
+  }
+
+  bool ensureMaterialDescriptorHeap(const std::size_t object_capacity) {
+    const std::size_t required =
+        std::max<std::size_t>(kD3D12MaterialTextureCount,
+                              (object_capacity + 1u) * kD3D12MaterialTextureCount);
+    if (srv_heap_ != nullptr && srv_descriptor_capacity_ >= required) {
+      return true;
+    }
+    D3D12_DESCRIPTOR_HEAP_DESC desc{};
+    desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    desc.NumDescriptors = static_cast<UINT>(required);
+    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    desc.NodeMask = 0u;
+    if (FAILED(device_->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&srv_heap_)))) {
+      srv_descriptor_capacity_ = 0u;
+      return false;
+    }
+    srv_descriptor_capacity_ = required;
+    srv_descriptor_size_ =
+        device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    return true;
+  }
+
+  bool createRuntimeTextureResource(const aster::RuntimeTexture &texture,
+                                    D3D12RuntimeTextureResource &resource) {
+    const UINT width = static_cast<UINT>(std::max(texture.width, 1u));
+    const UINT height = static_cast<UINT>(std::max(texture.height, 1u));
+    if (texture.rgba8.size() < static_cast<std::size_t>(width) * height * 4u ||
+        command_list_ == nullptr) {
+      return false;
+    }
+    resource.width = width;
+    resource.height = height;
+    resource.format =
+        texture.color_space == aster::TextureColorSpace::SRGB ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+                                                              : DXGI_FORMAT_R8G8B8A8_UNORM;
+
+    D3D12_RESOURCE_DESC texture_desc{};
+    texture_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texture_desc.Alignment = 0u;
+    texture_desc.Width = width;
+    texture_desc.Height = height;
+    texture_desc.DepthOrArraySize = 1u;
+    texture_desc.MipLevels = 1u;
+    texture_desc.Format = resource.format;
+    texture_desc.SampleDesc.Count = 1u;
+    texture_desc.SampleDesc.Quality = 0u;
+    texture_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texture_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    const D3D12_HEAP_PROPERTIES default_heap = heapProperties(D3D12_HEAP_TYPE_DEFAULT);
+    if (FAILED(device_->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE,
+                                                &texture_desc,
+                                                D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                IID_PPV_ARGS(&resource.texture)))) {
+      return false;
+    }
+
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+    UINT rows = 0u;
+    UINT64 row_bytes = 0u;
+    UINT64 upload_bytes = 0u;
+    device_->GetCopyableFootprints(&texture_desc, 0u, 1u, 0u, &footprint, &rows, &row_bytes,
+                                   &upload_bytes);
+    if (!ensureUpload(resource.upload, static_cast<std::size_t>(upload_bytes))) {
+      return false;
+    }
+    void *mapped = nullptr;
+    if (FAILED(resource.upload->Map(0u, nullptr, &mapped))) {
+      return false;
+    }
+    auto *dst = static_cast<std::uint8_t *>(mapped) + footprint.Offset;
+    const auto *src = texture.rgba8.data();
+    const std::size_t src_row_bytes = static_cast<std::size_t>(width) * 4u;
+    for (UINT y = 0u; y < rows; ++y) {
+      std::memcpy(dst + static_cast<std::size_t>(y) * footprint.Footprint.RowPitch,
+                  src + static_cast<std::size_t>(y) * src_row_bytes, src_row_bytes);
+    }
+    resource.upload->Unmap(0u, nullptr);
+
+    D3D12_TEXTURE_COPY_LOCATION dst_location{};
+    dst_location.pResource = resource.texture.Get();
+    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst_location.SubresourceIndex = 0u;
+    D3D12_TEXTURE_COPY_LOCATION src_location{};
+    src_location.pResource = resource.upload.Get();
+    src_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    src_location.PlacedFootprint = footprint;
+    command_list_->CopyTextureRegion(&dst_location, 0u, 0u, 0u, &src_location, nullptr);
+
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = resource.texture.Get();
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    command_list_->ResourceBarrier(1u, &barrier);
+    return true;
+  }
+
+  D3D12RuntimeTextureResource *fallbackTextureForRole(const std::size_t role_index) {
+    if (role_index >= fallback_textures_.size()) {
+      return nullptr;
+    }
+    D3D12RuntimeTextureResource &resource = fallback_textures_[role_index];
+    if (resource.texture == nullptr) {
+      const aster::RuntimeTexture fallback =
+          aster::makeRuntimeFallbackTexture(kD3D12MaterialTextureRoles[role_index]);
+      if (!createRuntimeTextureResource(fallback, resource)) {
+        return nullptr;
+      }
+    }
+    return &resource;
+  }
+
+  D3D12RuntimeTextureResource *textureResourceForRuntimeTexture(
+      const aster::RuntimeTexture &texture, const std::size_t role_index) {
+    if (!texture.valid) {
+      return fallbackTextureForRole(role_index);
+    }
+    if (auto found = material_textures_.find(&texture); found != material_textures_.end()) {
+      return &found->second;
+    }
+    D3D12RuntimeTextureResource resource;
+    if (!createRuntimeTextureResource(texture, resource)) {
+      return fallbackTextureForRole(role_index);
+    }
+    auto inserted = material_textures_.emplace(&texture, std::move(resource));
+    return &inserted.first->second;
+  }
+
+  D3D12_GPU_DESCRIPTOR_HANDLE bindMaterialTextures(
+      const aster::MaterialRuntimeResource *runtime_material) {
+    D3D12_GPU_DESCRIPTOR_HANDLE null_handle{};
+    if (srv_heap_ == nullptr ||
+        srv_descriptor_cursor_ + kD3D12MaterialTextureCount > srv_descriptor_capacity_) {
+      return null_handle;
+    }
+    const std::size_t start = srv_descriptor_cursor_;
+    for (std::size_t i = 0; i < kD3D12MaterialTextureCount; ++i) {
+      D3D12RuntimeTextureResource *texture = fallbackTextureForRole(i);
+      if (runtime_material != nullptr) {
+        if (const aster::RuntimeTexture *runtime_texture =
+                runtime_material->texture_set.find(kD3D12MaterialTextureRoles[i])) {
+          texture = textureResourceForRuntimeTexture(*runtime_texture, i);
+        }
+      }
+      if (texture == nullptr || texture->texture == nullptr) {
+        return null_handle;
+      }
+      D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+      srv.Format = texture->format;
+      srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+      srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+      srv.Texture2D.MostDetailedMip = 0u;
+      srv.Texture2D.MipLevels = 1u;
+      srv.Texture2D.PlaneSlice = 0u;
+      srv.Texture2D.ResourceMinLODClamp = 0.0f;
+      D3D12_CPU_DESCRIPTOR_HANDLE cpu = srv_heap_->GetCPUDescriptorHandleForHeapStart();
+      cpu.ptr += (start + i) * srv_descriptor_size_;
+      device_->CreateShaderResourceView(texture->texture.Get(), &srv, cpu);
+    }
+    srv_descriptor_cursor_ += kD3D12MaterialTextureCount;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu = srv_heap_->GetGPUDescriptorHandleForHeapStart();
+    gpu.ptr += start * srv_descriptor_size_;
+    return gpu;
+  }
+
+  void clearMaterialTextureCache() {
+    material_textures_.clear();
   }
 
   bool ensureTargets(const int width, const int height) {
@@ -929,6 +1278,10 @@ private:
     const std::vector<aster::Light> selected_lights =
         aster::selectRenderLights(settings.light_rig, camera.target, settings.light_policy);
     uniforms.lighting_params[0] = static_cast<float>(selected_lights.size());
+    uniforms.lighting_params[1] = settings.indirect_albedo_floor;
+    uniforms.lighting_params[2] =
+        settings.reflections.enabled ? settings.reflections.fallback_intensity : 0.0f;
+    uniforms.lighting_params[3] = settings.shadows.enabled ? 1.0f : 0.0f;
     for (std::size_t i = 0; i < selected_lights.size(); ++i) {
       const aster::Light &light = selected_lights[i];
       uniforms.lights[i].position_radius[0] = light.position.x;
@@ -949,7 +1302,8 @@ private:
 
   std::optional<std::size_t> writeObjectUniform(
       const aster::RenderObject &object, const aster::OrbitCamera &camera,
-      const aster::RendererSettings &settings, const double frame_seconds, const float opacity) {
+      const aster::RendererSettings &settings, const double frame_seconds, const float opacity,
+      const aster::MaterialRuntimeResource *runtime_material) {
     if (object_cursor_ >= object_capacity_) {
       return std::nullopt;
     }
@@ -1001,6 +1355,34 @@ private:
     uniforms.material_flags[2] =
         surface_profile == aster::MaterialSurfaceProfile::Liquid ? 1.0f : 0.0f;
     uniforms.material_flags[3] = isStructuredSurfaceProfile(surface_profile) ? 1.0f : 0.0f;
+    const auto authored_texture = [&](const std::size_t role_index) {
+      if (runtime_material == nullptr || role_index >= kD3D12MaterialTextureRoles.size()) {
+        return false;
+      }
+      const aster::RuntimeTexture *texture =
+          runtime_material->texture_set.find(kD3D12MaterialTextureRoles[role_index]);
+      return texture != nullptr && texture->valid && !texture->fallback;
+    };
+    uniforms.texture_flags0[0] = authored_texture(0u) ? 1.0f : 0.0f;
+    uniforms.texture_flags0[1] = authored_texture(1u) ? 1.0f : 0.0f;
+    uniforms.texture_flags0[2] = authored_texture(2u) ? 1.0f : 0.0f;
+    uniforms.texture_flags0[3] = authored_texture(3u) ? 1.0f : 0.0f;
+    uniforms.texture_flags1[0] = authored_texture(4u) ? 1.0f : 0.0f;
+    uniforms.texture_flags1[1] = authored_texture(5u) ? 1.0f : 0.0f;
+    uniforms.texture_flags1[2] = authored_texture(6u) ? 1.0f : 0.0f;
+    uniforms.texture_flags1[3] = authored_texture(7u) ? 1.0f : 0.0f;
+    uniforms.texture_flags2[0] = authored_texture(8u) ? 1.0f : 0.0f;
+    uniforms.texture_flags2[1] = authored_texture(9u) ? 1.0f : 0.0f;
+    uniforms.texture_flags2[2] = 1.0f;
+    if (runtime_material != nullptr) {
+      if (const aster::RuntimeTexture *normal =
+              runtime_material->texture_set.find(kD3D12MaterialTextureRoles[1])) {
+        uniforms.texture_flags2[2] =
+            normal->normal_convention == aster::TextureNormalConvention::DirectXInvertedY
+                ? -1.0f
+                : 1.0f;
+      }
+    }
 
     void *mapped = nullptr;
     if (FAILED(object_upload_->Map(0u, nullptr, &mapped))) {
@@ -1023,7 +1405,9 @@ private:
     for (const aster::Vertex &vertex : mesh.vertices) {
       vertices.push_back({{vertex.position.x, vertex.position.y, vertex.position.z, 1.0f},
                           {vertex.normal.x, vertex.normal.y, vertex.normal.z, 0.0f},
-                          {vertex.uv.x, vertex.uv.y, vertex.ambient_occlusion, 0.0f}});
+                          {vertex.uv.x, vertex.uv.y, vertex.ambient_occlusion, 0.0f},
+                          {vertex.tangent.x, vertex.tangent.y, vertex.tangent.z,
+                           vertex.tangent.w}});
     }
     D3D12MeshBuffers buffers;
     if (!vertices.empty()) {
@@ -1180,6 +1564,7 @@ private:
   ComPtr<ID3D12PipelineState> transparent_biased_pso_;
   ComPtr<ID3D12DescriptorHeap> rtv_heap_;
   ComPtr<ID3D12DescriptorHeap> dsv_heap_;
+  ComPtr<ID3D12DescriptorHeap> srv_heap_;
   ComPtr<ID3D12Resource> color_;
   ComPtr<ID3D12Resource> depth_;
   ComPtr<ID3D12Resource> readback_;
@@ -1193,7 +1578,13 @@ private:
   int height_ = 0;
   std::size_t object_capacity_ = 0u;
   std::size_t object_cursor_ = 0u;
+  UINT srv_descriptor_size_ = 0u;
+  std::size_t srv_descriptor_capacity_ = 0u;
+  std::size_t srv_descriptor_cursor_ = 0u;
   std::unordered_map<const aster::CpuMesh *, D3D12MeshBuffers> mesh_buffers_;
+  std::unordered_map<const aster::RuntimeTexture *, D3D12RuntimeTextureResource> material_textures_;
+  std::array<D3D12RuntimeTextureResource, kD3D12MaterialTextureCount> fallback_textures_{};
+  const aster::MaterialResourceLibrary *active_material_library_ = nullptr;
 };
 
 } // namespace

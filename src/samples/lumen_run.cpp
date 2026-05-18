@@ -106,6 +106,7 @@ void LumenRun::reset() {
   cave_skitters_.clear();
   cave_sections_.clear();
   cave_collision_meshes_.clear();
+  cave_exterior_hidden_objects_.clear();
   cave_viewer_cull_volume_ = {};
   cave_debug_overlay_objects_.clear();
   focused_cave_web_index_ = 0;
@@ -1066,25 +1067,20 @@ CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
     append_authored_fixtures(section_sample, section.secondary_wall_fixtures, path_length);
   }
   for (const CoalOreNode &ore : coal_ores_) {
-    if (ore.collected) {
+    if (ore.collected || ore.hit_flash <= 0.001f) {
       continue;
     }
     const float distance = length(ore.position - position);
-    if (distance > 9.5f) {
+    if (distance > 5.5f) {
       continue;
     }
-    const float health_ratio =
-        ore.max_health > 0 ? static_cast<float>(ore.health) / static_cast<float>(ore.max_health)
-                           : 1.0f;
-    const float mined_gain = 1.0f + (1.0f - clamp(health_ratio, 0.0f, 1.0f)) * 0.55f;
-    candidates.push_back(
-        {.sample = {.position = ore.position + ore.normal * 0.10f,
-                    .color = {0.80f, 0.42f, 0.13f},
-                    .intensity = (0.42f + ore.hit_flash * 0.55f) * mined_gain,
-                    .source_radius = std::max(ore.radius * 2.4f, 0.45f),
-                    .tunnel_t = best_sample.tunnel_t},
-         .distance = distance,
-         .score = distance * 0.72f + 0.45f});
+    candidates.push_back({.sample = {.position = ore.position + ore.normal * 0.10f,
+                                     .color = {0.95f, 0.12f, 0.04f},
+                                     .intensity = ore.hit_flash * 0.34f,
+                                     .source_radius = std::max(ore.radius * 1.4f, 0.24f),
+                                     .tunnel_t = best_sample.tunnel_t},
+                          .distance = distance,
+                          .score = distance * 0.92f + 2.0f});
   }
   for (const CaveSkitter &skitter : cave_skitters_) {
     if (skitter.dead) {

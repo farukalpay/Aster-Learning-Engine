@@ -31,6 +31,7 @@ public:
                             const FixedRenderGraph &graph,
                             const PreparedRenderMeshes &meshes, int framebuffer_width,
                             int framebuffer_height, double frame_seconds,
+                            const MaterialResourceLibrary *material_library,
                             FrameForensics *forensics) = 0;
   [[nodiscard]] virtual const char *backendName() const = 0;
   [[nodiscard]] virtual RenderBackendCapabilities capabilities() const = 0;

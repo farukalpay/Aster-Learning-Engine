@@ -14,6 +14,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -22,6 +23,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -48,7 +50,7 @@ aster::rhi::DeviceCapabilities metalCapabilityTable() {
   aster::rhi::DeviceCapabilities table;
   table.backend = aster::rhi::BackendKind::Metal;
   table.shader_materials = true;
-  table.texture_sampling = false;
+  table.texture_sampling = true;
   table.instancing = true;
   table.capture = true;
   table.ui_composite = true;
@@ -68,7 +70,8 @@ aster::rhi::DeviceCapabilities metalCapabilityTable() {
   table.sampler_filter_mask =
       aster::rhi::filterModeCapabilityBit(aster::rhi::FilterMode::Linear);
   table.sampler_address_mode_mask =
-      aster::rhi::addressModeCapabilityBit(aster::rhi::AddressMode::ClampToEdge);
+      aster::rhi::addressModeCapabilityBit(aster::rhi::AddressMode::ClampToEdge) |
+      aster::rhi::addressModeCapabilityBit(aster::rhi::AddressMode::Repeat);
   table.blend_mode_mask = aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::Opaque) |
                           aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::AlphaBlend);
   table.shader_model = aster::rhi::ShaderModel::MetalMSL23;
@@ -77,7 +80,9 @@ aster::rhi::DeviceCapabilities metalCapabilityTable() {
   table.limits.max_uniform_buffers_per_stage = 2u;
   table.limits.max_storage_buffers_per_stage = 4u;
   table.limits.max_bind_groups = 3u;
-  table.limits.max_vertex_attributes = 4u;
+  table.limits.max_vertex_attributes = 5u;
+  table.limits.max_sampled_textures_per_material = 10u;
+  table.limits.max_samplers_per_material = 1u;
   table.limits.max_texture_dimension_2d = 16384u;
   table.limits.max_dynamic_uniform_bytes = 256u * 1024u;
   return table;
@@ -124,6 +129,7 @@ struct MetalVertex {
   float position[4]{};
   float normal[4]{};
   float uv_ao[4]{};
+  float tangent[4]{};
 };
 
 struct MetalLightUniform {
@@ -159,6 +165,10 @@ struct MetalObjectUniforms {
   float procedural_params[4]{};
   float procedural_params2[4]{};
   float material_flags[4]{};
+  float texture_flags0[4]{};
+  float texture_flags1[4]{};
+  float texture_flags2[4]{};
+  float object_padding[52]{};
 };
 
 struct MetalMeshBuffers {
@@ -167,7 +177,12 @@ struct MetalMeshBuffers {
   NSUInteger index_count = 0;
 };
 
-constexpr std::size_t kObjectUniformStride = 256u;
+constexpr std::size_t kObjectUniformStride = 512u;
+static_assert(sizeof(MetalObjectUniforms) == kObjectUniformStride);
+constexpr std::size_t kMetalMaterialTextureCount = 10u;
+constexpr std::array<std::string_view, kMetalMaterialTextureCount> kMetalMaterialTextureRoles{
+    "albedo", "normal", "orm",      "roughness", "metallic",
+    "ao",     "height", "emissive", "wetness",   "opacity"};
 
 struct LocalBounds {
   aster::Vec3 min{};
@@ -407,6 +422,25 @@ const aster::CpuMesh *meshForObject(const aster::RenderObject &object,
   return meshes.sphere;
 }
 
+const aster::MaterialRuntimeResource *
+runtimeResourceForObject(const aster::MaterialResourceLibrary *library,
+                         const aster::RenderObject &object) {
+  if (library == nullptr) {
+    return nullptr;
+  }
+  return library->findForMaterialIds(object.material_asset_id, object.material.asset_id);
+}
+
+aster::RenderObject materializedObjectForRuntimeMaterial(
+    const aster::RenderObject &object, const aster::MaterialRuntimeResource *runtime_material) {
+  if (runtime_material == nullptr) {
+    return object;
+  }
+  aster::RenderObject materialized = object;
+  materialized.material = runtime_material->fallback_material;
+  return materialized;
+}
+
 bool ensurePresenterPipeline() {
   MetalFrameState &state = metalFrameState();
   id<MTLDevice> device = sharedMetalDevice();
@@ -495,6 +529,11 @@ public:
       [entry.second.vertices release];
       [entry.second.indices release];
     }
+    clearMaterialTextureCache();
+    for (id<MTLTexture> texture : fallback_textures_) {
+      [texture release];
+    }
+    [material_sampler_ release];
     [library_ release];
     [opaque_pipeline_ release];
     [transparent_pipeline_ release];
@@ -518,7 +557,7 @@ public:
       NSString *source =
           @"#include <metal_stdlib>\n"
            "using namespace metal;\n"
-           "struct Vertex { float4 position; float4 normal; float4 uv_ao; };\n"
+           "struct Vertex { float4 position; float4 normal; float4 uv_ao; float4 tangent; };\n"
            "struct Light { float4 position_radius; float4 color_intensity; };\n"
            "struct Scene { float4 camera_time; float4 sun_direction_enabled; float4 "
            "sun_color_intensity; "
@@ -530,9 +569,10 @@ public:
            "struct Object { float4x4 model; float4x4 mvp; float4 base_color_opacity; "
            "float4 emission_strength; float4 material_params; float4 pattern_params; "
            "float4 pattern_params2; float4 procedural_params; float4 procedural_params2; "
-           "float4 material_flags; };\n"
+           "float4 material_flags; float4 texture_flags0; float4 texture_flags1; "
+           "float4 texture_flags2; float4 object_padding[13]; };\n"
            "struct VSOut { float4 position [[position]]; float3 world; float3 normal; float2 uv; "
-           "float ao; uint object_index; };\n"
+           "float ao; float4 tangent; uint object_index; };\n"
            "float saturate1(float v) { return clamp(v, 0.0, 1.0); }\n"
            "float smooth1(float a, float b, float v) { float t = saturate1((v - a) / max(b - a, "
            "0.0001)); return t * t * (3.0 - 2.0 * t); }\n"
@@ -565,6 +605,17 @@ public:
            "color = mix(color, color * (0.58 + luma * 0.42), dark * crush); } float steps = "
            "floor(max(scene.style_params.w, 0.0)); if (steps > 1.0) color = floor(clamp(color, "
            "0.0, 1.0) * steps + float3(0.5)) / steps; return color; }\n"
+           "float texture_flag(constant Object &object, uint index) { if (index < 4u) return "
+           "object.texture_flags0[index]; if (index < 8u) return object.texture_flags1[index - "
+           "4u]; return object.texture_flags2[index - 8u]; }\n"
+           "float3 apply_normal_map(float3 normal, float4 tangent, float2 uv, "
+           "texture2d<float> normal_map, sampler material_sampler, float normal_y_sign) { float3 "
+           "encoded = normal_map.sample(material_sampler, uv).xyz * 2.0 - 1.0; encoded.y *= "
+           "normal_y_sign < 0.0 ? -1.0 : 1.0; float3 n = normalize(normal); "
+           "float3 t = tangent.xyz - n * dot(n, tangent.xyz); if (length(t) < 0.001) return n; "
+           "t = normalize(t); float handedness = tangent.w < 0.0 ? -1.0 : 1.0; float3 b = "
+           "normalize(cross(n, t)) * handedness; return normalize(t * encoded.x + b * encoded.y + "
+           "n * max(encoded.z, 0.001)); }\n"
            "float grid_line(float2 p, float mortar) { float2 f = fract(p); float2 edge = min(f, "
            "1.0 - f); float d = min(edge.x, edge.y); return 1.0 - smooth1(mortar, mortar + 0.035, "
            "d); }\n"
@@ -844,11 +895,19 @@ public:
            "float4 local = float4(v.position.xyz, 1.0); VSOut out; "
            "out.position = object.mvp * local; out.world = "
            "(object.model * local).xyz; "
-           "  out.normal = normalize((object.model * float4(v.normal.xyz, 0.0)).xyz); out.uv = "
+           "  out.normal = normalize((object.model * float4(v.normal.xyz, 0.0)).xyz); "
+           "out.tangent = float4(normalize((object.model * float4(v.tangent.xyz, 0.0)).xyz), "
+           "v.tangent.w); out.uv = "
            "v.uv_ao.xy; out.ao = v.uv_ao.z; out.object_index = instance_id; return out;\n"
            "}\n"
            "fragment float4 fs_main(VSOut in [[stage_in]], constant Scene &scene [[buffer(1)]], "
-           "constant Object *objects [[buffer(2)]]) { constant Object &object = "
+           "constant Object *objects [[buffer(2)]], texture2d<float> tex_albedo [[texture(0)]], "
+           "texture2d<float> tex_normal [[texture(1)]], texture2d<float> tex_orm [[texture(2)]], "
+           "texture2d<float> tex_roughness [[texture(3)]], texture2d<float> tex_metallic "
+           "[[texture(4)]], texture2d<float> tex_ao [[texture(5)]], texture2d<float> tex_height "
+           "[[texture(6)]], texture2d<float> tex_emissive [[texture(7)]], texture2d<float> "
+           "tex_wetness [[texture(8)]], texture2d<float> tex_opacity [[texture(9)]], sampler "
+           "material_sampler [[sampler(0)]]) { constant Object &object = "
            "objects[in.object_index]; "
            "float opacity = object.base_color_opacity.w; if (object.material_flags.x > 0.5) { "
            "float2 centered = in.uv * 2.0 - 1.0; float soft = 1.0 - smooth1(0.12, 1.0, "
@@ -860,24 +919,53 @@ public:
            "if (scene.exposure_ambient.w > 0.5 && object.material_flags.x < 0.5 && "
            "object.material_flags.z < 0.5) normal = procedural_normal(normal, sample_world, "
            "object); "
+           "if (texture_flag(object, 1u) > 0.5) normal = apply_normal_map(normal, in.tangent, "
+           "in.uv, tex_normal, material_sampler, object.texture_flags2.z); "
            "float3 albedo = material_albedo(object, sample_world, normal, in.uv, "
            "scene.camera_time.w); "
-           "float sky = saturate1(normal.y * 0.5 + 0.5); float ao = clamp(object.pattern_params2.z "
-           "* in.ao, 0.0, 1.0); "
+           "if (texture_flag(object, 0u) > 0.5) albedo *= tex_albedo.sample(material_sampler, "
+           "in.uv).rgb; "
+           "float ao = clamp(object.pattern_params2.z * in.ao, 0.0, 1.0); "
+           "float layer_roughness = clamp(object.material_params.x, 0.0, 1.0); "
+           "float metallic = clamp(object.material_params.y, 0.0, 1.0); "
+           "if (texture_flag(object, 2u) > 0.5) { float3 orm = tex_orm.sample(material_sampler, "
+           "in.uv).rgb; ao *= orm.r; layer_roughness = orm.g; metallic = orm.b; } "
+           "if (texture_flag(object, 3u) > 0.5) layer_roughness = "
+           "tex_roughness.sample(material_sampler, in.uv).r; "
+           "if (texture_flag(object, 4u) > 0.5) metallic = tex_metallic.sample(material_sampler, "
+           "in.uv).r; "
+           "if (texture_flag(object, 5u) > 0.5) ao *= tex_ao.sample(material_sampler, in.uv).r; "
+           "if (texture_flag(object, 6u) > 0.5) { float h = tex_height.sample(material_sampler, "
+           "in.uv).r; albedo *= 0.82 + h * 0.30; } "
+           "float wetness = clamp(object.procedural_params.w, 0.0, 1.0); "
+           "if (texture_flag(object, 8u) > 0.5) wetness = max(wetness, "
+           "tex_wetness.sample(material_sampler, in.uv).r); "
+           "layer_roughness = mix(layer_roughness, min(layer_roughness, 0.16), wetness); "
+           "albedo = mix(albedo, albedo * float3(0.74, 0.78, 0.82), wetness * 0.36); "
+           "if (texture_flag(object, 9u) > 0.5) opacity *= "
+           "tex_opacity.sample(material_sampler, in.uv).r; "
+           "float3 emissive_texture = texture_flag(object, 7u) > 0.5 ? "
+           "tex_emissive.sample(material_sampler, in.uv).rgb : float3(0.0); "
+           "float sky = saturate1(normal.y * 0.5 + 0.5); "
            "float ambient = max(scene.exposure_ambient.y * ao, scene.exposure_ambient.z); "
            "float3 color = mix(scene.ground_ambient.rgb, scene.sky_ambient.rgb, sky) * albedo * "
-           "ambient + albedo * 0.035; "
+           "ambient + albedo * max(scene.lighting_params.y, 0.0); "
            "float3 view = normalize(scene.camera_time.xyz - in.world); "
            "float rim = pow(1.0 - saturate1(dot(normal, view)), 2.0); color += albedo * "
            "scene.sky_ambient.rgb * rim * 0.10; "
-           "float layer_roughness = clamp(object.material_params.x + (noise3(sample_world * 0.37 + "
+           "layer_roughness = clamp(layer_roughness + (noise3(sample_world * 0.37 + "
            "float3(3.1, 7.2, 1.9)) - 0.5) * object.procedural_params.z * 0.18, 0.0, 1.0); "
+           "float env_gain = max(scene.lighting_params.z, 0.0); if (env_gain > 0.0001) { "
+           "float3 reflected = reflect(-view, normal); float env_sky = saturate1(reflected.y * "
+           "0.5 + 0.5); float3 env_color = mix(scene.ground_ambient.rgb, scene.sky_ambient.rgb, "
+           "env_sky); color += env_color * env_gain * (0.06 + metallic * 0.56) * "
+           "(1.0 - layer_roughness * 0.72 + wetness * 0.22); } "
            "auto add_light = [&](float3 light_dir, float3 radiance) { float ndotl = "
            "max(dot(normal, light_dir), 0.0); float wrapped = ndotl * 0.86 + 0.14; float3 h = "
            "normalize(light_dir + view); "
            "float spec_power = mix(64.0, 8.0, layer_roughness); float spec = pow(max(dot(normal, "
-           "h), 0.0), spec_power) * (1.0 - layer_roughness) * 0.34; "
-           "color += (albedo * 0.78 * wrapped + spec) * radiance; }; "
+           "h), 0.0), spec_power) * (1.0 - layer_roughness) * mix(0.34, 0.72, metallic); "
+           "color += (albedo * (0.78 - metallic * 0.42) * wrapped + spec) * radiance; }; "
            "if (scene.sun_direction_enabled.w > 0.5) "
            "add_light(normalize(scene.sun_direction_enabled.xyz), scene.sun_color_intensity.rgb * "
            "scene.sun_color_intensity.w); "
@@ -896,7 +984,7 @@ public:
            "- 0.5) * max(scene.fog_params.w, 0.0) + 0.5; "
            "float floor_lift = 0.030 + 0.018 * max(object.material_flags.y, "
            "object.material_flags.w); color = max(color, albedo * floor_lift); "
-           "color += object.emission_strength.rgb * object.emission_strength.w * "
+           "color += (object.emission_strength.rgb + emissive_texture) * object.emission_strength.w * "
            "max(scene.style_params.y, 0.0); color = "
            "tonemap(color * scene.exposure_ambient.x); color = style_post(color, scene); return "
            "float4(gamma_encode(color), "
@@ -968,6 +1056,7 @@ public:
                            const aster::FixedRenderGraph &graph,
                            const aster::PreparedRenderMeshes &meshes, const int framebuffer_width,
                            const int framebuffer_height, const double frame_seconds,
+                           const aster::MaterialResourceLibrary *material_library,
                            aster::FrameForensics *forensics) override {
     ASTER_PROFILE_SCOPE("MetalNativeRenderBackend::render");
     aster::FrameStats stats;
@@ -982,6 +1071,10 @@ public:
     stats.backend_kind_value = static_cast<std::uint32_t>(capabilities().kind);
     if (device_ == nil || queue_ == nil || framebuffer_width <= 0 || framebuffer_height <= 0) {
       return stats;
+    }
+    if (material_library != active_material_library_) {
+      clearMaterialTextureCache();
+      active_material_library_ = material_library;
     }
 
     ensureTargets(framebuffer_width, framebuffer_height);
@@ -1021,21 +1114,26 @@ public:
     object_uniform_cursor_ = 0;
     const aster::Vec3 camera_position = camera.position();
 
-    const auto write_object_uniform = [&](const aster::RenderObject &object, const float opacity) {
+    const auto write_object_uniform = [&](const aster::RenderObject &object, const float opacity,
+                                          const aster::MaterialRuntimeResource *runtime_material) {
       if (object_uniform_cursor_ >= object_uniform_capacity_) {
         return std::optional<std::size_t>{};
       }
       const std::size_t uniform_index = object_uniform_cursor_++;
       auto *uniform_bytes = static_cast<std::uint8_t *>([object_uniform_buffer_ contents]);
       const MetalObjectUniforms object_uniforms =
-          makeObjectUniforms(object, camera, settings, frame_seconds, opacity);
+          makeObjectUniforms(object, camera, settings, frame_seconds, opacity, runtime_material);
       std::memcpy(uniform_bytes + uniform_index * kObjectUniformStride, &object_uniforms,
                   sizeof(object_uniforms));
       return std::optional<std::size_t>{uniform_index};
     };
 
     const auto encode_object = [&](const aster::RenderObject &object, const float opacity) {
-      const aster::CpuMesh *mesh = meshForObject(object, meshes);
+      const aster::MaterialRuntimeResource *runtime_material =
+          runtimeResourceForObject(material_library, object);
+      const aster::RenderObject materialized =
+          materializedObjectForRuntimeMaterial(object, runtime_material);
+      const aster::CpuMesh *mesh = meshForObject(materialized, meshes);
       if (mesh == nullptr || mesh->indices.empty()) {
         return;
       }
@@ -1045,10 +1143,11 @@ public:
         return;
       }
       const bool transparent =
-          opacity < 0.999f || aster::classifyMaterialRenderQueue(object.material) ==
+          opacity < 0.999f || aster::classifyMaterialRenderQueue(materialized.material) ==
                                   aster::MaterialRenderQueue::Translucent;
-      const bool writes_depth = !transparent && aster::materialWritesDepth(object.material);
-      const std::optional<std::size_t> uniform_index = write_object_uniform(object, opacity);
+      const bool writes_depth = !transparent && aster::materialWritesDepth(materialized.material);
+      const std::optional<std::size_t> uniform_index =
+          write_object_uniform(materialized, opacity, runtime_material);
       if (!uniform_index.has_value()) {
         return;
       }
@@ -1060,14 +1159,15 @@ public:
                                         : (transparent ? transparent_depth_
                                                        : (writes_depth ? opaque_depth_
                                                                        : read_only_depth_))];
-      const aster::RenderDepthPolicy depth_policy = object.material.depth_policy;
+      const aster::RenderDepthPolicy depth_policy = materialized.material.depth_policy;
       [encoder setDepthBias:depth_policy.constant_bias slopeScale:depth_policy.slope_bias clamp:0.0f];
       [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
       [encoder setCullMode:metalCullMode(objectCullMode(
-                               object, camera_position, settings.pipeline.back_face_culling))];
+                               materialized, camera_position, settings.pipeline.back_face_culling))];
       [encoder setVertexBuffer:buffers->vertices offset:0 atIndex:0];
       [encoder setVertexBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
       [encoder setFragmentBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
+      bindMaterialTextures(encoder, runtime_material);
       [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                           indexCount:buffers->index_count
                            indexType:MTLIndexTypeUInt32
@@ -1085,6 +1185,20 @@ public:
         return;
       }
       const aster::RenderObject &first_object = scene.objects()[first_instance.object_index];
+      if (material_library != nullptr) {
+        for (std::size_t i = 0; i < group.instance_count; ++i) {
+          const std::size_t plan_index = group.first_instance + i;
+          if (plan_index >= plan.instances.size()) {
+            break;
+          }
+          const aster::FrameRenderInstance &instance = plan.instances[plan_index];
+          if (instance.object_index >= scene.objects().size()) {
+            break;
+          }
+          encode_object(scene.objects()[instance.object_index], instance.opacity);
+        }
+        return;
+      }
       const aster::CpuMesh *mesh = meshForObject(first_object, meshes);
       if (mesh == nullptr || mesh->indices.empty()) {
         return;
@@ -1137,7 +1251,7 @@ public:
         if (instance.object_index >= scene.objects().size()) {
           break;
         }
-        if (!write_object_uniform(scene.objects()[instance.object_index], instance.opacity)
+        if (!write_object_uniform(scene.objects()[instance.object_index], instance.opacity, nullptr)
                  .has_value()) {
           break;
         }
@@ -1163,6 +1277,7 @@ public:
       [encoder setVertexBuffer:buffers->vertices offset:0 atIndex:0];
       [encoder setVertexBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
       [encoder setFragmentBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
+      bindMaterialTextures(encoder, nullptr);
       [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                           indexCount:buffers->index_count
                            indexType:MTLIndexTypeUInt32
@@ -1255,7 +1370,7 @@ public:
             .name = "Aster Native Metal Rasterizer",
             .gpu = true,
             .supports_shader_materials = true,
-            .supports_texture_sampling = false,
+            .supports_texture_sampling = true,
             .supports_instancing = true,
             .supports_capture = true,
             .supports_ui_composite = true,
@@ -1348,6 +1463,10 @@ private:
     const std::vector<aster::Light> selected_lights =
         aster::selectRenderLights(settings.light_rig, camera.target, settings.light_policy);
     out.lighting_params[0] = static_cast<float>(selected_lights.size());
+    out.lighting_params[1] = settings.indirect_albedo_floor;
+    out.lighting_params[2] =
+        settings.reflections.enabled ? settings.reflections.fallback_intensity : 0.0f;
+    out.lighting_params[3] = settings.shadows.enabled ? 1.0f : 0.0f;
     for (std::size_t i = 0; i < selected_lights.size(); ++i) {
       const aster::Light &light = selected_lights[i];
       out.lights[i].position_radius[0] = light.position.x;
@@ -1373,10 +1492,106 @@ private:
     return object_uniform_buffer_ != nil;
   }
 
+  id<MTLSamplerState> materialSampler() {
+    if (material_sampler_ != nil) {
+      return material_sampler_;
+    }
+    MTLSamplerDescriptor *desc = [[MTLSamplerDescriptor alloc] init];
+    desc.minFilter = MTLSamplerMinMagFilterLinear;
+    desc.magFilter = MTLSamplerMinMagFilterLinear;
+    desc.mipFilter = MTLSamplerMipFilterLinear;
+    desc.sAddressMode = MTLSamplerAddressModeRepeat;
+    desc.tAddressMode = MTLSamplerAddressModeRepeat;
+    desc.rAddressMode = MTLSamplerAddressModeClampToEdge;
+    desc.maxAnisotropy = 8u;
+    material_sampler_ = [device_ newSamplerStateWithDescriptor:desc];
+    [desc release];
+    return material_sampler_;
+  }
+
+  id<MTLTexture> newTextureForRuntimeTexture(const aster::RuntimeTexture &texture) {
+    const std::uint32_t width = std::max(texture.width, 1u);
+    const std::uint32_t height = std::max(texture.height, 1u);
+    if (texture.rgba8.size() < static_cast<std::size_t>(width) * height * 4u) {
+      return nil;
+    }
+    const MTLPixelFormat format =
+        texture.color_space == aster::TextureColorSpace::SRGB ? MTLPixelFormatRGBA8Unorm_sRGB
+                                                              : MTLPixelFormatRGBA8Unorm;
+    MTLTextureDescriptor *desc =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
+                                                           width:width
+                                                          height:height
+                                                       mipmapped:NO];
+    desc.usage = MTLTextureUsageShaderRead;
+    desc.storageMode = MTLStorageModeShared;
+    id<MTLTexture> metal_texture = [device_ newTextureWithDescriptor:desc];
+    if (metal_texture == nil) {
+      return nil;
+    }
+    MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+    [metal_texture replaceRegion:region
+                      mipmapLevel:0
+                        withBytes:texture.rgba8.data()
+                      bytesPerRow:static_cast<NSUInteger>(width) * 4u];
+    return metal_texture;
+  }
+
+  id<MTLTexture> fallbackTextureForRole(const std::size_t role_index) {
+    if (role_index >= fallback_textures_.size()) {
+      return nil;
+    }
+    if (fallback_textures_[role_index] == nil) {
+      const aster::RuntimeTexture fallback =
+          aster::makeRuntimeFallbackTexture(kMetalMaterialTextureRoles[role_index]);
+      fallback_textures_[role_index] = newTextureForRuntimeTexture(fallback);
+    }
+    return fallback_textures_[role_index];
+  }
+
+  id<MTLTexture> textureForRuntimeTexture(const aster::RuntimeTexture &texture,
+                                          const std::size_t role_index) {
+    if (!texture.valid) {
+      return fallbackTextureForRole(role_index);
+    }
+    if (const auto found = material_textures_.find(&texture); found != material_textures_.end()) {
+      return found->second == nil ? fallbackTextureForRole(role_index) : found->second;
+    }
+    id<MTLTexture> metal_texture = newTextureForRuntimeTexture(texture);
+    if (metal_texture == nil) {
+      return fallbackTextureForRole(role_index);
+    }
+    material_textures_.emplace(&texture, metal_texture);
+    return metal_texture;
+  }
+
+  void bindMaterialTextures(id<MTLRenderCommandEncoder> encoder,
+                            const aster::MaterialRuntimeResource *runtime_material) {
+    for (std::size_t i = 0; i < kMetalMaterialTextureCount; ++i) {
+      id<MTLTexture> texture = fallbackTextureForRole(i);
+      if (runtime_material != nullptr) {
+        if (const aster::RuntimeTexture *runtime_texture =
+                runtime_material->texture_set.find(kMetalMaterialTextureRoles[i])) {
+          texture = textureForRuntimeTexture(*runtime_texture, i);
+        }
+      }
+      [encoder setFragmentTexture:texture atIndex:static_cast<NSUInteger>(i)];
+    }
+    [encoder setFragmentSamplerState:materialSampler() atIndex:0];
+  }
+
+  void clearMaterialTextureCache() {
+    for (auto &entry : material_textures_) {
+      [entry.second release];
+    }
+    material_textures_.clear();
+  }
+
   MetalObjectUniforms makeObjectUniforms(const aster::RenderObject &object,
                                          const aster::OrbitCamera &camera,
                                          const aster::RendererSettings &settings,
-                                         const double frame_seconds, const float opacity) const {
+                                         const double frame_seconds, const float opacity,
+                                         const aster::MaterialRuntimeResource *runtime_material) const {
     const aster::Mat4 model =
         settings.animate_scene && object.spin_rate != 0.0f
             ? object.transform.matrix() *
@@ -1422,6 +1637,34 @@ private:
     out.material_flags[2] =
         surface_profile == aster::MaterialSurfaceProfile::Liquid ? 1.0f : 0.0f;
     out.material_flags[3] = isStructuredSurfaceProfile(surface_profile) ? 1.0f : 0.0f;
+    const auto authored_texture = [&](const std::size_t role_index) {
+      if (runtime_material == nullptr || role_index >= kMetalMaterialTextureRoles.size()) {
+        return false;
+      }
+      const aster::RuntimeTexture *texture =
+          runtime_material->texture_set.find(kMetalMaterialTextureRoles[role_index]);
+      return texture != nullptr && texture->valid && !texture->fallback;
+    };
+    out.texture_flags0[0] = authored_texture(0u) ? 1.0f : 0.0f;
+    out.texture_flags0[1] = authored_texture(1u) ? 1.0f : 0.0f;
+    out.texture_flags0[2] = authored_texture(2u) ? 1.0f : 0.0f;
+    out.texture_flags0[3] = authored_texture(3u) ? 1.0f : 0.0f;
+    out.texture_flags1[0] = authored_texture(4u) ? 1.0f : 0.0f;
+    out.texture_flags1[1] = authored_texture(5u) ? 1.0f : 0.0f;
+    out.texture_flags1[2] = authored_texture(6u) ? 1.0f : 0.0f;
+    out.texture_flags1[3] = authored_texture(7u) ? 1.0f : 0.0f;
+    out.texture_flags2[0] = authored_texture(8u) ? 1.0f : 0.0f;
+    out.texture_flags2[1] = authored_texture(9u) ? 1.0f : 0.0f;
+    out.texture_flags2[2] = 1.0f;
+    if (runtime_material != nullptr) {
+      if (const aster::RuntimeTexture *normal =
+              runtime_material->texture_set.find(kMetalMaterialTextureRoles[1])) {
+        out.texture_flags2[2] =
+            normal->normal_convention == aster::TextureNormalConvention::DirectXInvertedY
+                ? -1.0f
+                : 1.0f;
+      }
+    }
     return out;
   }
 
@@ -1436,7 +1679,9 @@ private:
     for (const aster::Vertex &vertex : mesh.vertices) {
       vertices.push_back({{vertex.position.x, vertex.position.y, vertex.position.z, 1.0f},
                           {vertex.normal.x, vertex.normal.y, vertex.normal.z, 0.0f},
-                          {vertex.uv.x, vertex.uv.y, vertex.ambient_occlusion, 0.0f}});
+                          {vertex.uv.x, vertex.uv.y, vertex.ambient_occlusion, 0.0f},
+                          {vertex.tangent.x, vertex.tangent.y, vertex.tangent.z,
+                           vertex.tangent.w}});
     }
 
     MetalMeshBuffers buffers;
@@ -1508,11 +1753,15 @@ private:
   id<MTLTexture> scene_texture_ = nil;
   id<MTLTexture> depth_texture_ = nil;
   id<MTLBuffer> object_uniform_buffer_ = nil;
+  id<MTLSamplerState> material_sampler_ = nil;
   int width_ = 0;
   int height_ = 0;
   std::size_t object_uniform_capacity_ = 0;
   std::size_t object_uniform_cursor_ = 0;
   std::unordered_map<const aster::CpuMesh *, MetalMeshBuffers> mesh_buffers_;
+  std::unordered_map<const aster::RuntimeTexture *, id<MTLTexture>> material_textures_;
+  std::array<id<MTLTexture>, kMetalMaterialTextureCount> fallback_textures_{};
+  const aster::MaterialResourceLibrary *active_material_library_ = nullptr;
 };
 
 } // namespace

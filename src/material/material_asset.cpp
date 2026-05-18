@@ -800,6 +800,7 @@ Material resolveMaterialAssetFallback(const MaterialAsset &asset) {
   desc.pattern_contrast = paramOr(asset, "pattern_contrast", 0.0f);
   desc.pattern_mortar = paramOr(asset, "pattern_mortar", 0.08f);
   desc.depth_policy = asset.depth_policy;
+  desc.receives_shadows = asset.receives_shadows;
   desc.surface_profile = asset.surface_profile;
   if (desc.surface_profile == MaterialSurfaceProfile::Auto &&
       (materialFeatureSet(asset).triplanar || materialFeatureSet(asset).height)) {

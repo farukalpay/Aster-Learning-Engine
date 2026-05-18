@@ -23,6 +23,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -53,6 +54,7 @@ struct ProjectedVertex {
   bool valid = false;
   aster::Vec3 world_position{};
   aster::Vec3 normal{};
+  aster::Vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f};
   aster::Vec2 uv{};
   float ambient_occlusion = 1.0f;
   float x = 0.0f;
@@ -735,10 +737,128 @@ aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 wo
                    4.0f));
 }
 
+const aster::RuntimeTexture *textureForRole(const aster::RuntimeTextureSet *textures,
+                                            const std::string_view role) {
+  return textures == nullptr ? nullptr : textures->find(role);
+}
+
+bool hasAuthoredRuntimeTexture(const aster::RuntimeTexture *texture) {
+  return texture != nullptr && texture->valid && !texture->fallback;
+}
+
+aster::Vec3 applyRuntimeNormalMap(const aster::RuntimeTextureSet *textures, aster::Vec3 normal,
+                                  const aster::Vec4 tangent_handedness,
+                                  const aster::Vec2 uv) {
+  const aster::RuntimeTexture *normal_texture = textureForRole(textures, "normal");
+  if (!hasAuthoredRuntimeTexture(normal_texture)) {
+    return normal;
+  }
+  const aster::Vec4 encoded = aster::sampleRuntimeTexture(*normal_texture, uv);
+  aster::Vec3 tangent_space{encoded.x * 2.0f - 1.0f, encoded.y * 2.0f - 1.0f,
+                            encoded.z * 2.0f - 1.0f};
+  if (normal_texture->normal_convention == aster::TextureNormalConvention::DirectXInvertedY) {
+    tangent_space.y = -tangent_space.y;
+  }
+  normal = aster::normalizeOr(normal, {0.0f, 1.0f, 0.0f});
+  aster::Vec3 tangent{tangent_handedness.x, tangent_handedness.y, tangent_handedness.z};
+  tangent = tangent - normal * aster::dot(normal, tangent);
+  if (aster::length(tangent) <= 0.0001f) {
+    tangent = std::abs(normal.y) < 0.92f ? aster::normalize(aster::cross({0.0f, 1.0f, 0.0f}, normal))
+                                         : aster::normalize(aster::cross({1.0f, 0.0f, 0.0f}, normal));
+  } else {
+    tangent = aster::normalize(tangent);
+  }
+  const float handedness = tangent_handedness.w < 0.0f ? -1.0f : 1.0f;
+  const aster::Vec3 bitangent = aster::normalize(aster::cross(normal, tangent)) * handedness;
+  return aster::normalizeOr(tangent * tangent_space.x + bitangent * tangent_space.y +
+                                normal * std::max(tangent_space.z, 0.0f),
+                            normal);
+}
+
+struct RuntimeMaterialSample {
+  aster::Vec3 albedo{};
+  float roughness = 0.55f;
+  float metallic = 0.0f;
+  float ambient_occlusion = 1.0f;
+  float opacity = 1.0f;
+  float wetness = 0.0f;
+  aster::Vec3 emissive{};
+};
+
+RuntimeMaterialSample sampleRuntimeMaterial(const aster::Material &material,
+                                            const aster::RuntimeTextureSet *textures,
+                                            const aster::Vec3 world_position,
+                                            const aster::Vec3 normal, const aster::Vec2 uv,
+                                            const double frame_seconds) {
+  RuntimeMaterialSample sample;
+  sample.albedo = materialAlbedo(material, world_position, normal, uv, frame_seconds);
+  sample.roughness = std::clamp(material.roughness, 0.045f, 1.0f);
+  sample.metallic = std::clamp(material.metallic, 0.0f, 1.0f);
+  sample.ambient_occlusion = std::clamp(material.ambient_occlusion, 0.0f, 1.0f);
+  sample.opacity = std::clamp(material.opacity, 0.0f, 1.0f);
+  sample.wetness = std::clamp(material.procedural.wetness, 0.0f, 1.0f);
+  sample.emissive = material.emission_color * material.emission_strength;
+
+  if (const aster::RuntimeTexture *albedo_texture = textureForRole(textures, "albedo")) {
+    sample.albedo = sample.albedo * aster::sampleRuntimeTextureRgb(*albedo_texture, uv);
+  }
+  if (const aster::RuntimeTexture *orm_texture = textureForRole(textures, "orm");
+      hasAuthoredRuntimeTexture(orm_texture)) {
+    const aster::Vec4 orm = aster::sampleRuntimeTexture(*orm_texture, uv);
+    sample.ambient_occlusion *= std::clamp(orm.x, 0.0f, 1.0f);
+    sample.roughness = std::clamp(orm.y, 0.045f, 1.0f);
+    sample.metallic = std::clamp(orm.z, 0.0f, 1.0f);
+  }
+  if (const aster::RuntimeTexture *roughness_texture = textureForRole(textures, "roughness");
+      hasAuthoredRuntimeTexture(roughness_texture)) {
+    sample.roughness =
+        std::clamp(aster::sampleRuntimeTextureChannel(*roughness_texture, uv, 0u), 0.045f, 1.0f);
+  }
+  if (const aster::RuntimeTexture *metallic_texture = textureForRole(textures, "metallic");
+      hasAuthoredRuntimeTexture(metallic_texture)) {
+    sample.metallic =
+        std::clamp(aster::sampleRuntimeTextureChannel(*metallic_texture, uv, 0u), 0.0f, 1.0f);
+  }
+  if (const aster::RuntimeTexture *ao_texture = textureForRole(textures, "ao");
+      hasAuthoredRuntimeTexture(ao_texture)) {
+    sample.ambient_occlusion *=
+        std::clamp(aster::sampleRuntimeTextureChannel(*ao_texture, uv, 0u), 0.0f, 1.0f);
+  }
+  if (const aster::RuntimeTexture *height_texture = textureForRole(textures, "height");
+      hasAuthoredRuntimeTexture(height_texture)) {
+    const float height = aster::sampleRuntimeTextureChannel(*height_texture, uv, 0u);
+    sample.albedo *= 0.88f + height * 0.22f;
+  }
+  if (const aster::RuntimeTexture *wetness_texture = textureForRole(textures, "wetness");
+      hasAuthoredRuntimeTexture(wetness_texture)) {
+    sample.wetness =
+        std::max(sample.wetness, aster::sampleRuntimeTextureChannel(*wetness_texture, uv, 0u));
+  }
+  if (sample.wetness > 0.0001f) {
+    const float wet = std::clamp(sample.wetness, 0.0f, 1.0f);
+    sample.roughness = std::lerp(sample.roughness, std::min(sample.roughness, 0.18f), wet * 0.72f);
+    sample.albedo = mixVec(sample.albedo, sample.albedo * 0.54f + aster::Vec3{0.015f, 0.022f, 0.030f},
+                           wet * 0.38f);
+  }
+  if (const aster::RuntimeTexture *emissive_texture = textureForRole(textures, "emissive");
+      hasAuthoredRuntimeTexture(emissive_texture)) {
+    sample.emissive += aster::sampleRuntimeTextureRgb(*emissive_texture, uv) *
+                       std::max(material.emission_strength, 1.0f);
+  }
+  if (const aster::RuntimeTexture *opacity_texture = textureForRole(textures, "opacity");
+      hasAuthoredRuntimeTexture(opacity_texture)) {
+    sample.opacity *=
+        std::clamp(aster::sampleRuntimeTextureChannel(*opacity_texture, uv, 0u), 0.0f, 1.0f);
+  }
+  sample.albedo = aster::clamp(sample.albedo, 0.0f, 4.0f);
+  return sample;
+}
+
 aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world_position,
-                        aster::Vec3 normal, const aster::Vec2 uv, const float vertex_ao,
+                        aster::Vec3 normal, const aster::Vec4 tangent_handedness,
+                        const aster::Vec2 uv, const float vertex_ao,
                         const aster::Vec3 camera_position, const aster::RendererSettings &settings,
-                        const double frame_seconds) {
+                        const double frame_seconds, const aster::RuntimeTextureSet *textures) {
   normal = aster::normalize(normal);
   if (aster::length(normal) <= 0.0001f) {
     normal = {0.0f, 1.0f, 0.0f};
@@ -748,26 +868,47 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
   if (settings.procedural_surface_normals) {
     normal = proceduralSurfaceNormal(material, material_sample_position, normal);
   }
+  normal = applyRuntimeNormalMap(textures, normal, tangent_handedness, uv);
 
-  const aster::Vec3 albedo =
-      materialAlbedo(material, material_sample_position, normal, uv, frame_seconds);
+  const RuntimeMaterialSample material_sample =
+      sampleRuntimeMaterial(material, textures, material_sample_position, normal, uv, frame_seconds);
+  const aster::Vec3 albedo = material_sample.albedo;
   const float sky_factor = saturate(normal.y * 0.5f + 0.5f);
   const aster::Vec3 ambient_color =
       mixVec(settings.ground_ambient_color, settings.sky_ambient_color, sky_factor);
   const float geometry_ao =
-      std::clamp(material.ambient_occlusion * std::clamp(vertex_ao, 0.0f, 1.0f), 0.0f, 1.0f);
+      std::clamp(material_sample.ambient_occlusion * std::clamp(vertex_ao, 0.0f, 1.0f), 0.0f,
+                 1.0f);
   const float ambient_level =
       std::max(settings.ambient_strength * geometry_ao, settings.ambient_floor);
-  aster::Vec3 color = ambient_color * albedo * ambient_level + albedo * 0.035f;
+  aster::Vec3 color =
+      ambient_color * albedo * ambient_level +
+      albedo * std::max(settings.indirect_albedo_floor, 0.0f);
 
   const aster::Vec3 view = aster::normalize(camera_position - world_position);
-  const float metallic = std::clamp(material.metallic, 0.0f, 1.0f);
-  const float perceptual_roughness = std::clamp(material.roughness, 0.045f, 1.0f);
+  const float metallic = material_sample.metallic;
+  const float perceptual_roughness = material_sample.roughness;
   const float n_dot_v = std::max(aster::dot(normal, view), 0.001f);
   const aster::Vec3 f0 = mixVec({0.04f, 0.04f, 0.04f}, albedo, metallic);
   const float alpha = perceptual_roughness * perceptual_roughness;
   const float alpha2 = std::max(alpha * alpha, 0.0005f);
   const float k = ((perceptual_roughness + 1.0f) * (perceptual_roughness + 1.0f)) * 0.125f;
+
+  if (settings.reflections.enabled && settings.reflections.fallback_intensity > 0.0f) {
+    const aster::Vec3 incident = -view;
+    const aster::Vec3 reflection =
+        aster::normalizeOr(incident - normal * (2.0f * aster::dot(incident, normal)), normal);
+    const float env_sky = saturate(reflection.y * 0.5f + 0.5f);
+    const aster::Vec3 env_color =
+        mixVec(settings.ground_ambient_color, settings.sky_ambient_color, env_sky);
+    const aster::Vec3 fresnel =
+        f0 + (aster::Vec3{1.0f, 1.0f, 1.0f} - f0) * std::pow(1.0f - n_dot_v, 5.0f);
+    const float roughness_visibility = std::pow(1.0f - perceptual_roughness * 0.72f, 2.0f);
+    const float material_visibility = 0.24f + metallic * 0.76f;
+    color += env_color * fresnel *
+             (roughness_visibility * material_visibility *
+              std::clamp(settings.reflections.fallback_intensity, 0.0f, 2.0f));
+  }
 
   const auto add_light = [&](const aster::Vec3 light_dir, const aster::Vec3 radiance) {
     const aster::Vec3 half_vector = aster::normalize(light_dir + view);
@@ -833,8 +974,7 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
   }
 
   color = applyVisualGrade(color, settings.atmosphere);
-  color = color + material.emission_color * material.emission_strength *
-                      std::max(settings.style.emissive_gain, 0.0f);
+  color = color + material_sample.emissive * std::max(settings.style.emissive_gain, 0.0f);
   color = color * settings.exposure;
   color = toneMapColor(color, toneMapperUniform(settings));
   color = applyRenderStylePost(color, settings.style);
@@ -843,13 +983,120 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
 
 aster::FrameColor shadedFrameColor(const aster::Material &material,
                                    const aster::Vec3 world_position, const aster::Vec3 normal,
-                                   const aster::Vec2 uv, const float vertex_ao,
+                                   const aster::Vec4 tangent_handedness, const aster::Vec2 uv,
+                                   const float vertex_ao,
                                    const aster::Vec3 camera_position,
                                    const aster::RendererSettings &settings,
-                                   const double frame_seconds, const float opacity) {
-  return aster::frameColor(shadeVertex(material, world_position, normal, uv, vertex_ao,
-                                       camera_position, settings, frame_seconds),
-                           opacity);
+                                   const double frame_seconds, const float opacity,
+                                   const aster::RuntimeTextureSet *textures) {
+  const RuntimeMaterialSample material_sample =
+      sampleRuntimeMaterial(material, textures, world_position, normal, uv, frame_seconds);
+  return aster::frameColor(shadeVertex(material, world_position, normal, tangent_handedness, uv,
+                                       vertex_ao, camera_position, settings, frame_seconds,
+                                       textures),
+                           opacity * material_sample.opacity);
+}
+
+float byteLuma(const std::vector<std::uint8_t> &pixels, const std::size_t base) {
+  const float r = static_cast<float>(pixels[base + 0u]) / 255.0f;
+  const float g = static_cast<float>(pixels[base + 1u]) / 255.0f;
+  const float b = static_cast<float>(pixels[base + 2u]) / 255.0f;
+  return r * 0.2126f + g * 0.7152f + b * 0.0722f;
+}
+
+void applySoftwareBloom(std::vector<std::uint8_t> &pixels, const int width, const int height,
+                        const aster::RendererPostSettings &post) {
+  if (!post.bloom || post.bloom_intensity <= 0.0f || width <= 2 || height <= 2) {
+    return;
+  }
+  const float threshold = std::clamp(post.bloom_threshold / 4.0f, 0.55f, 0.98f);
+  std::vector<float> bright(static_cast<std::size_t>(width) * height * 3u, 0.0f);
+  std::vector<float> blur(bright.size(), 0.0f);
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const std::size_t pixel = static_cast<std::size_t>(y * width + x);
+      const std::size_t base = pixel * 4u;
+      const float luma = byteLuma(pixels, base);
+      const float weight = std::clamp((luma - threshold) / std::max(1.0f - threshold, 0.001f),
+                                      0.0f, 1.0f);
+      bright[pixel * 3u + 0u] = static_cast<float>(pixels[base + 0u]) / 255.0f * weight;
+      bright[pixel * 3u + 1u] = static_cast<float>(pixels[base + 1u]) / 255.0f * weight;
+      bright[pixel * 3u + 2u] = static_cast<float>(pixels[base + 2u]) / 255.0f * weight;
+    }
+  }
+  for (int y = 1; y + 1 < height; ++y) {
+    for (int x = 1; x + 1 < width; ++x) {
+      const std::size_t pixel = static_cast<std::size_t>(y * width + x);
+      for (int oy = -1; oy <= 1; ++oy) {
+        for (int ox = -1; ox <= 1; ++ox) {
+          const float kernel = (ox == 0 && oy == 0) ? 0.25f : ((ox == 0 || oy == 0) ? 0.125f : 0.0625f);
+          const std::size_t source = static_cast<std::size_t>((y + oy) * width + (x + ox)) * 3u;
+          blur[pixel * 3u + 0u] += bright[source + 0u] * kernel;
+          blur[pixel * 3u + 1u] += bright[source + 1u] * kernel;
+          blur[pixel * 3u + 2u] += bright[source + 2u] * kernel;
+        }
+      }
+    }
+  }
+  const float intensity = std::clamp(post.bloom_intensity, 0.0f, 2.0f);
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const std::size_t pixel = static_cast<std::size_t>(y * width + x);
+      const std::size_t base = pixel * 4u;
+      for (std::size_t channel = 0u; channel < 3u; ++channel) {
+        const float value = static_cast<float>(pixels[base + channel]) / 255.0f +
+                            blur[pixel * 3u + channel] * intensity;
+        pixels[base + channel] = static_cast<std::uint8_t>(
+            std::clamp(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f), 0l, 255l));
+      }
+    }
+  }
+}
+
+void applySoftwareFxaa(std::vector<std::uint8_t> &pixels, const int width, const int height,
+                       const aster::RendererPostSettings &post) {
+  if (!post.fxaa || width <= 2 || height <= 2) {
+    return;
+  }
+  const std::vector<std::uint8_t> source = pixels;
+  for (int y = 1; y + 1 < height; ++y) {
+    for (int x = 1; x + 1 < width; ++x) {
+      const std::size_t center = static_cast<std::size_t>(y * width + x) * 4u;
+      const float luma_center = byteLuma(source, center);
+      const float luma_left = byteLuma(source, static_cast<std::size_t>(y * width + x - 1) * 4u);
+      const float luma_right = byteLuma(source, static_cast<std::size_t>(y * width + x + 1) * 4u);
+      const float luma_up = byteLuma(source, static_cast<std::size_t>((y - 1) * width + x) * 4u);
+      const float luma_down = byteLuma(source, static_cast<std::size_t>((y + 1) * width + x) * 4u);
+      const float contrast = std::max({luma_center, luma_left, luma_right, luma_up, luma_down}) -
+                             std::min({luma_center, luma_left, luma_right, luma_up, luma_down});
+      if (contrast < 0.075f) {
+        continue;
+      }
+      for (std::size_t channel = 0u; channel < 3u; ++channel) {
+        const float center_value = static_cast<float>(source[center + channel]);
+        const float average =
+            (static_cast<float>(source[(static_cast<std::size_t>(y * width + x - 1) * 4u) + channel]) +
+             static_cast<float>(source[(static_cast<std::size_t>(y * width + x + 1) * 4u) + channel]) +
+             static_cast<float>(source[(static_cast<std::size_t>((y - 1) * width + x) * 4u) + channel]) +
+             static_cast<float>(source[(static_cast<std::size_t>((y + 1) * width + x) * 4u) + channel])) *
+            0.25f;
+        pixels[center + channel] =
+            static_cast<std::uint8_t>(std::clamp(std::lround(center_value * 0.55f + average * 0.45f),
+                                                 0l, 255l));
+      }
+    }
+  }
+}
+
+void applySoftwarePostProcess(aster::SoftwareFrameBuffer &framebuffer,
+                              const aster::RendererSettings &settings) {
+  if (framebuffer.empty() || (!settings.post.bloom && !settings.post.fxaa)) {
+    return;
+  }
+  std::vector<std::uint8_t> pixels(framebuffer.rgba8().begin(), framebuffer.rgba8().end());
+  applySoftwareBloom(pixels, framebuffer.width(), framebuffer.height(), settings.post);
+  applySoftwareFxaa(pixels, framebuffer.width(), framebuffer.height(), settings.post);
+  framebuffer.replaceRgba8(framebuffer.width(), framebuffer.height(), pixels);
 }
 
 bool containsViewerCullVolume(const aster::ViewerCullVolume &volume, const aster::Vec3 point) {
@@ -1011,7 +1258,9 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
                                   .slope_bias = 0.00012f};
   shadow.material.camera_occlusion = aster::CameraOcclusionPolicy::Solid;
   shadow.material.double_sided = true;
+  shadow.material.receives_shadows = false;
   shadow.casts_contact_shadow = false;
+  shadow.casts_shadows = false;
   shadow.camera_occlusion_fade = false;
   return shadow;
 }
@@ -1034,10 +1283,13 @@ ProjectedVertex projectVertex(const aster::Vertex &vertex, const aster::Mat4 &mo
     return {};
   }
 
+  const aster::Vec3 world_tangent =
+      aster::transformVector(model, {vertex.tangent.x, vertex.tangent.y, vertex.tangent.z});
   return {
       .valid = true,
       .world_position = aster::transformPoint(model, local_position),
       .normal = aster::normalize(aster::transformVector(model, vertex.normal)),
+      .tangent = {world_tangent.x, world_tangent.y, world_tangent.z, vertex.tangent.w},
       .uv = vertex.uv,
       .ambient_occlusion = vertex.ambient_occlusion,
       .x = (ndc_x * 0.5f + 0.5f) * static_cast<float>(width),
@@ -1063,10 +1315,19 @@ bool shouldCullTriangle(const ProjectedVertex &a, const ProjectedVertex &b,
 void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mesh,
               const aster::RenderObject &object, const aster::OrbitCamera &camera,
               const aster::RendererSettings &settings, const double frame_seconds,
-              const float opacity, std::size_t &draw_calls) {
+              const float opacity, std::size_t &draw_calls,
+              const aster::MaterialResourceLibrary *material_library) {
   if (mesh.vertices.empty() || mesh.indices.empty() || opacity <= 0.003f) {
     return;
   }
+  const aster::MaterialRuntimeResource *runtime_material =
+      material_library == nullptr
+          ? nullptr
+          : material_library->findForMaterialIds(object.material_asset_id, object.material.asset_id);
+  const aster::Material &material =
+      runtime_material == nullptr ? object.material : runtime_material->fallback_material;
+  const aster::RuntimeTextureSet *runtime_textures =
+      runtime_material == nullptr ? nullptr : &runtime_material->texture_set;
 
   const aster::Vec3 camera_position = camera.position();
   const aster::Mat4 model =
@@ -1081,10 +1342,10 @@ void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mes
   const aster::FaceCullMode cull_mode =
       objectCullMode(object, camera_position, settings.pipeline.back_face_culling);
   const bool alpha_blend =
-      opacity < 0.999f || aster::classifyMaterialRenderQueue(object.material) ==
+      opacity < 0.999f || aster::classifyMaterialRenderQueue(material) ==
                               aster::MaterialRenderQueue::Translucent;
-  const bool depth_write = aster::materialWritesDepth(object.material) && !alpha_blend;
-  const aster::RenderDepthPolicy depth_policy = object.material.depth_policy;
+  const bool depth_write = aster::materialWritesDepth(material) && !alpha_blend;
+  const aster::RenderDepthPolicy depth_policy = material.depth_policy;
 
   for (std::size_t i = 0; i + 2u < mesh.indices.size(); i += 3u) {
     const ProjectedVertex a =
@@ -1105,25 +1366,25 @@ void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mes
         .x = a.x,
         .y = a.y,
         .depth = a.depth,
-        .color =
-            shadedFrameColor(object.material, a.world_position, a.normal, a.uv, a.ambient_occlusion,
-                             camera_position, settings, frame_seconds, opacity),
+        .color = shadedFrameColor(material, a.world_position, a.normal, a.tangent, a.uv,
+                                  a.ambient_occlusion, camera_position, settings, frame_seconds,
+                                  opacity, runtime_textures),
     };
     const aster::FrameVertex fb{
         .x = b.x,
         .y = b.y,
         .depth = b.depth,
-        .color =
-            shadedFrameColor(object.material, b.world_position, b.normal, b.uv, b.ambient_occlusion,
-                             camera_position, settings, frame_seconds, opacity),
+        .color = shadedFrameColor(material, b.world_position, b.normal, b.tangent, b.uv,
+                                  b.ambient_occlusion, camera_position, settings, frame_seconds,
+                                  opacity, runtime_textures),
     };
     const aster::FrameVertex fc{
         .x = c.x,
         .y = c.y,
         .depth = c.depth,
-        .color =
-            shadedFrameColor(object.material, c.world_position, c.normal, c.uv, c.ambient_occlusion,
-                             camera_position, settings, frame_seconds, opacity),
+        .color = shadedFrameColor(material, c.world_position, c.normal, c.tangent, c.uv,
+                                  c.ambient_occlusion, camera_position, settings, frame_seconds,
+                                  opacity, runtime_textures),
     };
     framebuffer.drawTriangle(fa, fb, fc, settings.pipeline.depth_test, depth_write, alpha_blend,
                              depth_policy.constant_bias, depth_policy.slope_bias);
@@ -1359,7 +1620,7 @@ rhi::DeviceCapabilities softwareCapabilityTable() {
   rhi::DeviceCapabilities table;
   table.backend = rhi::BackendKind::SoftwareReference;
   table.shader_materials = true;
-  table.texture_sampling = false;
+  table.texture_sampling = true;
   table.instancing = false;
   table.capture = true;
   table.ui_composite = true;
@@ -1368,10 +1629,11 @@ rhi::DeviceCapabilities softwareCapabilityTable() {
   table.texture_arrays = false;
   table.shadow_maps = false;
   table.debug_markers = false;
-  table.hdr_render_targets = false;
+  table.hdr_render_targets = true;
   table.msaa = false;
   table.color_format_mask = rhi::imageFormatCapabilityBit(rhi::ImageFormat::Bgra8Unorm) |
-                            rhi::imageFormatCapabilityBit(rhi::ImageFormat::Rgba8Unorm);
+                            rhi::imageFormatCapabilityBit(rhi::ImageFormat::Rgba8Unorm) |
+                            rhi::imageFormatCapabilityBit(rhi::ImageFormat::Rgba16Float);
   table.depth_format_mask = rhi::imageFormatCapabilityBit(rhi::ImageFormat::Depth32Float);
   table.sample_count_mask = rhi::sampleCountCapabilityBit(1u);
   table.blend_mode_mask = rhi::blendModeCapabilityBit(rhi::BlendMode::Opaque) |
@@ -1381,7 +1643,7 @@ rhi::DeviceCapabilities softwareCapabilityTable() {
   table.limits.max_color_attachments = 1u;
   table.limits.max_uniform_buffers_per_stage = 1u;
   table.limits.max_bind_groups = 1u;
-  table.limits.max_vertex_attributes = 4u;
+  table.limits.max_vertex_attributes = 5u;
   table.limits.max_texture_dimension_2d = 16384u;
   table.limits.max_dynamic_uniform_bytes = 64u * 1024u;
   return table;
@@ -1398,7 +1660,7 @@ RenderBackendCapabilities softwareCapabilities() {
           .name = "Aster Learning Software Rasterizer",
           .gpu = false,
           .supports_shader_materials = true,
-          .supports_texture_sampling = false,
+          .supports_texture_sampling = true,
           .supports_instancing = false,
           .supports_capture = true,
           .supports_ui_composite = true,
@@ -1835,6 +2097,11 @@ void RenderDevice::initialize() {
   }
 }
 
+void RenderDevice::setMaterialResourceLibrary(
+    std::shared_ptr<const MaterialResourceLibrary> library) {
+  material_library_ = std::move(library);
+}
+
 void RenderDevice::prepareScene(const Scene &scene) {
   ASTER_PROFILE_SCOPE("RenderDevice::prepareScene");
   render_scene_.rebuild(scene);
@@ -1939,9 +2206,10 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     };
     framebuffer.resize(framebuffer_width, framebuffer_height);
     framebuffer.clearTransparent();
-    FrameStats native_stats = native_backend_->render(scene, plan, camera, settings, render_graph_, meshes,
-                                                      framebuffer_width, framebuffer_height,
-                                                      frame_seconds, &last_forensics_);
+    FrameStats native_stats =
+        native_backend_->render(scene, plan, camera, settings, render_graph_, meshes,
+                                framebuffer_width, framebuffer_height, frame_seconds,
+                                material_library_.get(), &last_forensics_);
     native_stats.visible_objects = plan.diagnostics.visible_objects;
     native_stats.culled_objects = plan.diagnostics.culled_objects;
     native_stats.instance_groups = plan.diagnostics.instance_groups;
@@ -1987,7 +2255,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     const CpuMesh &mesh = isContactShadowUtility(object) && object.custom_mesh == nullptr
                               ? contact_shadow_plane_
                               : meshForObject(object);
-    drawMesh(framebuffer, mesh, object, camera, settings, frame_seconds, opacity, stats.draw_calls);
+    drawMesh(framebuffer, mesh, object, camera, settings, frame_seconds, opacity, stats.draw_calls,
+             material_library_.get());
   };
 
   const auto draw_planned_group = [&](const FrameRenderDrawGroup &group) {
@@ -2061,6 +2330,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                         : 0u),
          .encode_seconds = std::chrono::duration<double>(pass_end - pass_start).count()});
   });
+  applySoftwarePostProcess(framebuffer, settings);
   const auto encode_end = std::chrono::steady_clock::now();
   stats.render_encode_seconds = std::chrono::duration<double>(encode_end - encode_start).count();
   stats.backend_feature_mask = softwareCapabilities().graph_resource_mask;
@@ -2094,6 +2364,11 @@ const FixedRenderGraph &RenderDevice::renderGraph() const {
 
 const FrameForensics &RenderDevice::lastFrameForensics() const {
   return last_forensics_;
+}
+
+const std::shared_ptr<const MaterialResourceLibrary> &RenderDevice::materialResourceLibrary()
+    const noexcept {
+  return material_library_;
 }
 
 } // namespace aster

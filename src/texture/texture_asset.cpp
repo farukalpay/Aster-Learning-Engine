@@ -29,6 +29,10 @@ std::string_view textureKindName(const TextureKind kind) {
     return "height";
   case TextureKind::Emissive:
     return "emissive";
+  case TextureKind::Wetness:
+    return "wetness";
+  case TextureKind::Opacity:
+    return "opacity";
   case TextureKind::Mask:
     return "mask";
   }
@@ -73,8 +77,13 @@ TextureKind textureKindForRole(const std::string_view role) {
   if (role == "emissive") {
     return TextureKind::Emissive;
   }
-  if (role.find("mask") != std::string_view::npos || role == "wetness" || role == "moss" ||
-      role == "crack") {
+  if (role == "wetness") {
+    return TextureKind::Wetness;
+  }
+  if (role == "opacity" || role == "alpha") {
+    return TextureKind::Opacity;
+  }
+  if (role.find("mask") != std::string_view::npos || role == "moss" || role == "crack") {
     return TextureKind::Mask;
   }
   return TextureKind::Unknown;

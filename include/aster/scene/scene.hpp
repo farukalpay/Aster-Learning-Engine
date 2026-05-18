@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -16,6 +17,7 @@
 namespace aster {
 
 struct CpuMesh;
+struct RenderObject;
 
 enum class MeshPrimitive {
   Box,
@@ -215,6 +217,7 @@ struct Material {
   RenderDepthPolicy depth_policy{};
   CameraOcclusionPolicy camera_occlusion = CameraOcclusionPolicy::Fade;
   ProceduralSurfaceLayer procedural{};
+  bool receives_shadows = true;
   std::uint64_t compiled_permutation_key = 0u;
   std::uint32_t compiled_permutation_flags = 0u;
   std::uint64_t shader_variant_key = 0u;
@@ -245,6 +248,7 @@ struct MaterialDesc {
   RenderDepthPolicy depth_policy{};
   CameraOcclusionPolicy camera_occlusion = CameraOcclusionPolicy::Fade;
   ProceduralSurfaceLayer procedural{};
+  bool receives_shadows = true;
 };
 
 [[nodiscard]] Material makeMaterial(const MaterialDesc &desc);
@@ -258,6 +262,7 @@ struct MaterialDesc {
 [[nodiscard]] bool allowsCameraOcclusionFade(const Material &material);
 [[nodiscard]] bool isMaterialTranslucent(const Material &material);
 [[nodiscard]] bool isDoubleSidedMaterial(const Material &material);
+[[nodiscard]] bool renderObjectCastsShadows(const RenderObject &object);
 
 struct RenderObject {
   std::string name;
@@ -270,12 +275,24 @@ struct RenderObject {
   bool camera_occlusion_fade = true;
   bool auto_contact_shadow = true;
   bool casts_contact_shadow = false;
+  bool casts_shadows = true;
   float contact_shadow_strength = 1.0f;
   float contact_shadow_radius_scale = 1.0f;
   ViewerCullVolume viewer_cull_volume{};
   RenderVisibilityHint visibility_hint{};
   RenderLodPolicy lod{};
   DynamicMeshResourceKey dynamic_mesh{};
+};
+
+struct ReflectionProbe {
+  std::string name;
+  Vec3 position{};
+  float influence_radius = 8.0f;
+  Vec3 sky_irradiance{0.42f, 0.47f, 0.52f};
+  Vec3 ground_irradiance{0.20f, 0.17f, 0.13f};
+  Vec3 specular_tint{1.0f, 1.0f, 1.0f};
+  float intensity = 1.0f;
+  std::filesystem::path cubemap_asset;
 };
 
 class Scene {
@@ -288,8 +305,17 @@ public:
     return objects_;
   }
 
+  [[nodiscard]] const std::vector<ReflectionProbe> &reflectionProbes() const {
+    return reflection_probes_;
+  }
+
+  [[nodiscard]] std::vector<ReflectionProbe> &reflectionProbes() {
+    return reflection_probes_;
+  }
+
 private:
   std::vector<RenderObject> objects_;
+  std::vector<ReflectionProbe> reflection_probes_;
 };
 
 } // namespace aster

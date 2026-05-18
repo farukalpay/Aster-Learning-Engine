@@ -121,6 +121,7 @@ set(ASTER_TEXTURE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/texture/texture_compressor.cpp"
   "${PROJECT_SOURCE_DIR}/src/texture/texture_debug.cpp"
   "${PROJECT_SOURCE_DIR}/src/texture/texture_importer.cpp"
+  "${PROJECT_SOURCE_DIR}/src/texture/runtime_texture.cpp"
   "${PROJECT_SOURCE_DIR}/src/texture/texture_streamer.cpp"
 )
 

@@ -55,12 +55,14 @@ public:
                            const aster::FixedRenderGraph &graph,
                            const aster::PreparedRenderMeshes &meshes, const int framebuffer_width,
                            const int framebuffer_height, const double frame_seconds,
+                           const aster::MaterialResourceLibrary *material_library,
                            aster::FrameForensics *forensics) override {
     (void)scene;
     (void)plan;
     (void)camera;
     (void)settings;
     (void)meshes;
+    (void)material_library;
     ASTER_PROFILE_SCOPE("NullNativeRenderBackend::render");
     const auto encode_start = std::chrono::steady_clock::now();
     aster::FrameStats stats;

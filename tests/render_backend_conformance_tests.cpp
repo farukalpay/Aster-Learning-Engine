@@ -612,7 +612,15 @@ void testBackendCapabilityTableContracts() {
   }
   if (native.backend.kind != aster::RenderBackendKind::Null) {
     assert(native.backend.capability_table.max_color_attachments == 1u);
-    assert(!native.backend.capability_table.texture_sampling);
+    if (native.backend.kind == aster::RenderBackendKind::Metal ||
+        native.backend.kind == aster::RenderBackendKind::D3D12) {
+      assert(native.backend.capability_table.texture_sampling);
+      assert(native.backend.supports_texture_sampling);
+      assert(native.backend.capability_table.max_sampled_textures_per_material >= 10u);
+      assert(native.backend.capability_table.max_samplers_per_material >= 1u);
+    } else {
+      assert(!native.backend.capability_table.texture_sampling);
+    }
     if (native.backend.kind == aster::RenderBackendKind::Metal ||
         native.backend.kind == aster::RenderBackendKind::D3D12) {
       assert(native.backend.capability_table.storage_buffers);

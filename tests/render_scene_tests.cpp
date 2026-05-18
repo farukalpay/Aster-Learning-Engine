@@ -598,6 +598,7 @@ void testMaterialRenderPolicies() {
   assert(aster::classifyMaterialRenderQueue(opaque) == aster::MaterialRenderQueue::Opaque);
   assert(aster::materialWritesDepth(opaque));
   assert(aster::allowsCameraOcclusionFade(opaque));
+  assert(opaque.receives_shadows);
 
   aster::Material foliage =
       aster::makeMaterial({.alpha_mode = aster::MaterialAlphaMode::Masked,
@@ -615,11 +616,31 @@ void testMaterialRenderPolicies() {
   assert(!aster::materialWritesDepth(water));
   assert(!aster::allowsCameraOcclusionFade(water));
 
+  aster::Material no_shadow_receiver = aster::makeMaterial({.receives_shadows = false});
+  assert(!no_shadow_receiver.receives_shadows);
+
   aster::Material support = aster::makeSupportSurfaceMaterial(water);
   assert(support.render_role == aster::MaterialRenderRole::SupportSurface);
   assert(aster::classifyMaterialRenderQueue(support) == aster::MaterialRenderQueue::Opaque);
   assert(aster::materialWritesDepth(support));
   assert(!aster::allowsCameraOcclusionFade(support));
+
+  aster::RenderObject caster;
+  caster.material = opaque;
+  assert(aster::renderObjectCastsShadows(caster));
+  caster.material = water;
+  assert(!aster::renderObjectCastsShadows(caster));
+  caster.material = opaque;
+  caster.casts_shadows = false;
+  assert(!aster::renderObjectCastsShadows(caster));
+
+  aster::Scene scene;
+  scene.reflectionProbes().push_back({.name = "local cave probe",
+                                      .position = {1.0f, 2.0f, 3.0f},
+                                      .influence_radius = 6.0f,
+                                      .intensity = 0.85f});
+  assert(scene.reflectionProbes().size() == 1u);
+  assert(scene.reflectionProbes().front().influence_radius == 6.0f);
 }
 
 void testRuntimeLightPolicy() {

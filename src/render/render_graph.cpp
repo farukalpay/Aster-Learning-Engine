@@ -147,7 +147,7 @@ framegraph::FrameGraph makeDefaultFrameGraph(const bool ui_overlay_enabled,
   const auto color = graph.addResource(
       std::string(renderGraphResourceName(RenderGraphResource::SceneColor)),
       {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-       .format = rhi::ImageFormat::Bgra8Unorm,
+       .format = rhi::ImageFormat::Rgba16Float,
        .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
                 rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
                 rhi::imageUsageBit(rhi::ImageUsage::TransferSource)});

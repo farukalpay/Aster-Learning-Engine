@@ -31,6 +31,7 @@ Material makeMaterial(const MaterialDesc &desc) {
   material.depth_policy = desc.depth_policy;
   material.camera_occlusion = desc.camera_occlusion;
   material.procedural = desc.procedural;
+  material.receives_shadows = desc.receives_shadows;
   return material;
 }
 
@@ -185,6 +186,16 @@ bool isMaterialTranslucent(const Material &material) {
 
 bool isDoubleSidedMaterial(const Material &material) {
   return material.double_sided || material.render_role == MaterialRenderRole::SupportSurface;
+}
+
+bool renderObjectCastsShadows(const RenderObject &object) {
+  if (!object.casts_shadows) {
+    return false;
+  }
+  if (resolveMaterialSurfaceProfile(object.material) == MaterialSurfaceProfile::ContactShadow) {
+    return false;
+  }
+  return classifyMaterialRenderQueue(object.material) != MaterialRenderQueue::Translucent;
 }
 
 } // namespace aster

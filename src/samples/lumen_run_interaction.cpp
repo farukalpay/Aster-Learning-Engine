@@ -254,6 +254,18 @@ void LumenRun::updatePrismRelayVisuals(const float dt) {
 
 void LumenRun::updateCaveVisuals(const float dt) {
   auto &objects = scene_.objects();
+  CaveInteriorSample player_cave_sample{};
+  (void)caveSectionAt(player_position_, &player_cave_sample);
+  const float exterior_opacity = player_cave_sample.interior > 0.08f ? 0.0f : 1.0f;
+  const Vec3 exterior_scale = exterior_opacity <= 0.0f ? Vec3{0.001f, 0.001f, 0.001f}
+                                                       : Vec3{1.0f, 1.0f, 1.0f};
+  for (const std::size_t object_index : cave_exterior_hidden_objects_) {
+    if (object_index < objects.size()) {
+      RenderObject &object = objects[object_index];
+      object.transform.scale = exterior_scale;
+      object.material.opacity = exterior_opacity;
+    }
+  }
   for (CoalOreNode &ore : coal_ores_) {
     if (ore.object_index >= objects.size()) {
       continue;
