@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "material.cave_rock",
+  "name": "Cave Rock",
+  "base_color": [0.22, 0.20, 0.18],
+  "roughness": 0.86,
+  "metallic": 0.0,
+  "tags": ["surface.rock", "lumen.cave"]
+}

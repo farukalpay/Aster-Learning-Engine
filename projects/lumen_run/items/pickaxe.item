@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "id": "item.pickaxe",
+  "display_name": "Pickaxe",
+  "short_label": "PCK",
+  "stackable": false,
+  "max_stack": 1,
+  "equipment_slots": ["hand"],
+  "tags": ["item.tool", "tool.mining"]
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "action.relay.activate",
+  "name": "Activate Prism Relay",
+  "nodes": [
+    {
+      "id": "request_relay_activation",
+      "type": "emit_event",
+      "parameters": {
+        "event": "relay.activation_requested",
+        "relay": "target"
+      },
+      "tags": ["interaction.relay"]
+    }
+  ]
+}

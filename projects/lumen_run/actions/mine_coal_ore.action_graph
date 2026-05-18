@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "action.mine.coal_ore",
+  "name": "Mine Coal Ore",
+  "nodes": [
+    {
+      "id": "request_mining_attempt",
+      "type": "mining_attempt",
+      "parameters": {
+        "required_tag": "tool.mining",
+        "resource_item": "item.coal",
+        "target": "target"
+      },
+      "tags": ["interaction.mineable", "resource.coal"]
+    }
+  ]
+}

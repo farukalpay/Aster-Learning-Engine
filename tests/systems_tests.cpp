@@ -174,7 +174,7 @@ void testGenericMineableBreaksWithoutVoxelCarve() {
   tool.power = 1.0f;
 
   const aster::MineableHit web_hit{.hit = true,
-                                   .target_key = "web:test",
+                                   .target_key = "lumen.web.test",
                                    .point = {0.0f, 1.0f, -2.0f},
                                    .normal = {0.0f, 0.0f, 1.0f},
                                    .material = aster::VoxelCaveMaterial::Rock,

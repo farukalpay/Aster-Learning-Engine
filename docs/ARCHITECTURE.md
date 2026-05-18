@@ -19,6 +19,28 @@ subsystem to the public kernel requires a versioned handle contract, explicit
 ownership rules, status-returning failure behavior, and tests that include only
 `aster/kernel`.
 
+## Source Game SDK Boundary
+
+The public game-authoring surface starts at `include/aster/game_sdk`, backed by
+the `aster_game_sdk` target. This is intentionally separate from the binary
+kernel ABI: it is a source-level C++ SDK for project, scene, prefab, material,
+item, component, and action graph documents. SDK headers may use STL containers
+because consumers compile them with their own toolchain; they must not include
+internal `include/aster/{scene,systems,samples,render}` headers.
+
+Authoring documents are schema-versioned JSON. The SDK loader validates
+`.asterproj`, game `.scene`, `.prefab`, `.material`, `.item`, and
+`.action_graph` documents into explicit data models, then instantiates them into
+an SDK `World`. The action graph runtime emits typed action events from data
+nodes instead of routing gameplay through string-prefix target IDs. Engine
+runtime adapters can consume these SDK models later, but product apps should not
+copy project loading or schema validation into their own code.
+
+`projects/lumen_run` is the first SDK project seed. `aster_lumen_run` validates
+that project during boot, while the current hand-authored C++ simulation remains
+transitional until its items, interactions, prefabs, and scene placements are
+fully driven by SDK documents.
+
 ## Module Boundaries
 
 `include/aster/kernel`
@@ -27,6 +49,13 @@ Stable public ABI and C++ wrappers. Kernel headers must not include broad engine
 headers, STL containers in ABI structs, native platform types, renderer backend
 types, or sample-owned state. Public resources cross this boundary only as
 opaque handles with matching destroy functions.
+
+`include/aster/game_sdk`
+
+Public source SDK for game authoring. This layer owns schema-versioned project
+manifests, entity/component scene documents, prefab documents, item/material
+documents, and data-driven action graphs. It must stay reusable and independent
+from sample code, renderer internals, and kernel ABI handles.
 
 `include/aster/math`
 
@@ -122,14 +151,14 @@ content assumptions.
 `include/aster/samples`
 
 Sample-owned contracts and authored scene builders for repository builds. Lumen
-Run and showcase scenes consume engine, geometry, renderer, UI, physics, and
-systems modules from the outside. Sample code can be content-specific; engine
-and systems code cannot. Lumen Run is not part of the stable engine kernel; if a
-sample needs external binary access, it must be exposed through an opaque
-`AsterSampleAppHandle` facade rather than a public header containing sample
-state. Source-only helpers live beside `src/samples/lumen_run_*.cpp` so
-Lumen-specific placement, material, and route data do not become engine defaults
-by accident.
+Run and showcase scenes consume engine, geometry, renderer, UI, physics, systems
+modules, and the public game SDK from the outside. Sample code can be
+content-specific; engine, SDK, and systems code cannot. Lumen Run is not part of
+the stable engine kernel; if a sample needs external binary access, it must be
+exposed through an opaque `AsterSampleAppHandle` facade rather than a public
+header containing sample state. Source-only helpers live beside
+`src/samples/lumen_run_*.cpp` so Lumen-specific placement, material, and route
+data do not become engine defaults by accident.
 
 `include/aster/ui`
 
@@ -262,13 +291,13 @@ adapters.
 
 CTest exposes subsystem targets instead of a single catch-all executable:
 `aster_kernel_public_consumer`, `aster_kernel_contract_tests`,
-`aster_core_tests`, `aster_geometry_tests`, `aster_render_scene_tests`,
-`aster_systems_tests`, `aster_physics_tests`, `aster_sample_tests`, and
-`aster_network_tests` when networking is enabled. Shared test helpers are local
-to `tests/` and must not become engine API. New coverage should land in the
-target that owns the contract being changed; sample-specific regression checks
-belong in the sample target unless they first extract a reusable engine
-contract.
+`aster_game_sdk_public_consumer`, `aster_core_tests`, `aster_geometry_tests`,
+`aster_render_scene_tests`, `aster_systems_tests`, `aster_physics_tests`,
+`aster_sample_tests`, and `aster_network_tests` when networking is enabled.
+Shared test helpers are local to `tests/` and must not become engine API. New
+coverage should land in the target that owns the contract being changed;
+sample-specific regression checks belong in the sample target unless they first
+extract a reusable engine or SDK contract.
 
 ## Known Compromises
 

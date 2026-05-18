@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "prefab.torch_socket",
+  "name": "Torch Socket Archetype",
+  "entities": [
+    {
+      "id": "torch_socket.root",
+      "name": "Torch Socket",
+      "components": {
+        "transform": {},
+        "torch_socket": { "color": [1.0, 0.5, 0.2], "intensity": 5.8, "radius": 0.82 },
+        "light": { "kind": "point", "color": [1.0, 0.5, 0.2], "intensity": 5.8, "radius": 0.82 },
+        "cave_debug": { "layers": ["lighting"], "color": [1.0, 0.5, 0.2] }
+      }
+    }
+  ]
+}

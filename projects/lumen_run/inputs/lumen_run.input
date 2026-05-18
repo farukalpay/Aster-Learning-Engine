@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "input.lumen_run",
+  "bindings": [
+    { "command": "world.interact", "device": "keyboard", "key": "E" },
+    { "command": "world.interact.secondary", "device": "mouse", "button": "right" },
+    { "command": "hotbar.slot.1", "device": "keyboard", "key": "1" }
+  ]
+}

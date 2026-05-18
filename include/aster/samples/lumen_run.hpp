@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "aster/game_sdk/game_sdk.hpp"
 #include "aster/systems/animation_system.hpp"
 #include "aster/systems/creature_motion.hpp"
 #include "aster/systems/equipment_system.hpp"
@@ -84,9 +85,26 @@ struct CaveLightingState {
   std::vector<CaveWallLightSample> wall_lights;
 };
 
+enum class CaveDebugOverlayLayer : std::uint32_t {
+  Collision = 1u << 0u,
+  Interactable = 1u << 1u,
+  MiningTarget = 1u << 2u,
+  SpawnVolume = 1u << 3u,
+  CameraObstruction = 1u << 4u,
+  Walkable = 1u << 5u,
+};
+
+struct LumenAuthoringData {
+  sdk::ProjectDocument project;
+  sdk::SceneDocument scene;
+  sdk::CaveDocument cave;
+  bool valid = false;
+};
+
 class LumenRun {
 public:
   explicit LumenRun(LumenTuning tuning = {});
+  explicit LumenRun(LumenAuthoringData authoring, LumenTuning tuning = {});
 
   void reset();
   void update(float dt, Vec2 move_axis, bool run_requested, bool jump_requested);
@@ -131,6 +149,10 @@ public:
   [[nodiscard]] std::optional<DynamicPointLight> prismRelayLight() const;
   [[nodiscard]] CaveLightingState caveLightingState() const;
   [[nodiscard]] CaveLightingState caveLightingStateAt(Vec3 position) const;
+  void setCaveDebugOverlayEnabled(bool enabled);
+  [[nodiscard]] bool caveDebugOverlayEnabled() const;
+  void setCaveDebugOverlayLayerMask(std::uint32_t mask);
+  [[nodiscard]] std::uint32_t caveDebugOverlayLayerMask() const;
 
 private:
   struct Shard {
@@ -237,6 +259,14 @@ private:
     std::size_t object_index = 0;
   };
 
+  struct CaveDebugOverlayObject {
+    std::size_t object_index = 0;
+    std::uint32_t layer = 0u;
+    Vec3 visible_scale{1.0f, 1.0f, 1.0f};
+    float visible_opacity = 0.26f;
+    float visible_emission = 0.28f;
+  };
+
   struct CaveWallFixtureVisual {
     std::size_t backplate = 0;
     std::size_t lens = 0;
@@ -265,7 +295,7 @@ private:
   };
 
   struct CaveWebObstacle {
-    std::string id = "cave_web:0";
+    std::string id = "lumen.cave_web.0";
     Vec3 center{};
     Vec3 normal{0.0f, 0.0f, -1.0f};
     Vec3 side{1.0f, 0.0f, 0.0f};
@@ -281,7 +311,7 @@ private:
   };
 
   struct CaveSkitter {
-    std::string id = "cave_skitter:0";
+    std::string id = "lumen.cave_skitter.0";
     CaveSkitterAgentState state{};
     int health = 3;
     int max_health = 3;
@@ -319,6 +349,7 @@ private:
   void updatePrismRelay(float dt);
   void updatePrismRelayVisuals(float dt);
   void updateCaveVisuals(float dt);
+  void updateCaveDebugOverlayVisibility();
   [[nodiscard]] float caveWebSlowScaleAt(Vec3 position) const;
   [[nodiscard]] bool applyPlayerDamage(int hit_points, Vec3 impact_origin);
   void spawnBloodBurst(Vec3 center, Vec3 impact_origin, float intensity);
@@ -333,9 +364,9 @@ private:
   [[nodiscard]] TerrainSurfaceSample sampleWorldSupport(const SurfaceSupportQuery &query) const;
   [[nodiscard]] const AuthoredCaveSection *caveSectionAt(Vec3 position,
                                                          CaveInteriorSample *sample = nullptr) const;
-  [[nodiscard]] bool mineFocusedOre(std::string_view target_id);
-  [[nodiscard]] bool mineFocusedCaveWeb(std::string_view target_id);
-  [[nodiscard]] bool mineFocusedCaveSkitter(std::string_view target_id);
+  [[nodiscard]] bool mineFocusedOre(std::size_t ore_index);
+  [[nodiscard]] bool mineFocusedCaveWeb(std::size_t web_index);
+  [[nodiscard]] bool mineFocusedCaveSkitter(std::size_t skitter_index);
   [[nodiscard]] bool placeEquippedResource(Vec3 ray_origin, Vec3 ray_direction);
   [[nodiscard]] bool storeMinedResource(const ItemDefinition &definition, int quantity);
   [[nodiscard]] PhysicsBodyHandle addPlacedRockPhysics(const PlacedResourceRock &rock);
@@ -349,6 +380,7 @@ private:
   [[nodiscard]] Vec3 avatarPosePosition(Vec3 player_position) const;
 
   LumenTuning tuning_{};
+  LumenAuthoringData authoring_{};
   LumenStatus status_{};
   Scene scene_{};
   TerrainHeightField terrain_{};
@@ -414,6 +446,9 @@ private:
   Vec3 cave_entrance_light_position_{};
   std::vector<std::shared_ptr<const CpuMesh>> cave_collision_meshes_;
   ViewerCullVolume cave_viewer_cull_volume_{};
+  bool cave_debug_overlay_enabled_ = false;
+  std::uint32_t cave_debug_overlay_layer_mask_ = 0u;
+  std::vector<CaveDebugOverlayObject> cave_debug_overlay_objects_;
   std::size_t focused_cave_web_index_ = 0;
   bool focused_cave_web_valid_ = false;
   MiningState mining_;

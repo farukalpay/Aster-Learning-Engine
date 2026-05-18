@@ -20,6 +20,12 @@ physics,platform,render,samples,scene,systems,ui}` are source contracts for the
 current repository build. They can change when the engine implementation changes
 and are deliberately not installed by the `aster_kernel` target.
 
+`include/aster/game_sdk` is a separate public source SDK, not part of the binary
+kernel ABI. It is installed as `aster::game_sdk` and owns game-authoring
+documents, entity/component data, prefab data, item/material definitions, and
+action graph contracts. It may evolve under source-compatibility rules without
+expanding the C ABI promise described here.
+
 ## ABI Promise
 
 The ABI promise is the exported `aster_kernel_*` symbol set plus the fixed-layout
@@ -92,7 +98,8 @@ engine defaults by leaking state back into the kernel.
 
 The repository still carries broad implementation headers under `include/aster`
 because the existing apps and subsystem tests compile against them. The boundary
-is enforced at the build/export level first: only `aster_kernel` is installed and
-only `include/aster/kernel` is treated as the stable public surface. Future
-subsystem work should either stay internal or be re-exposed through versioned
-opaque handles and fixed-layout kernel contracts.
+is enforced at the build/export level first: `aster_kernel` installs only
+`include/aster/kernel`, while `aster_game_sdk` installs only
+`include/aster/game_sdk`. Future subsystem work should either stay internal, be
+re-exposed through the source SDK as authoring/runtime data contracts, or be
+promoted through versioned opaque handles and fixed-layout kernel contracts.

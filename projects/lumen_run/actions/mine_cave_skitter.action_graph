@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "action.mine.cave_skitter",
+  "name": "Strike Cave Skitter",
+  "nodes": [
+    {
+      "id": "request_skitter_strike",
+      "type": "mining_attempt",
+      "parameters": {
+        "required_tag": "tool.mining",
+        "target": "target",
+        "mode": "damage_creature"
+      },
+      "tags": ["interaction.mineable", "creature.cave_skitter"]
+    }
+  ]
+}

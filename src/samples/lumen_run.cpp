@@ -10,6 +10,11 @@ LumenRun::LumenRun(LumenTuning tuning) : tuning_(tuning) {
   reset();
 }
 
+LumenRun::LumenRun(LumenAuthoringData authoring, LumenTuning tuning)
+    : tuning_(tuning), authoring_(std::move(authoring)) {
+  reset();
+}
+
 void LumenRun::reset() {
   ASTER_PROFILE_SCOPE("LumenRun::reset");
   status_ = {};
@@ -102,6 +107,7 @@ void LumenRun::reset() {
   cave_sections_.clear();
   cave_collision_meshes_.clear();
   cave_viewer_cull_volume_ = {};
+  cave_debug_overlay_objects_.clear();
   focused_cave_web_index_ = 0;
   focused_cave_web_valid_ = false;
   mining_.reset();
@@ -378,6 +384,47 @@ void LumenRun::clearAvatarPreviewYaw() {
   player_preview_yaw_enabled_ = false;
 }
 
+void LumenRun::setCaveDebugOverlayEnabled(const bool enabled) {
+  cave_debug_overlay_enabled_ = enabled;
+  updateCaveDebugOverlayVisibility();
+}
+
+bool LumenRun::caveDebugOverlayEnabled() const {
+  return cave_debug_overlay_enabled_;
+}
+
+void LumenRun::setCaveDebugOverlayLayerMask(const std::uint32_t mask) {
+  cave_debug_overlay_layer_mask_ = mask;
+  updateCaveDebugOverlayVisibility();
+}
+
+std::uint32_t LumenRun::caveDebugOverlayLayerMask() const {
+  return cave_debug_overlay_layer_mask_;
+}
+
+void LumenRun::updateCaveDebugOverlayVisibility() {
+  auto &objects = scene_.objects();
+  for (const CaveDebugOverlayObject &overlay_entry : cave_debug_overlay_objects_) {
+    const std::size_t object_index = overlay_entry.object_index;
+    if (object_index >= objects.size()) {
+      continue;
+    }
+    RenderObject &object = objects[object_index];
+    const bool visible = cave_debug_overlay_enabled_ &&
+                         (cave_debug_overlay_layer_mask_ == 0u ||
+                          (cave_debug_overlay_layer_mask_ & overlay_entry.layer) != 0u);
+    if (visible) {
+      object.transform.scale = overlay_entry.visible_scale;
+      object.material.opacity = overlay_entry.visible_opacity;
+      object.material.emission_strength = overlay_entry.visible_emission;
+    } else {
+      object.transform.scale = {0.001f, 0.001f, 0.001f};
+      object.material.opacity = 0.0f;
+      object.material.emission_strength = 0.0f;
+    }
+  }
+}
+
 void LumenRun::setAvatarPointTarget(const Vec3 target) {
   player_avatar_point_target_ = target;
   player_avatar_point_enabled_ = true;
@@ -481,7 +528,8 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
       }
     }
   }
-  targets.push_back({.id = chest_open_ ? "chest:contents" : "chest:parkour",
+  targets.push_back({.id = chest_open_ ? "lumen.supply_chest.contents" : "lumen.supply_chest",
+                     .action_graph = chest_open_ ? "action.chest.take" : "action.chest.open",
                      .kind = InteractionTargetKind::Container,
                      .action_label = action,
                      .subject_label = subject,
@@ -494,7 +542,8 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
   const Vec3 relay_focus = prismRelayFocusPosition();
   const bool player_near_relay =
       length(player_position_ - relay_focus) <= kPrismRelayInteractionDistance;
-  targets.push_back({.id = "relay:prism",
+  targets.push_back({.id = "lumen.prism_relay",
+                     .action_graph = "action.relay.activate",
                      .kind = InteractionTargetKind::Item,
                      .action_label = prism_relay_active_ ? "Tune" : "Ignite",
                      .subject_label = "Prism Relay",
@@ -572,13 +621,15 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
       continue;
     }
     const float distance = length(player_position_ - ore.position);
-    targets.push_back({.id = "ore:" + std::to_string(i),
+    targets.push_back({.id = "lumen.coal_ore." + std::to_string(i),
+                       .action_graph = "action.mine.coal_ore",
                        .kind = InteractionTargetKind::Item,
                        .action_label = pickaxe_equipped ? "Mine" : "Need",
                        .subject_label = pickaxe_equipped ? "Coal Ore" : "Pickaxe",
                        .position = ore.position,
                        .radius = std::max(ore.radius, 0.28f),
                        .max_distance = 14.0f,
+                       .user_data = static_cast<std::uint64_t>(i),
                        .enabled = distance <= kOreInteractionDistance});
   }
   float nearest_web_distance = std::numeric_limits<float>::infinity();
@@ -594,7 +645,8 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
       focused_cave_web_valid_ = true;
     }
     const std::optional<std::pair<float, Vec3>> web_hit = webRayHit(web);
-    targets.push_back({.id = "web:" + std::to_string(i),
+    targets.push_back({.id = web.id.empty() ? "lumen.cave_web." + std::to_string(i) : web.id,
+                       .action_graph = "action.mine.cave_web",
                        .kind = InteractionTargetKind::Item,
                        .shape = web_hit.has_value() ? InteractionTargetShape::ExplicitHit
                                                      : InteractionTargetShape::Sphere,
@@ -606,6 +658,7 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                        .proximity_distance = kCaveWebInteractionDistance,
                        .hit_distance = web_hit.has_value() ? web_hit->first : 0.0f,
                        .evidence_strength = web_hit.has_value() ? 2.0f : 1.0f,
+                       .user_data = static_cast<std::uint64_t>(i),
                        .enabled = distance <= kCaveWebInteractionDistance});
   }
   for (std::size_t i = 0; i < cave_skitters_.size(); ++i) {
@@ -616,7 +669,9 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
     const float distance = length(player_position_ - skitter.state.position);
     const Vec3 skitter_focus = skitter.state.position + Vec3{0.0f, 0.10f, 0.0f};
     const float ray_distance = length(skitter_focus - ray_origin);
-    targets.push_back({.id = "skitter:" + std::to_string(i),
+    targets.push_back({.id = skitter.id.empty() ? "lumen.cave_skitter." + std::to_string(i)
+                                                : skitter.id,
+                       .action_graph = "action.mine.cave_skitter",
                        .kind = InteractionTargetKind::Item,
                        .action_label = pickaxe_equipped ? "Strike" : "Need",
                        .subject_label = pickaxe_equipped ? "Cave Skitter" : "Pickaxe",
@@ -625,6 +680,7 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                        .max_distance = 14.0f,
                        .proximity_distance = kCaveSkitterInteractionDistance,
                        .occluded = rayOccludedByWeb(skitter_focus, ray_distance),
+                       .user_data = static_cast<std::uint64_t>(i),
                        .enabled = distance <= kCaveSkitterInteractionDistance});
   }
 
@@ -637,39 +693,43 @@ void LumenRun::interactFocused() {
     return;
   }
 
-  if (focus.kind == InteractionTargetKind::Container && focus.target_id == "chest:parkour") {
+  if (focus.kind == InteractionTargetKind::Container &&
+      focus.action_graph == "action.chest.open") {
     openChest();
     setAvatarPointTarget(chest_base_ + Vec3{0.0f, 0.42f, 0.0f});
     return;
   }
-  if (focus.kind == InteractionTargetKind::Container && focus.target_id == "chest:contents") {
+  if (focus.kind == InteractionTargetKind::Container &&
+      focus.action_graph == "action.chest.take") {
     if (takeChestSlot(chest_selected_slot_)) {
       setAvatarPointTarget(focus.position);
     }
     return;
   }
-  if (focus.kind == InteractionTargetKind::Item && focus.target_id == "relay:prism") {
+  if (focus.kind == InteractionTargetKind::Item &&
+      focus.action_graph == "action.relay.activate") {
     activatePrismRelay();
     setAvatarPointTarget(prismRelayFocusPosition());
     return;
   }
-  if (focus.kind == InteractionTargetKind::Item && focus.target_id.rfind("ore:", 0u) == 0u) {
-    (void)mineFocusedOre(focus.target_id);
+  if (focus.kind == InteractionTargetKind::Item && focus.action_graph == "action.mine.coal_ore") {
+    (void)mineFocusedOre(static_cast<std::size_t>(focus.user_data));
     return;
   }
-  if (focus.kind == InteractionTargetKind::Item && focus.target_id.rfind("web:", 0u) == 0u) {
-    (void)mineFocusedCaveWeb(focus.target_id);
+  if (focus.kind == InteractionTargetKind::Item && focus.action_graph == "action.mine.cave_web") {
+    (void)mineFocusedCaveWeb(static_cast<std::size_t>(focus.user_data));
     return;
   }
-  if (focus.kind == InteractionTargetKind::Item && focus.target_id.rfind("skitter:", 0u) == 0u) {
-    (void)mineFocusedCaveSkitter(focus.target_id);
+  if (focus.kind == InteractionTargetKind::Item &&
+      focus.action_graph == "action.mine.cave_skitter") {
+    (void)mineFocusedCaveSkitter(static_cast<std::size_t>(focus.user_data));
   }
 }
 
 void LumenRun::secondaryInteractFocused(const Vec3 ray_origin, const Vec3 ray_direction) {
   const InteractionFocus &focus = interaction_.focus();
   if (focus.visible && focus.kind == InteractionTargetKind::Container &&
-      focus.target_id == "chest:parkour") {
+      focus.action_graph == "action.chest.open") {
     interactFocused();
     return;
   }
@@ -677,18 +737,18 @@ void LumenRun::secondaryInteractFocused(const Vec3 ray_origin, const Vec3 ray_di
     return;
   }
   if (focus.visible && focus.kind == InteractionTargetKind::Item &&
-      focus.target_id.rfind("ore:", 0u) == 0u) {
-    (void)mineFocusedOre(focus.target_id);
+      focus.action_graph == "action.mine.coal_ore") {
+    (void)mineFocusedOre(static_cast<std::size_t>(focus.user_data));
     return;
   }
   if (focus.visible && focus.kind == InteractionTargetKind::Item &&
-      focus.target_id.rfind("web:", 0u) == 0u) {
-    (void)mineFocusedCaveWeb(focus.target_id);
+      focus.action_graph == "action.mine.cave_web") {
+    (void)mineFocusedCaveWeb(static_cast<std::size_t>(focus.user_data));
     return;
   }
   if (focus.visible && focus.kind == InteractionTargetKind::Item &&
-      focus.target_id.rfind("skitter:", 0u) == 0u) {
-    (void)mineFocusedCaveSkitter(focus.target_id);
+      focus.action_graph == "action.mine.cave_skitter") {
+    (void)mineFocusedCaveSkitter(static_cast<std::size_t>(focus.user_data));
   }
 }
 

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "prefab.cave_skitter_spawn",
+  "name": "Cave Skitter Spawn Archetype",
+  "entities": [
+    {
+      "id": "cave_skitter_spawn.root",
+      "name": "Cave Skitter Spawn",
+      "components": {
+        "transform": {},
+        "spawn_point": { "spawn_kind": "enemy.cave_skitter", "radius": 1.6, "half_extents": [1.8, 1.2, 0.8] },
+        "cave_debug": { "layers": ["spawn_volume", "interactable"], "color": [1.0, 0.22, 0.16] }
+      }
+    }
+  ]
+}

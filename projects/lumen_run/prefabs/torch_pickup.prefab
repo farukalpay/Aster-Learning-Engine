@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "prefab.torch_pickup",
+  "name": "Torch Pickup",
+  "entities": [
+    {
+      "id": "torch_pickup.root",
+      "name": "Torch Pickup",
+      "components": {
+        "transform": { "translation": [0.0, 0.0, 0.0] },
+        "mesh_renderer": { "mesh": "mesh.torch_pickup", "material": "material.torch_flame" },
+        "collider": { "shape": "sphere", "radius": 0.24, "trigger": true, "layer": "world.pickup" },
+        "interactable": {
+          "tags": ["item.torch", "interaction.pickup"],
+          "action_graph": "action.item.pickup",
+          "prompt_action": "Take",
+          "prompt_subject": "Torch"
+        }
+      }
+    }
+  ]
+}

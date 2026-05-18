@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "prefab.coal_ore_node",
+  "name": "Coal Ore Node Archetype",
+  "entities": [
+    {
+      "id": "coal_ore_node.root",
+      "name": "Coal Ore Node",
+      "components": {
+        "transform": {},
+        "mesh_renderer": { "mesh": "mesh.coal_ore", "material": "material.cave_rock" },
+        "collider": { "shape": "sphere", "radius": 0.28, "layer": "world.mineable" },
+        "interactable": {
+          "tags": ["resource.coal", "interaction.mineable"],
+          "action_graph": "action.mine.coal_ore",
+          "prompt_action": "Mine",
+          "prompt_subject": "Coal Ore",
+          "radius": 0.35,
+          "max_distance": 14.0
+        },
+        "ore_node": { "resource_item": "item.coal", "health": 3, "yield_quantity": 2, "radius": 0.28 },
+        "mining": { "resource_item": "item.coal", "health": 3, "yield_quantity": 2, "radius": 0.35 },
+        "cave_debug": { "layers": ["mining_target", "interactable"], "color": [0.85, 0.42, 0.16] }
+      }
+    }
+  ]
+}

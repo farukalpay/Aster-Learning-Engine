@@ -5,6 +5,7 @@
 
 #include "aster/math/vec.hpp"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,7 @@ enum class InteractionTargetShape {
 
 struct InteractionTarget {
   std::string id;
+  std::string action_graph;
   InteractionTargetKind kind = InteractionTargetKind::Generic;
   InteractionTargetShape shape = InteractionTargetShape::Sphere;
   std::string action_label;
@@ -33,18 +35,21 @@ struct InteractionTarget {
   float proximity_distance = 0.0f;
   float hit_distance = 0.0f;
   float evidence_strength = 1.0f;
+  std::uint64_t user_data = 0u;
   bool occluded = false;
   bool enabled = true;
 };
 
 struct InteractionFocus {
   std::string target_id;
+  std::string action_graph;
   InteractionTargetKind kind = InteractionTargetKind::Generic;
   std::string action_label;
   std::string subject_label;
   Vec3 position{};
   float distance = 0.0f;
   float strength = 0.0f;
+  std::uint64_t user_data = 0u;
   bool visible = false;
 };
 

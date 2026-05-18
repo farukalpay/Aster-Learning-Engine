@@ -31,6 +31,13 @@ enum class Key {
   Num4,
   Num5,
   Num6,
+  F1,
+  F2,
+  F3,
+  F4,
+  F5,
+  F6,
+  F7,
 };
 
 enum class MouseButton {

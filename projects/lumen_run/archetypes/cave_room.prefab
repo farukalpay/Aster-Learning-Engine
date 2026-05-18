@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "prefab.cave_room",
+  "name": "Cave Room Archetype",
+  "entities": [
+    {
+      "id": "cave_room.root",
+      "name": "Cave Room",
+      "components": {
+        "transform": {},
+        "cave_debug": { "layers": ["walkable", "camera_obstruction"], "color": [0.25, 0.70, 1.0] }
+      }
+    }
+  ]
+}

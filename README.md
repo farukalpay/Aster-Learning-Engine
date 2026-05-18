@@ -4,8 +4,9 @@ Aster Learning Engine is an educational C++20 real-time engine by Faruk Alpay.
 The repository is intentionally inspectable: reusable engine modules live in
 internal engine headers under `include/aster`, implementations live in `src`,
 the stable ABI surface lives under `include/aster/kernel`, executables stay thin
-under `apps`, Rust owns renderer-facing planning under `crates`, and tests are
-split by subsystem.
+under `apps`, the source-level game SDK lives under `include/aster/game_sdk`,
+Rust owns renderer-facing planning under `crates`, and tests are split by
+subsystem.
 
 The project favors owned contracts over framework glue. The public engine
 kernel is a C-compatible ABI with opaque handles and C++ RAII wrappers. Platform
@@ -43,6 +44,8 @@ The checked-in images are generated from the current build.
 - Reusable systems for player motion, creature motion, interaction, inventory,
   equipment, lighting, particles, mining, animation, and third-person camera
   behavior.
+- A public source-level game SDK for schema-versioned project, scene, prefab,
+  material, item, and action graph authoring documents.
 - Procedural geometry and mesh tooling for terrain, caves, castle sections,
   nature assets, water, brush levels, tubes, cables, fracture pieces, projected
   meshes, and generated scenery.
@@ -58,9 +61,11 @@ The checked-in images are generated from the current build.
 | Path | Purpose |
 | --- | --- |
 | `include/aster/kernel/` | Stable public engine kernel ABI and C++ wrappers |
+| `include/aster/game_sdk/` | Public source SDK for project/scene/prefab/component/action authoring |
 | `include/aster/*` except `kernel` | Internal engine source headers used by repository targets |
 | `src/` | Engine implementations, platform adapters, renderers, reusable systems, and sample-owned implementations |
 | `src/samples/lumen_run_*.cpp` | Lumen Run implementation split by lifecycle, scene/physics rebuild, validation, simulation, interaction, and mining |
+| `projects/lumen_run/` | Lumen Run source-SDK project seed assets and authoring documents |
 | `apps/` | Executable wiring only |
 | `crates/aster_content` | Rust asset import, mesh preparation, deterministic cache writing, and cache inspection |
 | `crates/aster_runtime` | Rust frame planning and shared renderer diagnostics |
@@ -69,11 +74,11 @@ The checked-in images are generated from the current build.
 | `assets/` | Generated README media and checked-in captures |
 | `docs/` | Architecture notes and research notes |
 
-`LumenRun` is a sample module, not the engine kernel. Its implementation headers
-remain internal to repository builds; external access should go through a
-versioned sample-app facade when one is promoted to the kernel. Lumen-specific
+`LumenRun` is a sample module, not the engine kernel. It now boots through a
+schema-versioned authoring project in `projects/lumen_run`, while its current
+C++ simulation remains a transitional internal implementation. Lumen-specific
 helpers are source-only and remain under `src/samples`; reusable engine behavior
-should move only when it has a general contract.
+should move only when it has a general SDK or kernel contract.
 
 See [`docs/ENGINE_KERNEL.md`](docs/ENGINE_KERNEL.md) for the public/internal API
 boundary, ABI versioning, ownership/lifetime, resource handles, failure model,
@@ -142,6 +147,7 @@ The C++ test suite is split into subsystem targets so failures point at the
 module boundary that regressed:
 
 - `aster_kernel_public_consumer`
+- `aster_game_sdk_public_consumer`
 - `aster_kernel_contract_tests`
 - `aster_core_tests`
 - `aster_geometry_tests`

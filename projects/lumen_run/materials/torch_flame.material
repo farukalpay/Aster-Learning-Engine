@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "material.torch_flame",
+  "name": "Torch Flame",
+  "base_color": [1.0, 0.46, 0.08],
+  "emission_color": [1.0, 0.36, 0.08],
+  "emission_strength": 0.66,
+  "roughness": 0.42,
+  "metallic": 0.0,
+  "tags": ["surface.emissive", "item.torch"]
+}

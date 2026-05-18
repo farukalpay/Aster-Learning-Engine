@@ -282,6 +282,20 @@ int keyFromX11Keycode(const std::uint8_t keycode) {
     return aster::code(aster::Key::Num5);
   case 15:
     return aster::code(aster::Key::Num6);
+  case 67:
+    return aster::code(aster::Key::F1);
+  case 68:
+    return aster::code(aster::Key::F2);
+  case 69:
+    return aster::code(aster::Key::F3);
+  case 70:
+    return aster::code(aster::Key::F4);
+  case 71:
+    return aster::code(aster::Key::F5);
+  case 72:
+    return aster::code(aster::Key::F6);
+  case 73:
+    return aster::code(aster::Key::F7);
   case 23:
     return aster::code(aster::Key::Tab);
   case 24:
@@ -343,6 +357,20 @@ int keyFromWaylandKeycode(const std::uint32_t keycode) {
     return aster::code(aster::Key::Num5);
   case 7:
     return aster::code(aster::Key::Num6);
+  case 59:
+    return aster::code(aster::Key::F1);
+  case 60:
+    return aster::code(aster::Key::F2);
+  case 61:
+    return aster::code(aster::Key::F3);
+  case 62:
+    return aster::code(aster::Key::F4);
+  case 63:
+    return aster::code(aster::Key::F5);
+  case 64:
+    return aster::code(aster::Key::F6);
+  case 65:
+    return aster::code(aster::Key::F7);
   case 15:
     return aster::code(aster::Key::Tab);
   case 16:

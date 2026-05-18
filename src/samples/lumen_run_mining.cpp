@@ -299,20 +299,11 @@ bool LumenRun::placeEquippedResource(const Vec3 ray_origin, Vec3 ray_direction) 
   return true;
 }
 
-bool LumenRun::mineFocusedCaveWeb(const std::string_view target_id) {
-  constexpr std::string_view prefix = "web:";
+bool LumenRun::mineFocusedCaveWeb(const std::size_t web_index) {
   const ItemStack &equipped = equipment_.equipped();
   const ItemDefinition *equipped_definition = item_registry_.find(equipped.item_id);
-  if (target_id.substr(0u, prefix.size()) != prefix || equipped_definition == nullptr ||
+  if (web_index >= cave_webs_.size() || equipped_definition == nullptr ||
       !equipped_definition->has_mining_tool) {
-    return false;
-  }
-  std::size_t web_index = 0u;
-  const std::string_view index_text = target_id.substr(prefix.size());
-  const char *begin = index_text.data();
-  const char *end = begin + index_text.size();
-  const std::from_chars_result parsed = std::from_chars(begin, end, web_index);
-  if (parsed.ec != std::errc{} || parsed.ptr != end || web_index >= cave_webs_.size()) {
     return false;
   }
 
@@ -326,7 +317,7 @@ bool LumenRun::mineFocusedCaveWeb(const std::string_view target_id) {
   hit_normal = length(hit_normal) > 0.0001f ? normalize(hit_normal) : web.normal;
   const MineableHit web_hit{.hit = true,
                             .target_key = web.id.empty()
-                                              ? "cave_web:" + std::to_string(web_index)
+                                              ? "lumen.cave_web." + std::to_string(web_index)
                                               : web.id,
                             .point = web.center,
                             .normal = hit_normal,
@@ -398,20 +389,11 @@ bool LumenRun::mineFocusedCaveWeb(const std::string_view target_id) {
   return true;
 }
 
-bool LumenRun::mineFocusedCaveSkitter(const std::string_view target_id) {
-  constexpr std::string_view prefix = "skitter:";
+bool LumenRun::mineFocusedCaveSkitter(const std::size_t skitter_index) {
   const ItemStack &equipped = equipment_.equipped();
   const ItemDefinition *equipped_definition = item_registry_.find(equipped.item_id);
-  if (target_id.substr(0u, prefix.size()) != prefix || equipped_definition == nullptr ||
+  if (skitter_index >= cave_skitters_.size() || equipped_definition == nullptr ||
       !equipped_definition->has_mining_tool) {
-    return false;
-  }
-  std::size_t skitter_index = 0u;
-  const std::string_view index_text = target_id.substr(prefix.size());
-  const char *begin = index_text.data();
-  const char *end = begin + index_text.size();
-  const std::from_chars_result parsed = std::from_chars(begin, end, skitter_index);
-  if (parsed.ec != std::errc{} || parsed.ptr != end || skitter_index >= cave_skitters_.size()) {
     return false;
   }
 
@@ -424,13 +406,13 @@ bool LumenRun::mineFocusedCaveSkitter(const std::string_view target_id) {
   const MiningToolStats tool = activePickaxeStats();
   Vec3 hit_normal = player_position_ - skitter.state.position;
   hit_normal = length(hit_normal) > 0.0001f ? normalize(hit_normal) : Vec3{0.0f, 1.0f, 0.0f};
-  const MineableHit skitter_hit{.hit = true,
-                                .target_key = skitter.id.empty()
-                                                  ? "cave_skitter:" + std::to_string(skitter_index)
-                                                  : skitter.id,
-                                .point = skitter.state.position + Vec3{0.0f, 0.08f, 0.0f},
-                                .normal = hit_normal,
-                                .material = VoxelCaveMaterial::Rock};
+  const MineableHit skitter_hit{
+      .hit = true,
+      .target_key =
+          skitter.id.empty() ? "lumen.cave_skitter." + std::to_string(skitter_index) : skitter.id,
+      .point = skitter.state.position + Vec3{0.0f, 0.08f, 0.0f},
+      .normal = hit_normal,
+      .material = VoxelCaveMaterial::Rock};
   const MiningFeedback feedback =
       mining_.tryMine({.now_seconds = status_.elapsed_seconds,
                        .hit = skitter_hit,
@@ -477,20 +459,11 @@ bool LumenRun::mineFocusedCaveSkitter(const std::string_view target_id) {
   return true;
 }
 
-bool LumenRun::mineFocusedOre(const std::string_view target_id) {
-  constexpr std::string_view prefix = "ore:";
+bool LumenRun::mineFocusedOre(const std::size_t ore_index) {
   const ItemStack &equipped = equipment_.equipped();
   const ItemDefinition *equipped_definition = item_registry_.find(equipped.item_id);
-  if (target_id.substr(0u, prefix.size()) != prefix || equipped_definition == nullptr ||
+  if (ore_index >= coal_ores_.size() || equipped_definition == nullptr ||
       !equipped_definition->has_mining_tool) {
-    return false;
-  }
-  std::size_t ore_index = 0u;
-  const std::string_view index_text = target_id.substr(prefix.size());
-  const char *begin = index_text.data();
-  const char *end = begin + index_text.size();
-  const std::from_chars_result parsed = std::from_chars(begin, end, ore_index);
-  if (parsed.ec != std::errc{} || parsed.ptr != end || ore_index >= coal_ores_.size()) {
     return false;
   }
 
@@ -502,7 +475,7 @@ bool LumenRun::mineFocusedOre(const std::string_view target_id) {
   const MiningToolStats tool = activePickaxeStats();
   MineableHit ore_hit;
   ore_hit.hit = true;
-  ore_hit.target_key = "ore:" + std::to_string(ore_index);
+  ore_hit.target_key = "lumen.coal_ore." + std::to_string(ore_index);
   ore_hit.point = ore.position;
   ore_hit.normal = length(ore.normal) > 0.0001f ? normalize(ore.normal) : Vec3{0.0f, 1.0f, 0.0f};
   ore_hit.material = VoxelCaveMaterial::Coal;

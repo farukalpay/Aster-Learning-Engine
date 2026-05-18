@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "action.item.use_torch",
+  "name": "Use Torch",
+  "nodes": [
+    {
+      "id": "request_equip",
+      "type": "item_use",
+      "parameters": {
+        "item": "item.torch",
+        "slot": "hand",
+        "effect": "equip"
+      },
+      "tags": ["item.light"]
+    }
+  ]
+}

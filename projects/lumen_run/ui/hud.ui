@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "id": "ui.hud",
+  "roots": [
+    { "id": "focus_prompt", "kind": "text_binding", "binding": "interaction.focus_prompt" },
+    { "id": "hotbar", "kind": "inventory_bar", "binding": "player.hotbar" }
+  ]
+}

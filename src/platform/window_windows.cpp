@@ -106,6 +106,20 @@ int keyFromVirtualKey(const WPARAM key) {
     return aster::code(aster::Key::Num5);
   case '6':
     return aster::code(aster::Key::Num6);
+  case VK_F1:
+    return aster::code(aster::Key::F1);
+  case VK_F2:
+    return aster::code(aster::Key::F2);
+  case VK_F3:
+    return aster::code(aster::Key::F3);
+  case VK_F4:
+    return aster::code(aster::Key::F4);
+  case VK_F5:
+    return aster::code(aster::Key::F5);
+  case VK_F6:
+    return aster::code(aster::Key::F6);
+  case VK_F7:
+    return aster::code(aster::Key::F7);
   default:
     return -1;
   }

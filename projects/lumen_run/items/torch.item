@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "item.torch",
+  "display_name": "Torch",
+  "short_label": "TRC",
+  "stackable": true,
+  "max_stack": 8,
+  "pickup_prefab": "prefab.torch_pickup",
+  "use_action_graph": "action.item.use_torch",
+  "equipment_slots": ["hand"],
+  "tags": ["item.light", "lumen.tool.torch"]
+}

@@ -101,12 +101,14 @@ void InteractionSystem::update(const std::vector<InteractionTarget> &targets, co
 
   const bool same_target = focus_.target_id == best->id;
   focus_.target_id = best->id;
+  focus_.action_graph = best->action_graph;
   focus_.kind = best->kind;
   focus_.action_label = best->action_label;
   focus_.subject_label = best->subject_label;
   focus_.position = best->position;
   focus_.distance = best_distance;
   focus_.strength = approach(same_target ? previous_strength : 0.0f, 1.0f, 16.0f, dt);
+  focus_.user_data = best->user_data;
   focus_.visible = true;
 }
 

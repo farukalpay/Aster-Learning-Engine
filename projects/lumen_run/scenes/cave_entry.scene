@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "id": "scene.cave_entry",
+  "name": "Cave Entry",
+  "entities": [
+    {
+      "id": "player_spawn",
+      "name": "Player Spawn",
+      "components": {
+        "transform": { "translation": [1.1, 0.28, 1.0], "rotation": [0.0, 3.14159, 0.0] },
+        "camera": { "primary": true, "vertical_fov_degrees": 54.0, "near_plane": 0.01, "far_plane": 160.0 },
+        "spawn_point": {
+          "spawn_kind": "player",
+          "radius": 0.35,
+          "half_extents": [0.35, 0.55, 0.35]
+        },
+        "cave_debug": { "layers": ["spawn_volume"], "color": [0.40, 1.0, 0.42] }
+      }
+    },
+    {
+      "id": "supply_chest",
+      "name": "Supply Chest",
+      "components": {
+        "transform": { "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0] },
+        "mesh_renderer": { "mesh": "mesh.supply_chest", "material": "material.cave_rock" },
+        "collider": { "shape": "box", "half_extents": [0.55, 0.42, 0.38], "layer": "world.interactable" },
+        "interactable": {
+          "tags": ["lumen.container.supply", "interaction.openable"],
+          "action_graph": "action.chest.open",
+          "prompt_action": "Open",
+          "prompt_subject": "Supply Chest",
+          "radius": 0.82,
+          "max_distance": 14.0
+        },
+        "cave_debug": { "layers": ["collision", "interactable"], "color": [1.0, 0.78, 0.22] },
+        "inventory": {
+          "slot_count": 3,
+          "slots": [
+            { "item": "item.torch", "quantity": 1 },
+            { "item": "item.pickaxe", "quantity": 1 }
+          ]
+        }
+      }
+    },
+    {
+      "id": "entry_torch",
+      "name": "Entry Torch",
+      "components": {
+        "transform": { "translation": [2.4, 1.1, -1.5] },
+        "mesh_renderer": { "mesh": "mesh.torch_wall", "material": "material.torch_flame" },
+        "light": { "kind": "point", "color": [1.0, 0.5, 0.2], "intensity": 5.8, "radius": 0.82 },
+        "torch_socket": { "color": [1.0, 0.5, 0.2], "intensity": 5.8, "radius": 0.82 },
+        "cave_debug": { "layers": ["lighting"], "color": [1.0, 0.5, 0.2] }
+      }
+    },
+    {
+      "id": "coal_ore_entry",
+      "name": "Coal Ore",
+      "components": {
+        "transform": { "translation": [4.0, 0.65, -3.2] },
+        "mesh_renderer": { "mesh": "mesh.coal_ore", "material": "material.cave_rock" },
+        "collider": { "shape": "sphere", "radius": 0.28, "layer": "world.mineable" },
+        "interactable": {
+          "tags": ["resource.coal", "interaction.mineable"],
+          "action_graph": "action.mine.coal_ore",
+          "prompt_action": "Mine",
+          "prompt_subject": "Coal Ore",
+          "radius": 0.35,
+          "max_distance": 14.0
+        },
+        "ore_node": { "resource_item": "item.coal", "health": 3, "yield_quantity": 2, "radius": 0.28 },
+        "mining": { "resource_item": "item.coal", "health": 3, "yield_quantity": 2, "radius": 0.35 },
+        "cave_debug": { "layers": ["mining_target", "collision", "interactable"], "color": [0.86, 0.45, 0.16] }
+      }
+    }
+  ]
+}

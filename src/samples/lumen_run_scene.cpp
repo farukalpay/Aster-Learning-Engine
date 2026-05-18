@@ -4,6 +4,248 @@
 #include "lumen_run_detail.hpp"
 
 namespace aster {
+namespace {
+
+[[nodiscard]] Vec3 toRuntimeVec(const sdk::Vec3 &value) {
+  return {value.x, value.y, value.z};
+}
+
+[[nodiscard]] CaveTunnelProfile toRuntimeTunnelProfile(const sdk::CaveTunnelProfileDocument &source,
+                                                       const float floor_y,
+                                                       const CaveTunnelProfile &fallback) {
+  CaveTunnelProfile profile = fallback;
+  profile.seed = source.seed;
+  profile.start = toRuntimeVec(source.start);
+  profile.control = toRuntimeVec(source.control);
+  profile.control_b = toRuntimeVec(source.control_b);
+  profile.end = toRuntimeVec(source.end);
+  if (source.floor_relative) {
+    profile.start.y += floor_y;
+    profile.control.y += floor_y;
+    profile.control_b.y += floor_y;
+    profile.end.y += floor_y;
+  }
+  profile.length_segments = source.length_segments;
+  profile.radial_segments = source.radial_segments;
+  profile.half_width = source.half_width;
+  profile.wall_height = source.wall_height;
+  profile.floor_width = source.floor_width;
+  profile.floor_crown = source.floor_crown;
+  profile.floor_edge_raise = source.floor_edge_raise;
+  profile.wall_noise = source.wall_noise;
+  profile.visible_wall_start_t = source.visible_wall_start_t;
+  profile.collision_start_t = source.collision_start_t;
+  profile.collision_end_t = source.collision_end_t;
+  profile.ore_start_t = source.ore_start_t;
+  profile.chest_t = source.chest_t;
+  profile.chamber_t = source.chamber_t;
+  profile.chamber_falloff = source.chamber_falloff;
+  profile.chamber_width_scale = source.chamber_width_scale;
+  profile.chamber_height_scale = source.chamber_height_scale;
+  profile.end_constraint_enabled = source.end_constraint_enabled;
+  return profile;
+}
+
+[[nodiscard]] CavePortalProfile
+toRuntimePortalProfile(const sdk::CavePortalProfileDocument &source,
+                       const CavePortalProfile &fallback) {
+  CavePortalProfile profile = fallback;
+  profile.arch_segments = source.arch_segments;
+  profile.inner_half_width = source.inner_half_width;
+  profile.inner_height = source.inner_height;
+  profile.outer_half_width = source.outer_half_width;
+  profile.outer_height = source.outer_height;
+  profile.depth = source.depth;
+  profile.ground_lip = source.ground_lip;
+  profile.inner_lining_depth = source.inner_lining_depth;
+  profile.lining_breakup = source.lining_breakup;
+  return profile;
+}
+
+[[nodiscard]] CaveOreVeinProfile
+toRuntimeOreProfile(const sdk::CaveOreVeinProfileDocument &source,
+                    const CaveOreVeinProfile &fallback) {
+  CaveOreVeinProfile profile = fallback;
+  profile.seed = source.seed;
+  profile.candidates = source.candidates;
+  profile.max_nodes = source.max_nodes;
+  profile.field_frequency_a = source.field_frequency_a;
+  profile.field_frequency_b = source.field_frequency_b;
+  profile.intersection_threshold_a = source.intersection_threshold_a;
+  profile.intersection_threshold_b = source.intersection_threshold_b;
+  profile.wall_inset = source.wall_inset;
+  profile.min_spacing = source.min_spacing;
+  return profile;
+}
+
+[[nodiscard]] CaveFeatureProfile
+toRuntimeFeatureProfile(const sdk::CaveFeatureProfileDocument &source,
+                        const CaveFeatureProfile &fallback) {
+  CaveFeatureProfile profile = fallback;
+  profile.seed = source.seed;
+  profile.candidates = source.candidates;
+  profile.max_features = source.max_features;
+  profile.start_t = source.start_t;
+  profile.end_t = source.end_t;
+  profile.min_spacing = source.min_spacing;
+  profile.wall_inset = source.wall_inset;
+  profile.ceiling_fraction = source.ceiling_fraction;
+  profile.column_fraction = source.column_fraction;
+  profile.shelf_fraction = source.shelf_fraction;
+  profile.mineral_fraction = source.mineral_fraction;
+  return profile;
+}
+
+[[nodiscard]] CaveWallFixtureProfile
+toRuntimeFixtureProfile(const sdk::CaveWallFixtureProfileDocument &source) {
+  CaveWallFixtureProfile profile;
+  profile.start_t = source.start_t;
+  profile.end_t = source.end_t;
+  profile.target_spacing = source.target_spacing;
+  profile.max_count = source.max_count;
+  profile.wall_side = source.wall_side;
+  profile.mount_height = source.mount_height;
+  profile.wall_inset = source.wall_inset;
+  profile.normal_up_bias = source.normal_up_bias;
+  profile.lens_offset = source.lens_offset;
+  profile.light_offset = source.light_offset;
+  return profile;
+}
+
+[[nodiscard]] const sdk::CaveSectionDocument *findCaveSection(const sdk::CaveDocument &cave,
+                                                              const std::string_view id) {
+  const auto found = std::find_if(cave.sections.begin(), cave.sections.end(),
+                                  [id](const sdk::CaveSectionDocument &section) {
+                                    return section.id == id;
+                                  });
+  return found == cave.sections.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] const sdk::CavePlacementDocument *findCavePlacement(const sdk::CaveDocument &cave,
+                                                                  const std::string_view id) {
+  const auto found = std::find_if(cave.placements.begin(), cave.placements.end(),
+                                  [id](const sdk::CavePlacementDocument &placement) {
+                                    return placement.id == id;
+                                  });
+  return found == cave.placements.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] CaveComplexSpec authoredEntryCaveSpec(const LumenAuthoringData &authoring,
+                                                    const TerrainHeightField &terrain,
+                                                    const float floor_y) {
+  CaveComplexSpec spec = lumenTerrainCoveredCaveComplexSpec(terrain, floor_y);
+  if (!authoring.valid) {
+    return spec;
+  }
+  const sdk::CaveSectionDocument *section = findCaveSection(authoring.cave, "entry");
+  if (section == nullptr) {
+    return spec;
+  }
+  spec.tunnel = toRuntimeTunnelProfile(section->tunnel, floor_y, spec.tunnel);
+  if (section->terrain_cover_fit) {
+    const CaveTerrainCoverFit cover_fit = fitCaveTunnelToTerrainCover(
+        spec.tunnel,
+        [&terrain](const Vec2 position) {
+          const TerrainSurfaceSample sample = sampleTerrain(terrain, position);
+          return CaveTerrainCoverSample{sample.valid, sample.valid ? sample.height : 0.0f};
+        },
+        {.samples = 96,
+         .required_consecutive_samples = 3,
+         .min_t = 0.0f,
+         .max_t = 0.52f,
+         .roof_clearance = 0.24f});
+    if (cover_fit.cover_found) {
+      spec.tunnel = cover_fit.tunnel;
+      spec.tunnel.visible_wall_start_t =
+          clamp(cover_fit.first_covered_t - 0.018f, 0.0f, 0.40f);
+    }
+    spec.tunnel.visible_wall_start_t = std::min(spec.tunnel.visible_wall_start_t, 0.035f);
+  }
+  spec.portal = toRuntimePortalProfile(section->portal, spec.portal);
+  spec.ore = toRuntimeOreProfile(section->ore, spec.ore);
+  spec.features = toRuntimeFeatureProfile(section->features, spec.features);
+  spec.features.start_t =
+      std::max(spec.features.start_t,
+               clamp(spec.tunnel.visible_wall_start_t + 0.18f, 0.0f, spec.features.end_t));
+  return spec;
+}
+
+[[nodiscard]] CaveComplexSpec authoredDeepCaveSpec(const LumenAuthoringData &authoring,
+                                                   const CaveTunnelProfile &entry_tunnel) {
+  CaveComplexSpec spec = lumenDeepCaveComplexSpec(entry_tunnel);
+  if (!authoring.valid) {
+    return spec;
+  }
+  const sdk::CaveSectionDocument *section = findCaveSection(authoring.cave, "deep");
+  if (section == nullptr) {
+    return spec;
+  }
+  if (section->derive_from_previous) {
+    CaveTunnelProfile tunnel = lumenDeepCaveTunnelProfile(entry_tunnel);
+    const sdk::CaveTunnelProfileDocument &source = section->tunnel;
+    tunnel.seed = source.seed;
+    tunnel.length_segments = source.length_segments;
+    tunnel.radial_segments = source.radial_segments;
+    tunnel.half_width = source.half_width;
+    tunnel.wall_height = source.wall_height;
+    tunnel.floor_width = source.floor_width;
+    tunnel.floor_crown = source.floor_crown;
+    tunnel.floor_edge_raise = source.floor_edge_raise;
+    tunnel.wall_noise = source.wall_noise;
+    tunnel.visible_wall_start_t = source.visible_wall_start_t;
+    tunnel.collision_start_t = source.collision_start_t;
+    tunnel.collision_end_t = source.collision_end_t;
+    tunnel.ore_start_t = source.ore_start_t;
+    tunnel.chest_t = source.chest_t;
+    tunnel.chamber_t = source.chamber_t;
+    tunnel.chamber_falloff = source.chamber_falloff;
+    tunnel.chamber_width_scale = source.chamber_width_scale;
+    tunnel.chamber_height_scale = source.chamber_height_scale;
+    tunnel.end_constraint_enabled = source.end_constraint_enabled;
+    spec.tunnel = tunnel;
+  } else {
+    spec.tunnel = toRuntimeTunnelProfile(section->tunnel, 0.0f, spec.tunnel);
+  }
+  spec.ore = toRuntimeOreProfile(section->ore, spec.ore);
+  spec.features = toRuntimeFeatureProfile(section->features, spec.features);
+  return spec;
+}
+
+[[nodiscard]] std::vector<CaveWallFixturePlacement>
+authoredFixturePlacements(const LumenAuthoringData &authoring, const std::string_view section_id,
+                          const CaveTunnelProfile &tunnel,
+                          const std::vector<CaveWallFixtureProfile> &fallback_profiles) {
+  std::vector<CaveWallFixturePlacement> placements;
+  const sdk::CaveSectionDocument *section =
+      authoring.valid ? findCaveSection(authoring.cave, section_id) : nullptr;
+  if (section != nullptr && !section->fixtures.empty()) {
+    for (const sdk::CaveWallFixtureProfileDocument &fixture : section->fixtures) {
+      std::vector<CaveWallFixturePlacement> generated =
+          placeCaveWallFixtures(tunnel, toRuntimeFixtureProfile(fixture));
+      placements.insert(placements.end(), generated.begin(), generated.end());
+    }
+    return placements;
+  }
+  for (const CaveWallFixtureProfile &profile : fallback_profiles) {
+    std::vector<CaveWallFixturePlacement> generated = placeCaveWallFixtures(tunnel, profile);
+    placements.insert(placements.end(), generated.begin(), generated.end());
+  }
+  return placements;
+}
+
+[[nodiscard]] Material caveOverlayMaterial(Vec3 color) {
+  Material overlay =
+      material(color, color, 0.42f, 0.0f, 0.28f, 0.12f, 1.0f, 0.0f, 1.0f);
+  overlay.opacity = 0.26f;
+  overlay.alpha_mode = MaterialAlphaMode::Blend;
+  overlay.depth_write = MaterialDepthWrite::Disabled;
+  overlay.double_sided = true;
+  overlay.cull_mode = FaceCullMode::None;
+  overlay.camera_occlusion = CameraOcclusionPolicy::Solid;
+  return overlay;
+}
+
+} // namespace
 
 // Scene construction and physics world rebuilds.
 std::size_t LumenRun::appendObject(RenderObject object) {
@@ -383,6 +625,25 @@ void LumenRun::rebuildScene() {
     object.spin_rate = spin_rate;
     const std::size_t index = appendObject(object);
     scenery_objects_.push_back(index);
+    return index;
+  };
+
+  auto appendCaveDebugOverlay = [&](const char *name, const MeshPrimitive primitive,
+                                    const Vec3 position, const Vec3 scale, const Vec3 rotation,
+                                    const Vec3 color, const std::uint32_t layer) {
+    Material overlay_material = caveOverlayMaterial(color);
+    const float visible_opacity = overlay_material.opacity;
+    const float visible_emission = overlay_material.emission_strength;
+    const std::size_t index =
+        appendScenery(name, primitive, position, scale, rotation, overlay_material);
+    if (index < scene_.objects().size()) {
+      RenderObject &object = scene_.objects()[index];
+      object.auto_contact_shadow = false;
+      object.casts_contact_shadow = false;
+      object.camera_occlusion_fade = false;
+    }
+    cave_debug_overlay_objects_.push_back(
+        {index, layer, scale, visible_opacity, visible_emission});
     return index;
   };
 
@@ -778,13 +1039,13 @@ void LumenRun::rebuildScene() {
   const TerrainSurfaceSample cave_ground =
       sampleTerrain(terrain_, {cave_entrance.x, cave_entrance.z});
   const float cave_floor_y = (cave_ground.valid ? cave_ground.height : 0.0f) + 0.030f;
-  const CaveComplexSpec cave_spec = lumenTerrainCoveredCaveComplexSpec(terrain_, cave_floor_y);
+  const CaveComplexSpec cave_spec = authoredEntryCaveSpec(authoring_, terrain_, cave_floor_y);
   CaveComplex cave_complex = buildCaveComplex(cave_spec);
-  const CaveComplexSpec deep_cave_spec = lumenDeepCaveComplexSpec(cave_spec.tunnel);
+  const CaveComplexSpec deep_cave_spec = authoredDeepCaveSpec(authoring_, cave_spec.tunnel);
   CaveComplex deep_cave_complex = buildCaveComplex(deep_cave_spec);
   const LumenCaveWebPlacement web_placement = lumenCaveWebPlacement(cave_floor_y);
   CaveWebObstacle cave_web;
-  cave_web.id = "cave_web:0";
+  cave_web.id = "lumen.cave_web.0";
   cave_web.center = web_placement.center;
   cave_web.normal =
       length(web_placement.normal) > 0.0001f ? normalize(web_placement.normal)
@@ -823,6 +1084,14 @@ void LumenRun::rebuildScene() {
     scene_.objects()[cave_web.object_index].auto_contact_shadow = false;
   }
   cave_webs_.push_back(cave_web);
+  appendCaveDebugOverlay(
+      "Cave debug web interaction volume", MeshPrimitive::Box, cave_web.center,
+      {cave_web.radius_x * 2.0f, cave_web.radius_y * 2.0f, std::max(cave_web.thickness, 0.04f)},
+      {0.0f, std::atan2(cave_web.normal.x, cave_web.normal.z), 0.0f},
+      {0.74f, 0.82f, 0.76f},
+      static_cast<std::uint32_t>(CaveDebugOverlayLayer::Collision) |
+          static_cast<std::uint32_t>(CaveDebugOverlayLayer::Interactable) |
+          static_cast<std::uint32_t>(CaveDebugOverlayLayer::MiningTarget));
   const std::shared_ptr<const CpuMesh> cave_skitter_mesh =
       makeSharedMesh(makeCaveSkitterMesh({.body_segments = 34,
                                           .body_rings = 11,
@@ -843,7 +1112,7 @@ void LumenRun::rebuildScene() {
             kPi * 2.0f +
         kPi * 0.18f;
     CaveSkitter skitter;
-    skitter.id = "cave_skitter:" + std::to_string(skitter_index);
+    skitter.id = "lumen.cave_skitter." + std::to_string(skitter_index);
     skitter.max_health = kCaveSkitterMaxHealth;
     skitter.health = skitter.max_health;
     skitter.state.home_offset = {std::cos(angle) * cave_web.radius_x * 0.38f,
@@ -860,27 +1129,50 @@ void LumenRun::rebuildScene() {
                                                   {0.0f, skitter.state.facing_yaw, 0.0f},
                                                   cave_skitter_material);
     enableContactShadow(skitter.object_index, 0.42f, 0.82f);
+    appendCaveDebugOverlay("Cave debug skitter spawn volume", MeshPrimitive::Sphere,
+                           skitter.state.position, {0.34f, 0.20f, 0.34f}, {},
+                           {1.0f, 0.22f, 0.16f},
+                           static_cast<std::uint32_t>(CaveDebugOverlayLayer::SpawnVolume));
   cave_skitters_.push_back(skitter);
   }
+  const std::vector<CaveWallFixturePlacement> entry_fixtures =
+      authoredFixturePlacements(authoring_, "entry", cave_spec.tunnel,
+                                {lumenCaveWallFixtureProfile(),
+                                 lumenCaveSecondaryWallFixtureProfile()});
+  const std::vector<CaveWallFixturePlacement> deep_fixtures =
+      authoredFixturePlacements(authoring_, "deep", deep_cave_spec.tunnel,
+                                {lumenDeepCaveWallFixtureProfile(),
+                                 lumenDeepCaveSecondaryWallFixtureProfile()});
   cave_sections_.push_back({.tunnel = cave_spec.tunnel,
-                            .wall_fixtures =
-                                placeCaveWallFixtures(cave_spec.tunnel,
-                                                      lumenCaveWallFixtureProfile()),
-                            .secondary_wall_fixtures = placeCaveWallFixtures(
-                                cave_spec.tunnel, lumenCaveSecondaryWallFixtureProfile()),
+                            .wall_fixtures = entry_fixtures,
                             .contributes_entrance_light = true});
-  cave_sections_.push_back(
-      {.tunnel = deep_cave_spec.tunnel,
-       .wall_fixtures =
-           placeCaveWallFixtures(deep_cave_spec.tunnel, lumenDeepCaveWallFixtureProfile()),
-       .secondary_wall_fixtures = placeCaveWallFixtures(deep_cave_spec.tunnel,
-                                                        lumenDeepCaveSecondaryWallFixtureProfile()),
-       .contributes_entrance_light = false});
+  cave_sections_.push_back({.tunnel = deep_cave_spec.tunnel,
+                            .wall_fixtures = deep_fixtures,
+                            .contributes_entrance_light = false});
   cave_entrance_light_position_ = caveEntranceLightPosition(cave_floor_y);
   cave_viewer_cull_volume_ = viewerCullVolumeForMesh(cave_complex.collision_mesh, 0.20f,
                                                      FaceCullMode::Back, FaceCullMode::Back);
   cave_collision_meshes_.push_back(makeSharedMesh(std::move(cave_complex.collision_mesh)));
   cave_collision_meshes_.push_back(makeSharedMesh(std::move(deep_cave_complex.collision_mesh)));
+  for (const AuthoredCaveSection &section : cave_sections_) {
+    const CaveTunnelProfile &tunnel = section.tunnel;
+    const Vec3 center = evaluateCaveTunnelCenter(tunnel, 0.5f);
+    const float estimated_length = std::max(estimateCaveTunnelLength(tunnel), 0.50f);
+    appendCaveDebugOverlay("Cave debug walkable route", MeshPrimitive::Box, center,
+                           {std::max(tunnel.floor_width, 0.20f), 0.040f, estimated_length * 0.50f},
+                           {0.0f, std::atan2(tunnel.end.x - tunnel.start.x,
+                                             tunnel.end.z - tunnel.start.z),
+                            0.0f},
+                           {0.25f, 0.70f, 1.0f},
+                           static_cast<std::uint32_t>(CaveDebugOverlayLayer::Walkable));
+    appendCaveDebugOverlay(
+        "Cave debug camera obstruction volume", MeshPrimitive::Box,
+        center + Vec3{0.0f, std::max(tunnel.wall_height * 0.45f, 0.40f), 0.0f},
+        {tunnel.half_width * 2.0f, std::max(tunnel.wall_height, 0.40f), estimated_length * 0.50f},
+        {0.0f, std::atan2(tunnel.end.x - tunnel.start.x, tunnel.end.z - tunnel.start.z), 0.0f},
+        {1.0f, 0.20f, 0.36f},
+        static_cast<std::uint32_t>(CaveDebugOverlayLayer::CameraObstruction));
+  }
 
   chest_base_ = cave_complex.chest_position;
   chest_yaw_ = cave_complex.chest_yaw;
@@ -919,6 +1211,11 @@ void LumenRun::rebuildScene() {
   appendScenery("Chest blackened iron band front", MeshPrimitive::Box,
                 chestPartPosition({0.0f, 0.25f, 0.294f}), {0.72f, 0.052f, 0.030f},
                 {0.0f, chest_yaw_, 0.0f}, weathered_iron);
+  appendCaveDebugOverlay("Cave debug chest collision", MeshPrimitive::Box,
+                         chest_base_ + Vec3{0.0f, 0.25f, 0.0f},
+                         {0.80f, 0.50f, 0.60f}, {0.0f, chest_yaw_, 0.0f}, {1.0f, 0.78f, 0.22f},
+                         static_cast<std::uint32_t>(CaveDebugOverlayLayer::Collision) |
+                             static_cast<std::uint32_t>(CaveDebugOverlayLayer::Interactable));
 
   const auto appendChestItemPart = [&](ChestItemVisual &item, const char *name,
                                        const MeshPrimitive primitive, const Vec3 local_position,
@@ -1375,6 +1672,15 @@ void LumenRun::rebuildScene() {
   const Vec3 cave_inward = caveInwardDirection();
   const float cave_yaw = std::atan2(-cave_inward.x, -cave_inward.z);
   supply_crate_base_ = cave_entrance + Vec3{-1.34f, cave_floor_y + 0.28f, 1.18f};
+  if (authoring_.valid) {
+    if (const sdk::CavePlacementDocument *placement = findCavePlacement(authoring_.cave, "supply_chest");
+        placement != nullptr) {
+      supply_crate_base_ = toRuntimeVec(placement->position);
+      if (placement->floor_relative) {
+        supply_crate_base_.y += cave_floor_y;
+      }
+    }
+  }
   if (const TerrainSurfaceSample supply_ground =
           groundDrapeSurface({supply_crate_base_.x, supply_crate_base_.z});
       supply_ground.valid) {
@@ -1655,6 +1961,12 @@ void LumenRun::rebuildScene() {
   };
   appendCaveOreNodes(cave_complex.ore_nodes);
   appendCaveOreNodes(deep_cave_complex.ore_nodes);
+  for (const CoalOreNode &ore : coal_ores_) {
+    appendCaveDebugOverlay("Cave debug ore mining target", MeshPrimitive::Sphere, ore.position,
+                           {ore.radius, ore.radius, ore.radius}, {}, {0.86f, 0.45f, 0.16f},
+                           static_cast<std::uint32_t>(CaveDebugOverlayLayer::MiningTarget) |
+                               static_cast<std::uint32_t>(CaveDebugOverlayLayer::Collision));
+  }
 
   const PathRibbonMeshSpec underpass_path_spec = castleUnderpassPathSpec();
   appendPathShoulders("Mounded verge through underpass", underpass_path_spec, 0.34f, 0.052f);
@@ -2156,6 +2468,7 @@ void LumenRun::rebuildScene() {
                              0.08f, 6.0f, 0.04f, 1.0f));
 
   rebuildPhysicsWorld();
+  updateCaveDebugOverlayVisibility();
   updateSceneObjects(1.0f / 60.0f);
   invalidateSceneReports();
 }

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "prefab.supply_chest",
+  "name": "Supply Chest",
+  "entities": [
+    {
+      "id": "supply_chest.root",
+      "name": "Supply Chest Root",
+      "components": {
+        "transform": { "translation": [0.0, 0.0, 0.0] },
+        "mesh_renderer": { "mesh": "mesh.supply_chest", "material": "material.cave_rock" },
+        "collider": { "shape": "box", "half_extents": [0.55, 0.42, 0.38], "layer": "world.interactable" },
+        "interactable": {
+          "tags": ["lumen.container.supply", "interaction.openable"],
+          "action_graph": "action.chest.open",
+          "prompt_action": "Open",
+          "prompt_subject": "Supply Chest"
+        },
+        "inventory": { "slot_count": 3 }
+      }
+    },
+    {
+      "id": "supply_chest.lid",
+      "name": "Lid",
+      "parent": "supply_chest.root",
+      "components": {
+        "transform": { "translation": [0.0, 0.49, 0.0] },
+        "mesh_renderer": { "mesh": "mesh.supply_chest_lid", "material": "material.cave_rock" }
+      }
+    }
+  ]
+}

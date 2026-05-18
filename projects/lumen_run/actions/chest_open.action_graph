@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "action.chest.open",
+  "name": "Open Supply Chest",
+  "nodes": [
+    {
+      "id": "emit_open_request",
+      "type": "emit_event",
+      "parameters": {
+        "event": "container.open_requested",
+        "container": "target"
+      },
+      "tags": ["interaction.container"]
+    },
+    {
+      "id": "show_contents",
+      "type": "set_component_state",
+      "parameters": {
+        "component": "inventory",
+        "state": "visible"
+      }
+    }
+  ]
+}

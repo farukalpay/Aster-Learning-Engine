@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "action.chest.take",
+  "name": "Take From Supply Chest",
+  "nodes": [
+    {
+      "id": "request_take",
+      "type": "inventory_transfer",
+      "parameters": {
+        "from": "target",
+        "to": "actor",
+        "mode": "take_selected"
+      },
+      "tags": ["interaction.container"]
+    }
+  ]
+}

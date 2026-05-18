@@ -82,6 +82,11 @@ file(GLOB_RECURSE ASTER_SOURCES CONFIGURE_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/*.cpp"
 )
 
+set(ASTER_GAME_SDK_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/game_sdk/game_sdk.cpp"
+)
+list(REMOVE_ITEM ASTER_SOURCES ${ASTER_GAME_SDK_SOURCES})
+
 if(APPLE)
   list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_linux.cpp")
   list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_windows.cpp")
@@ -143,6 +148,19 @@ else()
 endif()
 
 list(REMOVE_ITEM ASTER_SOURCES "${PROJECT_SOURCE_DIR}/src/kernel/kernel.cpp")
+
+add_library(aster_game_sdk STATIC ${ASTER_GAME_SDK_SOURCES})
+add_library(aster::game_sdk ALIAS aster_game_sdk)
+target_include_directories(aster_game_sdk PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+set_target_properties(aster_game_sdk PROPERTIES EXPORT_NAME game_sdk)
+if(MSVC)
+  target_compile_options(aster_game_sdk PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(aster_game_sdk PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
 add_library(aster_engine_internal STATIC ${ASTER_SOURCES})
 add_library(aster ALIAS aster_engine_internal)
@@ -208,11 +226,22 @@ install(TARGETS aster_kernel
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
+install(TARGETS aster_game_sdk
+  EXPORT AsterGameSdkTargets
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
 install(DIRECTORY include/aster/kernel DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aster)
+install(DIRECTORY include/aster/game_sdk DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aster)
 install(FILES abi/aster_kernel.symbols DESTINATION ${CMAKE_INSTALL_DATADIR}/aster/abi)
 install(EXPORT AsterKernelTargets
   NAMESPACE aster::
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AsterKernel
+)
+install(EXPORT AsterGameSdkTargets
+  NAMESPACE aster::
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AsterGameSdk
 )
 
 if(ASTER_BUILD_STUDIO)
@@ -220,7 +249,10 @@ if(ASTER_BUILD_STUDIO)
   target_link_libraries(aster_studio PRIVATE aster_engine_internal)
 
   add_executable(aster_lumen_run apps/samples/lumen_run/main.cpp)
-  target_link_libraries(aster_lumen_run PRIVATE aster_engine_internal)
+  target_link_libraries(aster_lumen_run PRIVATE aster_engine_internal aster_game_sdk)
+  target_compile_definitions(aster_lumen_run PRIVATE
+    ASTER_LUMEN_RUN_PROJECT="${PROJECT_SOURCE_DIR}/projects/lumen_run/lumen_run.asterproj"
+  )
 endif()
 
 if(ASTER_BUILD_PREVIEW)
@@ -255,6 +287,19 @@ if(ASTER_BUILD_TESTS)
   add_executable(aster_kernel_public_consumer tests/kernel_public_consumer.cpp)
   target_link_libraries(aster_kernel_public_consumer PRIVATE aster_kernel)
   add_test(NAME aster_kernel_public_consumer COMMAND aster_kernel_public_consumer)
+
+  add_executable(aster_game_sdk_public_consumer tests/game_sdk_public_consumer.cpp)
+  target_link_libraries(aster_game_sdk_public_consumer PRIVATE aster_game_sdk)
+  target_compile_definitions(aster_game_sdk_public_consumer PRIVATE
+    ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+  )
+  add_test(NAME aster_game_sdk_public_consumer COMMAND aster_game_sdk_public_consumer)
+  if(ASTER_BUILD_STUDIO)
+    add_test(NAME aster_lumen_run_validate_cave
+             COMMAND aster_lumen_run --validate-cave)
+    add_test(NAME aster_lumen_run_smoke_test
+             COMMAND aster_lumen_run --smoke-test --no-vsync)
+  endif()
 
   add_executable(aster_kernel_contract_tests tests/kernel_contract_tests.cpp)
   target_link_libraries(aster_kernel_contract_tests PRIVATE aster_kernel)

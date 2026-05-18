@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "prefab.interactable_anchor",
+  "name": "Interactable Anchor Archetype",
+  "entities": [
+    {
+      "id": "interactable_anchor.root",
+      "name": "Interactable Anchor",
+      "components": {
+        "transform": {},
+        "collider": { "shape": "sphere", "radius": 0.35, "trigger": true, "layer": "world.interactable" },
+        "cave_debug": { "layers": ["interactable"], "color": [1.0, 0.85, 0.20] }
+      }
+    }
+  ]
+}

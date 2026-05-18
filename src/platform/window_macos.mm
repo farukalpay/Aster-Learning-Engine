@@ -91,6 +91,20 @@ int keyFromEvent(NSEvent *event) {
     return aster::code(aster::Key::Num5);
   case 22:
     return aster::code(aster::Key::Num6);
+  case 122:
+    return aster::code(aster::Key::F1);
+  case 120:
+    return aster::code(aster::Key::F2);
+  case 99:
+    return aster::code(aster::Key::F3);
+  case 118:
+    return aster::code(aster::Key::F4);
+  case 96:
+    return aster::code(aster::Key::F5);
+  case 97:
+    return aster::code(aster::Key::F6);
+  case 98:
+    return aster::code(aster::Key::F7);
   default:
     return -1;
   }

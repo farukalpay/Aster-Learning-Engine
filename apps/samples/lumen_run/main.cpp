@@ -6,6 +6,7 @@
 #include "aster/core/fixed_timestep.hpp"
 #include "aster/core/frame_time_stats.hpp"
 #include "aster/core/profiler.hpp"
+#include "aster/game_sdk/game_sdk.hpp"
 #include "aster/samples/lumen_run.hpp"
 #include "aster/systems/third_person_camera.hpp"
 #include "aster/input/control_scheme.hpp"
@@ -28,6 +29,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -55,6 +57,13 @@ constexpr const char *kHotbar3 = "hotbar.slot.3";
 constexpr const char *kHotbar4 = "hotbar.slot.4";
 constexpr const char *kHotbar5 = "hotbar.slot.5";
 constexpr const char *kHotbar6 = "hotbar.slot.6";
+constexpr const char *kCaveDebugOverlayToggle = "debug.cave_overlay.toggle";
+constexpr const char *kCaveDebugOverlayCollision = "debug.cave_overlay.collision";
+constexpr const char *kCaveDebugOverlayInteractable = "debug.cave_overlay.interactable";
+constexpr const char *kCaveDebugOverlayMining = "debug.cave_overlay.mining";
+constexpr const char *kCaveDebugOverlaySpawn = "debug.cave_overlay.spawn";
+constexpr const char *kCaveDebugOverlayCamera = "debug.cave_overlay.camera";
+constexpr const char *kCaveDebugOverlayWalkable = "debug.cave_overlay.walkable";
 constexpr int kInteractiveWindowWidth = 1280;
 constexpr int kInteractiveWindowHeight = 720;
 constexpr double kSimulationStepSeconds = 1.0 / 60.0;
@@ -84,6 +93,128 @@ std::filesystem::path argumentPath(const int argc, char **argv, const std::strin
     }
   }
   return {};
+}
+
+std::filesystem::path defaultProjectPath() {
+#if defined(ASTER_LUMEN_RUN_PROJECT)
+  return ASTER_LUMEN_RUN_PROJECT;
+#else
+  return {};
+#endif
+}
+
+const aster::sdk::ProjectAssetRef *
+findProjectAsset(const aster::sdk::ProjectDocument &project, const std::string_view id) {
+  const auto asset = std::find_if(project.assets.begin(), project.assets.end(),
+                                  [id](const aster::sdk::ProjectAssetRef &candidate) {
+                                    return candidate.id == id;
+                                  });
+  return asset == project.assets.end() ? nullptr : &*asset;
+}
+
+const aster::sdk::ProjectAssetRef *
+findProjectAssetByKind(const aster::sdk::ProjectDocument &project, const aster::sdk::AssetKind kind) {
+  const auto asset = std::find_if(project.assets.begin(), project.assets.end(),
+                                  [kind](const aster::sdk::ProjectAssetRef &candidate) {
+                                    return candidate.kind == kind;
+                                  });
+  return asset == project.assets.end() ? nullptr : &*asset;
+}
+
+std::filesystem::path projectAssetPath(const std::filesystem::path &project_path,
+                                       const aster::sdk::ProjectAssetRef &asset) {
+  const std::filesystem::path root = project_path.parent_path();
+  return asset.path.is_absolute() ? asset.path : root / asset.path;
+}
+
+void printAuthoringDiagnostics(const std::vector<aster::sdk::Diagnostic> &diagnostics) {
+  for (const aster::sdk::Diagnostic &diagnostic : diagnostics) {
+    const char *severity =
+        diagnostic.severity == aster::sdk::DiagnosticSeverity::Error ? "error" : "warning";
+    std::cerr << "Lumen Run project " << severity << ": ";
+    if (!diagnostic.source.empty()) {
+      std::cerr << diagnostic.source.string();
+    }
+    if (!diagnostic.path.empty()) {
+      std::cerr << " " << diagnostic.path;
+    }
+    std::cerr << ": " << diagnostic.message << '\n';
+  }
+}
+
+void appendAuthoringDiagnostics(std::vector<aster::sdk::Diagnostic> &out,
+                                std::vector<aster::sdk::Diagnostic> diagnostics) {
+  out.insert(out.end(), std::make_move_iterator(diagnostics.begin()),
+             std::make_move_iterator(diagnostics.end()));
+}
+
+bool hasAuthoringErrors(const std::vector<aster::sdk::Diagnostic> &diagnostics) {
+  return std::any_of(diagnostics.begin(), diagnostics.end(),
+                     [](const aster::sdk::Diagnostic &diagnostic) {
+                       return diagnostic.severity == aster::sdk::DiagnosticSeverity::Error;
+                     });
+}
+
+aster::LumenAuthoringData loadLumenAuthoring(const std::filesystem::path &project_path,
+                                             std::vector<aster::sdk::Diagnostic> &diagnostics) {
+  aster::LumenAuthoringData authoring;
+  if (project_path.empty()) {
+    return authoring;
+  }
+
+  const aster::sdk::LoadResult<aster::sdk::ProjectDocument> project =
+      aster::sdk::loadProjectDocument(project_path);
+  appendAuthoringDiagnostics(diagnostics, project.diagnostics);
+  if (!project.ok()) {
+    return authoring;
+  }
+  authoring.project = project.value;
+
+  const aster::sdk::ProjectAssetRef *scene_asset =
+      findProjectAsset(authoring.project, authoring.project.startup_scene);
+  if (scene_asset != nullptr) {
+    const auto scene = aster::sdk::loadSceneDocument(projectAssetPath(project_path, *scene_asset));
+    appendAuthoringDiagnostics(diagnostics, scene.diagnostics);
+    if (scene.ok()) {
+      authoring.scene = scene.value;
+    }
+  }
+
+  const aster::sdk::ProjectAssetRef *cave_asset =
+      findProjectAssetByKind(authoring.project, aster::sdk::AssetKind::Cave);
+  if (cave_asset != nullptr) {
+    const std::filesystem::path cave_path = projectAssetPath(project_path, *cave_asset);
+    const auto cave = aster::sdk::loadCaveDocument(cave_path);
+    appendAuthoringDiagnostics(diagnostics, cave.diagnostics);
+    if (cave.ok()) {
+      authoring.cave = cave.value;
+      appendAuthoringDiagnostics(
+          diagnostics,
+          aster::sdk::validateCaveDocument(authoring.cave, &authoring.project,
+                                           authoring.scene.id.empty() ? nullptr : &authoring.scene,
+                                           cave_path));
+    }
+  }
+
+  authoring.valid = !authoring.project.name.empty() && !authoring.scene.id.empty() &&
+                    !authoring.cave.id.empty() && !hasAuthoringErrors(diagnostics);
+  return authoring;
+}
+
+std::uint32_t caveOverlayAllLayerMask() {
+  return static_cast<std::uint32_t>(aster::CaveDebugOverlayLayer::Collision) |
+         static_cast<std::uint32_t>(aster::CaveDebugOverlayLayer::Interactable) |
+         static_cast<std::uint32_t>(aster::CaveDebugOverlayLayer::MiningTarget) |
+         static_cast<std::uint32_t>(aster::CaveDebugOverlayLayer::SpawnVolume) |
+         static_cast<std::uint32_t>(aster::CaveDebugOverlayLayer::CameraObstruction) |
+         static_cast<std::uint32_t>(aster::CaveDebugOverlayLayer::Walkable);
+}
+
+void toggleCaveOverlayLayer(aster::LumenRun &game, const aster::CaveDebugOverlayLayer layer) {
+  const std::uint32_t bit = static_cast<std::uint32_t>(layer);
+  std::uint32_t mask = game.caveDebugOverlayLayerMask();
+  mask = (mask & bit) != 0u ? (mask & ~bit) : (mask | bit);
+  game.setCaveDebugOverlayLayerMask(mask);
 }
 
 std::string argumentString(const int argc, char **argv, const std::string_view name,
@@ -286,6 +417,13 @@ aster::ControlScheme makeRunControls() {
   controls.bind(kHotbar4, aster::keyBinding(aster::Key::Num4));
   controls.bind(kHotbar5, aster::keyBinding(aster::Key::Num5));
   controls.bind(kHotbar6, aster::keyBinding(aster::Key::Num6));
+  controls.bind(kCaveDebugOverlayToggle, aster::keyBinding(aster::Key::F1));
+  controls.bind(kCaveDebugOverlayCollision, aster::keyBinding(aster::Key::F2));
+  controls.bind(kCaveDebugOverlayInteractable, aster::keyBinding(aster::Key::F3));
+  controls.bind(kCaveDebugOverlayMining, aster::keyBinding(aster::Key::F4));
+  controls.bind(kCaveDebugOverlaySpawn, aster::keyBinding(aster::Key::F5));
+  controls.bind(kCaveDebugOverlayCamera, aster::keyBinding(aster::Key::F6));
+  controls.bind(kCaveDebugOverlayWalkable, aster::keyBinding(aster::Key::F7));
   return controls;
 }
 
@@ -523,6 +661,8 @@ int main(int argc, char **argv) {
     const int screenshot_frame = std::max(0, argumentInt(argc, argv, "--screenshot-frame", 80));
     const bool capture_hud = hasArgument(argc, argv, "--capture-hud");
     const bool smoke_test = hasArgument(argc, argv, "--smoke-test");
+    const bool validate_cave = hasArgument(argc, argv, "--validate-cave");
+    const bool debug_cave_overlay = hasArgument(argc, argv, "--debug-cave-overlay");
     const bool profile_enabled =
         hasArgument(argc, argv, "--profile") || !profile_capture_path.empty();
     const bool frame_report_enabled = hasArgument(argc, argv, "--frame-report");
@@ -574,6 +714,26 @@ int main(int argc, char **argv) {
       startup_previous = now;
     };
 
+    std::filesystem::path project_path = argumentPath(argc, argv, "--project");
+    if (project_path.empty()) {
+      project_path = defaultProjectPath();
+    }
+    std::vector<aster::sdk::Diagnostic> authoring_diagnostics;
+    aster::LumenAuthoringData authoring = loadLumenAuthoring(project_path, authoring_diagnostics);
+    printAuthoringDiagnostics(authoring_diagnostics);
+    if (!project_path.empty()) {
+      if (hasAuthoringErrors(authoring_diagnostics) || !authoring.valid) {
+        throw std::runtime_error("failed to validate Lumen Run cave authoring: " +
+                                 project_path.string());
+      }
+      mark_startup("project_authoring_load");
+    }
+    if (validate_cave) {
+      std::cout << "Lumen Run cave validation passed: "
+                << (authoring.cave.id.empty() ? "no cave asset" : authoring.cave.id) << '\n';
+      return 0;
+    }
+
     aster::EngineConfig config;
     config.application_name = "Aster Learning Engine - Lumen Run";
     config.initial_width = argumentInt(argc, argv, "--window-width",
@@ -593,7 +753,11 @@ int main(int argc, char **argv) {
       aster::profile::startCapture();
     }
 
-    aster::LumenRun game;
+    aster::LumenRun game(authoring);
+    game.setCaveDebugOverlayEnabled(debug_cave_overlay);
+    if (debug_cave_overlay) {
+      game.setCaveDebugOverlayLayerMask(caveOverlayAllLayerMask());
+    }
     mark_startup("game_reset");
     if (cave_entry_capture && !player_position_override) {
       const aster::Vec3 crate = game.supplyCratePosition();
@@ -807,6 +971,45 @@ int main(int argc, char **argv) {
       }
       if (!pause_open && control_state.justPressed(kInventory)) {
         inventory_open = !inventory_open;
+      }
+      if (!scripted_capture) {
+        if (control_state.justPressed(kCaveDebugOverlayToggle)) {
+          game.setCaveDebugOverlayEnabled(!game.caveDebugOverlayEnabled());
+          if (game.caveDebugOverlayEnabled() && game.caveDebugOverlayLayerMask() == 0u) {
+            game.setCaveDebugOverlayLayerMask(caveOverlayAllLayerMask());
+          }
+          renderer.prepareScene(game.scene());
+        }
+        if (game.caveDebugOverlayEnabled()) {
+          bool cave_overlay_layers_changed = false;
+          if (control_state.justPressed(kCaveDebugOverlayCollision)) {
+            toggleCaveOverlayLayer(game, aster::CaveDebugOverlayLayer::Collision);
+            cave_overlay_layers_changed = true;
+          }
+          if (control_state.justPressed(kCaveDebugOverlayInteractable)) {
+            toggleCaveOverlayLayer(game, aster::CaveDebugOverlayLayer::Interactable);
+            cave_overlay_layers_changed = true;
+          }
+          if (control_state.justPressed(kCaveDebugOverlayMining)) {
+            toggleCaveOverlayLayer(game, aster::CaveDebugOverlayLayer::MiningTarget);
+            cave_overlay_layers_changed = true;
+          }
+          if (control_state.justPressed(kCaveDebugOverlaySpawn)) {
+            toggleCaveOverlayLayer(game, aster::CaveDebugOverlayLayer::SpawnVolume);
+            cave_overlay_layers_changed = true;
+          }
+          if (control_state.justPressed(kCaveDebugOverlayCamera)) {
+            toggleCaveOverlayLayer(game, aster::CaveDebugOverlayLayer::CameraObstruction);
+            cave_overlay_layers_changed = true;
+          }
+          if (control_state.justPressed(kCaveDebugOverlayWalkable)) {
+            toggleCaveOverlayLayer(game, aster::CaveDebugOverlayLayer::Walkable);
+            cave_overlay_layers_changed = true;
+          }
+          if (cave_overlay_layers_changed) {
+            renderer.prepareScene(game.scene());
+          }
+        }
       }
       const float scroll_y = control_state.snapshot().scroll.y;
       if (!pause_open && !scripted_capture && scroll_y != 0.0f) {

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "action.mine.cave_web",
+  "name": "Cut Cave Web",
+  "nodes": [
+    {
+      "id": "request_web_cut",
+      "type": "mining_attempt",
+      "parameters": {
+        "required_tag": "tool.mining",
+        "target": "target",
+        "mode": "break_obstacle"
+      },
+      "tags": ["interaction.mineable", "obstacle.web"]
+    }
+  ]
+}

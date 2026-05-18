@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "prefab.cave_fixture",
+  "name": "Cave Fixture Archetype",
+  "entities": [
+    {
+      "id": "cave_fixture.root",
+      "name": "Industrial Cave Fixture",
+      "components": {
+        "transform": {},
+        "fixture": { "archetype": "industrial_wall_light", "socket": "wall" },
+        "light": { "kind": "point", "color": [1.0, 0.42, 0.24], "intensity": 42.0, "radius": 2.15 },
+        "cave_debug": { "layers": ["lighting", "interactable"], "color": [1.0, 0.42, 0.24] }
+      }
+    }
+  ]
+}

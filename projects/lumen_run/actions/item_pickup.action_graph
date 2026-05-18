@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "action.item.pickup",
+  "name": "Pick Up Item",
+  "nodes": [
+    {
+      "id": "request_pickup",
+      "type": "inventory_transfer",
+      "parameters": {
+        "from": "target",
+        "to": "actor",
+        "mode": "pickup"
+      },
+      "tags": ["interaction.pickup"]
+    }
+  ]
+}

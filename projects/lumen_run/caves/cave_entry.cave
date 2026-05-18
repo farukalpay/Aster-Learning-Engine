@@ -1,0 +1,261 @@
+{
+  "schema_version": 1,
+  "id": "cave.lumen_entry",
+  "name": "Lumen Entry Cave",
+  "seeds": [
+    { "id": "lumen_cave", "value": 10431057 },
+    { "id": "entry_ore", "value": 10431268 },
+    { "id": "entry_features", "value": 10431478 },
+    { "id": "deep_cave", "value": 10437178 },
+    { "id": "deep_ore", "value": 10437268 },
+    { "id": "deep_features", "value": 10437478 },
+    { "id": "web", "value": 10438388 }
+  ],
+  "required_assets": [
+    "scene.cave_entry",
+    "prefab.cave_room",
+    "prefab.cave_segment",
+    "prefab.cave_fixture",
+    "prefab.coal_ore_node",
+    "prefab.torch_socket",
+    "prefab.spawn_point",
+    "prefab.cave_web",
+    "prefab.cave_skitter_spawn",
+    "prefab.supply_chest",
+    "prefab.interactable_anchor"
+  ],
+  "sections": [
+    {
+      "id": "entry",
+      "archetype": "prefab.cave_segment",
+      "terrain_cover_fit": true,
+      "contributes_entrance_light": true,
+      "tunnel": {
+        "seed": 10431057,
+        "floor_relative": true,
+        "start": [31.0, 0.03, -59.0],
+        "control": [29.95, -1.45, -66.2],
+        "control_b": [34.65, -4.85, -78.2],
+        "end": [30.14, -6.35, -89.2],
+        "length_segments": 112,
+        "radial_segments": 36,
+        "half_width": 1.76,
+        "wall_height": 2.58,
+        "floor_width": 2.52,
+        "floor_crown": 0.03,
+        "floor_edge_raise": 0.075,
+        "wall_noise": 0.30,
+        "visible_wall_start_t": 0.0,
+        "collision_start_t": 0.0,
+        "collision_end_t": 0.965,
+        "ore_start_t": 0.24,
+        "chest_t": 0.78,
+        "chamber_t": 0.74,
+        "chamber_falloff": 0.25,
+        "chamber_width_scale": 2.55,
+        "chamber_height_scale": 1.62,
+        "end_constraint_enabled": false
+      },
+      "portal": {
+        "arch_segments": 48,
+        "inner_half_width": 1.48,
+        "inner_height": 1.78,
+        "outer_half_width": 2.28,
+        "outer_height": 2.78,
+        "depth": 1.54,
+        "ground_lip": 0.08,
+        "inner_lining_depth": 2.20,
+        "lining_breakup": 0.052
+      },
+      "ore": {
+        "seed": 10431268,
+        "candidates": 132,
+        "max_nodes": 20,
+        "field_frequency_a": 0.38,
+        "field_frequency_b": 0.76,
+        "intersection_threshold_a": 0.27,
+        "intersection_threshold_b": 0.25,
+        "wall_inset": 0.040,
+        "min_spacing": 0.98
+      },
+      "features": {
+        "seed": 10431478,
+        "candidates": 168,
+        "max_features": 38,
+        "start_t": 0.06,
+        "end_t": 0.92,
+        "min_spacing": 0.78,
+        "wall_inset": 0.12,
+        "ceiling_fraction": 0.30,
+        "column_fraction": 0.06,
+        "shelf_fraction": 0.22,
+        "mineral_fraction": 0.28
+      },
+      "fixtures": [
+        {
+          "id": "entry_left_industrial",
+          "start_t": 0.28,
+          "end_t": 0.72,
+          "target_spacing": 4.6,
+          "max_count": 5,
+          "wall_side": -1.0,
+          "mount_height": 1.22,
+          "wall_inset": 0.24,
+          "normal_up_bias": -0.10,
+          "lens_offset": 0.095,
+          "light_offset": 0.22
+        },
+        {
+          "id": "entry_right_industrial",
+          "start_t": 0.34,
+          "end_t": 0.66,
+          "target_spacing": 6.2,
+          "max_count": 3,
+          "wall_side": 1.0,
+          "mount_height": 1.22,
+          "wall_inset": 0.24,
+          "normal_up_bias": -0.10,
+          "lens_offset": 0.095,
+          "light_offset": 0.22
+        }
+      ]
+    },
+    {
+      "id": "deep",
+      "archetype": "prefab.cave_segment",
+      "derive_from_previous": true,
+      "tunnel": {
+        "seed": 10437178,
+        "length_segments": 168,
+        "radial_segments": 36,
+        "half_width": 1.8304,
+        "wall_height": 2.6316,
+        "floor_width": 2.6208,
+        "floor_crown": 0.03,
+        "floor_edge_raise": 0.075,
+        "wall_noise": 0.30,
+        "visible_wall_start_t": 0.0,
+        "collision_start_t": 0.0,
+        "collision_end_t": 1.0,
+        "ore_start_t": 0.10,
+        "chest_t": 0.54,
+        "chamber_t": 0.52,
+        "chamber_falloff": 0.24,
+        "chamber_width_scale": 2.10,
+        "chamber_height_scale": 1.42,
+        "end_constraint_enabled": true
+      },
+      "ore": {
+        "seed": 10437268,
+        "candidates": 160,
+        "max_nodes": 18,
+        "field_frequency_a": 0.40,
+        "field_frequency_b": 0.82,
+        "intersection_threshold_a": 0.28,
+        "intersection_threshold_b": 0.24,
+        "wall_inset": 0.045,
+        "min_spacing": 1.05
+      },
+      "features": {
+        "seed": 10437478,
+        "candidates": 210,
+        "max_features": 54,
+        "start_t": 0.04,
+        "end_t": 0.96,
+        "min_spacing": 0.86,
+        "wall_inset": 0.13,
+        "ceiling_fraction": 0.34,
+        "column_fraction": 0.08,
+        "shelf_fraction": 0.22,
+        "mineral_fraction": 0.30
+      },
+      "fixtures": [
+        {
+          "id": "deep_left_industrial",
+          "start_t": 0.08,
+          "end_t": 0.94,
+          "target_spacing": 5.2,
+          "max_count": 9,
+          "wall_side": -1.0,
+          "mount_height": 1.22,
+          "wall_inset": 0.24,
+          "normal_up_bias": -0.10,
+          "lens_offset": 0.095,
+          "light_offset": 0.22
+        },
+        {
+          "id": "deep_right_industrial",
+          "start_t": 0.16,
+          "end_t": 0.88,
+          "target_spacing": 7.0,
+          "max_count": 6,
+          "wall_side": 1.0,
+          "mount_height": 1.22,
+          "wall_inset": 0.24,
+          "normal_up_bias": -0.10,
+          "lens_offset": 0.095,
+          "light_offset": 0.22
+        }
+      ]
+    }
+  ],
+  "placements": [
+    {
+      "id": "supply_chest",
+      "kind": "chest",
+      "prefab": "prefab.supply_chest",
+      "section": "entry",
+      "position": [29.66, 0.28, -57.82],
+      "floor_relative": true
+    },
+    {
+      "id": "entry_web",
+      "kind": "web_obstacle",
+      "prefab": "prefab.cave_web",
+      "section": "entry"
+    },
+    {
+      "id": "entry_skitter_group",
+      "kind": "enemy_spawn",
+      "prefab": "prefab.cave_skitter_spawn",
+      "section": "entry"
+    }
+  ],
+  "validation": {
+    "walkable_routes": [
+      {
+        "id": "entry_to_deep",
+        "points": [[31.0, 0.03, -59.0], [30.14, -6.35, -89.2]],
+        "max_segment_length": 36.0,
+        "support_tolerance": 0.5
+      }
+    ],
+    "spawn_volumes": [
+      {
+        "id": "player_spawn",
+        "center": [1.1, 0.28, 1.0],
+        "half_extents": [0.3, 0.5, 0.3]
+      },
+      {
+        "id": "entry_skitter_spawn",
+        "center": [30.14, -5.0, -90.0],
+        "half_extents": [1.8, 1.2, 0.8]
+      }
+    ],
+    "collision_volumes": [
+      {
+        "id": "supply_chest_collision",
+        "center": [29.66, 0.28, -57.82],
+        "half_extents": [0.55, 0.42, 0.38]
+      }
+    ],
+    "camera_probes": [
+      {
+        "id": "entry_camera",
+        "camera": [31.0, 1.3, -56.0],
+        "target": [31.0, 0.4, -61.0],
+        "min_clearance": 0.25
+      }
+    ]
+  }
+}
