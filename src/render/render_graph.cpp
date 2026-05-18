@@ -3,6 +3,11 @@
 
 #include "aster/render/render_graph.hpp"
 
+#include <algorithm>
+#include <string>
+#include <unordered_set>
+#include <utility>
+
 namespace aster {
 namespace {
 
@@ -18,7 +23,63 @@ namespace {
   return framegraph::ResourceLifetime::Transient;
 }
 
+[[nodiscard]] RenderGraphResourceBindingDesc readBinding(const RenderGraphResource resource,
+                                                         const rhi::ResourceState state =
+                                                             rhi::ResourceState::ShaderRead) {
+  return {.resource = resource, .state = state};
+}
+
+[[nodiscard]] RenderGraphResourceBindingDesc writeBinding(
+    const RenderGraphResource resource, const rhi::ResourceState state,
+    const rhi::AttachmentLoadOp load_op = rhi::AttachmentLoadOp::DontCare,
+    const rhi::AttachmentStoreOp store_op = rhi::AttachmentStoreOp::Store) {
+  return {.resource = resource, .state = state, .load_op = load_op, .store_op = store_op};
+}
+
 } // namespace
+
+RenderPassRegistry &RenderPassRegistry::add(RenderGraphPassDeclaration declaration) {
+  passes_.push_back(std::move(declaration));
+  return *this;
+}
+
+const RenderGraphPassDeclaration *RenderPassRegistry::find(const RenderGraphPass pass) const {
+  const auto found = std::find_if(passes_.begin(), passes_.end(),
+                                  [pass](const RenderGraphPassDeclaration &declaration) {
+                                    return declaration.pass == pass;
+                                  });
+  return found == passes_.end() ? nullptr : &*found;
+}
+
+const RenderGraphPassDeclaration *RenderPassRegistry::find(const std::string_view name) const {
+  const auto found = std::find_if(passes_.begin(), passes_.end(),
+                                  [name](const RenderGraphPassDeclaration &declaration) {
+                                    return declaration.name == name;
+                                  });
+  return found == passes_.end() ? nullptr : &*found;
+}
+
+std::vector<std::string> RenderPassRegistry::validate() const {
+  std::vector<std::string> errors;
+  std::unordered_set<std::uint32_t> seen_passes;
+  std::unordered_set<std::string> seen_names;
+  for (const RenderGraphPassDeclaration &pass : passes_) {
+    if (pass.name.empty()) {
+      errors.push_back("render pass declaration has an empty name");
+    }
+    const std::uint32_t pass_id = static_cast<std::uint32_t>(pass.pass);
+    if (!seen_passes.insert(pass_id).second) {
+      errors.push_back("render pass declaration repeats pass id " + std::to_string(pass_id));
+    }
+    if (!seen_names.insert(pass.name).second) {
+      errors.push_back("render pass declaration repeats pass name '" + pass.name + "'");
+    }
+    if (pass.inputs.empty() && pass.outputs.empty()) {
+      errors.push_back("render pass '" + pass.name + "' declares no resource usage");
+    }
+  }
+  return errors;
+}
 
 std::string_view renderGraphPassName(const RenderGraphPass pass) {
   switch (pass) {
@@ -141,103 +202,244 @@ RenderGraphResource renderGraphResourceFromName(const std::string_view name) {
   return RenderGraphResource::SceneColor;
 }
 
+std::string_view renderGraphExecutorKeyName(const RenderGraphExecutorKey key) {
+  switch (key) {
+  case RenderGraphExecutorKey::None:
+    return "none";
+  case RenderGraphExecutorKey::ClearScene:
+    return "clear-scene";
+  case RenderGraphExecutorKey::LightCull:
+    return "light-cull";
+  case RenderGraphExecutorKey::ShadowAtlas:
+    return "shadow-atlas";
+  case RenderGraphExecutorKey::Opaque:
+    return "opaque";
+  case RenderGraphExecutorKey::ContactShadow:
+    return "contact-shadow";
+  case RenderGraphExecutorKey::SceneLighting:
+    return "scene-lighting";
+  case RenderGraphExecutorKey::VolumetricFog:
+    return "volumetric-fog";
+  case RenderGraphExecutorKey::ReflectionProbe:
+    return "reflection-probe";
+  case RenderGraphExecutorKey::Transparent:
+    return "transparent";
+  case RenderGraphExecutorKey::UiComposite:
+    return "ui-composite";
+  case RenderGraphExecutorKey::Capture:
+    return "capture";
+  }
+  return "none";
+}
+
+std::string_view
+renderGraphDebugCapturePolicyName(const RenderGraphDebugCapturePolicy policy) {
+  switch (policy) {
+  case RenderGraphDebugCapturePolicy::Disabled:
+    return "disabled";
+  case RenderGraphDebugCapturePolicy::OnRequest:
+    return "on-request";
+  case RenderGraphDebugCapturePolicy::Always:
+    return "always";
+  }
+  return "disabled";
+}
+
+framegraph::ResourceDesc defaultRenderGraphResourceDesc(const RenderGraphResource resource) {
+  switch (resource) {
+  case RenderGraphResource::SceneColor:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Rgba16Float,
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
+  case RenderGraphResource::SceneDepth:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Depth32Float,
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::DepthAttachment) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Sampled)};
+  case RenderGraphResource::LightClusters:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Rgba8Unorm,
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Storage)};
+  case RenderGraphResource::ShadowAtlas:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Depth32Float,
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::DepthAttachment) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Sampled)};
+  case RenderGraphResource::VolumetricFog:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Rgba8Unorm,
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Storage)};
+  case RenderGraphResource::ReflectionProbes:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Rgba8Unorm,
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment)};
+  case RenderGraphResource::UiOverlay:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Imported),
+            .format = rhi::ImageFormat::Bgra8Unorm,
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled)};
+  case RenderGraphResource::CaptureReadback:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Readback),
+            .format = rhi::ImageFormat::Bgra8Unorm,
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::TransferDestination)};
+  }
+  return {};
+}
+
+RenderPassRegistry makeDefaultRenderPassRegistry(const bool ui_overlay_enabled,
+                                                 const bool capture_enabled) {
+  RenderPassRegistry registry;
+  registry.add({.pass = RenderGraphPass::SceneColorDepth,
+                .name = std::string(renderGraphPassName(RenderGraphPass::SceneColorDepth)),
+                .outputs = {writeBinding(RenderGraphResource::SceneColor,
+                                         rhi::ResourceState::ColorAttachment,
+                                         rhi::AttachmentLoadOp::Clear),
+                            writeBinding(RenderGraphResource::SceneDepth,
+                                         rhi::ResourceState::DepthAttachment,
+                                         rhi::AttachmentLoadOp::Clear)},
+                .debug_capture = RenderGraphDebugCapturePolicy::OnRequest,
+                .executor = RenderGraphExecutorKey::ClearScene,
+                .produces_backend_work = true});
+  registry.add({.pass = RenderGraphPass::LightCull,
+                .name = std::string(renderGraphPassName(RenderGraphPass::LightCull)),
+                .inputs = {readBinding(RenderGraphResource::SceneDepth)},
+                .outputs = {writeBinding(RenderGraphResource::LightClusters,
+                                         rhi::ResourceState::ShaderWrite)},
+                .debug_capture = RenderGraphDebugCapturePolicy::OnRequest,
+                .executor = RenderGraphExecutorKey::LightCull,
+                .produces_backend_work = true});
+  registry.add({.pass = RenderGraphPass::ShadowAtlas,
+                .name = std::string(renderGraphPassName(RenderGraphPass::ShadowAtlas)),
+                .inputs = {readBinding(RenderGraphResource::LightClusters)},
+                .outputs = {writeBinding(RenderGraphResource::ShadowAtlas,
+                                         rhi::ResourceState::DepthAttachment,
+                                         rhi::AttachmentLoadOp::Clear)},
+                .debug_capture = RenderGraphDebugCapturePolicy::OnRequest,
+                .executor = RenderGraphExecutorKey::ShadowAtlas,
+                .produces_backend_work = false});
+  registry.add({.pass = RenderGraphPass::Opaque,
+                .name = std::string(renderGraphPassName(RenderGraphPass::Opaque)),
+                .inputs = {readBinding(RenderGraphResource::SceneColor),
+                           readBinding(RenderGraphResource::SceneDepth),
+                           readBinding(RenderGraphResource::LightClusters),
+                           readBinding(RenderGraphResource::ShadowAtlas)},
+                .outputs = {writeBinding(RenderGraphResource::SceneColor,
+                                         rhi::ResourceState::ColorAttachment,
+                                         rhi::AttachmentLoadOp::Load),
+                            writeBinding(RenderGraphResource::SceneDepth,
+                                         rhi::ResourceState::DepthAttachment,
+                                         rhi::AttachmentLoadOp::Load)},
+                .executor = RenderGraphExecutorKey::Opaque,
+                .produces_backend_work = true});
+  registry.add({.pass = RenderGraphPass::ContactShadow,
+                .name = std::string(renderGraphPassName(RenderGraphPass::ContactShadow)),
+                .inputs = {readBinding(RenderGraphResource::SceneColor),
+                           readBinding(RenderGraphResource::SceneDepth)},
+                .outputs = {writeBinding(RenderGraphResource::SceneColor,
+                                         rhi::ResourceState::ColorAttachment,
+                                         rhi::AttachmentLoadOp::Load),
+                            writeBinding(RenderGraphResource::SceneDepth,
+                                         rhi::ResourceState::DepthAttachment,
+                                         rhi::AttachmentLoadOp::Load)},
+                .executor = RenderGraphExecutorKey::ContactShadow,
+                .produces_backend_work = true});
+  registry.add({.pass = RenderGraphPass::SceneLighting,
+                .name = std::string(renderGraphPassName(RenderGraphPass::SceneLighting)),
+                .inputs = {readBinding(RenderGraphResource::SceneColor),
+                           readBinding(RenderGraphResource::SceneDepth),
+                           readBinding(RenderGraphResource::LightClusters),
+                           readBinding(RenderGraphResource::ShadowAtlas)},
+                .outputs = {writeBinding(RenderGraphResource::SceneColor,
+                                         rhi::ResourceState::ColorAttachment,
+                                         rhi::AttachmentLoadOp::Load)},
+                .executor = RenderGraphExecutorKey::SceneLighting,
+                .produces_backend_work = true});
+  registry.add({.pass = RenderGraphPass::VolumetricFog,
+                .name = std::string(renderGraphPassName(RenderGraphPass::VolumetricFog)),
+                .inputs = {readBinding(RenderGraphResource::SceneDepth),
+                           readBinding(RenderGraphResource::LightClusters)},
+                .outputs = {writeBinding(RenderGraphResource::VolumetricFog,
+                                         rhi::ResourceState::ShaderWrite)},
+                .executor = RenderGraphExecutorKey::VolumetricFog,
+                .produces_backend_work = false});
+  registry.add({.pass = RenderGraphPass::ReflectionProbe,
+                .name = std::string(renderGraphPassName(RenderGraphPass::ReflectionProbe)),
+                .inputs = {readBinding(RenderGraphResource::SceneColor)},
+                .outputs = {writeBinding(RenderGraphResource::ReflectionProbes,
+                                         rhi::ResourceState::ColorAttachment,
+                                         rhi::AttachmentLoadOp::Clear)},
+                .executor = RenderGraphExecutorKey::ReflectionProbe,
+                .produces_backend_work = false});
+  registry.add({.pass = RenderGraphPass::Transparent,
+                .name = std::string(renderGraphPassName(RenderGraphPass::Transparent)),
+                .inputs = {readBinding(RenderGraphResource::SceneColor),
+                           readBinding(RenderGraphResource::SceneDepth),
+                           readBinding(RenderGraphResource::LightClusters),
+                           readBinding(RenderGraphResource::VolumetricFog),
+                           readBinding(RenderGraphResource::ReflectionProbes)},
+                .outputs = {writeBinding(RenderGraphResource::SceneColor,
+                                         rhi::ResourceState::ColorAttachment,
+                                         rhi::AttachmentLoadOp::Load)},
+                .executor = RenderGraphExecutorKey::Transparent,
+                .produces_backend_work = true});
+  if (ui_overlay_enabled) {
+    registry.add({.pass = RenderGraphPass::UiComposite,
+                  .name = std::string(renderGraphPassName(RenderGraphPass::UiComposite)),
+                  .inputs = {readBinding(RenderGraphResource::SceneColor),
+                             readBinding(RenderGraphResource::UiOverlay)},
+                  .outputs = {writeBinding(RenderGraphResource::SceneColor,
+                                           rhi::ResourceState::ColorAttachment,
+                                           rhi::AttachmentLoadOp::Load)},
+                  .executor = RenderGraphExecutorKey::UiComposite,
+                  .produces_backend_work = true});
+  }
+  if (capture_enabled) {
+    registry.add({.pass = RenderGraphPass::Capture,
+                  .name = std::string(renderGraphPassName(RenderGraphPass::Capture)),
+                  .inputs = {readBinding(RenderGraphResource::SceneColor,
+                                         rhi::ResourceState::CopySource)},
+                  .outputs = {writeBinding(RenderGraphResource::CaptureReadback,
+                                           rhi::ResourceState::CopyDestination,
+                                           rhi::AttachmentLoadOp::DontCare)},
+                  .debug_capture = RenderGraphDebugCapturePolicy::Always,
+                  .executor = RenderGraphExecutorKey::Capture,
+                  .produces_backend_work = true});
+  }
+  return registry;
+}
+
+const RenderGraphPassDeclaration *defaultRenderPassDeclaration(const RenderGraphPass pass) {
+  static const RenderPassRegistry registry = makeDefaultRenderPassRegistry(true, true);
+  return registry.find(pass);
+}
+
 framegraph::FrameGraph makeDefaultFrameGraph(const bool ui_overlay_enabled,
                                              const bool capture_enabled) {
   framegraph::FrameGraph graph;
-  const auto color = graph.addResource(
-      std::string(renderGraphResourceName(RenderGraphResource::SceneColor)),
-      {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-       .format = rhi::ImageFormat::Rgba16Float,
-       .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
-                rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
-                rhi::imageUsageBit(rhi::ImageUsage::TransferSource)});
-  const auto depth = graph.addResource(
-      std::string(renderGraphResourceName(RenderGraphResource::SceneDepth)),
-      {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-       .format = rhi::ImageFormat::Depth32Float,
-       .usage = rhi::imageUsageBit(rhi::ImageUsage::DepthAttachment)});
-  const auto light_clusters = graph.addResource(
-      std::string(renderGraphResourceName(RenderGraphResource::LightClusters)),
-      {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-       .format = rhi::ImageFormat::Rgba8Unorm,
-       .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled)});
-  const auto shadow_atlas = graph.addResource(
-      std::string(renderGraphResourceName(RenderGraphResource::ShadowAtlas)),
-      {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-       .format = rhi::ImageFormat::Depth32Float,
-       .usage = rhi::imageUsageBit(rhi::ImageUsage::DepthAttachment) |
-                rhi::imageUsageBit(rhi::ImageUsage::Sampled)});
-  const auto volumetric_fog = graph.addResource(
-      std::string(renderGraphResourceName(RenderGraphResource::VolumetricFog)),
-      {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-       .format = rhi::ImageFormat::Rgba8Unorm,
-       .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled)});
-  const auto reflection_probes = graph.addResource(
-      std::string(renderGraphResourceName(RenderGraphResource::ReflectionProbes)),
-      {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-       .format = rhi::ImageFormat::Rgba8Unorm,
-       .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled)});
-  const auto ui = graph.addResource(
-      std::string(renderGraphResourceName(RenderGraphResource::UiOverlay)),
-      {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Imported),
-       .format = rhi::ImageFormat::Bgra8Unorm,
-       .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled)});
-  const auto capture = graph.addResource(
-      std::string(renderGraphResourceName(RenderGraphResource::CaptureReadback)),
-      {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Readback),
-       .format = rhi::ImageFormat::Bgra8Unorm,
-       .usage = rhi::imageUsageBit(rhi::ImageUsage::TransferDestination)});
-
-  graph.addPass(std::string(renderGraphPassName(RenderGraphPass::SceneColorDepth)))
-      .writes(color)
-      .writes(depth);
-  graph.addPass(std::string(renderGraphPassName(RenderGraphPass::LightCull)))
-      .reads(depth)
-      .writes(light_clusters);
-  graph.addPass(std::string(renderGraphPassName(RenderGraphPass::ShadowAtlas)))
-      .reads(light_clusters)
-      .writes(shadow_atlas);
-  graph.addPass(std::string(renderGraphPassName(RenderGraphPass::Opaque)))
-      .reads(color)
-      .reads(depth)
-      .reads(light_clusters)
-      .reads(shadow_atlas)
-      .writes(color)
-      .writes(depth);
-  graph.addPass(std::string(renderGraphPassName(RenderGraphPass::ContactShadow)))
-      .reads(color)
-      .reads(depth)
-      .writes(color)
-      .writes(depth);
-  graph.addPass(std::string(renderGraphPassName(RenderGraphPass::SceneLighting)))
-      .reads(color)
-      .reads(depth)
-      .reads(light_clusters)
-      .writes(color);
-  graph.addPass(std::string(renderGraphPassName(RenderGraphPass::VolumetricFog)))
-      .reads(depth)
-      .reads(light_clusters)
-      .writes(volumetric_fog);
-  graph.addPass(std::string(renderGraphPassName(RenderGraphPass::ReflectionProbe)))
-      .reads(color)
-      .writes(reflection_probes);
-  graph.addPass(std::string(renderGraphPassName(RenderGraphPass::Transparent)))
-      .reads(color)
-      .reads(depth)
-      .reads(light_clusters)
-      .reads(volumetric_fog)
-      .reads(reflection_probes)
-      .writes(color);
-  if (ui_overlay_enabled) {
-    graph.addPass(std::string(renderGraphPassName(RenderGraphPass::UiComposite)))
-        .reads(color)
-        .reads(ui)
-        .writes(color);
+  const RenderPassRegistry registry =
+      makeDefaultRenderPassRegistry(ui_overlay_enabled, capture_enabled);
+  std::vector<framegraph::ResourceHandle> handles;
+  handles.resize(8u);
+  for (std::uint32_t i = 0u; i < static_cast<std::uint32_t>(handles.size()); ++i) {
+    const auto resource = static_cast<RenderGraphResource>(i);
+    handles[i] = graph.addResource(std::string(renderGraphResourceName(resource)),
+                                   defaultRenderGraphResourceDesc(resource));
   }
-  if (capture_enabled) {
-    graph.addPass(std::string(renderGraphPassName(RenderGraphPass::Capture)))
-        .reads(color)
-        .writes(capture);
+  const auto handle_for = [&handles](const RenderGraphResource resource) {
+    return handles[static_cast<std::uint32_t>(resource)];
+  };
+  for (const RenderGraphPassDeclaration &declaration : registry.passes()) {
+    auto pass_builder = graph.addPass(declaration.name);
+    for (const RenderGraphResourceBindingDesc &input : declaration.inputs) {
+      pass_builder.reads(handle_for(input.resource));
+    }
+    for (const RenderGraphResourceBindingDesc &output : declaration.outputs) {
+      pass_builder.writes(handle_for(output.resource));
+    }
   }
   return graph;
 }

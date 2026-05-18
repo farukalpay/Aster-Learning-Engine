@@ -10,6 +10,7 @@
 #include "aster/render/render_graph.hpp"
 #include "aster/render/render_scene.hpp"
 #include "aster/rhi/device.hpp"
+#include "aster/rhi/frame_trace.hpp"
 #include "aster/rhi/resource_registry.hpp"
 #include "aster/texture/runtime_texture.hpp"
 
@@ -304,6 +305,82 @@ struct FramePassStats {
   double encode_seconds = 0.0;
 };
 
+enum class RendererDebugView : std::uint32_t {
+  FinalColor,
+  BaseColor,
+  Normal,
+  Roughness,
+  Metallic,
+  AmbientOcclusion,
+  Emissive,
+  Uv,
+  MipLevel,
+  Overdraw,
+  LightClusters,
+  ShadowMask,
+  Fog,
+  ReflectionProbe,
+};
+
+struct FrameDebugRequest {
+  RendererDebugView view = RendererDebugView::FinalColor;
+  RenderGraphPass pass = RenderGraphPass::Capture;
+  bool capture = false;
+};
+
+struct FrameDebugCapture {
+  RenderGraphPass pass = RenderGraphPass::Capture;
+  RendererDebugView view = RendererDebugView::FinalColor;
+  RenderGraphResource resource = RenderGraphResource::SceneColor;
+  std::string label;
+  std::uint32_t width = 0u;
+  std::uint32_t height = 0u;
+  std::uint32_t row_stride_bytes = 0u;
+  std::uint64_t content_hash = 0u;
+  bool available = false;
+  std::vector<std::uint8_t> rgba8;
+};
+
+struct FrameResourceTrace {
+  RenderGraphPass pass = RenderGraphPass::SceneColorDepth;
+  RenderGraphResource resource = RenderGraphResource::SceneColor;
+  std::string pass_name;
+  std::string resource_name;
+  rhi::ResourceState before = rhi::ResourceState::Undefined;
+  rhi::ResourceState after = rhi::ResourceState::Undefined;
+  rhi::QueueKind queue = rhi::QueueKind::Graphics;
+  bool write = false;
+};
+
+struct MaterialBindingTrace {
+  std::string object_name;
+  std::string material_asset_id;
+  std::string role;
+  bool valid = false;
+  bool fallback = true;
+  bool bound = false;
+  std::uint32_t width = 0u;
+  std::uint32_t height = 0u;
+  std::uint32_t mip_count = 0u;
+  std::uint64_t descriptor_layout_hash = 0u;
+};
+
+struct MeshVisibilityTrace {
+  std::string object_name;
+  std::size_t object_index = 0u;
+  bool visible = false;
+  RenderGraphPass pass = RenderGraphPass::Opaque;
+  float opacity = 1.0f;
+  std::string reason;
+};
+
+struct ObjectClusterMembershipTrace {
+  std::string object_name;
+  std::size_t object_index = 0u;
+  std::uint32_t cluster_index = 0u;
+  bool visible = false;
+};
+
 enum class FrameDiagnosticSeverity : std::uint32_t {
   Info,
   Warning,
@@ -349,6 +426,12 @@ struct FrameForensics {
   FrameEvidence evidence{};
   std::vector<FramePassStats> passes;
   std::vector<FrameDiagnosticEvent> events;
+  std::vector<FrameDebugCapture> captures;
+  std::vector<FrameResourceTrace> resource_traces;
+  std::vector<MaterialBindingTrace> material_bindings;
+  std::vector<MeshVisibilityTrace> mesh_visibility;
+  std::vector<ObjectClusterMembershipTrace> object_clusters;
+  rhi::FrameTrace rhi_trace{};
 };
 
 class RenderDevice {

@@ -9,23 +9,30 @@ material, render graph, capture, and diagnostic contracts.
 | Role | Deterministic reference, fallback, preview, capture | Native macOS scene renderer | Native offscreen raster/readback under conformance | Wayland/X11 software presentation |
 | Presentation | Software framebuffer | CAMetalLayer | None yet; readback/capture only | wl_shm or raw X11 from software framebuffer |
 | Scene contract | Shared `Scene` and `FrameRenderPlan` | Shared `Scene` and `FrameRenderPlan` | Shared `Scene` and `FrameRenderPlan` | Uses software renderer output |
-| Render graph passes | Scene, light cull, shadow atlas placeholder, opaque, contact shadow, scene lighting, fog placeholder, reflection probe placeholder, transparent, UI, capture | Same shared pass contract, native scene/UI/capture work; shadow/fog/probe placeholders are contract-only | Same shared pass contract, native offscreen/capture work; no UI composite yet | Presents software output |
-| Clustered forward lighting | Native CPU reference contract, deterministic cluster lists | Native CPU reference contract; GPU buffer consumption not yet wired | Native CPU reference contract in offscreen conformance; GPU buffer consumption not yet wired | Software reference |
-| Shadow atlas | Placeholder pass/resource only | Placeholder pass/resource only | Placeholder pass/resource only | Software placeholder |
-| Volumetric fog injection | Placeholder pass/resource only | Placeholder pass/resource only | Placeholder pass/resource only | Software placeholder |
-| Reflection probes | Placeholder pass/resource only | Placeholder pass/resource only | Placeholder pass/resource only | Software placeholder |
+| Render graph passes | Declarative registry plus compiled scheduler trace; software executes scene/lighting/contact/transparent/post/capture and reference shadow/fog/probe producers | Same registry and trace; native scene/UI/capture work; shadow/fog/probe resources are declared but not fully rendered yet | Same registry and trace; native offscreen/capture work; no UI composite or swapchain presentation yet | Presents software output |
+| Clustered forward lighting | CPU reference contract, deterministic cluster lists, frame-debug membership trace | CPU reference contract; GPU buffer consumption not yet wired | CPU reference contract in offscreen conformance; GPU buffer consumption not yet wired | Software reference |
+| Shadow atlas | Yes: reference cascaded directional atlas, PCF shadow sampling when shadows are enabled, RGBA debug capture | Declared producer/consumer resource and debug capture; cascaded atlas rendering not wired | Declared producer/consumer resource and debug capture; cascaded atlas rendering not wired | Software contract trace |
+| Volumetric fog injection | Yes: low-resolution integrated fog resource and RGBA debug capture; final image still uses the legacy software fog equation for golden stability | Declared producer/consumer resource and debug capture; integrated volume pass not wired | Declared producer/consumer resource and debug capture; integrated volume pass not wired | Software contract trace |
+| Reflection probes | Yes: static local probe atlas from `Scene::reflectionProbes`, sampled by software reflections when enabled | Declared producer/consumer resource and debug capture; probe rendering not wired | Declared producer/consumer resource and debug capture; probe rendering not wired | Software contract trace |
 | Shader model | Software reference | Metal MSL scene shaders | D3D12 HLSL scene shaders | Software reference |
 | Shader materials | Yes, procedural/material variants | Yes, procedural/material variants | Yes, conservative procedural/material variants | Software reference |
-| Material texture sampling | No scene material texture binding yet | No scene material texture binding yet | No scene material texture binding yet | No scene material texture binding yet |
+| Material texture sampling | Yes: runtime role table and CPU sampler for albedo/normal/ORM/roughness/metallic/AO/height/emissive/wetness/opacity | Yes: role table, Metal texture/sampler binding, shader sampling, fallback trace | Yes: role table, D3D12 SRV table/sampler binding, shader sampling, fallback trace | Software output |
 | Instancing | No hardware instancing | Yes | Yes | Software output |
 | Color formats advertised | BGRA8, RGBA8 | RGBA8, BGRA8 | BGRA8 | BGRA8/RGBA8 via software |
 | Depth formats advertised | Depth32Float | Depth32Float | Depth32Float | Depth32Float via software |
 | MSAA advertised | 1x only; `msaa=false` | 1x only; `msaa=false` | 1x only; `msaa=false` | 1x only |
 | Storage buffers / texture arrays | Unsupported | Advertised for renderer contract work | Advertised for offscreen renderer contract work | Software output |
-| HDR render targets | Unsupported | Unsupported until a native HDR color target is wired | Unsupported until a native HDR color target is wired | Unsupported |
+| HDR render targets | Software reference advertises RGBA16F scene-color contract | Unsupported until a native HDR color target is wired | Unsupported until a native HDR color target is wired | Software output |
 | Blend modes advertised | Opaque, alpha blend | Opaque, alpha blend | Opaque, alpha blend | Opaque, alpha blend via software |
 | GPU timestamps | No | No | No | No |
 | Golden conformance | Exact baseline | Tolerance diff vs software | Tolerance diff vs software on Windows | Exact software baseline |
+
+The frame-debugger truth layer is available through `FrameForensics`: pass stats,
+resource transition traces, descriptor layout hashes, pipeline cache keys, queue
+submit traces, material binding traces, and debug-capture declarations. Software
+captures include RGBA payloads and content hashes for final color, shadow atlas,
+volumetric fog, and reflection probe resources. Object visibility and
+object-to-cluster membership traces are recorded for frame-debugger queries.
 
 Capability details are available at runtime through
 `aster_kernel_renderer_get_backend_capability_table`. The older

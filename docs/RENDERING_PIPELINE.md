@@ -6,10 +6,23 @@ Aster builds a frame from engine data, not sample-specific code:
    optional custom meshes.
 2. `RenderScene` and the Rust planner produce visible instances, draw groups,
    translucent ordering, and diagnostics.
-3. `FixedRenderGraph` executes semantic passes: scene color/depth, light cull,
-   shadow atlas, opaque, contact shadow, scene lighting, volumetric fog,
-   reflection probe, transparent, UI composite, and capture.
-4. Backends consume the same plan and publish `FrameStats` plus `FrameForensics`.
+3. `RenderPassRegistry` declares semantic passes, resource inputs/outputs,
+   load/store/clear policy, viewport/scissor policy, queue, debug capture policy,
+   and backend executor key.
+4. `FixedRenderGraph` is the compiled scheduler artifact used by the legacy
+   executor wrapper. It carries resource lifetimes, alias groups, expanded RHI
+   barriers, descriptor requirements, and render-pass compatibility metadata.
+5. Backends consume the same plan and publish `FrameStats` plus
+   `FrameForensics`.
+
+The frame debugger is contract-first: every frame records pass stats, resource
+transition traces, queue submit traces, descriptor layout hashes, pipeline cache
+keys, material binding/fallback state, and debug-capture declarations. The
+software reference path now produces checksummed RGBA captures for final color,
+shadow atlas, volumetric fog, and reflection probes. Native Metal/D3D12 still
+report shadow/fog/probe as declared resources until their GPU workloads are
+wired. Per-object visibility traces and object-to-cluster membership traces are
+recorded alongside the pass/resource data.
 
 Clustered forward lighting v1 is a shared CPU-reference contract. It builds
 deterministic cluster lists from the camera and `LightRig` so software, Metal,
@@ -24,7 +37,8 @@ as `world_to_screen`, `screen_to_world`, and `screen_to_world_ray`.
 Backend roles today:
 
 - Software reference: deterministic fallback, Linux presentation source, preview,
-  capture, and exact golden baseline.
+  capture, exact golden baseline, and reference shadow/fog/probe resource
+  producers.
 - Metal: native macOS scene renderer and presentation path.
 - D3D12: native offscreen raster/readback path under conformance; Windows
   presentation still uses the production software path.

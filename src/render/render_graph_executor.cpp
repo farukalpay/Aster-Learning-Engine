@@ -13,7 +13,11 @@ std::size_t executeFixedRenderGraph(const FixedRenderGraph &graph,
   std::size_t invoked = 0u;
   for (std::size_t index = 0; index < graph.passes.size(); ++index) {
     const framegraph::CompiledPass &pass = graph.passes[index];
-    callback({.index = index, .semantic = renderGraphPassFromName(pass.name), .pass = &pass});
+    const RenderGraphPass semantic = renderGraphPassFromName(pass.name);
+    callback({.index = index,
+              .semantic = semantic,
+              .pass = &pass,
+              .declaration = defaultRenderPassDeclaration(semantic)});
     ++invoked;
   }
   return invoked;

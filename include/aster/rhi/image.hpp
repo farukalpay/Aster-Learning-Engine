@@ -55,7 +55,9 @@ struct ImageDesc {
   ImageExtent extent{};
   std::uint32_t mip_levels = 1u;
   std::uint32_t array_layers = 1u;
+  std::uint32_t sample_count = 1u;
   std::uint32_t usage = 0u;
+  std::uint64_t memory_budget_bytes = 0u;
   std::string debug_label;
 };
 

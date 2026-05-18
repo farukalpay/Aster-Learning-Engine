@@ -62,6 +62,47 @@ struct ProjectedVertex {
   float depth = 1.0f;
 };
 
+struct SoftwareShadowCascade {
+  aster::Vec3 center{};
+  aster::Vec3 right{1.0f, 0.0f, 0.0f};
+  aster::Vec3 up{0.0f, 1.0f, 0.0f};
+  aster::Vec3 forward{0.0f, -1.0f, 0.0f};
+  float radius = 1.0f;
+  std::uint32_t tile_x = 0u;
+  std::uint32_t tile_y = 0u;
+  std::uint32_t tile_width = 0u;
+  std::uint32_t tile_height = 0u;
+};
+
+struct SoftwareProbeSample {
+  aster::Vec3 position{};
+  float influence_radius = 1.0f;
+  aster::Vec3 sky_irradiance{};
+  aster::Vec3 ground_irradiance{};
+  aster::Vec3 specular_tint{1.0f, 1.0f, 1.0f};
+  float intensity = 1.0f;
+};
+
+struct SoftwareFrameResources {
+  std::uint32_t frame_width = 0u;
+  std::uint32_t frame_height = 0u;
+  std::uint32_t shadow_atlas_size = 0u;
+  std::uint32_t fog_width = 0u;
+  std::uint32_t fog_height = 0u;
+  std::uint32_t reflection_width = 0u;
+  std::uint32_t reflection_height = 0u;
+  std::vector<SoftwareShadowCascade> cascades;
+  std::vector<float> shadow_depths;
+  std::vector<std::uint8_t> shadow_rgba8;
+  std::vector<float> fog_factors;
+  std::vector<std::uint8_t> fog_rgba8;
+  std::vector<SoftwareProbeSample> probes;
+  std::vector<std::uint8_t> reflection_rgba8;
+  bool shadow_ready = false;
+  bool fog_ready = false;
+  bool reflection_ready = false;
+};
+
 float saturate(const float value) {
   return std::clamp(value, 0.0f, 1.0f);
 }
@@ -75,6 +116,20 @@ float smoothstep(const float edge0, const float edge1, const float value) {
 aster::Vec3 mixVec(const aster::Vec3 a, const aster::Vec3 b, const float t) {
   const float amount = saturate(t);
   return a * (1.0f - amount) + b * amount;
+}
+
+std::uint8_t debugByte(const float value) {
+  return static_cast<std::uint8_t>(
+      std::clamp(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f), 0l, 255l));
+}
+
+std::uint64_t hashDebugBytes(const std::vector<std::uint8_t> &bytes) {
+  std::uint64_t hash = 1469598103934665603ull;
+  for (const std::uint8_t byte : bytes) {
+    hash ^= byte;
+    hash *= 1099511628211ull;
+  }
+  return hash;
 }
 
 float evaluateFogFactor(const aster::AtmosphereSettings &atmosphere,
@@ -98,6 +153,114 @@ float evaluateFogFactor(const aster::AtmosphereSettings &atmosphere,
     break;
   }
   return saturate(curve * std::clamp(atmosphere.fog_strength, 0.0f, 1.0f));
+}
+
+float sampleSoftwareShadowVisibility(const SoftwareFrameResources *resources,
+                                     const aster::Vec3 world_position,
+                                     const aster::Vec3 normal,
+                                     const aster::RendererShadowSettings &settings) {
+  if (resources == nullptr || !resources->shadow_ready || resources->shadow_depths.empty() ||
+      resources->shadow_atlas_size == 0u || resources->cascades.empty()) {
+    return 1.0f;
+  }
+  const SoftwareShadowCascade *selected = nullptr;
+  const float distance_to_center = aster::length(world_position - resources->cascades.front().center);
+  for (const SoftwareShadowCascade &cascade : resources->cascades) {
+    if (distance_to_center <= cascade.radius || selected == nullptr) {
+      selected = &cascade;
+      if (distance_to_center <= cascade.radius) {
+        break;
+      }
+    }
+  }
+  if (selected == nullptr || selected->tile_width == 0u || selected->tile_height == 0u) {
+    return 1.0f;
+  }
+
+  const aster::Vec3 receiver =
+      world_position + aster::normalizeOr(normal, {0.0f, 1.0f, 0.0f}) *
+                           std::max(settings.normal_bias, 0.0f);
+  const aster::Vec3 offset = receiver - selected->center;
+  const float u = aster::dot(offset, selected->right) / (selected->radius * 2.0f) + 0.5f;
+  const float v = aster::dot(offset, selected->up) / (selected->radius * 2.0f) + 0.5f;
+  if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f) {
+    return 1.0f;
+  }
+
+  const int local_x = static_cast<int>(std::floor(u * static_cast<float>(selected->tile_width)));
+  const int local_y = static_cast<int>(std::floor(v * static_cast<float>(selected->tile_height)));
+  const int pcf_radius =
+      std::max(0, static_cast<int>(std::lround(std::clamp(settings.pcf_radius, 0.0f, 4.0f))));
+  const float receiver_depth = aster::dot(receiver, selected->forward);
+  const float receiver_bias = std::max(settings.receiver_bias, 0.0f) +
+                              std::max(settings.normal_bias, 0.0f) * 0.5f;
+  int samples = 0;
+  int occluded = 0;
+  for (int oy = -pcf_radius; oy <= pcf_radius; ++oy) {
+    const int y = local_y + oy;
+    if (y < 0 || y >= static_cast<int>(selected->tile_height)) {
+      continue;
+    }
+    for (int ox = -pcf_radius; ox <= pcf_radius; ++ox) {
+      const int x = local_x + ox;
+      if (x < 0 || x >= static_cast<int>(selected->tile_width)) {
+        continue;
+      }
+      const std::uint32_t atlas_x = selected->tile_x + static_cast<std::uint32_t>(x);
+      const std::uint32_t atlas_y = selected->tile_y + static_cast<std::uint32_t>(y);
+      const std::size_t index = static_cast<std::size_t>(atlas_y) * resources->shadow_atlas_size +
+                                static_cast<std::size_t>(atlas_x);
+      if (index >= resources->shadow_depths.size()) {
+        continue;
+      }
+      const float caster_depth = resources->shadow_depths[index];
+      if (!std::isfinite(caster_depth)) {
+        continue;
+      }
+      ++samples;
+      if (receiver_depth > caster_depth + receiver_bias) {
+        ++occluded;
+      }
+    }
+  }
+  if (samples == 0) {
+    return 1.0f;
+  }
+  const float occlusion = static_cast<float>(occluded) / static_cast<float>(samples);
+  return 1.0f - occlusion * 0.72f;
+}
+
+aster::Vec3 softwareReflectionEnvironment(const SoftwareFrameResources *resources,
+                                          const aster::Vec3 world_position,
+                                          const aster::Vec3 reflection,
+                                          const aster::RendererSettings &settings) {
+  const float env_sky = saturate(reflection.y * 0.5f + 0.5f);
+  const aster::Vec3 fallback_env =
+      mixVec(settings.ground_ambient_color, settings.sky_ambient_color, env_sky);
+  if (resources == nullptr || !resources->reflection_ready || resources->probes.empty() ||
+      !settings.reflections.static_local_probes) {
+    return fallback_env;
+  }
+
+  aster::Vec3 accumulated{};
+  float total_weight = 0.0f;
+  for (const SoftwareProbeSample &probe : resources->probes) {
+    const float radius = std::max(probe.influence_radius, 0.001f);
+    const float distance = aster::length(world_position - probe.position);
+    const float weight = 1.0f - smoothstep(radius * 0.72f, radius, distance);
+    if (weight <= 0.0001f) {
+      continue;
+    }
+    const aster::Vec3 probe_env =
+        mixVec(probe.ground_irradiance, probe.sky_irradiance, env_sky) * probe.specular_tint *
+        std::clamp(probe.intensity, 0.0f, 4.0f);
+    accumulated = accumulated + probe_env * weight;
+    total_weight += weight;
+  }
+  if (total_weight <= 0.0001f) {
+    return fallback_env;
+  }
+  return mixVec(fallback_env, accumulated / total_weight, saturate(total_weight));
 }
 
 aster::Vec3 snapProceduralSamplePosition(const aster::Vec3 world_position,
@@ -858,7 +1021,8 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
                         aster::Vec3 normal, const aster::Vec4 tangent_handedness,
                         const aster::Vec2 uv, const float vertex_ao,
                         const aster::Vec3 camera_position, const aster::RendererSettings &settings,
-                        const double frame_seconds, const aster::RuntimeTextureSet *textures) {
+                        const double frame_seconds, const aster::RuntimeTextureSet *textures,
+                        const SoftwareFrameResources *frame_resources) {
   normal = aster::normalize(normal);
   if (aster::length(normal) <= 0.0001f) {
     normal = {0.0f, 1.0f, 0.0f};
@@ -898,9 +1062,8 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
     const aster::Vec3 incident = -view;
     const aster::Vec3 reflection =
         aster::normalizeOr(incident - normal * (2.0f * aster::dot(incident, normal)), normal);
-    const float env_sky = saturate(reflection.y * 0.5f + 0.5f);
     const aster::Vec3 env_color =
-        mixVec(settings.ground_ambient_color, settings.sky_ambient_color, env_sky);
+        softwareReflectionEnvironment(frame_resources, world_position, reflection, settings);
     const aster::Vec3 fresnel =
         f0 + (aster::Vec3{1.0f, 1.0f, 1.0f} - f0) * std::pow(1.0f - n_dot_v, 5.0f);
     const float roughness_visibility = std::pow(1.0f - perceptual_roughness * 0.72f, 2.0f);
@@ -931,7 +1094,13 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
   if (settings.sun_light.enabled && settings.sun_light.intensity > 0.0f) {
     const aster::Vec3 sun_dir = aster::normalize(settings.sun_light.direction_to_light);
     if (aster::length(sun_dir) > 0.0001f) {
-      add_light(sun_dir, settings.sun_light.color * settings.sun_light.intensity);
+      const float shadow_visibility =
+          material.receives_shadows
+              ? sampleSoftwareShadowVisibility(frame_resources, world_position, normal,
+                                               settings.shadows)
+              : 1.0f;
+      add_light(sun_dir,
+                settings.sun_light.color * settings.sun_light.intensity * shadow_visibility);
     }
   }
 
@@ -988,12 +1157,13 @@ aster::FrameColor shadedFrameColor(const aster::Material &material,
                                    const aster::Vec3 camera_position,
                                    const aster::RendererSettings &settings,
                                    const double frame_seconds, const float opacity,
-                                   const aster::RuntimeTextureSet *textures) {
+                                   const aster::RuntimeTextureSet *textures,
+                                   const SoftwareFrameResources *frame_resources) {
   const RuntimeMaterialSample material_sample =
       sampleRuntimeMaterial(material, textures, world_position, normal, uv, frame_seconds);
   return aster::frameColor(shadeVertex(material, world_position, normal, tangent_handedness, uv,
                                        vertex_ao, camera_position, settings, frame_seconds,
-                                       textures),
+                                       textures, frame_resources),
                            opacity * material_sample.opacity);
 }
 
@@ -1265,6 +1435,225 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
   return shadow;
 }
 
+void buildSoftwareShadowAtlas(const aster::Scene &scene, const aster::OrbitCamera &camera,
+                              const aster::RendererSettings &settings,
+                              SoftwareFrameResources &resources) {
+  if (!settings.shadows.enabled || !settings.sun_light.enabled ||
+      settings.sun_light.intensity <= 0.0f) {
+    return;
+  }
+  const aster::Vec3 sun_dir =
+      aster::normalizeOr(settings.sun_light.direction_to_light, {0.0f, 1.0f, 0.0f});
+  const aster::Vec3 forward = -sun_dir;
+  const aster::Vec3 basis_seed = std::abs(forward.y) < 0.92f ? aster::Vec3{0.0f, 1.0f, 0.0f}
+                                                              : aster::Vec3{1.0f, 0.0f, 0.0f};
+  const aster::Vec3 right = aster::normalizeOr(aster::cross(basis_seed, forward),
+                                               {1.0f, 0.0f, 0.0f});
+  const aster::Vec3 up = aster::normalizeOr(aster::cross(forward, right), {0.0f, 1.0f, 0.0f});
+
+  const std::uint32_t cascade_count =
+      settings.shadows.cascaded_directional
+          ? std::clamp(settings.shadows.directional_cascades, 1u, 4u)
+          : 1u;
+  const std::uint32_t atlas_size = std::clamp(settings.shadows.atlas_size, 32u, 2048u);
+  const std::uint32_t base_tile_width = std::max(atlas_size / cascade_count, 1u);
+  resources.shadow_atlas_size = atlas_size;
+  resources.shadow_depths.assign(static_cast<std::size_t>(atlas_size) * atlas_size,
+                                 std::numeric_limits<float>::infinity());
+  resources.shadow_rgba8.assign(static_cast<std::size_t>(atlas_size) * atlas_size * 4u, 255u);
+  resources.cascades.clear();
+  resources.cascades.reserve(cascade_count);
+
+  const float max_distance = std::max(settings.shadows.max_distance, 1.0f);
+  for (std::uint32_t cascade = 0u; cascade < cascade_count; ++cascade) {
+    const std::uint32_t tile_x = cascade * base_tile_width;
+    const std::uint32_t tile_width =
+        cascade + 1u == cascade_count ? atlas_size - tile_x : base_tile_width;
+    const float radius =
+        max_distance * (static_cast<float>(cascade + 1u) / static_cast<float>(cascade_count));
+    resources.cascades.push_back({.center = camera.target,
+                                  .right = right,
+                                  .up = up,
+                                  .forward = forward,
+                                  .radius = std::max(radius, 0.001f),
+                                  .tile_x = tile_x,
+                                  .tile_y = 0u,
+                                  .tile_width = tile_width,
+                                  .tile_height = atlas_size});
+  }
+
+  for (const aster::RenderObject &object : scene.objects()) {
+    if (!aster::renderObjectCastsShadows(object) ||
+        (object.custom_mesh != nullptr &&
+         (object.custom_mesh->vertices.empty() || object.custom_mesh->indices.empty()))) {
+      continue;
+    }
+    const LocalBounds bounds = objectLocalBounds(object);
+    const aster::Vec3 half_extents{
+        localMaxAbs(bounds.min.x, bounds.max.x) * std::abs(object.transform.scale.x),
+        localMaxAbs(bounds.min.y, bounds.max.y) * std::abs(object.transform.scale.y),
+        localMaxAbs(bounds.min.z, bounds.max.z) * std::abs(object.transform.scale.z)};
+    const float caster_radius =
+        std::max({half_extents.x, half_extents.y, half_extents.z, 0.025f});
+    const aster::Vec3 caster_center = object.transform.position;
+    for (const SoftwareShadowCascade &cascade : resources.cascades) {
+      const aster::Vec3 offset = caster_center - cascade.center;
+      const float u = aster::dot(offset, cascade.right) / (cascade.radius * 2.0f) + 0.5f;
+      const float v = aster::dot(offset, cascade.up) / (cascade.radius * 2.0f) + 0.5f;
+      const float radius_u = caster_radius / (cascade.radius * 2.0f);
+      if (u + radius_u < 0.0f || u - radius_u > 1.0f || v + radius_u < 0.0f ||
+          v - radius_u > 1.0f) {
+        continue;
+      }
+      const int min_x = std::max(0, static_cast<int>(
+                                        std::floor((u - radius_u) *
+                                                   static_cast<float>(cascade.tile_width))));
+      const int max_x =
+          std::min(static_cast<int>(cascade.tile_width) - 1,
+                   static_cast<int>(std::ceil((u + radius_u) *
+                                              static_cast<float>(cascade.tile_width))));
+      const int min_y = std::max(0, static_cast<int>(
+                                        std::floor((v - radius_u) *
+                                                   static_cast<float>(cascade.tile_height))));
+      const int max_y =
+          std::min(static_cast<int>(cascade.tile_height) - 1,
+                   static_cast<int>(std::ceil((v + radius_u) *
+                                              static_cast<float>(cascade.tile_height))));
+      const float caster_depth = aster::dot(caster_center, cascade.forward) - caster_radius;
+      for (int y = min_y; y <= max_y; ++y) {
+        const float py = (static_cast<float>(y) + 0.5f) /
+                         static_cast<float>(std::max(cascade.tile_height, 1u));
+        for (int x = min_x; x <= max_x; ++x) {
+          const float px = (static_cast<float>(x) + 0.5f) /
+                           static_cast<float>(std::max(cascade.tile_width, 1u));
+          const float dx = (px - u) / std::max(radius_u, 0.0001f);
+          const float dy = (py - v) / std::max(radius_u, 0.0001f);
+          if (dx * dx + dy * dy > 1.0f) {
+            continue;
+          }
+          const std::uint32_t atlas_x = cascade.tile_x + static_cast<std::uint32_t>(x);
+          const std::uint32_t atlas_y = cascade.tile_y + static_cast<std::uint32_t>(y);
+          const std::size_t index =
+              static_cast<std::size_t>(atlas_y) * atlas_size + static_cast<std::size_t>(atlas_x);
+          resources.shadow_depths[index] = std::min(resources.shadow_depths[index], caster_depth);
+        }
+      }
+    }
+  }
+
+  for (std::uint32_t y = 0u; y < atlas_size; ++y) {
+    for (std::uint32_t x = 0u; x < atlas_size; ++x) {
+      const std::size_t pixel = static_cast<std::size_t>(y) * atlas_size + x;
+      const bool occupied = std::isfinite(resources.shadow_depths[pixel]);
+      const float checker = ((x / 8u + y / 8u) & 1u) == 0u ? 0.04f : 0.0f;
+      const float value = occupied ? 0.18f + checker : 0.86f + checker;
+      const std::size_t base = pixel * 4u;
+      resources.shadow_rgba8[base + 0u] = debugByte(value);
+      resources.shadow_rgba8[base + 1u] = debugByte(occupied ? value * 0.72f : value);
+      resources.shadow_rgba8[base + 2u] = debugByte(occupied ? value * 0.52f : value);
+      resources.shadow_rgba8[base + 3u] = 255u;
+    }
+  }
+  resources.shadow_ready = true;
+}
+
+void buildSoftwareVolumetricFog(const aster::OrbitCamera &camera,
+                                const aster::RendererSettings &settings,
+                                SoftwareFrameResources &resources) {
+  if (!settings.atmosphere.enabled || settings.atmosphere.fog_strength <= 0.0f ||
+      resources.frame_width == 0u || resources.frame_height == 0u) {
+    return;
+  }
+  resources.fog_width = std::max(resources.frame_width / 4u, 1u);
+  resources.fog_height = std::max(resources.frame_height / 4u, 1u);
+  resources.fog_factors.assign(static_cast<std::size_t>(resources.fog_width) *
+                                   resources.fog_height,
+                               0.0f);
+  resources.fog_rgba8.assign(static_cast<std::size_t>(resources.fog_width) *
+                                 resources.fog_height * 4u,
+                             0u);
+  const float camera_distance = aster::length(camera.position() - camera.target);
+  for (std::uint32_t y = 0u; y < resources.fog_height; ++y) {
+    const float fy = (static_cast<float>(y) + 0.5f) /
+                     static_cast<float>(std::max(resources.fog_height, 1u));
+    for (std::uint32_t x = 0u; x < resources.fog_width; ++x) {
+      const float fx = (static_cast<float>(x) + 0.5f) /
+                       static_cast<float>(std::max(resources.fog_width, 1u));
+      const float vignette = std::sqrt((fx - 0.5f) * (fx - 0.5f) + (fy - 0.5f) * (fy - 0.5f));
+      const float distance = camera_distance + settings.atmosphere.fog_start +
+                             (settings.atmosphere.fog_end - settings.atmosphere.fog_start) *
+                                 (0.18f + fy * 0.82f + vignette * 0.24f);
+      const float fog = evaluateFogFactor(settings.atmosphere, distance);
+      const std::size_t pixel = static_cast<std::size_t>(y) * resources.fog_width + x;
+      resources.fog_factors[pixel] = fog;
+      const std::size_t base = pixel * 4u;
+      resources.fog_rgba8[base + 0u] = debugByte(settings.atmosphere.fog_color.x * fog);
+      resources.fog_rgba8[base + 1u] = debugByte(settings.atmosphere.fog_color.y * fog);
+      resources.fog_rgba8[base + 2u] = debugByte(settings.atmosphere.fog_color.z * fog);
+      resources.fog_rgba8[base + 3u] = debugByte(fog);
+    }
+  }
+  resources.fog_ready = true;
+}
+
+void buildSoftwareReflectionProbeAtlas(const aster::Scene &scene,
+                                       const aster::RendererSettings &settings,
+                                       SoftwareFrameResources &resources) {
+  if (!settings.reflections.enabled || !settings.reflections.static_local_probes ||
+      scene.reflectionProbes().empty()) {
+    return;
+  }
+  const std::uint32_t max_probes =
+      settings.reflections.max_active_probes == 0u
+          ? static_cast<std::uint32_t>(scene.reflectionProbes().size())
+          : settings.reflections.max_active_probes;
+  const std::uint32_t probe_count = std::min<std::uint32_t>(
+      static_cast<std::uint32_t>(scene.reflectionProbes().size()), std::max(max_probes, 1u));
+  const std::uint32_t face_size = std::clamp(settings.reflections.probe_resolution, 8u, 256u);
+  resources.reflection_width = face_size * 6u * probe_count;
+  resources.reflection_height = face_size;
+  resources.probes.clear();
+  resources.probes.reserve(probe_count);
+  resources.reflection_rgba8.assign(static_cast<std::size_t>(resources.reflection_width) *
+                                        resources.reflection_height * 4u,
+                                    0u);
+
+  for (std::uint32_t probe_index = 0u; probe_index < probe_count; ++probe_index) {
+    const aster::ReflectionProbe &probe = scene.reflectionProbes()[probe_index];
+    resources.probes.push_back({.position = probe.position,
+                                .influence_radius = std::max(probe.influence_radius, 0.001f),
+                                .sky_irradiance = probe.sky_irradiance,
+                                .ground_irradiance = probe.ground_irradiance,
+                                .specular_tint = probe.specular_tint,
+                                .intensity = probe.intensity});
+    for (std::uint32_t face = 0u; face < 6u; ++face) {
+      const float face_sky = static_cast<float>(face) / 5.0f;
+      const aster::Vec3 face_color =
+          mixVec(probe.ground_irradiance, probe.sky_irradiance, face_sky) *
+          probe.specular_tint * std::clamp(probe.intensity, 0.0f, 4.0f);
+      for (std::uint32_t y = 0u; y < face_size; ++y) {
+        const float vertical = (static_cast<float>(y) + 0.5f) / static_cast<float>(face_size);
+        for (std::uint32_t x = 0u; x < face_size; ++x) {
+          const float horizontal = (static_cast<float>(x) + 0.5f) / static_cast<float>(face_size);
+          const float edge = 1.0f - smoothstep(0.42f, 0.72f,
+                                               std::abs(horizontal - 0.5f) +
+                                                   std::abs(vertical - 0.5f));
+          const aster::Vec3 color = face_color * (0.72f + edge * 0.28f);
+          const std::uint32_t atlas_x = (probe_index * 6u + face) * face_size + x;
+          const std::uint32_t atlas_y = y;
+          const std::size_t base =
+              (static_cast<std::size_t>(atlas_y) * resources.reflection_width + atlas_x) * 4u;
+          resources.reflection_rgba8[base + 0u] = debugByte(color.x);
+          resources.reflection_rgba8[base + 1u] = debugByte(color.y);
+          resources.reflection_rgba8[base + 2u] = debugByte(color.z);
+          resources.reflection_rgba8[base + 3u] = 255u;
+        }
+      }
+    }
+  }
+  resources.reflection_ready = true;
+}
+
 ProjectedVertex projectVertex(const aster::Vertex &vertex, const aster::Mat4 &model,
                               const aster::Mat4 &model_view_projection, const int width,
                               const int height, const float normal_offset) {
@@ -1316,7 +1705,8 @@ void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mes
               const aster::RenderObject &object, const aster::OrbitCamera &camera,
               const aster::RendererSettings &settings, const double frame_seconds,
               const float opacity, std::size_t &draw_calls,
-              const aster::MaterialResourceLibrary *material_library) {
+              const aster::MaterialResourceLibrary *material_library,
+              const SoftwareFrameResources *frame_resources) {
   if (mesh.vertices.empty() || mesh.indices.empty() || opacity <= 0.003f) {
     return;
   }
@@ -1368,7 +1758,7 @@ void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mes
         .depth = a.depth,
         .color = shadedFrameColor(material, a.world_position, a.normal, a.tangent, a.uv,
                                   a.ambient_occlusion, camera_position, settings, frame_seconds,
-                                  opacity, runtime_textures),
+                                  opacity, runtime_textures, frame_resources),
     };
     const aster::FrameVertex fb{
         .x = b.x,
@@ -1376,7 +1766,7 @@ void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mes
         .depth = b.depth,
         .color = shadedFrameColor(material, b.world_position, b.normal, b.tangent, b.uv,
                                   b.ambient_occlusion, camera_position, settings, frame_seconds,
-                                  opacity, runtime_textures),
+                                  opacity, runtime_textures, frame_resources),
     };
     const aster::FrameVertex fc{
         .x = c.x,
@@ -1384,7 +1774,7 @@ void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mes
         .depth = c.depth,
         .color = shadedFrameColor(material, c.world_position, c.normal, c.tangent, c.uv,
                                   c.ambient_occlusion, camera_position, settings, frame_seconds,
-                                  opacity, runtime_textures),
+                                  opacity, runtime_textures, frame_resources),
     };
     framebuffer.drawTriangle(fa, fb, fc, settings.pipeline.depth_test, depth_write, alpha_blend,
                              depth_policy.constant_bias, depth_policy.slope_bias);
@@ -1627,7 +2017,7 @@ rhi::DeviceCapabilities softwareCapabilityTable() {
   table.gpu_timestamps = false;
   table.storage_buffers = false;
   table.texture_arrays = false;
-  table.shadow_maps = false;
+  table.shadow_maps = true;
   table.debug_markers = false;
   table.hdr_render_targets = true;
   table.msaa = false;
@@ -1641,6 +2031,9 @@ rhi::DeviceCapabilities softwareCapabilityTable() {
   table.shader_model = rhi::ShaderModel::SoftwareReference;
   table.presentation = rhi::PresentationMode::SoftwareFramebuffer;
   table.limits.max_color_attachments = 1u;
+  table.limits.max_sampled_textures_per_material =
+      static_cast<std::uint32_t>(aster::materialRuntimeTextureRoles().size());
+  table.limits.max_samplers_per_material = 1u;
   table.limits.max_uniform_buffers_per_stage = 1u;
   table.limits.max_bind_groups = 1u;
   table.limits.max_vertex_attributes = 5u;
@@ -1654,6 +2047,9 @@ RenderBackendCapabilities softwareCapabilities() {
       renderGraphResourceBit(RenderGraphResource::SceneColor) |
       renderGraphResourceBit(RenderGraphResource::SceneDepth) |
       renderGraphResourceBit(RenderGraphResource::LightClusters) |
+      renderGraphResourceBit(RenderGraphResource::ShadowAtlas) |
+      renderGraphResourceBit(RenderGraphResource::VolumetricFog) |
+      renderGraphResourceBit(RenderGraphResource::ReflectionProbes) |
       renderGraphResourceBit(RenderGraphResource::UiOverlay) |
       renderGraphResourceBit(RenderGraphResource::CaptureReadback);
   return {.kind = RenderBackendKind::SoftwareReference,
@@ -1792,6 +2188,358 @@ void appendRenderMathContractDiagnostics(const aster::Scene &scene,
                         .label = label,
                         .message = "Negative transform scale flips tangent-space handedness.",
                         .value = i});
+    }
+  }
+}
+
+const aster::framegraph::CompiledResource *
+compiledResourceFor(const aster::FixedRenderGraph &graph, const aster::framegraph::ResourceHandle handle) {
+  const auto found = std::find_if(graph.resources.begin(), graph.resources.end(),
+                                  [handle](const aster::framegraph::CompiledResource &resource) {
+                                    return resource.handle == handle;
+                                  });
+  return found == graph.resources.end() ? nullptr : &*found;
+}
+
+std::uint64_t textureDescriptorLayoutHash() {
+  aster::rhi::PipelineLayoutDesc layout;
+  std::uint32_t binding = 0u;
+  for (const std::string_view role : aster::materialRuntimeTextureRoles()) {
+    (void)role;
+    layout.descriptor_ranges.push_back({.kind = aster::rhi::DescriptorRangeKind::SampledImage,
+                                        .binding = binding++,
+                                        .count = 1u,
+                                        .stage_mask = 1u});
+  }
+  layout.descriptor_ranges.push_back({.kind = aster::rhi::DescriptorRangeKind::Sampler,
+                                      .binding = binding,
+                                      .count = 1u,
+                                      .stage_mask = 1u});
+  layout.descriptor_range_count = static_cast<std::uint32_t>(layout.descriptor_ranges.size());
+  return aster::rhi::descriptorLayoutHash(layout);
+}
+
+std::uint64_t estimatedBytesFor(const aster::framegraph::ResourceDesc &desc) {
+  std::uint64_t bytes_per_pixel = 4u;
+  switch (desc.format) {
+  case aster::rhi::ImageFormat::Rgba16Float:
+    bytes_per_pixel = 8u;
+    break;
+  case aster::rhi::ImageFormat::Depth32Float:
+  case aster::rhi::ImageFormat::Rgba8Unorm:
+  case aster::rhi::ImageFormat::Rgba8Srgb:
+  case aster::rhi::ImageFormat::Bgra8Unorm:
+  case aster::rhi::ImageFormat::Bgra8Srgb:
+    bytes_per_pixel = 4u;
+    break;
+  case aster::rhi::ImageFormat::Rg8Unorm:
+    bytes_per_pixel = 2u;
+    break;
+  case aster::rhi::ImageFormat::R8Unorm:
+    bytes_per_pixel = 1u;
+    break;
+  default:
+    bytes_per_pixel = 4u;
+    break;
+  }
+  const std::uint64_t width = std::max(desc.extent.width, 1u);
+  const std::uint64_t height = std::max(desc.extent.height, 1u);
+  const std::uint64_t depth = std::max(desc.extent.depth, 1u);
+  return width * height * depth * bytes_per_pixel;
+}
+
+void appendFrameGraphForensics(const aster::FixedRenderGraph &graph,
+                               const aster::RenderBackendCapabilities &capabilities,
+                               const int framebuffer_width,
+                               const int framebuffer_height,
+                               aster::FrameForensics &forensics) {
+  for (std::size_t pass_index = 0u; pass_index < graph.passes.size(); ++pass_index) {
+    const aster::framegraph::CompiledPass &pass = graph.passes[pass_index];
+    const aster::RenderGraphPass semantic = aster::renderGraphPassFromName(pass.name);
+    const aster::RenderGraphPassDeclaration *declaration =
+        aster::defaultRenderPassDeclaration(semantic);
+    bool backend_has_declared_outputs = false;
+    if (declaration != nullptr) {
+      backend_has_declared_outputs =
+          std::all_of(declaration->outputs.begin(), declaration->outputs.end(),
+                      [&capabilities](const aster::RenderGraphResourceBindingDesc &output) {
+                        return (capabilities.graph_resource_mask &
+                                aster::renderGraphResourceBit(output.resource)) != 0u;
+                      });
+    }
+    if (declaration != nullptr && !declaration->produces_backend_work &&
+        !backend_has_declared_outputs) {
+      forensics.events.push_back(
+          {.kind = aster::FrameDiagnosticKind::CapabilityMismatch,
+           .severity = aster::FrameDiagnosticSeverity::Info,
+           .pass = pass.name,
+           .label = aster::renderGraphExecutorKeyName(declaration->executor).data(),
+           .message =
+               "Pass is declared as a resource producer/consumer, but its backend workload is not wired yet.",
+           .value = pass_index});
+    }
+    if (declaration != nullptr &&
+        declaration->debug_capture != aster::RenderGraphDebugCapturePolicy::Disabled) {
+      for (const aster::RenderGraphResourceBindingDesc &output : declaration->outputs) {
+        forensics.captures.push_back(
+            {.pass = semantic,
+             .view = output.resource == aster::RenderGraphResource::ShadowAtlas
+                         ? aster::RendererDebugView::ShadowMask
+                         : (output.resource == aster::RenderGraphResource::VolumetricFog
+                                ? aster::RendererDebugView::Fog
+                                : (output.resource == aster::RenderGraphResource::ReflectionProbes
+                                       ? aster::RendererDebugView::ReflectionProbe
+                                       : aster::RendererDebugView::FinalColor)),
+             .resource = output.resource,
+             .label = pass.name + ":" +
+                      std::string(aster::renderGraphResourceName(output.resource)),
+             .width = static_cast<std::uint32_t>(std::max(framebuffer_width, 0)),
+             .height = static_cast<std::uint32_t>(std::max(framebuffer_height, 0)),
+             .row_stride_bytes =
+                 static_cast<std::uint32_t>(std::max(framebuffer_width, 0) * 4),
+             .available = false});
+      }
+    }
+
+    if (!pass.descriptor_requirements.empty()) {
+      aster::rhi::DescriptorLayoutTrace layout;
+      layout.label = pass.name;
+      for (const aster::framegraph::DescriptorRequirement &requirement :
+           pass.descriptor_requirements) {
+        layout.ranges.push_back({.kind = requirement.kind,
+                                 .binding = requirement.binding,
+                                 .count = requirement.count,
+                                 .stage_mask = 1u});
+      }
+      aster::rhi::PipelineLayoutDesc layout_desc;
+      layout_desc.descriptor_ranges = layout.ranges;
+      layout_desc.descriptor_range_count =
+          static_cast<std::uint32_t>(layout_desc.descriptor_ranges.size());
+      layout.layout_hash = aster::rhi::descriptorLayoutHash(layout_desc);
+      forensics.rhi_trace.descriptor_layouts.push_back(layout);
+      aster::rhi::GraphicsPipelineDesc pipeline;
+      pipeline.render_pass = pass.pipeline_compatibility;
+      pipeline.pipeline_cache_key = aster::rhi::graphicsPipelineCacheKey(pipeline);
+      forensics.rhi_trace.pipelines.push_back({.label = pass.name,
+                                               .cache_key = pipeline.pipeline_cache_key,
+                                               .descriptor_layout_hash = layout.layout_hash});
+    }
+
+    forensics.rhi_trace.queue_submits.push_back(
+        {.label = pass.name,
+         .queue = declaration == nullptr ? aster::rhi::QueueKind::Graphics : declaration->queue,
+         .command_buffer_count = 1u,
+         .signal_fence_value = pass_index + 1u});
+  }
+
+  for (const aster::framegraph::GraphBarrier &barrier : graph.barriers) {
+    const aster::framegraph::CompiledPass *pass =
+        barrier.pass_index < graph.passes.size() ? &graph.passes[barrier.pass_index] : nullptr;
+    const aster::framegraph::CompiledResource *resource =
+        compiledResourceFor(graph, barrier.resource);
+    const std::string pass_name = pass == nullptr ? "unknown" : pass->name;
+    const std::string resource_name = resource == nullptr ? "unknown" : resource->name;
+    const aster::RenderGraphPass semantic = aster::renderGraphPassFromName(pass_name);
+    const bool writes = pass != nullptr &&
+                        std::find(pass->writes.begin(), pass->writes.end(), barrier.resource) !=
+                            pass->writes.end();
+    forensics.resource_traces.push_back(
+        {.pass = semantic,
+         .resource = aster::renderGraphResourceFromName(resource_name),
+         .pass_name = pass_name,
+         .resource_name = resource_name,
+         .before = barrier.before,
+         .after = barrier.after,
+         .queue = barrier.expanded.destination_queue,
+         .write = writes});
+    forensics.rhi_trace.transitions.push_back(
+        {.pass = pass_name, .resource = resource_name, .barrier = barrier.expanded});
+  }
+
+  for (const aster::framegraph::CompiledResource &resource : graph.resources) {
+    const std::uint64_t bytes = estimatedBytesFor(resource.desc);
+    if (resource.desc.lifetime == aster::framegraph::ResourceLifetime::Transient) {
+      forensics.rhi_trace.memory.transient_bytes += bytes;
+    }
+    forensics.rhi_trace.memory.resident_bytes += bytes;
+  }
+  forensics.rhi_trace.memory.budget_bytes = forensics.rhi_trace.memory.resident_bytes;
+}
+
+void updateCapturePayload(aster::FrameDebugCapture &capture, const std::uint32_t width,
+                          const std::uint32_t height,
+                          const std::vector<std::uint8_t> &rgba8) {
+  capture.width = width;
+  capture.height = height;
+  capture.row_stride_bytes = width * 4u;
+  capture.rgba8 = rgba8;
+  capture.content_hash = hashDebugBytes(capture.rgba8);
+  capture.available = !capture.rgba8.empty() && capture.content_hash != 0u;
+}
+
+void appendSoftwareCapturePayloads(const SoftwareFrameResources &resources,
+                                   const aster::SoftwareFrameBuffer &framebuffer,
+                                   aster::FrameForensics &forensics) {
+  std::vector<std::uint8_t> final_rgba(framebuffer.rgba8().begin(), framebuffer.rgba8().end());
+  for (aster::FrameDebugCapture &capture : forensics.captures) {
+    if (capture.resource == aster::RenderGraphResource::ShadowAtlas && resources.shadow_ready) {
+      updateCapturePayload(capture, resources.shadow_atlas_size, resources.shadow_atlas_size,
+                           resources.shadow_rgba8);
+    } else if (capture.resource == aster::RenderGraphResource::VolumetricFog &&
+               resources.fog_ready) {
+      updateCapturePayload(capture, resources.fog_width, resources.fog_height,
+                           resources.fog_rgba8);
+    } else if (capture.resource == aster::RenderGraphResource::ReflectionProbes &&
+               resources.reflection_ready) {
+      updateCapturePayload(capture, resources.reflection_width, resources.reflection_height,
+                           resources.reflection_rgba8);
+    } else if ((capture.pass == aster::RenderGraphPass::UiComposite &&
+                capture.resource == aster::RenderGraphResource::SceneColor) ||
+               capture.resource == aster::RenderGraphResource::CaptureReadback) {
+      updateCapturePayload(capture, static_cast<std::uint32_t>(std::max(framebuffer.width(), 0)),
+                           static_cast<std::uint32_t>(std::max(framebuffer.height(), 0)),
+                           final_rgba);
+    }
+  }
+}
+
+void appendMaterialBindingTraces(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
+                                 const aster::MaterialResourceLibrary *library,
+                                 const aster::RenderBackendCapabilities &capabilities,
+                                 std::vector<aster::MaterialBindingTrace> &traces) {
+  const std::uint64_t layout_hash = textureDescriptorLayoutHash();
+  for (const aster::FrameRenderDrawGroup &group : plan.groups) {
+    for (std::size_t i = 0u; i < group.instance_count; ++i) {
+      const std::size_t plan_index = group.first_instance + i;
+      if (plan_index >= plan.instances.size()) {
+        break;
+      }
+      const aster::FrameRenderInstance &instance = plan.instances[plan_index];
+      if (instance.object_index >= scene.objects().size()) {
+        continue;
+      }
+      const aster::RenderObject &object = scene.objects()[instance.object_index];
+      const aster::MaterialRuntimeResource *runtime_material =
+          library == nullptr
+              ? nullptr
+              : library->findForMaterialIds(object.material_asset_id, object.material.asset_id);
+      for (const std::string_view role : aster::materialRuntimeTextureRoles()) {
+        const aster::RuntimeTexture *texture =
+            runtime_material == nullptr ? nullptr : runtime_material->texture_set.find(role);
+        traces.push_back({.object_name = object.name,
+                          .material_asset_id = object.material_asset_id.empty()
+                                                   ? object.material.asset_id
+                                                   : object.material_asset_id,
+                          .role = std::string(role),
+                          .valid = texture != nullptr && texture->valid,
+                          .fallback = texture == nullptr || texture->fallback,
+                          .bound = capabilities.supports_texture_sampling && texture != nullptr &&
+                                   texture->valid,
+                          .width = texture == nullptr ? 0u : texture->width,
+                          .height = texture == nullptr ? 0u : texture->height,
+                          .mip_count = texture == nullptr
+                                           ? 0u
+                                           : static_cast<std::uint32_t>(texture->mips.size()),
+                          .descriptor_layout_hash = layout_hash});
+      }
+    }
+  }
+}
+
+std::uint32_t objectClusterIndex(const aster::Vec3 position, const aster::OrbitCamera &camera,
+                                 const int framebuffer_width, const int framebuffer_height,
+                                 const aster::ClusteredLightPolicy &policy) {
+  const std::uint32_t cluster_count_x = std::max(policy.cluster_count_x, 1u);
+  const std::uint32_t cluster_count_y = std::max(policy.cluster_count_y, 1u);
+  const std::uint32_t cluster_count_z = std::max(policy.cluster_count_z, 1u);
+  const float aspect = static_cast<float>(std::max(framebuffer_width, 1)) /
+                       static_cast<float>(std::max(framebuffer_height, 1));
+  const aster::Mat4 view_projection = camera.viewProjectionMatrix(aspect).value;
+  const aster::Vec4 clip =
+      view_projection * aster::Vec4{position.x, position.y, position.z, 1.0f};
+  const float inv_w = std::abs(clip.w) > 0.000001f ? 1.0f / clip.w : 1.0f;
+  const float ndc_x = std::clamp(clip.x * inv_w, -1.0f, 1.0f);
+  const float ndc_y = std::clamp(clip.y * inv_w, -1.0f, 1.0f);
+  const aster::Vec3 eye = camera.position();
+  const aster::Vec3 forward = aster::normalizeOr(camera.target - eye, {0.0f, 0.0f, -1.0f});
+  const float near_plane = std::max(camera.near_plane, 0.001f);
+  const float far_plane = std::max(camera.far_plane, near_plane + 0.001f);
+  const float depth = std::clamp(aster::dot(position - eye, forward), near_plane, far_plane);
+  const float depth_t = (depth - near_plane) / std::max(far_plane - near_plane, 0.001f);
+  const std::uint32_t x =
+      std::min(static_cast<std::uint32_t>(((ndc_x * 0.5f) + 0.5f) * cluster_count_x),
+               cluster_count_x - 1u);
+  const std::uint32_t y =
+      std::min(static_cast<std::uint32_t>((1.0f - ((ndc_y * 0.5f) + 0.5f)) *
+                                          cluster_count_y),
+               cluster_count_y - 1u);
+  const std::uint32_t z =
+      std::min(static_cast<std::uint32_t>(depth_t * cluster_count_z), cluster_count_z - 1u);
+  return (z * cluster_count_y + y) * cluster_count_x + x;
+}
+
+void appendObjectDebuggerTraces(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
+                                const aster::OrbitCamera &camera,
+                                const aster::RendererSettings &settings,
+                                const int framebuffer_width, const int framebuffer_height,
+                                aster::FrameForensics &forensics) {
+  std::vector<bool> visible(scene.objects().size(), false);
+  std::vector<float> opacity(scene.objects().size(), 0.0f);
+  std::vector<aster::RenderGraphPass> pass(scene.objects().size(), aster::RenderGraphPass::Opaque);
+  for (const aster::FrameRenderDrawGroup &group : plan.groups) {
+    for (std::size_t i = 0u; i < group.instance_count; ++i) {
+      const std::size_t instance_index = group.first_instance + i;
+      if (instance_index >= plan.instances.size()) {
+        continue;
+      }
+      const aster::FrameRenderInstance &instance = plan.instances[instance_index];
+      if (instance.object_index >= scene.objects().size()) {
+        continue;
+      }
+      visible[instance.object_index] = true;
+      opacity[instance.object_index] = instance.opacity;
+      pass[instance.object_index] = group.pass == aster::FrameRenderPass::Transparent
+                                        ? aster::RenderGraphPass::Transparent
+                                        : aster::RenderGraphPass::Opaque;
+    }
+  }
+
+  const aster::Vec3 camera_position = camera.position();
+  for (std::size_t object_index = 0u; object_index < scene.objects().size(); ++object_index) {
+    const aster::RenderObject &object = scene.objects()[object_index];
+    std::string reason = "visible";
+    if (!visible[object_index]) {
+      if (object.custom_mesh != nullptr &&
+          (object.custom_mesh->vertices.empty() || object.custom_mesh->indices.empty())) {
+        reason = "empty-custom-mesh";
+      } else if (object.lod.max_distance > 0.0f &&
+                 aster::length(object.transform.position - camera_position) >
+                     object.lod.max_distance) {
+        reason = "lod-max-distance";
+      } else if (object.lod.min_projected_radius > 0.0f) {
+        reason = "lod-projected-radius-or-frustum";
+      } else {
+        reason = "planner-cull-or-frustum";
+      }
+    }
+    forensics.mesh_visibility.push_back(
+        {.object_name = objectDiagnosticLabel(object, object_index),
+         .object_index = object_index,
+         .visible = visible[object_index],
+         .pass = pass[object_index],
+         .opacity = visible[object_index] ? opacity[object_index] : 0.0f,
+         .reason = reason});
+
+    if (settings.clustered_lighting.enabled &&
+        settings.clustered_lighting.mode != aster::ClusteredLightCullingMode::Disabled &&
+        framebuffer_width > 0 && framebuffer_height > 0 && visible[object_index]) {
+      forensics.object_clusters.push_back(
+          {.object_name = objectDiagnosticLabel(object, object_index),
+           .object_index = object_index,
+           .cluster_index = objectClusterIndex(object.transform.position, camera,
+                                               framebuffer_width, framebuffer_height,
+                                               settings.clustered_lighting),
+           .visible = true});
     }
   }
 }
@@ -2149,6 +2897,12 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
       analyzeMaterialFrame(scene, plan, active_capabilities, material_artifact_cache_,
                            previous_transparent_order_);
   previous_transparent_order_ = material_summary.transparent_order;
+  appendFrameGraphForensics(render_graph_, active_capabilities, framebuffer_width,
+                            framebuffer_height, last_forensics_);
+  appendMaterialBindingTraces(scene, plan, material_library_.get(), active_capabilities,
+                              last_forensics_.material_bindings);
+  appendObjectDebuggerTraces(scene, plan, camera, settings, framebuffer_width, framebuffer_height,
+                             last_forensics_);
   last_forensics_.events.insert(last_forensics_.events.end(),
                                 std::make_move_iterator(material_summary.events.begin()),
                                 std::make_move_iterator(material_summary.events.end()));
@@ -2244,6 +2998,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   clearNativeFrame();
   framebuffer.resize(framebuffer_width, framebuffer_height);
   framebuffer.clear(settings.pipeline.clear_color);
+  SoftwareFrameResources software_resources;
+  software_resources.frame_width = static_cast<std::uint32_t>(framebuffer_width);
+  software_resources.frame_height = static_cast<std::uint32_t>(framebuffer_height);
 
   const auto encode_start = std::chrono::steady_clock::now();
 
@@ -2256,7 +3013,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                               ? contact_shadow_plane_
                               : meshForObject(object);
     drawMesh(framebuffer, mesh, object, camera, settings, frame_seconds, opacity, stats.draw_calls,
-             material_library_.get());
+             material_library_.get(), &software_resources);
   };
 
   const auto draw_planned_group = [&](const FrameRenderDrawGroup &group) {
@@ -2286,10 +3043,17 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     const std::size_t draws_before = stats.draw_calls;
     switch (invocation.semantic) {
     case RenderGraphPass::LightCull:
+      break;
     case RenderGraphPass::ShadowAtlas:
+      buildSoftwareShadowAtlas(scene, camera, settings, software_resources);
+      break;
     case RenderGraphPass::SceneLighting:
+      break;
     case RenderGraphPass::VolumetricFog:
+      buildSoftwareVolumetricFog(camera, settings, software_resources);
+      break;
     case RenderGraphPass::ReflectionProbe:
+      buildSoftwareReflectionProbeAtlas(scene, settings, software_resources);
       break;
     case RenderGraphPass::Opaque:
       for (const FrameRenderDrawGroup &group : plan.groups) {
@@ -2331,6 +3095,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
          .encode_seconds = std::chrono::duration<double>(pass_end - pass_start).count()});
   });
   applySoftwarePostProcess(framebuffer, settings);
+  appendSoftwareCapturePayloads(software_resources, framebuffer, last_forensics_);
   const auto encode_end = std::chrono::steady_clock::now();
   stats.render_encode_seconds = std::chrono::duration<double>(encode_end - encode_start).count();
   stats.backend_feature_mask = softwareCapabilities().graph_resource_mask;

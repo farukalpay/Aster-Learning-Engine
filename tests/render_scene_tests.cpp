@@ -6,6 +6,7 @@
 #include "aster/rhi/graphics_pipeline.hpp"
 #include "aster/rhi/resource_barrier.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <cstdlib>
 #include <span>
@@ -27,6 +28,36 @@ void setEnvFlag(const char *name, const bool enabled) {
     (void)unsetenv(name);
   }
 #endif
+}
+
+void writeRenderTraceKtx2Header(const std::filesystem::path &path, const std::uint32_t width,
+                                const std::uint32_t height, const std::uint32_t mip_count) {
+  std::ofstream file(path, std::ios::binary);
+  file.put(static_cast<char>(0xab));
+  file.write("KTX 20", 6);
+  file.put(static_cast<char>(0xbb));
+  file.put('\r');
+  file.put('\n');
+  file.put(static_cast<char>(0x1a));
+  file.put('\n');
+  const auto write_le32 = [&file](const std::uint32_t value) {
+    const char bytes[4] = {static_cast<char>(value & 0xffu),
+                           static_cast<char>((value >> 8u) & 0xffu),
+                           static_cast<char>((value >> 16u) & 0xffu),
+                           static_cast<char>((value >> 24u) & 0xffu)};
+    file.write(bytes, 4);
+  };
+  write_le32(37u);
+  write_le32(1u);
+  write_le32(width);
+  write_le32(height);
+  write_le32(0u);
+  write_le32(0u);
+  write_le32(1u);
+  write_le32(mip_count);
+  write_le32(1u);
+  file.write("ASTER_TEST_PAYLOAD_PADDING_0000", 30);
+  assert(file.good());
 }
 
 void testFramebufferOriginContract() {
@@ -427,6 +458,12 @@ void testFrameMathDiagnostics() {
   assert(forensics.evidence.render_ir_hash != 0u);
   assert(forensics.evidence.visibility_plan_hash != 0u);
   assert(forensics.evidence.draw_signature_count > 0u);
+  assert(!forensics.resource_traces.empty());
+  assert(!forensics.captures.empty());
+  assert(!forensics.rhi_trace.transitions.empty());
+  assert(!forensics.rhi_trace.queue_submits.empty());
+  assert(!forensics.material_bindings.empty());
+  assert(forensics.mesh_visibility.size() == scene.objects().size());
   bool saw_math_contract = false;
   bool saw_singular_normal = false;
   bool saw_negative_scale = false;
@@ -442,6 +479,191 @@ void testFrameMathDiagnostics() {
   assert(saw_singular_normal);
   assert(saw_negative_scale);
   assert(aster::mathDiagnosticCount() == 0u);
+
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
+void testFrameDebuggerMaterialBindingTrace() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+  const std::filesystem::path dir =
+      std::filesystem::temp_directory_path() / "aster_frame_debug_material_trace";
+  std::filesystem::create_directories(dir);
+  writeRenderTraceKtx2Header(dir / "trace_albedo.ktx2", 16u, 16u, 4u);
+  writeRenderTraceKtx2Header(dir / "trace_normal.ktx2", 16u, 16u, 4u);
+
+  aster::MaterialAsset asset;
+  asset.id = "TraceMaterial";
+  asset.name = "Trace Material";
+  asset.source_path = dir / "trace.astermat";
+  asset.textures["albedo"] = {.role = "albedo", .uri = "trace_albedo.ktx2", .srgb = true};
+  asset.textures["normal"] = {.role = "normal", .uri = "trace_normal.ktx2", .srgb = false};
+  asset.explicit_features["normal_map"] = true;
+
+  auto library = std::make_shared<aster::MaterialResourceLibrary>();
+  assert(library->addMaterialAsset(asset, dir, {.require_existing_files = false}));
+
+  aster::RenderObject object;
+  object.name = "material binding probe";
+  object.primitive = aster::MeshPrimitive::Box;
+  object.transform.position = {0.0f, 0.5f, 0.0f};
+  object.material_asset_id = "TraceMaterial";
+  object.material = aster::makeMaterial({.base_color = {0.7f, 0.5f, 0.3f}});
+  object.material.asset_id = "TraceMaterial";
+
+  aster::Scene scene;
+  scene.objects().push_back(object);
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.5f, 0.0f};
+  camera.radius = 4.5f;
+
+  aster::RendererSettings settings;
+  settings.sun_light.enabled = true;
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.setMaterialResourceLibrary(library);
+  renderer.prepareScene(scene);
+  (void)renderer.render(scene, camera, settings, 64, 48, 0.0);
+
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  bool saw_authored_albedo = false;
+  bool saw_authored_normal = false;
+  bool saw_fallback_roughness = false;
+  for (const aster::MaterialBindingTrace &binding : forensics.material_bindings) {
+    if (binding.role == "albedo") {
+      saw_authored_albedo = binding.valid && binding.bound && !binding.fallback &&
+                            binding.descriptor_layout_hash != 0u && binding.mip_count >= 1u;
+    }
+    if (binding.role == "normal") {
+      saw_authored_normal = binding.valid && binding.bound && !binding.fallback;
+    }
+    if (binding.role == "roughness") {
+      saw_fallback_roughness = binding.valid && binding.bound && binding.fallback;
+    }
+  }
+  assert(saw_authored_albedo);
+  assert(saw_authored_normal);
+  assert(saw_fallback_roughness);
+  assert(!forensics.captures.empty());
+  assert(!forensics.resource_traces.empty());
+  std::filesystem::remove_all(dir);
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
+void testSoftwareReferenceFrameResourceCaptures() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+
+  aster::Scene scene;
+  aster::RenderObject floor;
+  floor.name = "shadow receiver floor";
+  floor.primitive = aster::MeshPrimitive::Plane;
+  floor.transform.scale = {1.4f, 1.0f, 1.4f};
+  floor.material = aster::makeSupportSurfaceMaterial(
+      aster::makeMaterial({.base_color = {0.35f, 0.34f, 0.31f}, .roughness = 0.82f}));
+  floor.auto_contact_shadow = false;
+  scene.objects().push_back(floor);
+
+  aster::RenderObject caster;
+  caster.name = "shadow atlas caster";
+  caster.primitive = aster::MeshPrimitive::Box;
+  caster.transform.position = {0.0f, 0.48f, 0.0f};
+  caster.transform.scale = {0.46f, 0.96f, 0.46f};
+  caster.material = aster::makeMaterial({.base_color = {0.68f, 0.45f, 0.24f},
+                                         .roughness = 0.55f,
+                                         .metallic = 0.15f});
+  scene.objects().push_back(caster);
+
+  scene.reflectionProbes().push_back({.name = "software local probe",
+                                      .position = {0.0f, 0.9f, 0.0f},
+                                      .influence_radius = 5.0f,
+                                      .sky_irradiance = {0.28f, 0.38f, 0.58f},
+                                      .ground_irradiance = {0.18f, 0.12f, 0.08f},
+                                      .specular_tint = {1.0f, 0.92f, 0.82f},
+                                      .intensity = 1.2f});
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.52f, 0.0f};
+  camera.yaw = aster::radians(38.0f);
+  camera.pitch = aster::radians(18.0f);
+  camera.radius = 4.2f;
+
+  aster::RendererSettings settings;
+  settings.sun_light.enabled = true;
+  settings.sun_light.direction_to_light = {-0.42f, 0.82f, 0.26f};
+  settings.sun_light.intensity = 1.4f;
+  settings.shadows.enabled = true;
+  settings.shadows.cascaded_directional = true;
+  settings.shadows.directional_cascades = 2u;
+  settings.shadows.atlas_size = 64u;
+  settings.shadows.max_distance = 12.0f;
+  settings.atmosphere.enabled = true;
+  settings.atmosphere.fog_color = {0.10f, 0.13f, 0.16f};
+  settings.atmosphere.fog_start = 1.5f;
+  settings.atmosphere.fog_end = 8.0f;
+  settings.atmosphere.fog_strength = 0.42f;
+  settings.reflections.enabled = true;
+  settings.reflections.static_local_probes = true;
+  settings.reflections.probe_resolution = 16u;
+  settings.reflections.max_active_probes = 1u;
+  settings.clustered_lighting.enabled = true;
+  settings.clustered_lighting.cluster_count_x = 4u;
+  settings.clustered_lighting.cluster_count_y = 3u;
+  settings.clustered_lighting.cluster_count_z = 4u;
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.prepareScene(scene);
+  (void)renderer.render(scene, camera, settings, 80, 56, 0.0);
+
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  const auto capture_for = [&forensics](const aster::RenderGraphResource resource) {
+    return std::find_if(forensics.captures.begin(), forensics.captures.end(),
+                        [resource](const aster::FrameDebugCapture &capture) {
+                          return capture.resource == resource && capture.available;
+                        });
+  };
+  const auto shadow = capture_for(aster::RenderGraphResource::ShadowAtlas);
+  const auto fog = capture_for(aster::RenderGraphResource::VolumetricFog);
+  const auto reflection = capture_for(aster::RenderGraphResource::ReflectionProbes);
+  const auto final = capture_for(aster::RenderGraphResource::CaptureReadback);
+  assert(shadow != forensics.captures.end());
+  assert(shadow->width == 64u && shadow->height == 64u);
+  assert(shadow->row_stride_bytes == shadow->width * 4u);
+  assert(shadow->content_hash != 0u && !shadow->rgba8.empty());
+  assert(fog != forensics.captures.end());
+  assert(fog->width == 20u && fog->height == 14u);
+  assert(fog->content_hash != 0u && !fog->rgba8.empty());
+  assert(reflection != forensics.captures.end());
+  assert(reflection->width == 96u && reflection->height == 16u);
+  assert(reflection->content_hash != 0u && !reflection->rgba8.empty());
+  assert(final != forensics.captures.end());
+  assert(final->width == 80u && final->height == 56u);
+  assert(final->rgba8.size() == 80u * 56u * 4u);
+  assert(forensics.mesh_visibility.size() == scene.objects().size());
+  assert(!forensics.object_clusters.empty());
+  bool saw_caster_visibility = false;
+  for (const aster::MeshVisibilityTrace &visibility : forensics.mesh_visibility) {
+    if (visibility.object_name == "shadow atlas caster") {
+      saw_caster_visibility = visibility.visible && visibility.reason == "visible" &&
+                              visibility.pass == aster::RenderGraphPass::Opaque;
+    }
+  }
+  assert(saw_caster_visibility);
+
+  bool saw_placeholder_warning = false;
+  for (const aster::FrameDiagnosticEvent &event : forensics.events) {
+    saw_placeholder_warning =
+        saw_placeholder_warning ||
+        (event.kind == aster::FrameDiagnosticKind::CapabilityMismatch &&
+         (event.pass == "shadow-atlas" || event.pass == "volumetric-fog" ||
+          event.pass == "reflection-probe"));
+  }
+  assert(!saw_placeholder_warning);
+  const aster::RenderBackendCapabilities capabilities = renderer.backendCapabilities();
+  assert((capabilities.graph_resource_mask &
+          aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas)) != 0u);
+  assert(capabilities.capability_table.shadow_maps);
 
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
@@ -808,6 +1030,26 @@ void testRhiExplicitGpuContracts() {
   const std::uint64_t biased_constant_key = aster::rhi::graphicsPipelineCacheKey(pipeline);
   assert(biased_constant_key != biased_key);
 
+  aster::rhi::PipelineLayoutDesc material_layout;
+  material_layout.descriptor_ranges.push_back(
+      {.kind = aster::rhi::DescriptorRangeKind::SampledImage,
+       .binding = 0u,
+       .count = 10u,
+       .stage_mask = static_cast<std::uint32_t>(
+           aster::rhi::pipelineStageBit(aster::rhi::PipelineStage::FragmentShader))});
+  material_layout.descriptor_ranges.push_back(
+      {.kind = aster::rhi::DescriptorRangeKind::Sampler,
+       .binding = 10u,
+       .count = 1u,
+       .stage_mask = static_cast<std::uint32_t>(
+           aster::rhi::pipelineStageBit(aster::rhi::PipelineStage::FragmentShader))});
+  material_layout.descriptor_range_count =
+      static_cast<std::uint32_t>(material_layout.descriptor_ranges.size());
+  const std::uint64_t material_layout_hash = aster::rhi::descriptorLayoutHash(material_layout);
+  material_layout.descriptor_ranges.front().count = 9u;
+  assert(material_layout_hash != 0u);
+  assert(aster::rhi::descriptorLayoutHash(material_layout) != material_layout_hash);
+
   aster::rhi::FramebufferDesc framebuffer;
   framebuffer.width = 128u;
   framebuffer.height = 64u;
@@ -825,6 +1067,17 @@ void testRhiExplicitGpuContracts() {
 }
 
 void testFrameGraphContract() {
+  const aster::RenderPassRegistry registry = aster::makeDefaultRenderPassRegistry();
+  assert(registry.validate().empty());
+  const aster::RenderGraphPassDeclaration *shadow_decl =
+      registry.find(aster::RenderGraphPass::ShadowAtlas);
+  assert(shadow_decl != nullptr);
+  assert(shadow_decl->outputs.size() == 1u);
+  assert(shadow_decl->outputs.front().resource == aster::RenderGraphResource::ShadowAtlas);
+  assert(shadow_decl->outputs.front().load_op == aster::rhi::AttachmentLoadOp::Clear);
+  assert(shadow_decl->debug_capture == aster::RenderGraphDebugCapturePolicy::OnRequest);
+  assert(aster::renderGraphExecutorKeyName(shadow_decl->executor) == "shadow-atlas");
+
   const aster::FixedRenderGraph graph = aster::makeFixedRenderGraph();
   assert(graph.valid());
   assert(graph.validation_errors.empty());
@@ -882,13 +1135,25 @@ void testFrameGraphContract() {
   assert(graph.passes[10].read_mask == color && graph.passes[10].write_mask == capture);
   assert(graph.transient_resource_count == 6u);
   assert(!graph.barriers.empty());
+  assert(!graph.resource_barriers.empty());
+  assert(graph.resource_barriers.size() == graph.barriers.size());
+  assert(!graph.alias_groups.empty());
+  assert(!graph.descriptor_requirements.empty());
+  assert(!graph.passes[3].attachments.empty());
+  assert(!graph.passes[3].pipeline_compatibility.color_formats.empty());
+  assert(graph.passes[1].descriptor_requirements.front().kind ==
+         aster::rhi::DescriptorRangeKind::SampledImage);
   const std::string dump = aster::framegraph::dumpFrameGraph(graph);
   assert(dump.find("scene-color-depth") != std::string::npos);
+  assert(dump.find("expanded-barriers") != std::string::npos);
+  assert(dump.find("descriptor-requirements") != std::string::npos);
   std::vector<aster::RenderGraphPass> executed_passes;
   const std::size_t executed = aster::executeFixedRenderGraph(
       graph, [&executed_passes](const aster::RenderGraphPassInvocation &invocation) {
         executed_passes.push_back(invocation.semantic);
         assert(invocation.pass != nullptr);
+        assert(invocation.declaration != nullptr);
+        assert(invocation.declaration->name == invocation.pass->name);
       });
   assert(executed == graph.passes.size());
   assert(executed_passes.size() == graph.passes.size());
@@ -1289,6 +1554,8 @@ constexpr TestCase kTestCases[] = {
     {"software_depth_policy_object_order", testSoftwareDepthPolicyIsStableAcrossObjectOrder},
     {"prepare_scene_custom_mesh_cache", testPrepareSceneInvalidatesCustomMeshCache},
     {"frame_math_diagnostics", testFrameMathDiagnostics},
+    {"frame_debugger_material_binding_trace", testFrameDebuggerMaterialBindingTrace},
+    {"software_reference_frame_resource_captures", testSoftwareReferenceFrameResourceCaptures},
     {"retro_style_neutral_preview", testRetroStyleNeutralSoftwarePreviewMatchesDefault},
     {"retro_style_preview_effects", testRetroStyleSoftwarePreviewEffects},
     {"retro_style_emissive_gain", testRetroStyleEmissiveSoftwarePreviewGain},

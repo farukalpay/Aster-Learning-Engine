@@ -549,6 +549,8 @@ if(ASTER_BUILD_TESTS)
       software_depth_policy_object_order
       prepare_scene_custom_mesh_cache
       frame_math_diagnostics
+      frame_debugger_material_binding_trace
+      software_reference_frame_resource_captures
       retro_style_neutral_preview
       retro_style_preview_effects
       retro_style_emissive_gain

@@ -14,6 +14,7 @@ struct RenderGraphPassInvocation {
   std::size_t index = 0u;
   RenderGraphPass semantic = RenderGraphPass::SceneColorDepth;
   const framegraph::CompiledPass *pass = nullptr;
+  const RenderGraphPassDeclaration *declaration = nullptr;
 };
 
 using RenderGraphPassCallback = std::function<void(const RenderGraphPassInvocation &)>;

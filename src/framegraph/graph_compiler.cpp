@@ -8,14 +8,17 @@
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace aster::framegraph {
 namespace {
 
 [[nodiscard]] rhi::ResourceState readStateFor(const ResourceDesc &desc) {
-  if ((desc.usage & rhi::imageUsageBit(rhi::ImageUsage::TransferSource)) != 0u ||
-      desc.lifetime == ResourceLifetime::Readback) {
+  if (desc.lifetime == ResourceLifetime::Readback) {
     return rhi::ResourceState::Readback;
+  }
+  if ((desc.usage & rhi::imageUsageBit(rhi::ImageUsage::TransferSource)) != 0u) {
+    return rhi::ResourceState::CopySource;
   }
   return rhi::ResourceState::ShaderRead;
 }
@@ -38,6 +41,80 @@ namespace {
   return handle.index < 32u ? (1u << handle.index) : 0u;
 }
 
+[[nodiscard]] std::uint64_t resourceIdFor(const ResourceHandle handle) {
+  return (static_cast<std::uint64_t>(handle.generation) << 32u) | handle.index;
+}
+
+[[nodiscard]] rhi::FramebufferAttachmentDesc attachmentForWrite(const ResourceDesc &desc,
+                                                                const rhi::ResourceState before,
+                                                                const rhi::ResourceState after) {
+  return {.format = desc.format,
+          .load_op = before == rhi::ResourceState::Undefined ? rhi::AttachmentLoadOp::Clear
+                                                             : rhi::AttachmentLoadOp::Load,
+          .store_op = rhi::AttachmentStoreOp::Store,
+          .initial_state = before,
+          .final_state = after,
+          .transient = desc.lifetime == ResourceLifetime::Transient};
+}
+
+[[nodiscard]] bool canAlias(const CompiledResource &lhs, const CompiledResource &rhs) {
+  if (lhs.desc.lifetime != ResourceLifetime::Transient ||
+      rhs.desc.lifetime != ResourceLifetime::Transient) {
+    return false;
+  }
+  if (lhs.desc.format != rhs.desc.format || lhs.desc.usage != rhs.desc.usage ||
+      lhs.desc.extent.width != rhs.desc.extent.width ||
+      lhs.desc.extent.height != rhs.desc.extent.height ||
+      lhs.desc.extent.depth != rhs.desc.extent.depth) {
+    return false;
+  }
+  return lhs.last_pass < rhs.first_pass || rhs.last_pass < lhs.first_pass;
+}
+
+void assignAliasGroups(CompiledFrameGraph &compiled) {
+  for (std::size_t resource_index = 0u; resource_index < compiled.resources.size();
+       ++resource_index) {
+    CompiledResource &resource = compiled.resources[resource_index];
+    if (resource.desc.lifetime != ResourceLifetime::Transient) {
+      continue;
+    }
+    std::size_t selected_group = 0u;
+    for (std::size_t group_index = 0u; group_index < compiled.alias_groups.size(); ++group_index) {
+      bool compatible = true;
+      for (const ResourceHandle existing_handle : compiled.alias_groups[group_index].resources) {
+        const auto existing = std::find_if(
+            compiled.resources.begin(), compiled.resources.end(),
+            [existing_handle](const CompiledResource &candidate) {
+              return candidate.handle == existing_handle;
+            });
+        if (existing == compiled.resources.end() || !canAlias(*existing, resource)) {
+          compatible = false;
+          break;
+        }
+      }
+      if (compatible) {
+        selected_group = compiled.alias_groups[group_index].id;
+        compiled.alias_groups[group_index].resources.push_back(resource.handle);
+        compiled.alias_groups[group_index].first_pass =
+            std::min(compiled.alias_groups[group_index].first_pass, resource.first_pass);
+        compiled.alias_groups[group_index].last_pass =
+            std::max(compiled.alias_groups[group_index].last_pass, resource.last_pass);
+        break;
+      }
+    }
+    if (selected_group == 0u) {
+      ResourceAliasGroup group;
+      group.id = compiled.alias_groups.size() + 1u;
+      group.resources.push_back(resource.handle);
+      group.first_pass = resource.first_pass;
+      group.last_pass = resource.last_pass;
+      selected_group = group.id;
+      compiled.alias_groups.push_back(std::move(group));
+    }
+    resource.alias_group = selected_group;
+  }
+}
+
 } // namespace
 
 CompiledFrameGraph compileFrameGraph(const FrameGraph &graph) {
@@ -53,7 +130,8 @@ CompiledFrameGraph compileFrameGraph(const FrameGraph &graph) {
                                   .name = resource.name,
                                   .desc = resource.desc,
                                   .first_pass = std::numeric_limits<std::size_t>::max(),
-                                  .last_pass = 0u});
+                                  .last_pass = 0u,
+                                  .alias_group = 0u});
     if (resource.desc.lifetime == ResourceLifetime::Transient) {
       ++compiled.transient_resource_count;
     }
@@ -85,11 +163,31 @@ CompiledFrameGraph compileFrameGraph(const FrameGraph &graph) {
       compiled_pass.read_mask |= bitFor(resource);
 
       const rhi::ResourceState desired = readStateFor(compiled_resource.desc);
+      compiled_pass.accesses.push_back({.resource = resource,
+                                        .state = desired,
+                                        .usage = compiled_resource.desc.usage,
+                                        .write = false});
+      if ((compiled_resource.desc.usage & rhi::imageUsageBit(rhi::ImageUsage::Sampled)) != 0u) {
+        DescriptorRequirement requirement{.pass_index = pass_index,
+                                          .resource = resource,
+                                          .kind = rhi::DescriptorRangeKind::SampledImage,
+                                          .binding = static_cast<std::uint32_t>(
+                                              compiled_pass.descriptor_requirements.size()),
+                                          .count = 1u,
+                                          .label = compiled_resource.name + "-srv"};
+        compiled_pass.descriptor_requirements.push_back(requirement);
+        compiled.descriptor_requirements.push_back(std::move(requirement));
+      }
       const rhi::ResourceState before = current_states.contains(resource)
                                             ? current_states[resource]
                                             : rhi::ResourceState::Undefined;
       if (before != desired) {
-        compiled.barriers.push_back({resource, before, desired, pass_index});
+        rhi::ResourceBarrier expanded =
+            rhi::completeResourceBarrier({.resource_id = resourceIdFor(resource),
+                                          .before = before,
+                                          .after = desired});
+        compiled.barriers.push_back({resource, before, desired, pass_index, expanded});
+        compiled.resource_barriers.push_back(expanded);
         current_states[resource] = desired;
       }
     }
@@ -109,8 +207,39 @@ CompiledFrameGraph compileFrameGraph(const FrameGraph &graph) {
       const rhi::ResourceState before = current_states.contains(resource)
                                             ? current_states[resource]
                                             : rhi::ResourceState::Undefined;
+      compiled_pass.accesses.push_back({.resource = resource,
+                                        .state = desired,
+                                        .usage = compiled_resource.desc.usage,
+                                        .write = true});
+      if ((compiled_resource.desc.usage & rhi::imageUsageBit(rhi::ImageUsage::Storage)) != 0u) {
+        DescriptorRequirement requirement{.pass_index = pass_index,
+                                          .resource = resource,
+                                          .kind = rhi::DescriptorRangeKind::StorageImage,
+                                          .binding = static_cast<std::uint32_t>(
+                                              compiled_pass.descriptor_requirements.size()),
+                                          .count = 1u,
+                                          .label = compiled_resource.name + "-uav"};
+        compiled_pass.descriptor_requirements.push_back(requirement);
+        compiled.descriptor_requirements.push_back(std::move(requirement));
+      }
+      if ((compiled_resource.desc.usage & rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment)) !=
+          0u) {
+        compiled_pass.attachments.push_back(attachmentForWrite(compiled_resource.desc, before, desired));
+        compiled_pass.pipeline_compatibility.color_formats.push_back(compiled_resource.desc.format);
+      }
+      if ((compiled_resource.desc.usage & rhi::imageUsageBit(rhi::ImageUsage::DepthAttachment)) !=
+          0u) {
+        compiled_pass.attachments.push_back(attachmentForWrite(compiled_resource.desc, before, desired));
+        compiled_pass.pipeline_compatibility.depth_format = compiled_resource.desc.format;
+      }
+      compiled_pass.pipeline_compatibility.sample_count = 1u;
       if (before != desired) {
-        compiled.barriers.push_back({resource, before, desired, pass_index});
+        rhi::ResourceBarrier expanded =
+            rhi::completeResourceBarrier({.resource_id = resourceIdFor(resource),
+                                          .before = before,
+                                          .after = desired});
+        compiled.barriers.push_back({resource, before, desired, pass_index, expanded});
+        compiled.resource_barriers.push_back(expanded);
         current_states[resource] = desired;
       }
       written.insert(resource);
@@ -125,6 +254,7 @@ CompiledFrameGraph compileFrameGraph(const FrameGraph &graph) {
       resource.last_pass = 0u;
     }
   }
+  assignAliasGroups(compiled);
   return compiled;
 }
 
@@ -143,6 +273,9 @@ std::string dumpFrameGraph(const CompiledFrameGraph &graph) {
         << pass.write_mask << std::dec << '\n';
   }
   out << "barriers " << graph.barriers.size() << '\n';
+  out << "expanded-barriers " << graph.resource_barriers.size() << '\n';
+  out << "descriptor-requirements " << graph.descriptor_requirements.size() << '\n';
+  out << "alias-groups " << graph.alias_groups.size() << '\n';
   return out.str();
 }
 

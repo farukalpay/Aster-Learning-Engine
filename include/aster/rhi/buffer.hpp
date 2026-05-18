@@ -29,6 +29,7 @@ struct BufferDesc {
   std::size_t byte_size = 0u;
   std::uint32_t usage = 0u;
   bool cpu_visible = false;
+  std::uint64_t memory_budget_bytes = 0u;
   std::string debug_label;
 };
 

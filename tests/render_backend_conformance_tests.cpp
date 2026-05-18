@@ -594,10 +594,10 @@ void testBackendCapabilityTableContracts() {
   assert((software_table.sample_count_mask & aster::rhi::sampleCountCapabilityBit(1u)) != 0ull);
   assert((software_table.blend_mode_mask &
           aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::AlphaBlend)) != 0ull);
-  assert(software_table.max_sampled_textures_per_material == 0u);
-  assert(!software_table.texture_sampling);
+  assert(software_table.max_sampled_textures_per_material >= 10u);
+  assert(software_table.texture_sampling);
   assert(!software_table.storage_buffers);
-  assert(!software_table.shadow_maps);
+  assert(software_table.shadow_maps);
 
   const RenderResult native = renderContractFrame(false);
   if (native.backend.kind == aster::RenderBackendKind::Metal) {
