@@ -1,6 +1,39 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
+struct AsterMaterialInput {
+  float3 albedo;
+  float3 normal;
+  float3 view;
+  float roughness;
+  float metallic;
+  float ambient_occlusion;
+  float alpha;
+};
+
+float4 aster_material_lit_pbr(AsterMaterialInput material, float3 light_dir, float3 light_color,
+                              float3 ambient_color) {
+  float3 normal = normalize(material.normal);
+  float3 view = normalize(material.view);
+  float roughness = clamp(material.roughness, 0.04, 1.0);
+  float metallic = clamp(material.metallic, 0.0, 1.0);
+  float ao = clamp(material.ambient_occlusion, 0.0, 1.0);
+  float3 direct =
+      aster_lit_pbr(material.albedo, normal, view, normalize(light_dir), light_color, roughness,
+                    metallic, ao);
+  float3 ambient = ambient_color * material.albedo * ao * (1.0 - metallic * 0.65);
+  return float4(aster_tonemap_reinhard(direct + ambient), clamp(material.alpha, 0.0, 1.0));
+}
+
 float4 fs_main() {
-  return float4(1.0, 0.0, 1.0, 1.0);
+  AsterMaterialInput material;
+  material.albedo = float3(0.8, 0.74, 0.66);
+  material.normal = float3(0.0, 1.0, 0.0);
+  material.view = float3(0.0, 0.35, 1.0);
+  material.roughness = 0.55;
+  material.metallic = 0.0;
+  material.ambient_occlusion = 1.0;
+  material.alpha = 1.0;
+  return aster_material_lit_pbr(material, float3(0.35, 0.9, 0.25), float3(3.0, 2.7, 2.2),
+                                float3(0.08, 0.10, 0.13));
 }

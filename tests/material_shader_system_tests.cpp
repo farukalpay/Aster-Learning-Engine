@@ -5,6 +5,7 @@
 #include "aster/material/material_graph.hpp"
 #include "aster/shader/shader_compiler.hpp"
 #include "aster/shader/shader_hot_reload.hpp"
+#include "aster/render/render_quality.hpp"
 #include "aster/texture/texture_atlas.hpp"
 #include "aster/texture/texture_debug.hpp"
 #include "aster/texture/texture_importer.hpp"
@@ -17,6 +18,11 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
+
+#ifndef ASTER_SOURCE_DIR
+#define ASTER_SOURCE_DIR "."
+#endif
 
 namespace {
 
@@ -133,8 +139,23 @@ void testShaderLibraryAndReflection() {
                                             .modules = {"math", "material"},
                                             .entry_point = "fs_main"});
   assert(compiled.success);
+  assert(compiled.source.find("#include <metal_stdlib>") != std::string::npos);
   assert(compiled.source.find("backend: metal-msl") != std::string::npos);
   assert(compiled.reflection.resources.size() >= 5u);
+
+  const aster::ShaderLibraryLoadResult real_library =
+      aster::loadShaderLibrary(std::filesystem::path(ASTER_SOURCE_DIR) / "shaders" / "lib");
+  assert(real_library.ok());
+  const aster::ShaderCompileResult pbr =
+      aster::compileShaderVariant(real_library.library,
+                                  {.backend = aster::ShaderBackend::D3D12HLSL,
+                                   .variant = variant,
+                                   .modules = {"brdf", "pbr", "tonemap", "material_lit_pbr"},
+                                   .entry_point = "fs_main"});
+  assert(pbr.success);
+  assert(pbr.source.find("generated HLSL") != std::string::npos);
+  assert(pbr.source.find("return float4(1.0, 0.0, 1.0, 1.0)") == std::string::npos);
+  assert(pbr.source.find("aster_material_lit_pbr") != std::string::npos);
 }
 
 void testTextureValidationAndDebugContracts() {
@@ -171,6 +192,68 @@ void testTextureValidationAndDebugContracts() {
   assert(atlas.entries.size() == atlas_inputs.size());
 }
 
+void testRenderQualityProfileContracts() {
+  const aster::RenderQualityProfile production =
+      aster::makeRenderQualityProfile(aster::RenderQualityTier::Production);
+  assert(aster::renderQualityTierName(production.tier) == "production");
+  assert(production.shadows.technique == aster::ShadowTechnique::CascadedDirectional);
+  assert(production.reflections.mode == aster::ReflectionProbeMode::StaticLocal);
+  assert(production.textures.require_mip_chain);
+
+  aster::RendererSettings settings;
+  aster::applyRenderQualityProfile(settings, production);
+  assert(settings.sun_light.enabled);
+  assert(settings.grounding.contact_shadows);
+  assert(settings.atmosphere.enabled);
+  assert(settings.pipeline.tone_mapper == production.post.tone_mapper);
+
+  const aster::TextureImportOptions options =
+      aster::textureImportOptionsForQuality(production, false);
+  assert(!options.require_existing_files);
+  assert(options.generate_mips);
+  assert(options.compression == aster::TextureCompression::Ktx2Basis);
+
+  const aster::MaterialAssetLoadResult loaded =
+      aster::parseMaterialAsset(sampleMaterialSource(), "quality.astermat");
+  assert(loaded.ok());
+  aster::TextureSetValidation validation;
+  for (const auto &[role, slot] : loaded.value.textures) {
+    (void)slot;
+    aster::TextureAssetMetadata metadata;
+    metadata.source_path = role + ".ktx2";
+    metadata.kind = aster::textureKindForRole(role);
+    metadata.color_space = aster::defaultTextureColorSpace(metadata.kind);
+    metadata.compression = aster::TextureCompression::Ktx2Basis;
+    metadata.width = 1024u;
+    metadata.height = 1024u;
+    metadata.mips = {{1024u, 1024u, 0u, 0u},
+                     {512u, 512u, 0u, 0u},
+                     {256u, 256u, 0u, 0u}};
+    metadata.valid = true;
+    validation.textures.push_back(std::move(metadata));
+  }
+  const aster::MaterialQualityReport report =
+      aster::evaluateMaterialQuality(loaded.value, validation, production);
+  assert(report.production_ready);
+  assert(report.score >= 80u);
+
+  const aster::MaterialAssetLoadResult broken =
+      aster::parseMaterialAsset(R"mat(
+material BrokenPbr {
+  shading_model: LitPBR
+  params {
+    roughness: 1.0
+  }
+}
+)mat",
+                                "broken_quality.astermat");
+  assert(broken.ok());
+  const aster::MaterialQualityReport broken_report =
+      aster::evaluateMaterialQuality(broken.value, {}, production);
+  assert(!broken_report.production_ready);
+  assert(!broken_report.issues.empty());
+}
+
 void testHotReloadSnapshot() {
   const std::filesystem::path dir = tempDir();
   const std::filesystem::path path = dir / "shader.astsl";
@@ -205,6 +288,7 @@ constexpr TestCase kTestCases[] = {
     {"material_asset_parser_and_compiler", testMaterialAssetParserAndCompiler},
     {"shader_library_and_reflection", testShaderLibraryAndReflection},
     {"texture_validation_and_debug", testTextureValidationAndDebugContracts},
+    {"render_quality_profile", testRenderQualityProfileContracts},
     {"hot_reload_snapshot", testHotReloadSnapshot},
     {"invalid_material_diagnostics", testInvalidMaterialDiagnostics},
 };

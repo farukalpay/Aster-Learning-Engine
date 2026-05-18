@@ -48,7 +48,9 @@ fully driven by SDK documents.
 Stable public ABI and C++ wrappers. Kernel headers must not include broad engine
 headers, STL containers in ABI structs, native platform types, renderer backend
 types, or sample-owned state. Public resources cross this boundary only as
-opaque handles with matching destroy functions.
+opaque handles with matching destroy functions. ABI 2.0 includes a public
+renderer path for windows, renderer instances, scenes, meshes, materials, shader
+artifacts, render pipelines, captures, frame stats, and backend capabilities.
 
 `include/aster/game_sdk`
 
@@ -110,13 +112,23 @@ fallback, capture path, preview path, and reference implementation.
 `SurfacePattern` is the shared procedural material contract across native and
 software rendering.
 
+Render quality policy is explicit. `RenderQualityProfile` groups the quality
+stack that turns the renderer factory line into shippable images: PBR material
+requirements, texture resolution/compression/mip policy, shadow technique,
+environment lighting, post-process grading, fog/volumetric intent, reflection
+probe budgets, and asset-pipeline bake policy. Profiles can be applied to
+`RendererSettings`, and material/texture sets can be scored before they become
+runtime content.
+
 `RenderDevice` is the renderer orchestrator. Backend implementations own API-
 specific resource creation, encode work, and presentation details. The graphics
 core exposes typed RHI handles, a resource registry, and a compiled frame graph
 with pass/resource dependencies, transient lifetimes, validation diagnostics,
 and resource barriers. The default frame graph currently spans
 `scene-color-depth`, `opaque`, `contact-shadow`, `transparent`, `ui-composite`,
-and `capture` passes.
+and `capture` passes. Runtime rendering now visits those semantic passes through
+the compiled graph executor so pass order is a renderer contract rather than an
+open-coded sequence in each draw loop.
 
 `crates/aster_runtime`
 

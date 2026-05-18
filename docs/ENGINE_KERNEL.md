@@ -47,9 +47,10 @@ plain C and compiling C++ wrappers in the consuming toolchain.
 
 Kernel resources are opaque handles. A handle returned by a kernel creation
 function is owned by the caller until it is passed to the matching destroy
-function. The current ABI declares the broader handle family, but only engine
-creation is constructible today; the other destroy functions reject uncreated
-handles with `ASTER_STATUS_UNSUPPORTED` until their matching create APIs land:
+function. ABI 2.0 makes the renderer path constructible through the public
+kernel: engine, window, scene, mesh, material, renderer, shader artifact, and
+render pipeline handles can be created and destroyed through fixed-layout C
+descriptors:
 
 - `AsterEngineHandle` -> `aster_kernel_engine_destroy`
 - `AsterWindowHandle` -> `aster_kernel_window_destroy`
@@ -57,6 +58,12 @@ handles with `ASTER_STATUS_UNSUPPORTED` until their matching create APIs land:
 - `AsterRendererHandle` -> `aster_kernel_renderer_destroy`
 - `AsterMeshHandle` -> `aster_kernel_mesh_destroy`
 - `AsterMaterialHandle` -> `aster_kernel_material_destroy`
+- `AsterShaderArtifactHandle` -> `aster_kernel_shader_destroy`
+- `AsterRenderPipelineHandle` -> `aster_kernel_render_pipeline_destroy`
+
+The remaining declared subsystem families reject uncreated handles with
+`ASTER_STATUS_UNSUPPORTED` until their matching create APIs land:
+
 - `AsterPhysicsWorldHandle` -> `aster_kernel_physics_world_destroy`
 - `AsterSystemWorldHandle` -> `aster_kernel_system_world_destroy`
 - `AsterSampleAppHandle` -> `aster_kernel_sample_app_destroy`
@@ -102,6 +109,9 @@ The repository still carries broad implementation headers under `include/aster`
 because the existing apps and subsystem tests compile against them. The boundary
 is enforced at the build/export level first: `aster_kernel` installs only
 `include/aster/kernel`, while `aster_game_sdk` installs only
-`include/aster/game_sdk`. Future subsystem work should either stay internal, be
-re-exposed through the source SDK as authoring/runtime data contracts, or be
-promoted through versioned opaque handles and fixed-layout kernel contracts.
+`include/aster/game_sdk`. `aster_kernel` links the shared renderer/window
+implementation internally, while public consumers still see only opaque handles,
+status values, fixed-layout descriptors, shader compiler artifacts, and frame
+stats. Future subsystem work should either stay internal, be re-exposed through
+the source SDK as authoring/runtime data contracts, or be promoted through
+versioned opaque handles and fixed-layout kernel contracts.

@@ -277,6 +277,18 @@ void testFrameGraphContract() {
   assert(!graph.barriers.empty());
   const std::string dump = aster::framegraph::dumpFrameGraph(graph);
   assert(dump.find("scene-color-depth") != std::string::npos);
+  std::vector<aster::RenderGraphPass> executed_passes;
+  const std::size_t executed = aster::executeFixedRenderGraph(
+      graph, [&executed_passes](const aster::RenderGraphPassInvocation &invocation) {
+        executed_passes.push_back(invocation.semantic);
+        assert(invocation.pass != nullptr);
+      });
+  assert(executed == graph.passes.size());
+  assert(executed_passes.size() == graph.passes.size());
+  assert(executed_passes[0] == aster::RenderGraphPass::SceneColorDepth);
+  assert(executed_passes[1] == aster::RenderGraphPass::Opaque);
+  assert(executed_passes[2] == aster::RenderGraphPass::ContactShadow);
+  assert(executed_passes[3] == aster::RenderGraphPass::Transparent);
 
   aster::framegraph::FrameGraph invalid_graph;
   const auto dangling = invalid_graph.addResource("dangling", {});

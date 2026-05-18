@@ -58,6 +58,7 @@
 #include "aster/render/material_compiler.hpp"
 #include "aster/render/mesh.hpp"
 #include "aster/render/render_device.hpp"
+#include "aster/render/render_graph_executor.hpp"
 #include "aster/render/render_scene.hpp"
 #include "aster/render/software_framebuffer.hpp"
 #include "aster/render/software_preview_renderer.hpp"

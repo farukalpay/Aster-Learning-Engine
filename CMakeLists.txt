@@ -167,6 +167,11 @@ endif()
 add_library(aster_engine_internal STATIC ${ASTER_SOURCES})
 add_library(aster ALIAS aster_engine_internal)
 add_dependencies(aster_engine_internal aster_rust_runtime)
+set_target_properties(aster_engine_internal PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+  CXX_VISIBILITY_PRESET hidden
+  VISIBILITY_INLINES_HIDDEN YES
+)
 
 target_include_directories(aster_engine_internal PUBLIC
   ${PROJECT_SOURCE_DIR}/include
@@ -209,6 +214,7 @@ target_include_directories(aster_kernel PUBLIC
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_compile_definitions(aster_kernel PRIVATE ASTER_KERNEL_BUILD=1)
+target_link_libraries(aster_kernel PRIVATE aster_engine_internal)
 set_target_properties(aster_kernel PROPERTIES
   EXPORT_NAME kernel
   VERSION ${PROJECT_VERSION}
@@ -353,10 +359,14 @@ if(ASTER_BUILD_TESTS)
   add_executable(aster_material_shader_system_tests tests/material_shader_system_tests.cpp)
   target_link_libraries(aster_material_shader_system_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_material_shader_system_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  target_compile_definitions(aster_material_shader_system_tests PRIVATE
+    ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+  )
   foreach(material_shader_case
       material_asset_parser_and_compiler
       shader_library_and_reflection
       texture_validation_and_debug
+      render_quality_profile
       hot_reload_snapshot
       invalid_material_diagnostics
   )

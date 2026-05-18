@@ -8,6 +8,7 @@
 #include "aster/math/color.hpp"
 #include "aster/render/material_compiler.hpp"
 #include "aster/render/software_framebuffer.hpp"
+#include "aster/render/render_graph_executor.hpp"
 #include "aster/scene/scene.hpp"
 #include "native_render_backend.hpp"
 
@@ -1366,40 +1367,53 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     drawMesh(framebuffer, mesh, object, camera, settings, frame_seconds, opacity, stats.draw_calls);
   };
 
-  for (const FrameRenderDrawGroup &group : plan.groups) {
-    if (group.pass != FrameRenderPass::Opaque) {
-      continue;
-    }
+  const auto draw_planned_group = [&](const FrameRenderDrawGroup &group) {
     for (std::size_t i = 0; i < group.instance_count; ++i) {
       const FrameRenderInstance &instance = plan.instances[group.first_instance + i];
       if (instance.object_index < scene.objects().size()) {
         draw_object(scene.objects()[instance.object_index], instance.opacity);
       }
     }
-  }
+  };
 
-  for (const FrameRenderInstance &instance : plan.instances) {
-    if (instance.object_index >= scene.objects().size()) {
-      continue;
-    }
-    const RenderObject &object = scene.objects()[instance.object_index];
-    if (canCastContactShadow(object, settings.grounding)) {
-      const RenderObject shadow = contactShadowObjectFor(object, settings.grounding);
-      draw_object(shadow, shadow.material.opacity);
-    }
-  }
-
-  for (const FrameRenderDrawGroup &group : plan.groups) {
-    if (group.pass != FrameRenderPass::Transparent) {
-      continue;
-    }
-    for (std::size_t i = 0; i < group.instance_count; ++i) {
-      const FrameRenderInstance &instance = plan.instances[group.first_instance + i];
-      if (instance.object_index < scene.objects().size()) {
-        draw_object(scene.objects()[instance.object_index], instance.opacity);
+  const auto draw_contact_shadows = [&] {
+    for (const FrameRenderInstance &instance : plan.instances) {
+      if (instance.object_index >= scene.objects().size()) {
+        continue;
+      }
+      const RenderObject &object = scene.objects()[instance.object_index];
+      if (canCastContactShadow(object, settings.grounding)) {
+        const RenderObject shadow = contactShadowObjectFor(object, settings.grounding);
+        draw_object(shadow, shadow.material.opacity);
       }
     }
-  }
+  };
+
+  (void)executeFixedRenderGraph(render_graph_, [&](const RenderGraphPassInvocation &invocation) {
+    switch (invocation.semantic) {
+    case RenderGraphPass::Opaque:
+      for (const FrameRenderDrawGroup &group : plan.groups) {
+        if (group.pass == FrameRenderPass::Opaque) {
+          draw_planned_group(group);
+        }
+      }
+      break;
+    case RenderGraphPass::ContactShadow:
+      draw_contact_shadows();
+      break;
+    case RenderGraphPass::Transparent:
+      for (const FrameRenderDrawGroup &group : plan.groups) {
+        if (group.pass == FrameRenderPass::Transparent) {
+          draw_planned_group(group);
+        }
+      }
+      break;
+    case RenderGraphPass::SceneColorDepth:
+    case RenderGraphPass::UiComposite:
+    case RenderGraphPass::Capture:
+      break;
+    }
+  });
   const auto encode_end = std::chrono::steady_clock::now();
   stats.render_encode_seconds = std::chrono::duration<double>(encode_end - encode_start).count();
   stats.backend_feature_mask = softwareCapabilities().graph_resource_mask;

@@ -504,11 +504,15 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
   plan.groups.reserve(buffers.group_count);
   for (std::size_t i = 0; i < buffers.group_count; ++i) {
     const RuntimeDrawGroup &group = runtime_groups[i];
+    const FrameRenderPass pass = passFromValue(group.pass);
     plan.groups.push_back({.mesh = {group.mesh_key},
                            .material = {group.material_key},
                            .render_queue = materialQueueFromValue(group.render_queue),
-                           .pass = passFromValue(group.pass),
-                           .graph_pass_id = group.graph_pass_id,
+                           .pass = pass,
+                           .graph_pass_id =
+                               static_cast<std::uint32_t>(pass == FrameRenderPass::Opaque
+                                                              ? RenderGraphPass::Opaque
+                                                              : RenderGraphPass::Transparent),
                            .resource_usage_flags = group.resource_usage_flags,
                            .upload_range_index = group.upload_range_index,
                            .diagnostic_id = group.diagnostic_id,

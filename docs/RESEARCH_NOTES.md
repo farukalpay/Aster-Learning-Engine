@@ -100,6 +100,9 @@ engine contracts from papers that were useful as background context.
 - Default interactive frame pacing with explicit unlocked runs
 - macOS native Metal backend with depth, translucent sorting, procedural
   material shading, fog, contact shadows, and UI overlay composition
+- Render quality profiles for production/cinematic PBR material checks,
+  texture compression/mip policy, shadow/environment/post/fog/reflection-probe
+  intent, and asset-pipeline validation
 - Deterministic software renderer fallback and headless preview rendering
 - Reusable generated-scenery assembly for grouped scene objects, sockets, and
   collision proxies

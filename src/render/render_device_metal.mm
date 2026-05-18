@@ -5,6 +5,7 @@
 
 #include "aster/core/profiler.hpp"
 #include "aster/math/mat4.hpp"
+#include "aster/render/render_graph_executor.hpp"
 #include "aster/render/software_framebuffer.hpp"
 #include "aster/scene/scene.hpp"
 
@@ -1122,26 +1123,45 @@ public:
       ++stats.draw_calls;
     };
 
-    for (const aster::FrameRenderDrawGroup &group : plan.groups) {
-      if (group.pass == aster::FrameRenderPass::Opaque) {
-        encode_group(group);
+    const auto encode_contact_shadows = [&] {
+      for (const aster::FrameRenderInstance &instance : plan.instances) {
+        if (instance.object_index >= scene.objects().size()) {
+          continue;
+        }
+        const aster::RenderObject &object = scene.objects()[instance.object_index];
+        if (canCastContactShadow(object, settings.grounding)) {
+          const aster::RenderObject shadow = contactShadowObjectFor(object, settings.grounding);
+          encode_object(shadow, shadow.material.opacity);
+        }
       }
-    }
-    for (const aster::FrameRenderInstance &instance : plan.instances) {
-      if (instance.object_index >= scene.objects().size()) {
-        continue;
-      }
-      const aster::RenderObject &object = scene.objects()[instance.object_index];
-      if (canCastContactShadow(object, settings.grounding)) {
-        const aster::RenderObject shadow = contactShadowObjectFor(object, settings.grounding);
-        encode_object(shadow, shadow.material.opacity);
-      }
-    }
-    for (const aster::FrameRenderDrawGroup &group : plan.groups) {
-      if (group.pass == aster::FrameRenderPass::Transparent) {
-        encode_group(group);
-      }
-    }
+    };
+
+    (void)aster::executeFixedRenderGraph(
+        graph, [&](const aster::RenderGraphPassInvocation &invocation) {
+          switch (invocation.semantic) {
+          case aster::RenderGraphPass::Opaque:
+            for (const aster::FrameRenderDrawGroup &group : plan.groups) {
+              if (group.pass == aster::FrameRenderPass::Opaque) {
+                encode_group(group);
+              }
+            }
+            break;
+          case aster::RenderGraphPass::ContactShadow:
+            encode_contact_shadows();
+            break;
+          case aster::RenderGraphPass::Transparent:
+            for (const aster::FrameRenderDrawGroup &group : plan.groups) {
+              if (group.pass == aster::FrameRenderPass::Transparent) {
+                encode_group(group);
+              }
+            }
+            break;
+          case aster::RenderGraphPass::SceneColorDepth:
+          case aster::RenderGraphPass::UiComposite:
+          case aster::RenderGraphPass::Capture:
+            break;
+          }
+        });
     [encoder endEncoding];
     const auto encode_end = std::chrono::steady_clock::now();
     stats.render_encode_seconds =

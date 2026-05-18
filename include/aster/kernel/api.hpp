@@ -5,6 +5,7 @@
 
 #include "aster/kernel/abi.h"
 
+#include <cstring>
 #include <new>
 #include <type_traits>
 #include <utility>
@@ -181,8 +182,444 @@ private:
   AsterEngineHandle handle_ = nullptr;
 };
 
+class Window {
+public:
+  Window() = default;
+  explicit Window(AsterWindowHandle handle) noexcept : handle_(handle) {}
+
+  Window(Window &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  Window &operator=(Window &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  Window(const Window &) = delete;
+  Window &operator=(const Window &) = delete;
+
+  ~Window() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<Window> create(const AsterWindowDesc &desc) noexcept {
+    AsterWindowHandle handle = nullptr;
+    const Status status(aster_kernel_window_create(&desc, &handle));
+    if (!status) {
+      return Result<Window>(status);
+    }
+    return Result<Window>(Window(handle));
+  }
+
+  [[nodiscard]] static Result<Window> createHeadless(const uint32_t width,
+                                                     const uint32_t height) noexcept {
+    const AsterWindowDesc desc{sizeof(AsterWindowDesc),
+                               ASTER_KERNEL_STRUCT_VERSION_1,
+                               {"Aster Kernel Headless", 22u},
+                               width,
+                               height,
+                               ASTER_KERNEL_WINDOW_FLAG_HEADLESS,
+                               0u};
+    return create(desc);
+  }
+
+  [[nodiscard]] bool valid() const noexcept {
+    return handle_ != nullptr;
+  }
+
+  [[nodiscard]] AsterWindowHandle get() const noexcept {
+    return handle_;
+  }
+
+  [[nodiscard]] Status poll() noexcept {
+    return Status(aster_kernel_window_poll(handle_));
+  }
+
+  [[nodiscard]] Status swap() noexcept {
+    return Status(aster_kernel_window_swap(handle_));
+  }
+
+  [[nodiscard]] Status setVsync(const bool enabled) noexcept {
+    return Status(aster_kernel_window_set_vsync(handle_, enabled ? 1u : 0u));
+  }
+
+  [[nodiscard]] Result<AsterExtent2D> framebufferSize() const noexcept {
+    AsterExtent2D size{};
+    const Status status(aster_kernel_window_framebuffer_size(handle_, &size));
+    if (!status) {
+      return Result<AsterExtent2D>(status);
+    }
+    return Result<AsterExtent2D>(std::move(size));
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_window_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterWindowHandle handle_ = nullptr;
+};
+
+class Scene {
+public:
+  Scene() = default;
+  explicit Scene(AsterSceneHandle handle) noexcept : handle_(handle) {}
+
+  Scene(Scene &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  Scene &operator=(Scene &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  Scene(const Scene &) = delete;
+  Scene &operator=(const Scene &) = delete;
+
+  ~Scene() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<Scene> create(const Engine &engine) noexcept {
+    AsterSceneHandle handle = nullptr;
+    const Status status(aster_kernel_scene_create(engine.get(), &handle));
+    if (!status) {
+      return Result<Scene>(status);
+    }
+    return Result<Scene>(Scene(handle));
+  }
+
+  [[nodiscard]] Status clear() noexcept {
+    return Status(aster_kernel_scene_clear(handle_));
+  }
+
+  [[nodiscard]] Status addObject(const AsterSceneObjectDesc &desc) noexcept {
+    return Status(aster_kernel_scene_add_object(handle_, &desc));
+  }
+
+  [[nodiscard]] bool valid() const noexcept {
+    return handle_ != nullptr;
+  }
+
+  [[nodiscard]] AsterSceneHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_scene_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterSceneHandle handle_ = nullptr;
+};
+
+class Mesh {
+public:
+  Mesh() = default;
+  explicit Mesh(AsterMeshHandle handle) noexcept : handle_(handle) {}
+
+  Mesh(Mesh &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  Mesh &operator=(Mesh &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  Mesh(const Mesh &) = delete;
+  Mesh &operator=(const Mesh &) = delete;
+
+  ~Mesh() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<Mesh> create(const Engine &engine,
+                                           const AsterMeshDesc &desc) noexcept {
+    AsterMeshHandle handle = nullptr;
+    const Status status(aster_kernel_mesh_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<Mesh>(status);
+    }
+    return Result<Mesh>(Mesh(handle));
+  }
+
+  [[nodiscard]] AsterMeshHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_mesh_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterMeshHandle handle_ = nullptr;
+};
+
+class Material {
+public:
+  Material() = default;
+  explicit Material(AsterMaterialHandle handle) noexcept : handle_(handle) {}
+
+  Material(Material &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  Material &operator=(Material &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  Material(const Material &) = delete;
+  Material &operator=(const Material &) = delete;
+
+  ~Material() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<Material> create(const Engine &engine,
+                                               const AsterMaterialDesc &desc) noexcept {
+    AsterMaterialHandle handle = nullptr;
+    const Status status(aster_kernel_material_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<Material>(status);
+    }
+    return Result<Material>(Material(handle));
+  }
+
+  [[nodiscard]] AsterMaterialHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_material_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterMaterialHandle handle_ = nullptr;
+};
+
+class ShaderArtifact {
+public:
+  ShaderArtifact() = default;
+  explicit ShaderArtifact(AsterShaderArtifactHandle handle) noexcept : handle_(handle) {}
+
+  ShaderArtifact(ShaderArtifact &&other) noexcept
+      : handle_(std::exchange(other.handle_, nullptr)) {}
+  ShaderArtifact &operator=(ShaderArtifact &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  ShaderArtifact(const ShaderArtifact &) = delete;
+  ShaderArtifact &operator=(const ShaderArtifact &) = delete;
+
+  ~ShaderArtifact() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<ShaderArtifact>
+  compile(const Engine &engine, const AsterShaderCompileDesc &desc) noexcept {
+    AsterShaderArtifactHandle handle = nullptr;
+    const Status status(aster_kernel_shader_compile(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<ShaderArtifact>(status);
+    }
+    return Result<ShaderArtifact>(ShaderArtifact(handle));
+  }
+
+  [[nodiscard]] Result<AsterShaderCompileResult> result() const noexcept {
+    AsterShaderCompileResult value{sizeof(AsterShaderCompileResult),
+                                   ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_shader_get_result(handle_, &value));
+    if (!status) {
+      return Result<AsterShaderCompileResult>(status);
+    }
+    return Result<AsterShaderCompileResult>(std::move(value));
+  }
+
+  [[nodiscard]] Result<AsterStringView> source() const noexcept {
+    AsterStringView view{};
+    const Status status(aster_kernel_shader_get_source(handle_, &view));
+    if (!status) {
+      return Result<AsterStringView>(status);
+    }
+    return Result<AsterStringView>(std::move(view));
+  }
+
+  [[nodiscard]] Result<AsterShaderReflectionBinding> reflection(const size_t index) const noexcept {
+    AsterShaderReflectionBinding binding{sizeof(AsterShaderReflectionBinding),
+                                         ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_shader_get_reflection(handle_, index, &binding));
+    if (!status) {
+      return Result<AsterShaderReflectionBinding>(status);
+    }
+    return Result<AsterShaderReflectionBinding>(std::move(binding));
+  }
+
+  [[nodiscard]] AsterShaderArtifactHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_shader_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterShaderArtifactHandle handle_ = nullptr;
+};
+
+class RenderPipeline {
+public:
+  RenderPipeline() = default;
+  explicit RenderPipeline(AsterRenderPipelineHandle handle) noexcept : handle_(handle) {}
+
+  RenderPipeline(RenderPipeline &&other) noexcept
+      : handle_(std::exchange(other.handle_, nullptr)) {}
+  RenderPipeline &operator=(RenderPipeline &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  RenderPipeline(const RenderPipeline &) = delete;
+  RenderPipeline &operator=(const RenderPipeline &) = delete;
+
+  ~RenderPipeline() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<RenderPipeline>
+  create(const Engine &engine, const AsterRenderPipelineDesc &desc) noexcept {
+    AsterRenderPipelineHandle handle = nullptr;
+    const Status status(aster_kernel_render_pipeline_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<RenderPipeline>(status);
+    }
+    return Result<RenderPipeline>(RenderPipeline(handle));
+  }
+
+  [[nodiscard]] AsterRenderPipelineHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_render_pipeline_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterRenderPipelineHandle handle_ = nullptr;
+};
+
+class Renderer {
+public:
+  Renderer() = default;
+  explicit Renderer(AsterRendererHandle handle) noexcept : handle_(handle) {}
+
+  Renderer(Renderer &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  Renderer &operator=(Renderer &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  Renderer(const Renderer &) = delete;
+  Renderer &operator=(const Renderer &) = delete;
+
+  ~Renderer() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<Renderer> create(const Engine &engine,
+                                               const AsterRendererDesc &desc) noexcept {
+    AsterRendererHandle handle = nullptr;
+    const Status status(aster_kernel_renderer_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<Renderer>(status);
+    }
+    return Result<Renderer>(Renderer(handle));
+  }
+
+  [[nodiscard]] Result<AsterBackendCapabilities> capabilities() const noexcept {
+    AsterBackendCapabilities value{sizeof(AsterBackendCapabilities),
+                                   ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_get_capabilities(handle_, &value));
+    if (!status) {
+      return Result<AsterBackendCapabilities>(status);
+    }
+    return Result<AsterBackendCapabilities>(std::move(value));
+  }
+
+  [[nodiscard]] Status renderFrame(const Scene &scene, const AsterCameraDesc &camera,
+                                   const AsterRendererSettings &settings) noexcept {
+    return Status(aster_kernel_renderer_render_frame(handle_, scene.get(), &camera, &settings));
+  }
+
+  [[nodiscard]] Status present(Window &window) noexcept {
+    return Status(aster_kernel_renderer_present(handle_, window.get()));
+  }
+
+  [[nodiscard]] Status capture(const AsterCaptureDesc &desc) noexcept {
+    return Status(aster_kernel_renderer_capture(handle_, &desc));
+  }
+
+  [[nodiscard]] Result<AsterFrameStats> lastStats() const noexcept {
+    AsterFrameStats stats{sizeof(AsterFrameStats), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_last_stats(handle_, &stats));
+    if (!status) {
+      return Result<AsterFrameStats>(status);
+    }
+    return Result<AsterFrameStats>(std::move(stats));
+  }
+
+  [[nodiscard]] AsterRendererHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_renderer_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterRendererHandle handle_ = nullptr;
+};
+
 [[nodiscard]] inline AsterStringView stringView(const char *text, const size_t size) noexcept {
   return {text, size};
+}
+
+[[nodiscard]] inline AsterStringView stringView(const char *text) noexcept {
+  return {text, text == nullptr ? 0u : std::strlen(text)};
 }
 
 [[nodiscard]] inline AsterAbiVersion abiVersion() noexcept {
