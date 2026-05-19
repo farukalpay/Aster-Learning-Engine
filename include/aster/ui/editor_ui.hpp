@@ -50,6 +50,9 @@ private:
   std::size_t selected_asset_tab_ = 0u;
   std::size_t selected_texture_ = 0u;
   std::size_t selected_object_fate_ = 0u;
+  std::size_t selected_timeline_event_ = 0u;
+  std::size_t selected_resource_provenance_ = 0u;
+  std::size_t selected_regression_entry_ = 0u;
   bool initialized_ = false;
 };
 

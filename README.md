@@ -29,10 +29,12 @@ Start here: [docs/START_HERE.md](docs/START_HERE.md)
   validation events, feature proofs, and timestamp samples when the backend can
   prove them.
 
-## 30-Second Gallery
+## 30-Second Regression Lab
 
 The checked-in captures are generated from the current build and are organized
-around engine capability, not sample-game marketing.
+around engine capability, not sample-game marketing. Every visual is expected to
+be explainable from image diff status, backend proof deltas, pass timings, asset
+hashes, shader variant keys, and the frame-forensics timeline.
 
 ![Material Lab](assets/screenshots/material_lab.png)
 
@@ -244,7 +246,11 @@ changes:
 ./build/aster_lumen_run --frame-report --run-frames 240 --lag-budget-ms 16.7 --window-width 1280 --window-height 720 --msaa 0
 ```
 
-## Refresh Screenshots
+## Refresh Regression Captures
+
+Generate fresh captures after renderer, material, or sample-scene changes, then
+compare them against the software golden baselines before treating them as
+gallery material.
 
 ```bash
 mkdir -p assets/screenshots /tmp/aster_learning_shots

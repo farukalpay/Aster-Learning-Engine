@@ -741,6 +741,166 @@ void testFrameDebuggerProceduralAssetGraphTrace() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
 
+void testFrameDebuggerEvidenceTimelineAndRegressionLab() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+  const std::filesystem::path dir =
+      std::filesystem::temp_directory_path() / "aster_frame_debug_evidence_products";
+  std::filesystem::create_directories(dir);
+  writeRenderTraceKtx2Header(dir / "proof_albedo.ktx2", 16u, 16u, 4u);
+
+  aster::MaterialAsset asset;
+  asset.id = "ProofMaterial";
+  asset.name = "Proof Material";
+  asset.source_path = dir / "proof.astermat";
+  asset.textures["albedo"] = {.role = "albedo", .uri = "proof_albedo.ktx2", .srgb = true};
+  asset.textures["normal"] = {.role = "normal", .uri = "missing_normal.ktx2", .srgb = false};
+  asset.explicit_features["normal_map"] = true;
+
+  auto library = std::make_shared<aster::MaterialResourceLibrary>();
+  assert(library->addMaterialAsset(asset, dir, {.require_existing_files = false}));
+
+  aster::Material material = aster::makeMaterial({.base_color = {0.52f, 0.38f, 0.22f},
+                                                  .roughness = 0.74f,
+                                                  .surface_profile =
+                                                      aster::MaterialSurfaceProfile::StratifiedRock,
+                                                  .procedural_graph_guid = "proof-graph-guid",
+                                                  .procedural_graph_node = "proof.mat",
+                                                  .procedural_capability_status =
+                                                      "runtime-procedural-reference"});
+  material.asset_id = asset.id;
+  material.shader_variant_key = 7777u;
+
+  aster::RenderObject object;
+  object.name = "evidence proof probe";
+  object.primitive = aster::MeshPrimitive::Box;
+  object.transform.position = {0.0f, 0.5f, 0.0f};
+  object.transform.scale = {0.72f, 0.72f, 0.72f};
+  object.material_asset_id = asset.id;
+  object.material = material;
+  object.asset_provenance = {.source_asset_id = "proof_asset.glb",
+                             .source_path = dir / "proof_asset.glb",
+                             .source_node = "ProofNode",
+                             .source_mesh = "ProofMesh",
+                             .material_slot = "Proof Material",
+                             .uv0_present = true,
+                             .authored_tangent_basis = true};
+
+  aster::RenderObject floor;
+  floor.name = "evidence receiver floor";
+  floor.primitive = aster::MeshPrimitive::Plane;
+  floor.transform.scale = {1.6f, 1.0f, 1.6f};
+  floor.material = aster::makeSupportSurfaceMaterial(
+      aster::makeMaterial({.base_color = {0.28f, 0.30f, 0.28f}, .roughness = 0.86f}));
+
+  aster::Scene scene;
+  scene.objects().push_back(object);
+  scene.objects().push_back(floor);
+  scene.reflectionProbes().push_back({.name = "proof local probe",
+                                      .position = {0.0f, 0.9f, 0.0f},
+                                      .influence_radius = 4.0f,
+                                      .sky_irradiance = {0.30f, 0.34f, 0.42f},
+                                      .ground_irradiance = {0.16f, 0.12f, 0.08f},
+                                      .intensity = 1.0f});
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.45f, 0.0f};
+  camera.yaw = aster::radians(35.0f);
+  camera.pitch = aster::radians(16.0f);
+  camera.radius = 4.4f;
+
+  aster::RendererSettings settings;
+  settings.sun_light.enabled = true;
+  settings.sun_light.direction_to_light = {-0.34f, 0.84f, 0.24f};
+  settings.shadows.enabled = true;
+  settings.shadows.cascaded_directional = true;
+  settings.shadows.directional_cascades = 2u;
+  settings.shadows.atlas_size = 64u;
+  settings.atmosphere.enabled = true;
+  settings.atmosphere.fog_strength = 0.40f;
+  settings.atmosphere.fog_start = 1.0f;
+  settings.atmosphere.fog_end = 8.0f;
+  settings.reflections.enabled = true;
+  settings.reflections.static_local_probes = true;
+  settings.reflections.probe_resolution = 16u;
+  settings.clustered_lighting.enabled = true;
+  settings.clustered_lighting.cluster_count_x = 4u;
+  settings.clustered_lighting.cluster_count_y = 3u;
+  settings.clustered_lighting.cluster_count_z = 4u;
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.setMaterialResourceLibrary(library);
+  renderer.prepareScene(scene);
+  (void)renderer.render(scene, camera, settings, 80, 56, 0.0);
+
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  const auto has_timeline_kind = [&forensics](const aster::FrameDebuggerTimelineEventKind kind) {
+    return std::any_of(forensics.debug_timeline.begin(), forensics.debug_timeline.end(),
+                       [kind](const aster::FrameDebuggerTimelineEvent &event) {
+                         return event.kind == kind && event.evidence_hash != 0u;
+                       });
+  };
+  assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Visibility));
+  assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::MaterialBinding));
+  assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::LightCluster));
+  assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Shadow));
+  assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Fog));
+  assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Probe));
+  assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::PassOutput));
+  assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Overdraw));
+  assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Fallback));
+  assert(std::any_of(forensics.debug_timeline.begin(), forensics.debug_timeline.end(),
+                     [](const aster::FrameDebuggerTimelineEvent &event) {
+                       return event.kind == aster::FrameDebuggerTimelineEventKind::Fallback &&
+                              event.object_name == "evidence proof probe" &&
+                              event.fallback_reason.find("normal") != std::string::npos;
+                     }));
+
+  assert(std::any_of(forensics.resource_provenance.begin(),
+                     forensics.resource_provenance.end(),
+                     [](const aster::FrameResourceProvenance &provenance) {
+                       return provenance.kind ==
+                                  aster::FrameResourceProvenanceKind::GraphResource &&
+                              provenance.resource ==
+                                  aster::RenderGraphResource::ShadowAtlas &&
+                              !provenance.producer_node.empty() &&
+                              provenance.provenance_hash != 0u;
+                     }));
+  assert(std::any_of(forensics.resource_provenance.begin(),
+                     forensics.resource_provenance.end(),
+                     [](const aster::FrameResourceProvenance &provenance) {
+                       return provenance.kind ==
+                                  aster::FrameResourceProvenanceKind::MaterialTexture &&
+                              provenance.texture_role == "normal" &&
+                              provenance.material_graph_guid == "proof-graph-guid" &&
+                              provenance.material_graph_node == "proof.mat" &&
+                              !provenance.cook_report.empty() &&
+                              !provenance.asset_hash.empty() &&
+                              provenance.shader_variant_key == "7777" &&
+                              provenance.backend_fallback.find("missing_normal.ktx2") !=
+                                  std::string::npos;
+                     }));
+
+  assert(!forensics.regression_gallery.empty());
+  assert(std::any_of(forensics.regression_gallery.begin(), forensics.regression_gallery.end(),
+                     [](const aster::FrameRegressionGalleryEntry &entry) {
+                       return entry.available && entry.image_hash != 0u &&
+                              !entry.image_diff_status.empty() &&
+                              !entry.backend_difference.empty() &&
+                              !entry.asset_hash.empty() &&
+                              entry.shader_variant_key == "7777";
+                     }));
+  assert(std::any_of(forensics.regression_gallery.begin(), forensics.regression_gallery.end(),
+                     [](const aster::FrameRegressionGalleryEntry &entry) {
+                       return entry.pass_encode_seconds >= 0.0 &&
+                              entry.pass != aster::RenderGraphPass::SceneColorDepth;
+                     }));
+
+  std::filesystem::remove_all(dir);
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
 void testSoftwareReferenceFrameResourceCaptures() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
   setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
@@ -2010,6 +2170,8 @@ constexpr TestCase kTestCases[] = {
     {"frame_debugger_asset_provenance_trace", testFrameDebuggerAssetProvenanceTrace},
     {"frame_debugger_procedural_asset_graph_trace",
      testFrameDebuggerProceduralAssetGraphTrace},
+    {"frame_debugger_evidence_timeline_and_regression_lab",
+     testFrameDebuggerEvidenceTimelineAndRegressionLab},
     {"software_reference_frame_resource_captures", testSoftwareReferenceFrameResourceCaptures},
     {"retro_style_neutral_preview", testRetroStyleNeutralSoftwarePreviewMatchesDefault},
     {"retro_style_preview_effects", testRetroStyleSoftwarePreviewEffects},

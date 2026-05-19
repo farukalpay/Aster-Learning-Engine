@@ -126,10 +126,14 @@ void drawBackendSummary(aster::UiCanvas &canvas, const aster::EditorRuntimeModel
           visible_bottom);
 }
 
+std::string clippedValue(const std::string &value, std::size_t max_size = 44u);
+
 void drawGraphSummary(aster::UiCanvas &canvas, std::size_t &selected_pass,
-                      const aster::FixedRenderGraph *graph, const float x, float &y,
+                      std::size_t &selected_provenance,
+                      const aster::FixedRenderGraph *graph,
+                      const aster::FrameForensics *forensics, const float x, float &y,
                       const float width, const float visible_top, const float visible_bottom) {
-  section(canvas, "Render Graph", x, y, width);
+  section(canvas, "Resource Graph", x, y, width);
   if (graph == nullptr || graph->passes.empty()) {
     textRow(canvas, "Passes", "0", x, y, width, visible_top, visible_bottom);
     return;
@@ -161,9 +165,47 @@ void drawGraphSummary(aster::UiCanvas &canvas, std::size_t &selected_pass,
   textRow(canvas, "Reads", buffer, x, y, width, visible_top, visible_bottom);
   std::snprintf(buffer, sizeof(buffer), "0x%08x", pass.write_mask);
   textRow(canvas, "Writes", buffer, x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Resources", std::to_string(graph->resources.size()), x, y, width, visible_top,
+          visible_bottom);
+  const std::size_t provenance_count =
+      forensics == nullptr ? 0u : forensics->resource_provenance.size();
+  textRow(canvas, "Provenance", std::to_string(provenance_count), x, y, width, visible_top,
+          visible_bottom);
+  if (forensics == nullptr || forensics->resource_provenance.empty()) {
+    return;
+  }
+  selected_provenance = std::min(selected_provenance, forensics->resource_provenance.size() - 1u);
+  if (y >= visible_top && y + 34.0f <= visible_bottom) {
+    if (canvas.button({x, y, button_width, 30.0f}, "Prev", "provenance.prev") &&
+        selected_provenance > 0u) {
+      --selected_provenance;
+    }
+    if (canvas.button({x + width - button_width, y, button_width, 30.0f}, "Next",
+                      "provenance.next") &&
+        selected_provenance + 1u < forensics->resource_provenance.size()) {
+      ++selected_provenance;
+    }
+  }
+  y += 38.0f;
+  const aster::FrameResourceProvenance &provenance =
+      forensics->resource_provenance[selected_provenance];
+  textRow(canvas, "Kind", aster::frameResourceProvenanceKindName(provenance.kind), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Resource", clippedValue(provenance.resource_name), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Producer", clippedValue(provenance.producer_node), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Material", clippedValue(provenance.material_asset_id), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Graph node", clippedValue(provenance.material_graph_node), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Cook", clippedValue(provenance.cook_report), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Fallback", clippedValue(provenance.backend_fallback), x, y, width,
+          visible_top, visible_bottom);
 }
 
-std::string clippedValue(const std::string &value, const std::size_t max_size = 44u) {
+std::string clippedValue(const std::string &value, const std::size_t max_size) {
   if (value.size() <= max_size) {
     return value;
   }
@@ -647,6 +689,90 @@ void drawObjectFatePanel(aster::UiCanvas &canvas, std::size_t &selected_object,
           visible_bottom);
 }
 
+void drawDebuggerTimelinePanel(aster::UiCanvas &canvas, std::size_t &selected_event,
+                               const aster::FrameForensics *forensics, const float x, float &y,
+                               const float width, const float visible_top,
+                               const float visible_bottom) {
+  section(canvas, "Proof Timeline", x, y, width);
+  if (forensics == nullptr || forensics->debug_timeline.empty()) {
+    textRow(canvas, "Events", "0", x, y, width, visible_top, visible_bottom);
+    return;
+  }
+  selected_event = std::min(selected_event, forensics->debug_timeline.size() - 1u);
+  textRow(canvas, "Events", std::to_string(forensics->debug_timeline.size()), x, y, width,
+          visible_top, visible_bottom);
+  const float button_width = std::max((width - 8.0f) * 0.5f, 72.0f);
+  if (y >= visible_top && y + 34.0f <= visible_bottom) {
+    if (canvas.button({x, y, button_width, 30.0f}, "Prev", "timeline.prev") &&
+        selected_event > 0u) {
+      --selected_event;
+    }
+    if (canvas.button({x + width - button_width, y, button_width, 30.0f}, "Next",
+                      "timeline.next") &&
+        selected_event + 1u < forensics->debug_timeline.size()) {
+      ++selected_event;
+    }
+  }
+  y += 38.0f;
+  const aster::FrameDebuggerTimelineEvent &event =
+      forensics->debug_timeline[selected_event];
+  textRow(canvas, "Kind", aster::frameDebuggerTimelineEventKindName(event.kind), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Object", clippedValue(event.object_name), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Label", clippedValue(event.label), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Evidence", clippedValue(event.evidence), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Fallback", clippedValue(event.fallback_reason), x, y, width, visible_top,
+          visible_bottom);
+}
+
+void drawRegressionGalleryPanel(aster::UiCanvas &canvas, std::size_t &selected_entry,
+                                const aster::FrameForensics *forensics, const float x, float &y,
+                                const float width, const float visible_top,
+                                const float visible_bottom) {
+  section(canvas, "Regression Lab", x, y, width);
+  if (forensics == nullptr || forensics->regression_gallery.empty()) {
+    textRow(canvas, "Images", "0", x, y, width, visible_top, visible_bottom);
+    return;
+  }
+  selected_entry = std::min(selected_entry, forensics->regression_gallery.size() - 1u);
+  textRow(canvas, "Images", std::to_string(forensics->regression_gallery.size()), x, y, width,
+          visible_top, visible_bottom);
+  const float button_width = std::max((width - 8.0f) * 0.5f, 72.0f);
+  if (y >= visible_top && y + 34.0f <= visible_bottom) {
+    if (canvas.button({x, y, button_width, 30.0f}, "Prev", "gallery.prev") &&
+        selected_entry > 0u) {
+      --selected_entry;
+    }
+    if (canvas.button({x + width - button_width, y, button_width, 30.0f}, "Next",
+                      "gallery.next") &&
+        selected_entry + 1u < forensics->regression_gallery.size()) {
+      ++selected_entry;
+    }
+  }
+  y += 38.0f;
+  const aster::FrameRegressionGalleryEntry &entry =
+      forensics->regression_gallery[selected_entry];
+  textRow(canvas, "Capture", clippedValue(entry.label), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Available", yesNo(entry.available), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Image hash", hexU64(entry.image_hash), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Diff", clippedValue(entry.image_diff_status), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Backend", clippedValue(entry.backend_difference), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Pass ms", std::to_string(entry.pass_encode_seconds * 1000.0), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Asset hash", clippedValue(entry.asset_hash), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Shader key", clippedValue(entry.shader_variant_key), x, y, width,
+          visible_top, visible_bottom);
+}
+
 void drawFramePanel(aster::UiCanvas &canvas, const aster::UiRect panel,
                     const aster::FrameStats &stats) {
   drawPanelTexture(canvas, panel);
@@ -800,7 +926,8 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
   y += 8.0f;
   drawBackendSummary(canvas_, runtime, x, y, width, visible_top, panel_bottom);
   y += 8.0f;
-  drawGraphSummary(canvas_, selected_graph_pass_, runtime.render_graph, x, y, width, visible_top,
+  drawGraphSummary(canvas_, selected_graph_pass_, selected_resource_provenance_,
+                   runtime.render_graph, runtime.frame_forensics, x, y, width, visible_top,
                    panel_bottom);
   y += 8.0f;
   drawSceneSummary(canvas_, scene, x, y, width, visible_top, panel_bottom);
@@ -810,6 +937,12 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
   y += 8.0f;
   drawObjectFatePanel(canvas_, selected_object_fate_, runtime.frame_forensics, x, y, width,
                       visible_top, panel_bottom);
+  y += 8.0f;
+  drawDebuggerTimelinePanel(canvas_, selected_timeline_event_, runtime.frame_forensics, x, y,
+                            width, visible_top, panel_bottom);
+  y += 8.0f;
+  drawRegressionGalleryPanel(canvas_, selected_regression_entry_, runtime.frame_forensics, x, y,
+                             width, visible_top, panel_bottom);
   const float content_height = y + kPanelPad + renderer_panel_scroll_ - panel.y;
   const float max_scroll = std::max(0.0f, content_height - panel.height);
   renderer_panel_scroll_ = std::clamp(renderer_panel_scroll_, 0.0f, max_scroll);

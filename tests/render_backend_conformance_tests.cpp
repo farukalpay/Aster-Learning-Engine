@@ -948,6 +948,20 @@ void writeCertificationArtifact(const std::filesystem::path &root, const std::st
     json << (i + 1u == result.forensics.captures.size() ? "\n" : ",\n");
   }
   json << "  ],\n"
+       << "  \"regression_gallery\": [\n";
+  for (std::size_t i = 0u; i < result.forensics.regression_gallery.size(); ++i) {
+    const aster::FrameRegressionGalleryEntry &entry = result.forensics.regression_gallery[i];
+    json << "    {\"label\": " << jsonString(entry.label)
+         << ", \"available\": " << (entry.available ? "true" : "false")
+         << ", \"image_hash\": " << entry.image_hash
+         << ", \"image_diff_status\": " << jsonString(entry.image_diff_status)
+         << ", \"backend_difference\": " << jsonString(entry.backend_difference)
+         << ", \"pass_ms\": " << entry.pass_encode_seconds * 1000.0
+         << ", \"asset_hash\": " << jsonString(entry.asset_hash)
+         << ", \"shader_variant_key\": " << jsonString(entry.shader_variant_key) << "}";
+    json << (i + 1u == result.forensics.regression_gallery.size() ? "\n" : ",\n");
+  }
+  json << "  ],\n"
        << "  \"proofs\": [\n";
   for (std::size_t i = 0u; i < result.forensics.backend_feature_proofs.size(); ++i) {
     const aster::BackendFeatureProof &proof = result.forensics.backend_feature_proofs[i];

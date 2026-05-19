@@ -1876,6 +1876,41 @@ std::string_view backendFeatureProofStatusName(const BackendFeatureProofStatus s
   return "missing-proof";
 }
 
+std::string_view frameDebuggerTimelineEventKindName(
+    const FrameDebuggerTimelineEventKind kind) {
+  switch (kind) {
+  case FrameDebuggerTimelineEventKind::Visibility:
+    return "visibility";
+  case FrameDebuggerTimelineEventKind::MaterialBinding:
+    return "material-binding";
+  case FrameDebuggerTimelineEventKind::LightCluster:
+    return "light-cluster";
+  case FrameDebuggerTimelineEventKind::Shadow:
+    return "shadow";
+  case FrameDebuggerTimelineEventKind::Fog:
+    return "fog";
+  case FrameDebuggerTimelineEventKind::Probe:
+    return "probe";
+  case FrameDebuggerTimelineEventKind::PassOutput:
+    return "pass-output";
+  case FrameDebuggerTimelineEventKind::Overdraw:
+    return "overdraw";
+  case FrameDebuggerTimelineEventKind::Fallback:
+    return "fallback";
+  }
+  return "visibility";
+}
+
+std::string_view frameResourceProvenanceKindName(const FrameResourceProvenanceKind kind) {
+  switch (kind) {
+  case FrameResourceProvenanceKind::GraphResource:
+    return "graph-resource";
+  case FrameResourceProvenanceKind::MaterialTexture:
+    return "material-texture";
+  }
+  return "graph-resource";
+}
+
 std::string_view renderStylePresetName(const RenderStylePreset preset) {
   switch (preset) {
   case RenderStylePreset::Neutral:
@@ -3578,6 +3613,390 @@ void finalizeObjectRenderFates(aster::FrameForensics &forensics) {
   }
 }
 
+bool containsString(const std::vector<std::string> &values, const std::string_view needle) {
+  return std::any_of(values.begin(), values.end(), [needle](const std::string &value) {
+    return value == needle;
+  });
+}
+
+const aster::FramePassStats *passStatsFor(const aster::FrameForensics &forensics,
+                                          const aster::RenderGraphPass pass) {
+  const auto found = std::find_if(forensics.passes.begin(), forensics.passes.end(),
+                                  [pass](const aster::FramePassStats &stats) {
+                                    return stats.pass == pass;
+                                  });
+  return found == forensics.passes.end() ? nullptr : &*found;
+}
+
+aster::RenderGraphResource firstOutputResourceForPass(const aster::RenderGraphPass pass) {
+  const aster::RenderGraphPassDeclaration *declaration = aster::defaultRenderPassDeclaration(pass);
+  if (declaration != nullptr && !declaration->outputs.empty()) {
+    return declaration->outputs.front().resource;
+  }
+  return aster::RenderGraphResource::SceneColor;
+}
+
+std::string firstFallbackReasonForObject(const aster::FrameForensics &forensics,
+                                         const aster::ObjectRenderFateTrace &fate) {
+  for (const aster::MaterialBindingTrace &binding : forensics.material_bindings) {
+    if (binding.object_name != fate.object_name) {
+      continue;
+    }
+    if (!binding.fallback_reason.empty()) {
+      return binding.role + ":" + binding.fallback_reason;
+    }
+    if (!binding.backend_degradation.empty()) {
+      return binding.role + ":" + binding.backend_degradation;
+    }
+  }
+  if (!fate.asset_issues.empty()) {
+    return fate.asset_issues.front();
+  }
+  if (!fate.backend_degradations.empty()) {
+    return fate.backend_degradations.front();
+  }
+  return "none";
+}
+
+bool hasAvailableCaptureFor(const aster::FrameForensics &forensics,
+                            const aster::RenderGraphResource resource) {
+  return std::any_of(forensics.captures.begin(), forensics.captures.end(),
+                     [resource](const aster::FrameDebugCapture &capture) {
+                       return capture.resource == resource && capture.available;
+                     });
+}
+
+std::uint64_t timelineEventHash(const aster::FrameDebuggerTimelineEvent &event) {
+  std::uint64_t hash = 1469598103934665603ull;
+  hash = appendEvidenceValue(hash, event.sequence);
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(event.kind));
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(event.pass));
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(event.resource));
+  hash = appendEvidenceValue(hash, event.object_index);
+  hash = appendEvidenceText(hash, event.object_name);
+  hash = appendEvidenceText(hash, event.label);
+  hash = appendEvidenceText(hash, event.evidence);
+  return appendEvidenceText(hash, event.fallback_reason);
+}
+
+void appendTimelineEvent(std::vector<aster::FrameDebuggerTimelineEvent> &timeline,
+                         aster::FrameDebuggerTimelineEvent event) {
+  event.sequence = timeline.size();
+  event.evidence_hash = timelineEventHash(event);
+  timeline.push_back(std::move(event));
+}
+
+void rebuildFrameDebuggerTimeline(aster::FrameForensics &forensics) {
+  forensics.debug_timeline.clear();
+  forensics.debug_timeline.reserve(forensics.passes.size() + forensics.object_fates.size() * 6u +
+                                   forensics.material_bindings.size() +
+                                   forensics.object_clusters.size());
+
+  for (const aster::FramePassStats &pass : forensics.passes) {
+    appendTimelineEvent(forensics.debug_timeline,
+                        {.kind = aster::FrameDebuggerTimelineEventKind::PassOutput,
+                         .pass = pass.pass,
+                         .resource = firstOutputResourceForPass(pass.pass),
+                         .label = pass.name,
+                         .evidence = "draws=" + std::to_string(pass.draw_calls) +
+                                     " encode_ms=" +
+                                     std::to_string(pass.encode_seconds * 1000.0)});
+  }
+
+  for (const aster::MeshVisibilityTrace &visibility : forensics.mesh_visibility) {
+    appendTimelineEvent(forensics.debug_timeline,
+                        {.kind = aster::FrameDebuggerTimelineEventKind::Visibility,
+                         .pass = visibility.pass,
+                         .resource = aster::RenderGraphResource::SceneColor,
+                         .object_name = visibility.object_name,
+                         .object_index = visibility.object_index,
+                         .label = visibility.visible ? "visible" : "culled",
+                         .evidence = visibility.reason});
+  }
+
+  for (const aster::MaterialBindingTrace &binding : forensics.material_bindings) {
+    const std::string fallback =
+        !binding.fallback_reason.empty()
+            ? binding.fallback_reason
+            : (!binding.backend_degradation.empty() ? binding.backend_degradation : "none");
+    appendTimelineEvent(forensics.debug_timeline,
+                        {.kind = aster::FrameDebuggerTimelineEventKind::MaterialBinding,
+                         .pass = aster::RenderGraphPass::Opaque,
+                         .resource = aster::RenderGraphResource::SceneColor,
+                         .object_name = binding.object_name,
+                         .label = binding.role,
+                         .evidence = (binding.bound ? "bound" : "unbound") +
+                                     std::string(binding.fallback ? ":fallback" : ":authored"),
+                         .fallback_reason = fallback});
+  }
+
+  for (const aster::ObjectClusterMembershipTrace &cluster : forensics.object_clusters) {
+    appendTimelineEvent(forensics.debug_timeline,
+                        {.kind = aster::FrameDebuggerTimelineEventKind::LightCluster,
+                         .pass = aster::RenderGraphPass::LightCull,
+                         .resource = aster::RenderGraphResource::LightClusters,
+                         .object_name = cluster.object_name,
+                         .object_index = cluster.object_index,
+                         .label = "cluster:" + std::to_string(cluster.cluster_index),
+                         .evidence = cluster.visible ? "visible-object" : "not-visible"});
+  }
+
+  for (const aster::ObjectRenderFateTrace &fate : forensics.object_fates) {
+    const bool shadow = containsString(fate.pass_list, "shadow-atlas");
+    appendTimelineEvent(forensics.debug_timeline,
+                        {.kind = aster::FrameDebuggerTimelineEventKind::Shadow,
+                         .pass = aster::RenderGraphPass::ShadowAtlas,
+                         .resource = aster::RenderGraphResource::ShadowAtlas,
+                         .object_name = fate.object_name,
+                         .object_index = fate.object_index,
+                         .label = shadow ? "shadow-linked" : "shadow-not-linked",
+                         .evidence = hasAvailableCaptureFor(
+                                         forensics, aster::RenderGraphResource::ShadowAtlas)
+                                         ? "shadow-capture-available"
+                                         : "shadow-capture-missing"});
+
+    appendTimelineEvent(forensics.debug_timeline,
+                        {.kind = aster::FrameDebuggerTimelineEventKind::Fog,
+                         .pass = aster::RenderGraphPass::VolumetricFog,
+                         .resource = aster::RenderGraphResource::VolumetricFog,
+                         .object_name = fate.object_name,
+                         .object_index = fate.object_index,
+                         .label = "fog-resource",
+                         .evidence = hasAvailableCaptureFor(
+                                         forensics, aster::RenderGraphResource::VolumetricFog)
+                                         ? "fog-capture-available"
+                                         : "fog-capture-missing"});
+
+    appendTimelineEvent(forensics.debug_timeline,
+                        {.kind = aster::FrameDebuggerTimelineEventKind::Probe,
+                         .pass = aster::RenderGraphPass::ReflectionProbe,
+                         .resource = aster::RenderGraphResource::ReflectionProbes,
+                         .object_name = fate.object_name,
+                         .object_index = fate.object_index,
+                         .label = "reflection-probe-resource",
+                         .evidence = hasAvailableCaptureFor(
+                                         forensics, aster::RenderGraphResource::ReflectionProbes)
+                                         ? "probe-capture-available"
+                                         : "probe-capture-missing"});
+
+    appendTimelineEvent(forensics.debug_timeline,
+                        {.kind = aster::FrameDebuggerTimelineEventKind::Overdraw,
+                         .pass = fate.visible ? aster::RenderGraphPass::Opaque
+                                              : aster::RenderGraphPass::SceneColorDepth,
+                         .resource = aster::RenderGraphResource::SceneColor,
+                         .object_name = fate.object_name,
+                         .object_index = fate.object_index,
+                         .label = "estimated-overdraw",
+                         .evidence = "layers=" +
+                                     std::to_string(std::max<std::size_t>(
+                                         fate.visible ? fate.pass_list.size() : 0u, 1u))});
+
+    appendTimelineEvent(forensics.debug_timeline,
+                        {.kind = aster::FrameDebuggerTimelineEventKind::Fallback,
+                         .pass = fate.visible ? aster::RenderGraphPass::Opaque
+                                              : aster::RenderGraphPass::SceneColorDepth,
+                         .resource = aster::RenderGraphResource::SceneColor,
+                         .object_name = fate.object_name,
+                         .object_index = fate.object_index,
+                         .label = "fallback-reason",
+                         .evidence = fate.final_contribution,
+                         .fallback_reason = firstFallbackReasonForObject(forensics, fate)});
+  }
+}
+
+std::uint64_t resourceProvenanceHash(const aster::FrameResourceProvenance &provenance) {
+  std::uint64_t hash = 1469598103934665603ull;
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(provenance.kind));
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(provenance.resource));
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(provenance.producer_pass));
+  hash = appendEvidenceText(hash, provenance.resource_name);
+  hash = appendEvidenceText(hash, provenance.producer_node);
+  hash = appendEvidenceText(hash, provenance.material_asset_id);
+  hash = appendEvidenceText(hash, provenance.material_graph_guid);
+  hash = appendEvidenceText(hash, provenance.material_graph_node);
+  hash = appendEvidenceText(hash, provenance.cook_report);
+  hash = appendEvidenceText(hash, provenance.texture_role);
+  hash = appendEvidenceText(hash, provenance.source_path);
+  hash = appendEvidenceText(hash, provenance.asset_hash);
+  hash = appendEvidenceText(hash, provenance.shader_variant_key);
+  hash = appendEvidenceText(hash, provenance.backend_fallback);
+  for (const std::string &upstream : provenance.upstream) {
+    hash = appendEvidenceText(hash, upstream);
+  }
+  return hash;
+}
+
+std::string proofStatusForResource(const aster::FrameForensics &forensics,
+                                   const aster::RenderGraphResource resource) {
+  for (const aster::BackendFeatureProof &proof : forensics.backend_feature_proofs) {
+    if (proof.kind == aster::BackendFeatureProofKind::GraphResource &&
+        proof.resource == resource) {
+      return std::string(aster::backendFeatureProofStatusName(proof.status)) + ":" +
+             proof.message;
+    }
+  }
+  return {};
+}
+
+const aster::AssetFrameTrace *assetTraceForObject(const aster::FrameForensics &forensics,
+                                                  const std::string_view object_name) {
+  const auto found = std::find_if(forensics.asset_traces.begin(), forensics.asset_traces.end(),
+                                  [object_name](const aster::AssetFrameTrace &trace) {
+                                    return trace.object_name == object_name;
+                                  });
+  return found == forensics.asset_traces.end() ? nullptr : &*found;
+}
+
+const aster::ObjectRenderFateTrace *fateForObject(const aster::FrameForensics &forensics,
+                                                  const std::string_view object_name) {
+  const auto found = std::find_if(forensics.object_fates.begin(), forensics.object_fates.end(),
+                                  [object_name](const aster::ObjectRenderFateTrace &trace) {
+                                    return trace.object_name == object_name;
+                                  });
+  return found == forensics.object_fates.end() ? nullptr : &*found;
+}
+
+void rebuildResourceProvenance(const aster::FixedRenderGraph &graph,
+                               aster::FrameForensics &forensics) {
+  forensics.resource_provenance.clear();
+  forensics.resource_provenance.reserve(graph.resources.size() +
+                                        forensics.material_bindings.size());
+
+  for (const aster::framegraph::CompiledResource &resource_node : graph.resources) {
+    aster::FrameResourceProvenance provenance;
+    provenance.kind = aster::FrameResourceProvenanceKind::GraphResource;
+    provenance.resource = aster::renderGraphResourceFromName(resource_node.name);
+    provenance.resource_name = resource_node.name;
+    provenance.cook_report = "compiled-frame-graph";
+    provenance.backend_fallback = proofStatusForResource(forensics, provenance.resource);
+    for (const aster::framegraph::CompiledPass &pass : graph.passes) {
+      if (std::find(pass.writes.begin(), pass.writes.end(), resource_node.handle) !=
+          pass.writes.end()) {
+        provenance.producer_pass = aster::renderGraphPassFromName(pass.name);
+        provenance.producer_node = pass.name;
+        for (const aster::framegraph::ResourceHandle input : pass.reads) {
+          if (const aster::framegraph::CompiledResource *upstream =
+                  compiledResourceFor(graph, input)) {
+            appendUnique(provenance.upstream, upstream->name);
+          }
+        }
+        break;
+      }
+    }
+    provenance.asset_hash = std::to_string(resource_node.physical_allocation_id);
+    provenance.provenance_hash = resourceProvenanceHash(provenance);
+    forensics.resource_provenance.push_back(std::move(provenance));
+  }
+
+  for (const aster::MaterialBindingTrace &binding : forensics.material_bindings) {
+    const aster::AssetFrameTrace *asset_trace = assetTraceForObject(forensics, binding.object_name);
+    const aster::ObjectRenderFateTrace *fate = fateForObject(forensics, binding.object_name);
+    aster::FrameResourceProvenance provenance;
+    provenance.kind = aster::FrameResourceProvenanceKind::MaterialTexture;
+    provenance.resource = aster::RenderGraphResource::SceneColor;
+    provenance.producer_pass = fate != nullptr && containsString(fate->pass_list, "transparent")
+                                   ? aster::RenderGraphPass::Transparent
+                                   : aster::RenderGraphPass::Opaque;
+    provenance.resource_name = std::string(aster::renderGraphResourceName(provenance.resource));
+    provenance.producer_node = "material-binding:" + binding.object_name + ":" + binding.role;
+    provenance.material_asset_id = binding.material_asset_id;
+    provenance.texture_role = binding.role;
+    provenance.source_path = binding.source_path;
+    provenance.backend_fallback =
+        !binding.fallback_reason.empty()
+            ? binding.fallback_reason
+            : (!binding.backend_degradation.empty() ? binding.backend_degradation : "none");
+    if (asset_trace != nullptr) {
+      provenance.material_graph_guid = asset_trace->source_graph_guid;
+      provenance.material_graph_node = asset_trace->source_graph_node;
+      provenance.cook_report =
+          asset_trace->source_path.empty() ? "runtime-frame-trace" : asset_trace->source_path;
+      provenance.asset_hash = std::to_string(asset_trace->trace_hash);
+      provenance.shader_variant_key = asset_trace->shader_variant_key;
+      if (!asset_trace->material_slot.empty()) {
+        appendUnique(provenance.upstream, "material-slot:" + asset_trace->material_slot);
+      }
+      if (!asset_trace->source_mesh.empty()) {
+        appendUnique(provenance.upstream, "mesh:" + asset_trace->source_mesh);
+      }
+      for (const std::string &issue : asset_trace->issues) {
+        appendUnique(provenance.upstream, "issue:" + issue);
+      }
+    } else {
+      provenance.cook_report = "runtime-material-library";
+    }
+    provenance.provenance_hash = resourceProvenanceHash(provenance);
+    forensics.resource_provenance.push_back(std::move(provenance));
+  }
+}
+
+std::string aggregateAssetHash(const aster::FrameForensics &forensics) {
+  std::uint64_t hash = 1469598103934665603ull;
+  for (const aster::AssetFrameTrace &trace : forensics.asset_traces) {
+    hash = appendEvidenceValue(hash, trace.trace_hash);
+  }
+  return hash == 1469598103934665603ull ? std::string() : std::to_string(hash);
+}
+
+std::string firstShaderVariantKey(const aster::FrameForensics &forensics) {
+  for (const aster::ObjectRenderFateTrace &fate : forensics.object_fates) {
+    if (!fate.shader_variant_key.empty() && fate.shader_variant_key != "0") {
+      return fate.shader_variant_key;
+    }
+  }
+  for (const aster::AssetFrameTrace &trace : forensics.asset_traces) {
+    if (!trace.shader_variant_key.empty() && trace.shader_variant_key != "0") {
+      return trace.shader_variant_key;
+    }
+  }
+  return "none";
+}
+
+std::string backendDifferenceForCapture(const aster::FrameForensics &forensics,
+                                        const aster::RenderGraphResource resource) {
+  const std::string proof = proofStatusForResource(forensics, resource);
+  if (!proof.empty()) {
+    return proof;
+  }
+  return "single-backend-candidate";
+}
+
+void rebuildRegressionGallery(const aster::RenderBackendCapabilities &capabilities,
+                              aster::FrameForensics &forensics) {
+  forensics.regression_gallery.clear();
+  forensics.regression_gallery.reserve(forensics.captures.size());
+  const std::string asset_hash = aggregateAssetHash(forensics);
+  const std::string shader_key = firstShaderVariantKey(forensics);
+  for (const aster::FrameDebugCapture &capture : forensics.captures) {
+    const aster::FramePassStats *pass_stats = passStatsFor(forensics, capture.pass);
+    forensics.regression_gallery.push_back(
+        {.label = capture.label,
+         .backend = capabilities.kind,
+         .pass = capture.pass,
+         .resource = capture.resource,
+         .width = capture.width,
+         .height = capture.height,
+         .image_hash = capture.content_hash,
+         .diff_hash = 0u,
+         .mean_abs_error = 0.0,
+         .differing_pixel_ratio = 0.0,
+         .image_diff_status = capture.available ? "baseline-required" : "capture-missing",
+         .backend_difference = backendDifferenceForCapture(forensics, capture.resource),
+         .pass_encode_seconds = pass_stats == nullptr ? 0.0 : pass_stats->encode_seconds,
+         .asset_hash = asset_hash,
+         .shader_variant_key = shader_key,
+         .available = capture.available});
+  }
+}
+
+void rebuildFrameEvidenceProducts(const aster::FixedRenderGraph &graph,
+                                  const aster::RenderBackendCapabilities &capabilities,
+                                  aster::FrameForensics &forensics) {
+  rebuildFrameDebuggerTimeline(forensics);
+  rebuildResourceProvenance(graph, forensics);
+  rebuildRegressionGallery(capabilities, forensics);
+}
+
 std::string shaderVariantTagFor(const Material &material) {
   if (!material.asset_id.empty()) {
     return material.asset_id;
@@ -4081,6 +4500,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     if (detailed_forensics) {
       finalizeObjectRenderFates(last_forensics_);
     }
+    if (graph_forensics || detailed_forensics || capture_forensics) {
+      rebuildFrameEvidenceProducts(render_graph_, native_backend_->capabilities(), last_forensics_);
+    }
     native_stats.timestamp_query_slots = last_forensics_.timestamp_samples.size();
     native_stats.resource_lifetime_warnings +=
         last_forensics_.certification.validation_error_count;
@@ -4204,6 +4626,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   }
   if (detailed_forensics) {
     finalizeObjectRenderFates(last_forensics_);
+  }
+  if (graph_forensics || detailed_forensics || capture_forensics) {
+    rebuildFrameEvidenceProducts(render_graph_, softwareCapabilities(), last_forensics_);
   }
   stats.timestamp_query_slots = last_forensics_.timestamp_samples.size();
   stats.resource_lifetime_warnings += last_forensics_.certification.validation_error_count;

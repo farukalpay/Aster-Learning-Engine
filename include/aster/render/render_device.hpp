@@ -516,6 +516,74 @@ struct ObjectRenderFateTrace {
   std::uint64_t contribution_hash = 0u;
 };
 
+enum class FrameDebuggerTimelineEventKind : std::uint32_t {
+  Visibility,
+  MaterialBinding,
+  LightCluster,
+  Shadow,
+  Fog,
+  Probe,
+  PassOutput,
+  Overdraw,
+  Fallback,
+};
+
+struct FrameDebuggerTimelineEvent {
+  std::size_t sequence = 0u;
+  FrameDebuggerTimelineEventKind kind = FrameDebuggerTimelineEventKind::Visibility;
+  RenderGraphPass pass = RenderGraphPass::SceneColorDepth;
+  RenderGraphResource resource = RenderGraphResource::SceneColor;
+  std::string object_name;
+  std::size_t object_index = 0u;
+  std::string label;
+  std::string evidence;
+  std::string fallback_reason;
+  std::uint64_t evidence_hash = 0u;
+};
+
+enum class FrameResourceProvenanceKind : std::uint32_t {
+  GraphResource,
+  MaterialTexture,
+};
+
+struct FrameResourceProvenance {
+  FrameResourceProvenanceKind kind = FrameResourceProvenanceKind::GraphResource;
+  RenderGraphResource resource = RenderGraphResource::SceneColor;
+  RenderGraphPass producer_pass = RenderGraphPass::SceneColorDepth;
+  std::string resource_name;
+  std::string producer_node;
+  std::string material_asset_id;
+  std::string material_graph_guid;
+  std::string material_graph_node;
+  std::string cook_report;
+  std::string texture_role;
+  std::string source_path;
+  std::string asset_hash;
+  std::string shader_variant_key;
+  std::string backend_fallback;
+  std::vector<std::string> upstream;
+  std::uint64_t provenance_hash = 0u;
+};
+
+struct FrameRegressionGalleryEntry {
+  std::string label;
+  RenderBackendKind backend = RenderBackendKind::Unknown;
+  RenderGraphPass pass = RenderGraphPass::Capture;
+  RenderGraphResource resource = RenderGraphResource::SceneColor;
+  std::uint32_t width = 0u;
+  std::uint32_t height = 0u;
+  std::uint64_t image_hash = 0u;
+  std::uint64_t diff_hash = 0u;
+  double mean_abs_error = 0.0;
+  double differing_pixel_ratio = 0.0;
+  std::string image_diff_status;
+  std::string backend_difference;
+  double pass_encode_seconds = 0.0;
+  std::string asset_hash;
+  std::string shader_variant_key;
+  bool available = false;
+};
+
 enum class FrameDiagnosticSeverity : std::uint32_t {
   Info,
   Warning,
@@ -572,6 +640,9 @@ struct FrameForensics {
   std::vector<MeshVisibilityTrace> mesh_visibility;
   std::vector<ObjectClusterMembershipTrace> object_clusters;
   std::vector<ObjectRenderFateTrace> object_fates;
+  std::vector<FrameDebuggerTimelineEvent> debug_timeline;
+  std::vector<FrameResourceProvenance> resource_provenance;
+  std::vector<FrameRegressionGalleryEntry> regression_gallery;
   std::vector<rhi::ResourceLifetimeValidationEvent> rhi_validation_events;
   std::vector<BackendFeatureProof> backend_feature_proofs;
   std::vector<rhi::TimestampQueryResult> timestamp_samples;
@@ -741,6 +812,9 @@ private:
 [[nodiscard]] std::string_view renderBackendKindName(RenderBackendKind kind);
 [[nodiscard]] std::string_view backendFeatureProofKindName(BackendFeatureProofKind kind);
 [[nodiscard]] std::string_view backendFeatureProofStatusName(BackendFeatureProofStatus status);
+[[nodiscard]] std::string_view
+frameDebuggerTimelineEventKindName(FrameDebuggerTimelineEventKind kind);
+[[nodiscard]] std::string_view frameResourceProvenanceKindName(FrameResourceProvenanceKind kind);
 [[nodiscard]] std::string_view renderStylePresetName(RenderStylePreset preset);
 [[nodiscard]] std::optional<RenderStylePreset> parseRenderStylePreset(std::string_view value);
 [[nodiscard]] RenderStyleProfile makeRenderStyleProfile(RenderStylePreset preset);

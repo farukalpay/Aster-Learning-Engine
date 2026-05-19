@@ -21,7 +21,7 @@ Scene / Material / Mesh Input
   -> RenderGraph Compiler
   -> Resource Lifetime + Barriers + Descriptors + Pipeline Compatibility
   -> Backend Execution
-  -> Frame Forensics + GPU Timings + Image Diff
+  -> Frame Forensics Timeline + Resource Provenance Graph + Regression Lab
 ```
 
 The public runtime surface remains frozen around the kernel ABI and source Game
@@ -33,6 +33,15 @@ Backend feature support is proof-gated. A feature is supported only when the
 backend supplies native work, captures or samples when required, resource
 transition evidence, and conformance results. Declared graph passes without
 native proof remain unsupported.
+
+The debugger is a required product surface, not a bonus overlay. Each frame must
+explain visibility, material binding, light clusters, shadow, fog, probe, pass
+outputs, overdraw, and fallback reasons on one timeline. Render graph inspection
+must answer provenance questions such as which producer node created a texture,
+which material graph and cook report fed it, which backend fallback touched it,
+and which asset hash and shader variant key identify it. Screenshot galleries
+are regression labs: visuals are useful only when paired with image diff status,
+backend difference, pass timing, asset hash, and shader variant evidence.
 
 Priority order:
 
