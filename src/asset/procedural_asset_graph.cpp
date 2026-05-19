@@ -197,6 +197,14 @@ void readFallbackArray(const Value &fallback, const std::string_view key,
                             : package.nodes.front().capability_status;
   material.procedural_shader_variant_key = package.shader_variant_key;
   material.procedural_pipeline_key = package.pipeline_key;
+  if (const Value *preview = objectField(root, "preview")) {
+    material.preview = stringMapFrom(*preview);
+  }
+  material.provenance["runtime_model"] = package.runtime_model;
+  material.provenance["source_graph"] = package.id;
+  material.quality_profile["asset_graph_score"] = std::to_string(package.quality.score);
+  material.quality_profile["asset_graph_production_ready"] =
+      package.quality.production_ready ? "true" : "false";
 
   if (const Value *fallback = objectField(*material_json, "fallback")) {
     material.surface_profile =
@@ -278,6 +286,31 @@ ProceduralAssetGraphPackage loadProceduralAssetGraphPackage(const std::filesyste
 
 Material proceduralAssetGraphMaterial(const ProceduralAssetGraphPackage &package) {
   return resolveMaterialAssetFallback(package.material);
+}
+
+MaterialAuthoringGraph materialAuthoringGraphForPackage(
+    const ProceduralAssetGraphPackage &package) {
+  MaterialAuthoringGraph graph;
+  graph.source_id = package.id;
+  graph.source_kind = "assetgraphbin";
+  graph.nodes.reserve(package.nodes.size());
+  for (const ProceduralAssetGraphNode &source : package.nodes) {
+    graph.nodes.push_back({.id = source.id,
+                           .label = source.label.empty() ? source.id : source.label,
+                           .operation = source.kind,
+                           .role = source.role,
+                           .params = source.params,
+                           .op = MaterialGraphOperation::Unknown,
+                           .value_type = MaterialGraphValueType::Unknown,
+                           .capability_status = source.capability_status,
+                           .editable = true,
+                           .persisted = false});
+  }
+  graph.edges.reserve(package.edges.size());
+  for (const ProceduralAssetGraphEdge &edge : package.edges) {
+    graph.edges.push_back({.from = edge.from, .to = edge.to, .role = edge.role});
+  }
+  return graph;
 }
 
 } // namespace aster

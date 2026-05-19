@@ -509,6 +509,117 @@ void testThirdPersonFollowController() {
   assert(ray.direction.z < -0.99f);
 }
 
+void testDeterministicCommandReplayAndLegacyArchive() {
+  aster::DeterministicRandomStream a(42u);
+  aster::DeterministicRandomStream b(42u);
+  assert(a.nextU32() == b.nextU32());
+  assert(a.nextByte() == b.nextByte());
+
+  aster::SimCommand command;
+  command.tick = 7u;
+  command.forward = 1200;
+  command.strafe = -300;
+  command.set(aster::SimCommandButton::Interact, true);
+  aster::CommandReplay replay;
+  replay.record(command);
+  command.tick = 8u;
+  command.sequence = 2u;
+  replay.record(command);
+  assert(replay.find(7u) != nullptr);
+  assert(replay.checksum() == replay.checksum());
+
+  const std::filesystem::path wad_path =
+      std::filesystem::temp_directory_path() / "aster_legacy_lump_archive_test.wad";
+  {
+    std::ofstream wad(wad_path, std::ios::binary);
+    const auto write_u32 = [&wad](const std::uint32_t value) {
+      const char bytes[4] = {static_cast<char>(value & 0xffu),
+                             static_cast<char>((value >> 8u) & 0xffu),
+                             static_cast<char>((value >> 16u) & 0xffu),
+                             static_cast<char>((value >> 24u) & 0xffu)};
+      wad.write(bytes, 4);
+    };
+    wad.write("PWAD", 4);
+    write_u32(1u);
+    write_u32(16u);
+    wad.write("ABCD", 4);
+    write_u32(12u);
+    write_u32(4u);
+    wad.write("MAPA", 4);
+    wad.put('\0');
+    wad.put('\0');
+    wad.put('\0');
+    wad.put('\0');
+  }
+  aster::LegacyLumpArchive archive;
+  const bool added = archive.addFile(wad_path, true);
+  if (!added) {
+    throw std::runtime_error("Failed to load temporary legacy lump archive.");
+  }
+  const std::size_t index = archive.require("mapa");
+  assert(archive.record(index)->name == "MAPA");
+  const std::vector<std::uint8_t> bytes = archive.read(index);
+  assert(bytes.size() == 4u);
+  assert(bytes[0] == static_cast<std::uint8_t>('A'));
+  assert(archive.cache(index).size() == 4u);
+  assert(archive.reload());
+  assert(archive.profile().front().cached);
+  std::filesystem::remove(wad_path);
+}
+
+void testClassicActorMechanismAutomapAndWipe() {
+  aster::ClassicActorRuntime actors;
+  actors.spawn({.id = "actor.one",
+                .position = {0.0f, 0.0f, 0.0f},
+                .home = {0.0f, 0.0f, 0.0f},
+                .speed = 1.0f,
+                .notice_radius = 5.0f,
+                .strike_radius = 0.45f,
+                .strike_cooldown = 0.1f,
+                .health = 2});
+  aster::ClassicActorFrame frame = actors.update({0.0f, 0.0f, 3.0f}, 1.0f);
+  assert(!frame.events.empty());
+  assert(actors.find("actor.one")->mode == aster::ClassicActorMode::Chase ||
+         actors.find("actor.one")->mode == aster::ClassicActorMode::Alert);
+  assert(actors.damage("actor.one", 2));
+  actors.update({0.0f, 0.0f, 0.1f}, 0.1f);
+  assert(actors.find("actor.one")->mode == aster::ClassicActorMode::Dead);
+
+  aster::WorldMechanismSystem mechanisms;
+  mechanisms.add({.id = "door",
+                  .kind = aster::WorldMechanismKind::Door,
+                  .closed_position = {0.0f, 0.0f, 0.0f},
+                  .open_position = {0.0f, 1.0f, 0.0f},
+                  .speed = 2.0f});
+  assert(mechanisms.trigger("door"));
+  mechanisms.update(0.25f);
+  const aster::WorldMechanismState *door = mechanisms.find("door");
+  assert(door != nullptr);
+  assert(door->progress > 0.0f);
+  assert(door->position.y > 0.0f);
+
+  aster::AutomapModel map;
+  map.addLine({{0.0f, 0.0f}, {4.0f, 0.0f}});
+  map.addMarker({"door", aster::AutomapMarkerKind::Door, {2.0f, 0.0f}});
+  map.setPlayer({1.0f, 0.0f}, 0.0f);
+  map.revealWithin({1.0f, 0.0f}, 2.0f);
+  assert(map.hasDiscovery());
+  assert(map.project({1.0f, 0.0f}, {200.0f, 120.0f}).visible);
+
+  aster::TransitionWipe wipe;
+  wipe.start(8, 100, 3u, 0.5f);
+  wipe.update(0.25f);
+  const aster::TransitionWipeFrame wipe_frame = wipe.frame();
+  assert(wipe_frame.active);
+  assert(wipe_frame.column_progress.size() == 8u);
+
+  const aster::ClassicHudSignalModel signals = aster::evaluateClassicHudSignals(
+      {.health = 4, .max_health = 10, .gauntlet_active = true, .threat_visible = true});
+  assert(signals.visible);
+  assert(signals.health_fraction < 0.5f);
+  assert(signals.threat > 0.0f);
+}
+
 } // namespace
 
 int main() {
@@ -523,6 +634,8 @@ int main() {
   testCaveSkitterGroupPatrolsAndBitesInsideWeb();
   testAvatarRigSceneBinding();
   testThirdPersonFollowController();
+  testDeterministicCommandReplayAndLegacyArchive();
+  testClassicActorMechanismAutomapAndWipe();
   std::cout << "systems_tests passed.\n";
   return 0;
 }

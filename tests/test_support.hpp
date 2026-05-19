@@ -4,12 +4,15 @@
 #pragma once
 
 #include "aster/asset/mesh_pipeline.hpp"
+#include "aster/asset/legacy_lump_archive.hpp"
 #include "aster/asset/scene_asset_importer.hpp"
+#include "aster/core/deterministic_sim.hpp"
 #include "aster/core/fixed_timestep.hpp"
 #include "aster/core/frame_time_stats.hpp"
 #include "aster/core/profiler.hpp"
 #include "aster/core/work_budget.hpp"
 #include "aster/systems/animation_system.hpp"
+#include "aster/systems/classic_actor_runtime.hpp"
 #include "aster/systems/creature_motion.hpp"
 #include "aster/systems/equipment_system.hpp"
 #include "aster/systems/interaction_system.hpp"
@@ -20,6 +23,7 @@
 #include "aster/systems/particle_system.hpp"
 #include "aster/systems/player_motion.hpp"
 #include "aster/systems/third_person_camera.hpp"
+#include "aster/systems/world_mechanism.hpp"
 #include "aster/geometry/architectural_mesh.hpp"
 #include "aster/geometry/brush_level_mesh.hpp"
 #include "aster/geometry/cable_mesh.hpp"
@@ -46,6 +50,7 @@
 #include "aster/math/mat4.hpp"
 #include "aster/math/transform.hpp"
 #include "aster/net/net_message.hpp"
+#include "aster/net/lockstep_command_channel.hpp"
 #include "aster/net/node_router.hpp"
 #include "aster/physics/climb_locomotion.hpp"
 #include "aster/physics/contact_query.hpp"
@@ -67,6 +72,9 @@
 #include "aster/scene/scene.hpp"
 #include "aster/scene/scene_coherence.hpp"
 #include "aster/scene/scene_trace.hpp"
+#include "aster/ui/automap_model.hpp"
+#include "aster/ui/classic_hud_signals.hpp"
+#include "aster/ui/transition_wipe.hpp"
 #include "aster/ui/ui_canvas.hpp"
 
 #include <algorithm>

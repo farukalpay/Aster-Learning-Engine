@@ -48,7 +48,9 @@ hashes, shader variant keys, and the frame-forensics timeline.
 
 ![Lumen Run cave entry motion](assets/screenshots/lumen_cave_entry.gif)
 
-![Lumen Run cave interior](assets/screenshots/lumen_cave_interior.png)
+![Lumen Run Classic Gauntlet HUD and automap](assets/screenshots/lumen_run.png)
+
+![Lumen Run Classic Gauntlet cave interior](assets/screenshots/lumen_cave_interior.png)
 
 ## First Scene
 
@@ -111,6 +113,9 @@ Run built-in lab scenes:
   frame schedule reports, and an install-tree `external_app_minimal/` proof.
 - A source-level game SDK for schema-versioned project, scene, prefab, material,
   item, and action graph authoring documents.
+- Aster-native classic simulation systems for deterministic commands/replay,
+  lump archive lookup, actor combat states, world mechanisms, automap/HUD/wipe
+  presentation, and lockstep command packets.
 - A shared renderer core with `RenderDevice`, `RenderScene`, `FixedRenderGraph`,
   frame stats, frame forensics, capture, and backend capability tables.
 - A deterministic software reference renderer used for fallback presentation,
@@ -153,6 +158,7 @@ Run built-in lab scenes:
 | [docs/SCENE_AND_MESH_PIPELINE.md](docs/SCENE_AND_MESH_PIPELINE.md) | Scene objects and procedural/custom mesh path |
 | [docs/RENDERER_BACKEND_MATRIX.md](docs/RENDERER_BACKEND_MATRIX.md) | Backend capabilities, pass support, gaps, conformance |
 | [docs/LUMEN_RUN_AS_SAMPLE.md](docs/LUMEN_RUN_AS_SAMPLE.md) | How the sample game uses the engine |
+| [docs/FARUKALPAY_PORT_COVERAGE.md](docs/FARUKALPAY_PORT_COVERAGE.md) | FarukAlpay source-family coverage and Aster-native destinations |
 | [docs/ENGINE_INTERNALS/ENGINE_KERNEL.md](docs/ENGINE_INTERNALS/ENGINE_KERNEL.md) | ABI and public/internal boundary |
 | [docs/ENGINE_INTERNALS/ARCHITECTURE.md](docs/ENGINE_INTERNALS/ARCHITECTURE.md) | Deeper architecture notes |
 | [docs/RESEARCH/RESEARCH_NOTES.md](docs/RESEARCH/RESEARCH_NOTES.md) | Research notes |
@@ -182,6 +188,7 @@ Run the sample game and tools:
 
 ```bash
 ./build/aster_lumen_run
+./build/aster_lumen_run --capture-route classic-gauntlet
 ./build/aster_studio
 ./build/aster_material_lab --material showcases/material_lab/wet_rock.astermat --output /tmp/wet_rock.ppm
 cargo run -p aster_assetc --bin aster_materialc -- package --input showcases/material_lab/wet_rock.astermat --asset-root showcases/material_lab --output /tmp/aster_material_package
@@ -244,6 +251,7 @@ changes:
 ./build/aster_lumen_run --smoke-test --no-vsync
 ./build/aster_studio --smoke-test
 ./build/aster_lumen_run --frame-report --run-frames 240 --lag-budget-ms 16.7 --window-width 1280 --window-height 720 --msaa 0
+./build/aster_lumen_run --frame-report --frame-report-route classic-gauntlet --run-frames 240 --window-width 1280 --window-height 720 --msaa 0
 ```
 
 ## Refresh Regression Captures
@@ -261,7 +269,8 @@ mkdir -p assets/screenshots /tmp/aster_learning_shots
 ./build/aster_preview --scene scene-lab --output /tmp/aster_learning_shots/scene_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene cave-conformance --output /tmp/aster_learning_shots/cave_conformance.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene industrial-pipe --output /tmp/aster_learning_shots/industrial_pipe.ppm --width 1280 --height 720 --samples 2
-./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_run.ppm --screenshot-frame 8 --capture-hud --msaa 0 --window-width 1280 --window-height 720
+./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_run.ppm --capture-route classic-gauntlet --screenshot-frame 96 --capture-hud --msaa 0 --window-width 1280 --window-height 720
+./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_cave_interior.ppm --capture-route classic-gauntlet --screenshot-frame 96 --msaa 0 --window-width 1280 --window-height 720
 
 sips -s format png /tmp/aster_learning_shots/material_lab.ppm --out assets/screenshots/material_lab.png
 sips -s format png /tmp/aster_learning_shots/mesh_lab.ppm --out assets/screenshots/mesh_lab.png
@@ -270,6 +279,7 @@ sips -s format png /tmp/aster_learning_shots/scene_lab.ppm --out assets/screensh
 sips -s format png /tmp/aster_learning_shots/cave_conformance.ppm --out assets/screenshots/cave_conformance.png
 sips -s format png /tmp/aster_learning_shots/industrial_pipe.ppm --out assets/screenshots/industrial_pipe.png
 sips -s format png /tmp/aster_learning_shots/lumen_run.ppm --out assets/screenshots/lumen_run.png
+sips -s format png /tmp/aster_learning_shots/lumen_cave_interior.ppm --out assets/screenshots/lumen_cave_interior.png
 ```
 
 On non-macOS hosts, use an equivalent PPM-to-PNG encoder.

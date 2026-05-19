@@ -609,7 +609,10 @@ aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_
                          const aster::PointerCueModel pointer,
                          const aster::GameCursorModel game_cursor,
                          const aster::FocusPromptModel focus_prompt, aster::HotbarHudModel hotbar,
-                         aster::ChestContentsHudModel chest_contents) {
+                         aster::ChestContentsHudModel chest_contents,
+                         const aster::AutomapModel &automap,
+                         const aster::ClassicHudSignalModel classic_signals,
+                         const aster::TransitionWipeFrame transition_wipe) {
   aster::HudModel model;
   model.title = "Lumen Run";
   model.subtitle =
@@ -651,6 +654,9 @@ aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_
                            !status.defeated;
   model.hotbar = std::move(hotbar);
   model.chest_contents = std::move(chest_contents);
+  model.automap = {.visible = classic_signals.visible || transition_wipe.active, .map = automap};
+  model.classic_signals = classic_signals;
+  model.transition_wipe = transition_wipe;
   return model;
 }
 
@@ -703,6 +709,7 @@ int main(int argc, char **argv) {
     const bool cave_entry_capture = playback_route == "cave-entry";
     const bool deep_cave_capture = playback_route == "deep-cave";
     const bool deep_cave_stress_capture = playback_route == "deep-cave-stress";
+    const bool classic_gauntlet_capture = playback_route == "classic-gauntlet";
     const float deep_cave_capture_progress =
         argumentFloat(argc, argv, "--deep-cave-progress", 16.0f);
     const float deep_cave_capture_look_ahead =
@@ -793,6 +800,9 @@ int main(int argc, char **argv) {
           game.caveFrameReportPosition(deep_cave_stress_capture ? kDeepCaveStressStartProgress
                                                                  : deep_cave_capture_progress),
           aster::radians(argumentFloat(argc, argv, "--player-yaw-deg", 0.0f)));
+    } else if (classic_gauntlet_capture && !player_position_override) {
+      game.relocatePlayer(game.classicGauntletEntryPosition(),
+                          game.classicGauntletCameraYaw());
     } else if (player_at_prism_relay_for_capture) {
       const aster::Vec3 base = game.prismRelayBasePosition();
       game.relocatePlayer(base + aster::Vec3{1.45f, 0.0f, 1.10f},
@@ -833,30 +843,39 @@ int main(int argc, char **argv) {
       scripted_camera_target =
           cave_entry_capture
               ? caveEntryCameraTarget(player, 0.0f)
-              : ((deep_cave_capture || deep_cave_stress_capture)
+              : (classic_gauntlet_capture
+                     ? game.classicGauntletLookTarget()
+                     : ((deep_cave_capture || deep_cave_stress_capture)
                      ? game.caveFrameReportLookTarget(
                            deep_cave_stress_capture ? kDeepCaveStressStartProgress
                                                     : deep_cave_capture_progress,
                            deep_cave_capture_look_ahead)
                      : aster::Vec3{argumentFloat(argc, argv, "--camera-target-x", 2.25f),
                                    argumentFloat(argc, argv, "--camera-target-y", 0.48f),
-                                   argumentFloat(argc, argv, "--camera-target-z", -0.95f)});
+                                   argumentFloat(argc, argv, "--camera-target-z", -0.95f)}));
       camera.pitch = aster::radians(argumentFloat(
           argc, argv, "--camera-pitch-deg",
           cave_entry_capture
               ? 12.0f
-              : ((deep_cave_capture || deep_cave_stress_capture) ? 6.0f : 28.0f)));
+              : (classic_gauntlet_capture
+                     ? 8.0f
+                     : ((deep_cave_capture || deep_cave_stress_capture) ? 6.0f : 28.0f))));
       camera.yaw = aster::radians(argumentFloat(
           argc, argv, "--camera-yaw-deg",
           cave_entry_capture
               ? 0.0f
-              : ((deep_cave_capture || deep_cave_stress_capture) ? 180.0f : -31.0f)));
+              : (classic_gauntlet_capture
+                     ? aster::degrees(game.classicGauntletCameraYaw())
+                     : ((deep_cave_capture || deep_cave_stress_capture) ? 180.0f : -31.0f))));
       camera.radius =
           argumentFloat(argc, argv, "--camera-radius",
                         cave_entry_capture ? 7.2f
-                                           : ((deep_cave_capture || deep_cave_stress_capture)
-                                                  ? 2.70f
-                                                  : 7.8f));
+                                           : (classic_gauntlet_capture
+                                                  ? 5.4f
+                                                  : ((deep_cave_capture ||
+                                                      deep_cave_stress_capture)
+                                                         ? 2.70f
+                                                         : 7.8f)));
       camera.vertical_fov = aster::radians(std::clamp(
           argumentFloat(argc, argv, "--camera-fov-deg", cave_entry_capture ? 46.0f : 54.0f), 18.0f,
           72.0f));
@@ -1150,7 +1169,7 @@ int main(int argc, char **argv) {
           axis = caveEntryAxis(static_cast<float>(elapsed));
           run = caveEntryRun(static_cast<float>(elapsed));
           jump = false;
-        } else if (deep_cave_capture || deep_cave_stress_capture) {
+        } else if (deep_cave_capture || deep_cave_stress_capture || classic_gauntlet_capture) {
           axis = {};
           run = false;
           jump = false;
@@ -1209,6 +1228,8 @@ int main(int argc, char **argv) {
       const aster::Vec3 player = game.playerRenderPosition();
       if (cave_entry_capture) {
         scripted_camera_target = caveEntryCameraTarget(player, static_cast<float>(elapsed));
+      } else if (classic_gauntlet_capture) {
+        scripted_camera_target = game.classicGauntletLookTarget();
       } else if (deep_cave_capture || deep_cave_stress_capture) {
         const float progress = deep_cave_stress_capture
                                    ? kDeepCaveStressStartProgress +
@@ -1376,7 +1397,9 @@ int main(int argc, char **argv) {
         const aster::HudAction hud_action = hud.draw(
             hudModel(game.status(), inventory_open, game.torchCount(), game.supplyCrateNearby(),
                      pause_open, pause_options_open, pointer_cue, game_cursor,
-                     game.focusPromptModel(), game.hotbarHudModel(), game.chestContentsHudModel()));
+                     game.focusPromptModel(), game.hotbarHudModel(), game.chestContentsHudModel(),
+                     game.classicGauntletAutomap(), game.classicHudSignals(),
+                     game.classicTransitionWipe()));
         if (hud_action == aster::HudAction::CloseChest) {
           game.closeChest();
         } else if (hud_action == aster::HudAction::TransferSupplyTorch) {

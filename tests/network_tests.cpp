@@ -48,11 +48,49 @@ void testNodeRouter() {
   assert(router.stats().dropped == 1u);
 }
 
+void testLockstepCommandChannelChecksumAndResend() {
+  aster::net::LockstepCommandChannel sender(21u);
+  aster::net::LockstepCommandChannel receiver(21u);
+
+  aster::SimCommand tick0;
+  tick0.tick = 0u;
+  tick0.forward = 120;
+  tick0.set(aster::SimCommandButton::Run, true);
+  sender.pushLocal(tick0);
+  aster::SimCommand tick1 = tick0;
+  tick1.tick = 1u;
+  tick1.sequence = 2u;
+  sender.pushLocal(tick1);
+
+  const aster::net::NetMessage message = sender.buildMessage(1u, 2u, 2u);
+  assert(receiver.receive(message));
+  assert(receiver.nextExpectedTick() == 2u);
+  assert(receiver.commandForTick(1u).has_value());
+
+  aster::net::LockstepCommandPacket packet;
+  packet.player = 3u;
+  packet.start_tick = 4u;
+  aster::SimCommand late;
+  late.tick = 4u;
+  packet.commands = {late};
+  const std::vector<std::uint8_t> encoded = aster::net::encodeLockstepPacket(packet);
+  const std::optional<aster::net::LockstepCommandPacket> decoded =
+      aster::net::decodeLockstepPacket(encoded);
+  assert(decoded.has_value());
+  assert(decoded->commands.front().tick == 4u);
+
+  aster::net::NetMessage gap;
+  gap.channel = 21u;
+  gap.payload = encoded;
+  assert(!receiver.receive(gap));
+}
+
 } // namespace
 
 int main() {
   testNetworkFrameCodec();
   testNodeRouter();
+  testLockstepCommandChannelChecksumAndResend();
   std::cout << "network_tests passed.\n";
   return 0;
 }

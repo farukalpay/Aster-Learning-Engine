@@ -6,8 +6,10 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <iomanip>
 #include <iterator>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 
 namespace aster {
@@ -394,6 +396,7 @@ private:
   }
 
   [[nodiscard]] bool readBool() {
+    const Token token = current_;
     const std::string value = readValueText();
     if (value == "true") {
       return true;
@@ -401,7 +404,7 @@ private:
     if (value == "false") {
       return false;
     }
-    addError(current_, "expected boolean value");
+    addError(token, "expected boolean value");
     return false;
   }
 
@@ -415,6 +418,22 @@ private:
     advance();
     if (field.text == "textures") {
       parseTextureBlock(asset);
+      return;
+    }
+    if (field.text == "provenance") {
+      parseStringMapBlock(asset.provenance, "provenance");
+      return;
+    }
+    if (field.text == "authoring") {
+      parseStringMapBlock(asset.authoring, "authoring");
+      return;
+    }
+    if (field.text == "preview") {
+      parseStringMapBlock(asset.preview, "preview");
+      return;
+    }
+    if (field.text == "quality_profile") {
+      parseStringMapBlock(asset.quality_profile, "quality_profile");
       return;
     }
     if (field.text == "params") {
@@ -526,6 +545,23 @@ private:
     expect(TokenKind::RightBrace, "expected '}' after textures");
   }
 
+  void parseStringMapBlock(std::map<std::string, std::string> &values,
+                           const std::string_view block_name) {
+    expect(TokenKind::LeftBrace, "expected '{' after " + std::string(block_name));
+    while (current_.kind != TokenKind::RightBrace && current_.kind != TokenKind::End) {
+      if (current_.kind != TokenKind::Identifier) {
+        addError(current_, "expected metadata key");
+        advance();
+        continue;
+      }
+      const std::string name = current_.text;
+      advance();
+      expect(TokenKind::Colon, "expected ':' after metadata key");
+      values[name] = readValueText();
+    }
+    expect(TokenKind::RightBrace, "expected '}' after " + std::string(block_name));
+  }
+
   void parseParamBlock(MaterialAsset &asset) {
     expect(TokenKind::LeftBrace, "expected '{' after params");
     while (current_.kind != TokenKind::RightBrace && current_.kind != TokenKind::End) {
@@ -635,6 +671,95 @@ float paramOr(const MaterialAsset &asset, const std::string_view name, const flo
   return it == asset.params.end() ? fallback : it->second;
 }
 
+std::string escapedString(const std::string_view value) {
+  std::string out;
+  out.reserve(value.size() + 2u);
+  out.push_back('"');
+  for (const char c : value) {
+    switch (c) {
+    case '\\':
+      out += "\\\\";
+      break;
+    case '"':
+      out += "\\\"";
+      break;
+    case '\n':
+      out += "\\n";
+      break;
+    case '\t':
+      out += "\\t";
+      break;
+    default:
+      out.push_back(c);
+      break;
+    }
+  }
+  out.push_back('"');
+  return out;
+}
+
+std::string serializedFloat(const float value) {
+  std::ostringstream out;
+  out << std::setprecision(7) << value;
+  return out.str();
+}
+
+std::string_view materialSurfaceProfileAssetName(const MaterialSurfaceProfile profile) {
+  switch (profile) {
+  case MaterialSurfaceProfile::Auto:
+    return "auto";
+  case MaterialSurfaceProfile::Plain:
+    return "plain";
+  case MaterialSurfaceProfile::Masonry:
+    return "masonry";
+  case MaterialSurfaceProfile::OrganicFiber:
+    return "organic-fiber";
+  case MaterialSurfaceProfile::TerrainLayer:
+    return "terrain-layer";
+  case MaterialSurfaceProfile::Liquid:
+    return "liquid";
+  case MaterialSurfaceProfile::Foliage:
+    return "foliage";
+  case MaterialSurfaceProfile::Resin:
+    return "resin";
+  case MaterialSurfaceProfile::PaintedWood:
+    return "painted-wood";
+  case MaterialSurfaceProfile::Feather:
+    return "feather";
+  case MaterialSurfaceProfile::Scales:
+    return "scales";
+  case MaterialSurfaceProfile::StratifiedRock:
+    return "stratified-rock";
+  case MaterialSurfaceProfile::MineralVein:
+    return "mineral-vein";
+  case MaterialSurfaceProfile::ContactShadow:
+    return "contact-shadow";
+  case MaterialSurfaceProfile::FilamentWeb:
+    return "filament-web";
+  case MaterialSurfaceProfile::ChitinShell:
+    return "chitin-shell";
+  case MaterialSurfaceProfile::EmissiveLens:
+    return "emissive-lens";
+  case MaterialSurfaceProfile::CorrodedMetal:
+    return "corroded-metal";
+  case MaterialSurfaceProfile::WeldBead:
+    return "weld-bead";
+  }
+  return "auto";
+}
+
+void appendStringMap(std::ostringstream &out, const std::string_view name,
+                     const std::map<std::string, std::string> &values) {
+  if (values.empty()) {
+    return;
+  }
+  out << "\n  " << name << " {\n";
+  for (const auto &[key, value] : values) {
+    out << "    " << key << ": " << escapedString(value) << "\n";
+  }
+  out << "  }\n";
+}
+
 } // namespace
 
 bool MaterialAssetLoadResult::ok() const {
@@ -700,6 +825,65 @@ MaterialAssetLoadResult loadMaterialAsset(const std::filesystem::path &path) {
                                   .message = error.what()});
     return result;
   }
+}
+
+std::string serializeMaterialAsset(const MaterialAsset &asset) {
+  std::ostringstream out;
+  out << "material " << asset.id << " {\n";
+  out << "  schema_version: " << asset.schema_version << "\n";
+  if (!asset.name.empty()) {
+    out << "  name: " << escapedString(asset.name) << "\n";
+  }
+  out << "  shading_model: " << materialShadingModelName(asset.shading_model) << "\n";
+  if (asset.surface_profile != MaterialSurfaceProfile::Auto) {
+    out << "  surface_profile: " << materialSurfaceProfileAssetName(asset.surface_profile)
+        << "\n";
+  }
+  out << "  blend_mode: " << materialBlendModeName(asset.blend_mode) << "\n";
+  out << "  cull_mode: " << materialAssetCullModeName(asset.cull_mode) << "\n";
+  out << "  receives_decals: " << (asset.receives_decals ? "true" : "false") << "\n";
+  out << "  receives_shadows: " << (asset.receives_shadows ? "true" : "false") << "\n";
+
+  appendStringMap(out, "provenance", asset.provenance);
+  appendStringMap(out, "authoring", asset.authoring);
+  appendStringMap(out, "preview", asset.preview);
+  appendStringMap(out, "quality_profile", asset.quality_profile);
+
+  if (!asset.textures.empty()) {
+    out << "\n  textures {\n";
+    for (const auto &[role, slot] : asset.textures) {
+      out << "    " << role << ": " << escapedString(slot.uri.generic_string()) << "\n";
+    }
+    out << "  }\n";
+  }
+
+  if (!asset.params.empty()) {
+    out << "\n  params {\n";
+    for (const auto &[name, value] : asset.params) {
+      out << "    " << name << ": " << serializedFloat(value) << "\n";
+    }
+    out << "  }\n";
+  }
+
+  if (!asset.explicit_features.empty()) {
+    out << "\n  features {\n";
+    for (const auto &[name, value] : asset.explicit_features) {
+      out << "    " << name << ": " << (value ? "true" : "false") << "\n";
+    }
+    out << "  }\n";
+  }
+
+  if (!asset.layers.empty()) {
+    out << "\n  layers {\n";
+    for (const MaterialLayerExpression &layer : asset.layers) {
+      out << "    " << layer.name << ": "
+          << (layer.raw.empty() ? layer.operation : layer.raw) << "\n";
+    }
+    out << "  }\n";
+  }
+
+  out << "}\n";
+  return out.str();
 }
 
 std::vector<MaterialDiagnostic> validateMaterialAsset(const MaterialAsset &asset) {

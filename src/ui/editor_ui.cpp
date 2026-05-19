@@ -3,15 +3,23 @@
 
 #include "aster/ui/editor_ui.hpp"
 
+#include "aster/asset/procedural_asset_graph.hpp"
+#include "aster/material/material_graph.hpp"
 #include "aster/platform/window.hpp"
 #include "aster/scene/scene.hpp"
+#include "aster/texture/texture_importer.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdint>
+#include <fstream>
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <vector>
 
 namespace {
 
@@ -366,10 +374,179 @@ void drawPreview(aster::UiCanvas &canvas, const aster::AssetPreviewImage &previe
   y += size + 12.0f;
 }
 
+std::filesystem::path projectRootForDatabaseRoot(const std::filesystem::path &database_root) {
+  if (database_root.filename() == "desktop" &&
+      database_root.parent_path().filename() == "cooked") {
+    return database_root.parent_path().parent_path();
+  }
+  return database_root;
+}
+
+std::filesystem::path resolveProjectPath(const aster::AssetProductionModel &model,
+                                         const std::filesystem::path &path) {
+  if (path.is_absolute()) {
+    return path;
+  }
+  const std::filesystem::path project_root = projectRootForDatabaseRoot(model.root_path);
+  const std::filesystem::path project_path = project_root / path;
+  std::error_code error;
+  if (std::filesystem::exists(project_path, error)) {
+    return project_path;
+  }
+  return model.root_path / path;
+}
+
+std::optional<std::filesystem::path> outputPathForRole(const aster::AssetProductionAsset &asset,
+                                                       const aster::AssetProductionModel &model,
+                                                       const std::string_view role,
+                                                       const std::string_view kind = {}) {
+  for (const aster::AssetCookedOutput &output : asset.cook.outputs) {
+    if (output.role != role || (!kind.empty() && output.kind != kind)) {
+      continue;
+    }
+    return output.path.empty() ? std::optional<std::filesystem::path>{}
+                               : std::optional<std::filesystem::path>{model.root_path /
+                                                                       output.path};
+  }
+  return std::nullopt;
+}
+
+void loadMaterialLabSelection(const aster::AssetProductionAsset &asset,
+                              const aster::AssetProductionModel &model,
+                              aster::MaterialAsset &material,
+                              aster::MaterialAuthoringGraph &graph,
+                              std::vector<std::string> &diagnostics,
+                              std::filesystem::path &save_path, bool &save_supported,
+                              bool &dirty) {
+  diagnostics.clear();
+  save_path.clear();
+  save_supported = false;
+  dirty = false;
+  material = {};
+  graph = {};
+  if (asset.kind == "material") {
+    const std::filesystem::path source_path = resolveProjectPath(model, asset.source_path);
+    if (source_path.extension() == ".astermat" && std::filesystem::exists(source_path)) {
+      const aster::MaterialAssetLoadResult loaded = aster::loadMaterialAsset(source_path);
+      material = loaded.value;
+      graph = aster::materialAuthoringGraphForAsset(material);
+      for (const aster::MaterialDiagnostic &diagnostic : loaded.diagnostics) {
+        diagnostics.push_back((diagnostic.severity == aster::MaterialDiagnosticSeverity::Error
+                                   ? "error: "
+                                   : "warning: ") +
+                              diagnostic.message);
+      }
+      save_path = source_path;
+      save_supported = loaded.ok();
+      return;
+    }
+    if (!asset.material.material_bin_path.empty() &&
+        std::filesystem::exists(asset.material.material_bin_path)) {
+      const aster::CookedMaterialAsset cooked =
+          aster::loadCookedMaterialAsset(asset.material.material_bin_path);
+      material = cooked.asset;
+      graph = aster::materialAuthoringGraphForAsset(material);
+      diagnostics.push_back("warning: loaded cooked materialbin; source save disabled");
+      return;
+    }
+    diagnostics.push_back("error: material source or materialbin is not available");
+    return;
+  }
+  if (asset.kind == "asset_graph") {
+    const std::optional<std::filesystem::path> graph_package =
+        outputPathForRole(asset, model, "assetgraphbin", "assetgraphbin");
+    if (!graph_package.has_value() || !std::filesystem::exists(*graph_package)) {
+      diagnostics.push_back("error: asset graph package output is not available");
+      return;
+    }
+    const aster::ProceduralAssetGraphPackage package =
+        aster::loadProceduralAssetGraphPackage(*graph_package);
+    material = package.material;
+    graph = aster::materialAuthoringGraphForPackage(package);
+    diagnostics.push_back("warning: asset graph edits are preview-only in V1");
+    for (const aster::MaterialDiagnostic &diagnostic : package.diagnostics) {
+      diagnostics.push_back((diagnostic.severity == aster::MaterialDiagnosticSeverity::Error
+                                 ? "error: "
+                                 : "warning: ") +
+                            diagnostic.message);
+    }
+    return;
+  }
+  diagnostics.push_back("warning: Material Lab supports material and asset_graph assets");
+}
+
+std::string materialLabCacheKey(const aster::MaterialAsset &asset, const std::size_t mesh,
+                                const std::size_t environment) {
+  return std::to_string(mesh) + ":" + std::to_string(environment) + ":" +
+         aster::serializeMaterialAsset(asset);
+}
+
+aster::MaterialLabMeshTarget materialLabMeshTargetAt(const std::size_t index) {
+  constexpr std::array<aster::MaterialLabMeshTarget, 3> values{
+      aster::MaterialLabMeshTarget::Sphere, aster::MaterialLabMeshTarget::Rock,
+      aster::MaterialLabMeshTarget::CaveWall};
+  return values[std::min(index, values.size() - 1u)];
+}
+
+aster::MaterialLabEnvironmentRig materialLabEnvironmentAt(const std::size_t index) {
+  constexpr std::array<aster::MaterialLabEnvironmentRig, 4> values{
+      aster::MaterialLabEnvironmentRig::StudioNeutral, aster::MaterialLabEnvironmentRig::CaveDark,
+      aster::MaterialLabEnvironmentRig::ProbeLit, aster::MaterialLabEnvironmentRig::Fog};
+  return values[std::min(index, values.size() - 1u)];
+}
+
+void refreshMaterialLabPreviews(const aster::MaterialAsset &material, const std::size_t mesh,
+                                const std::size_t environment, std::string &cache_key,
+                                std::vector<aster::MaterialLabPreviewImage> &previews) {
+  const std::string next_key = materialLabCacheKey(material, mesh, environment);
+  if (cache_key == next_key && previews.size() == 6u) {
+    return;
+  }
+  cache_key = next_key;
+  previews.clear();
+  constexpr std::array<aster::MaterialLabPreviewMode, 6> modes{
+      aster::MaterialLabPreviewMode::Beauty, aster::MaterialLabPreviewMode::BaseColor,
+      aster::MaterialLabPreviewMode::Normal, aster::MaterialLabPreviewMode::Roughness,
+      aster::MaterialLabPreviewMode::AmbientOcclusion, aster::MaterialLabPreviewMode::Fog};
+  previews.reserve(modes.size());
+  for (const aster::MaterialLabPreviewMode mode : modes) {
+    previews.push_back(aster::renderMaterialLabPreview(
+        material, {.mode = mode,
+                   .mesh = materialLabMeshTargetAt(mesh),
+                   .environment = materialLabEnvironmentAt(environment),
+                   .width = 128,
+                   .height = 84}));
+  }
+}
+
+void drawSegmentedButtons(aster::UiCanvas &canvas, const std::vector<std::string> &labels,
+                          std::size_t &selected, const float x, float &y, const float width,
+                          const std::string &id_prefix, const float visible_top,
+                          const float visible_bottom) {
+  if (labels.empty()) {
+    return;
+  }
+  const float gap = 6.0f;
+  const float button_width =
+      std::max(48.0f, (width - gap * static_cast<float>(labels.size() - 1u)) /
+                           static_cast<float>(labels.size()));
+  if (y >= visible_top && y + 30.0f <= visible_bottom) {
+    for (std::size_t i = 0u; i < labels.size(); ++i) {
+      const std::string label = labels[i] + (selected == i ? "*" : "");
+      if (canvas.button({x + static_cast<float>(i) * (button_width + gap), y, button_width,
+                         28.0f},
+                        label, id_prefix + "." + std::to_string(i))) {
+        selected = i;
+      }
+    }
+  }
+  y += 34.0f;
+}
+
 void drawAssetTabs(aster::UiCanvas &canvas, std::size_t &selected_tab, const float x, float &y,
                    const float width, const float visible_top, const float visible_bottom) {
-  constexpr std::array<std::string_view, 5> tabs{"Catalog", "Material", "Texture", "Mesh",
-                                                 "Cook"};
+  constexpr std::array<std::string_view, 6> tabs{"Catalog", "Material", "Texture", "Mesh",
+                                                 "Cook", "Lab"};
   const std::size_t columns = width < 330.0f ? 3u : tabs.size();
   const float gap = 6.0f;
   const float button_width =
@@ -586,8 +763,260 @@ void drawCookTab(aster::UiCanvas &canvas, const aster::AssetProductionAsset &ass
   listRows(canvas, "Diagnostic", diagnostics, 7u, x, y, width, visible_top, visible_bottom);
 }
 
+void drawMaterialLabGraph(aster::UiCanvas &canvas, const aster::MaterialAuthoringGraph &graph,
+                          std::size_t &selected_node, const float x, float &y,
+                          const float width, const float visible_top,
+                          const float visible_bottom) {
+  section(canvas, "Node Graph", x, y, width);
+  textRow(canvas, "Source", graph.source_kind.empty() ? "none" : graph.source_kind, x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Nodes", std::to_string(graph.nodes.size()), x, y, width, visible_top,
+          visible_bottom);
+  if (graph.nodes.empty()) {
+    return;
+  }
+  selected_node = std::min(selected_node, graph.nodes.size() - 1u);
+  const float graph_height = std::min(210.0f, std::max(132.0f, width * 0.52f));
+  const aster::UiRect graph_rect{x, y, width, graph_height};
+  if (y + graph_height >= visible_top && y <= visible_bottom) {
+    canvas.fillRoundRect(graph_rect, 6.0f, {0.035f, 0.047f, 0.050f, 0.96f});
+    canvas.strokeRect(graph_rect, {0.80f, 0.60f, 0.32f, 0.34f}, 1.0f);
+    std::vector<std::pair<std::string, aster::Vec2>> centers;
+    const std::size_t visible_nodes = std::min<std::size_t>(graph.nodes.size(), 12u);
+    const float node_width = (width - 44.0f) * 0.5f;
+    const float node_height = 24.0f;
+    for (std::size_t i = 0u; i < visible_nodes; ++i) {
+      const std::size_t row = i / 2u;
+      const std::size_t column = i % 2u;
+      const float nx = graph_rect.x + 14.0f + static_cast<float>(column) * (node_width + 16.0f);
+      const float ny = graph_rect.y + 14.0f + static_cast<float>(row) * 31.0f;
+      centers.push_back({graph.nodes[i].id, {nx + node_width * 0.5f, ny + node_height * 0.5f}});
+    }
+    const auto center_for = [&](const std::string &id) -> std::optional<aster::Vec2> {
+      const auto found = std::find_if(centers.begin(), centers.end(),
+                                      [&](const auto &entry) { return entry.first == id; });
+      return found == centers.end() ? std::optional<aster::Vec2>{}
+                                    : std::optional<aster::Vec2>{found->second};
+    };
+    for (const aster::MaterialAuthoringEdge &edge : graph.edges) {
+      const std::optional<aster::Vec2> from = center_for(edge.from);
+      const std::optional<aster::Vec2> to = center_for(edge.to);
+      if (from.has_value() && to.has_value()) {
+        canvas.line(*from, *to, {0.86f, 0.62f, 0.28f, 0.42f}, 1.0f);
+      }
+    }
+    for (std::size_t i = 0u; i < visible_nodes; ++i) {
+      const std::size_t row = i / 2u;
+      const std::size_t column = i % 2u;
+      const float nx = graph_rect.x + 14.0f + static_cast<float>(column) * (node_width + 16.0f);
+      const float ny = graph_rect.y + 14.0f + static_cast<float>(row) * 31.0f;
+      const aster::MaterialAuthoringNode &node = graph.nodes[i];
+      const std::string label = clippedValue(node.label.empty() ? node.id : node.label, 18u) +
+                                (i == selected_node ? "*" : "");
+      if (canvas.button({nx, ny, node_width, node_height}, label,
+                        "material_lab.node." + std::to_string(i))) {
+        selected_node = i;
+      }
+      if (node.capability_status == "unsupported") {
+        canvas.strokeRect({nx, ny, node_width, node_height}, {0.90f, 0.23f, 0.18f, 0.82f},
+                          2.0f);
+      }
+    }
+  }
+  y += graph_height + 12.0f;
+  const aster::MaterialAuthoringNode &node = graph.nodes[selected_node];
+  textRow(canvas, "Selected", clippedValue(node.id), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Op", clippedValue(node.operation), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Role", clippedValue(node.role), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Persisted", node.persisted ? "yes" : "preview-only", x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Capability", clippedValue(node.capability_status), x, y, width, visible_top,
+          visible_bottom);
+  std::vector<std::string> params;
+  for (const auto &[key, value] : node.params) {
+    params.push_back(key + "=" + value);
+  }
+  listRows(canvas, "Param", params, 5u, x, y, width, visible_top, visible_bottom);
+}
+
+void drawMaterialLabControls(aster::UiCanvas &canvas, aster::MaterialAsset &material,
+                             bool &dirty, const float x, float &y, const float width,
+                             const float visible_top, const float visible_bottom) {
+  section(canvas, "Authoring", x, y, width);
+  const auto slider_param = [&](const std::string &name, const float fallback,
+                               const float min_value, const float max_value) {
+    auto found = material.params.find(name);
+    if (found == material.params.end()) {
+      found = material.params.emplace(name, fallback).first;
+    }
+    float &value = found->second;
+    const float before = value;
+    sliderRow(canvas, name, value, min_value, max_value, x, y, width,
+              "material_lab.param." + name, visible_top, visible_bottom);
+    dirty = dirty || before != value;
+  };
+  slider_param("roughness", 0.55f, 0.02f, 1.0f);
+  slider_param("metallic", 0.0f, 0.0f, 1.0f);
+  slider_param("wetness_strength", 0.0f, 0.0f, 1.0f);
+  slider_param("micro_normal_strength", 0.0f, 0.0f, 1.25f);
+  slider_param("height_shading", 0.0f, 0.0f, 0.85f);
+  slider_param("triplanar_scale", 1.0f, 0.25f, 8.0f);
+  const auto checkbox_feature = [&](const std::string &name) {
+    bool value = material.explicit_features[name];
+    const bool before = value;
+    checkboxRow(canvas, name, value, x, y, width, "material_lab.feature." + name, visible_top,
+                visible_bottom);
+    material.explicit_features[name] = value;
+    dirty = dirty || before != value;
+  };
+  checkbox_feature("triplanar");
+  checkbox_feature("normal_map");
+  checkbox_feature("parallax");
+}
+
+void drawMaterialLabPreviewGrid(aster::UiCanvas &canvas,
+                                const std::vector<aster::MaterialLabPreviewImage> &previews,
+                                const float x, float &y, const float width,
+                                const float visible_top, const float visible_bottom) {
+  section(canvas, "Preview", x, y, width);
+  constexpr std::array<aster::MaterialLabPreviewMode, 6> modes{
+      aster::MaterialLabPreviewMode::Beauty, aster::MaterialLabPreviewMode::BaseColor,
+      aster::MaterialLabPreviewMode::Normal, aster::MaterialLabPreviewMode::Roughness,
+      aster::MaterialLabPreviewMode::AmbientOcclusion, aster::MaterialLabPreviewMode::Fog};
+  const float gap = 8.0f;
+  const float thumb_width = std::max(86.0f, (width - gap) * 0.5f);
+  const float thumb_height = thumb_width * 0.66f;
+  for (std::size_t i = 0u; i < modes.size(); ++i) {
+    const std::size_t column = i % 2u;
+    if (column == 0u && i > 0u) {
+      y += thumb_height + 25.0f;
+    }
+    const float tx = x + static_cast<float>(column) * (thumb_width + gap);
+    if (y + thumb_height >= visible_top && y <= visible_bottom) {
+      canvas.text(std::string(aster::materialLabPreviewModeName(modes[i])), {tx, y}, kDim,
+                  1.08f);
+      const aster::UiRect rect{tx, y + 15.0f, thumb_width, thumb_height};
+      canvas.fillRoundRect(rect, 5.0f, {0.045f, 0.058f, 0.062f, 0.96f});
+      if (i < previews.size() && previews[i].available) {
+        canvas.image({rect.x + 3.0f, rect.y + 3.0f, rect.width - 6.0f, rect.height - 6.0f},
+                     static_cast<std::uint32_t>(previews[i].width),
+                     static_cast<std::uint32_t>(previews[i].height), previews[i].rgba8);
+      } else {
+        canvas.text("No preview", {rect.x + 8.0f, rect.y + rect.height * 0.45f}, kDim, 0.95f);
+      }
+      canvas.strokeRect(rect, {0.82f, 0.61f, 0.34f, 0.36f}, 1.0f);
+    }
+  }
+  y += thumb_height + 31.0f;
+}
+
+void drawMaterialLabAudit(aster::UiCanvas &canvas, const aster::MaterialLabAudit &audit,
+                          const float x, float &y, const float width, const float visible_top,
+                          const float visible_bottom) {
+  section(canvas, "Audit", x, y, width);
+  textRow(canvas, "Ready", yesNo(audit.production_ready), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Score", std::to_string(audit.score), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Shader", clippedValue(audit.shader_variant_tag), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Variant key", hexU64(audit.shader_variant_key), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Feature mask", hexU64(audit.feature_mask), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Texture bytes", byteCost(audit.texture_byte_cost), x, y, width, visible_top,
+          visible_bottom);
+  std::vector<std::string> textures;
+  for (const aster::MaterialLabTextureAudit &texture : audit.textures) {
+    textures.push_back(texture.role + " " + std::to_string(texture.width) + "x" +
+                       std::to_string(texture.height) + " mips " +
+                       std::to_string(texture.mip_count) + " " + byteCost(texture.byte_cost));
+  }
+  listRows(canvas, "Texture", textures, 6u, x, y, width, visible_top, visible_bottom);
+  listRows(canvas, "Issue", audit.issues, 6u, x, y, width, visible_top, visible_bottom);
+  listRows(canvas, "Mobile", audit.mobile_degradations, 4u, x, y, width, visible_top,
+           visible_bottom);
+  listRows(canvas, "Provenance", audit.provenance_notes, 4u, x, y, width, visible_top,
+           visible_bottom);
+}
+
+void drawMaterialLabTab(aster::UiCanvas &canvas, const aster::AssetProductionModel &model,
+                        const aster::AssetProductionAsset &asset,
+                        aster::MaterialAsset &material, aster::MaterialAuthoringGraph &graph,
+                        std::string &loaded_asset_id, std::filesystem::path &save_path,
+                        bool &save_supported, bool &dirty, std::size_t &selected_node,
+                        std::size_t &selected_mesh, std::size_t &selected_environment,
+                        std::string &cache_key,
+                        std::vector<aster::MaterialLabPreviewImage> &previews,
+                        std::vector<std::string> &diagnostics, const float x, float &y,
+                        const float width, const float visible_top, const float visible_bottom) {
+  section(canvas, "Material Lab", x, y, width);
+  if (asset.kind != "material" && asset.kind != "asset_graph") {
+    textRow(canvas, "Asset", "not material", x, y, width, visible_top, visible_bottom);
+    return;
+  }
+  if (loaded_asset_id != asset.id) {
+    loaded_asset_id = asset.id;
+    selected_node = 0u;
+    cache_key.clear();
+    previews.clear();
+    loadMaterialLabSelection(asset, model, material, graph, diagnostics, save_path,
+                             save_supported, dirty);
+  }
+  textRow(canvas, "Asset", clippedValue(asset.id), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Source", clippedValue(material.source_path.generic_string()), x, y, width,
+          visible_top, visible_bottom);
+  listRows(canvas, "Status", diagnostics, 3u, x, y, width, visible_top, visible_bottom);
+  drawSegmentedButtons(canvas, {"Sphere", "Rock", "Cave"}, selected_mesh, x, y, width,
+                       "material_lab.mesh", visible_top, visible_bottom);
+  drawSegmentedButtons(canvas, {"Studio", "Cave", "Probe", "Fog"}, selected_environment, x, y,
+                       width, "material_lab.env", visible_top, visible_bottom);
+
+  drawMaterialLabGraph(canvas, graph, selected_node, x, y, width, visible_top, visible_bottom);
+  drawMaterialLabControls(canvas, material, dirty, x, y, width, visible_top, visible_bottom);
+  if (dirty && graph.source_kind != "assetgraphbin") {
+    graph = aster::materialAuthoringGraphForAsset(material);
+  }
+  const aster::TextureSetValidation validation =
+      aster::validateMaterialTextureSet(material, {}, {.require_existing_files = false});
+  const aster::MaterialLabAudit audit = aster::buildMaterialLabAudit(material, validation);
+  refreshMaterialLabPreviews(material, selected_mesh, selected_environment, cache_key, previews);
+  drawMaterialLabPreviewGrid(canvas, previews, x, y, width, visible_top, visible_bottom);
+  drawMaterialLabAudit(canvas, audit, x, y, width, visible_top, visible_bottom);
+
+  section(canvas, "Save", x, y, width);
+  textRow(canvas, "Dirty", yesNo(dirty), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Mode", save_supported ? "canonical astermat" : "preview-only", x, y, width,
+          visible_top, visible_bottom);
+  if (save_supported && y >= visible_top && y + 34.0f <= visible_bottom) {
+    if (canvas.button({x, y, width, 30.0f}, dirty ? "Save Material*" : "Save Material",
+                      "material_lab.save")) {
+      std::ofstream file(save_path, std::ios::binary);
+      if (file) {
+        file << aster::serializeMaterialAsset(material);
+        dirty = false;
+        diagnostics.push_back("saved: " + save_path.generic_string());
+      } else {
+        diagnostics.push_back("error: could not save " + save_path.generic_string());
+      }
+    }
+  }
+  y += 38.0f;
+}
+
 void drawAssetStudioPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
                           std::size_t &selected_tab, std::size_t &selected_texture,
+                          std::size_t &selected_material_lab_node,
+                          std::size_t &selected_material_lab_mesh,
+                          std::size_t &selected_material_lab_environment,
+                          aster::MaterialAsset &material_lab_asset,
+                          aster::MaterialAuthoringGraph &material_lab_graph,
+                          std::string &material_lab_loaded_asset_id,
+                          std::filesystem::path &material_lab_save_path,
+                          bool &material_lab_save_supported, bool &material_lab_dirty,
+                          std::string &material_lab_cache_key,
+                          std::vector<aster::MaterialLabPreviewImage> &material_lab_previews,
+                          std::vector<std::string> &material_lab_diagnostics,
                           const aster::EditorRuntimeModel &runtime, const float x, float &y,
                           const float width, const float visible_top,
                           const float visible_bottom) {
@@ -611,12 +1040,14 @@ void drawAssetStudioPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
         selected_asset > 0u) {
       --selected_asset;
       selected_texture = 0u;
+      material_lab_loaded_asset_id.clear();
     }
     if (canvas.button({x + width - button_width, y, button_width, 30.0f}, "Next",
                       "asset.next") &&
         selected_asset + 1u < model->assets.size()) {
       ++selected_asset;
       selected_texture = 0u;
+      material_lab_loaded_asset_id.clear();
     }
   }
   y += 38.0f;
@@ -636,6 +1067,15 @@ void drawAssetStudioPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
     break;
   case 4u:
     drawCookTab(canvas, asset, x, y, width, visible_top, visible_bottom);
+    break;
+  case 5u:
+    drawMaterialLabTab(canvas, *model, asset, material_lab_asset, material_lab_graph,
+                       material_lab_loaded_asset_id, material_lab_save_path,
+                       material_lab_save_supported, material_lab_dirty,
+                       selected_material_lab_node, selected_material_lab_mesh,
+                       selected_material_lab_environment, material_lab_cache_key,
+                       material_lab_previews, material_lab_diagnostics, x, y, width, visible_top,
+                       visible_bottom);
     break;
   default:
     selected_tab = 0u;
@@ -932,8 +1372,14 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
   y += 8.0f;
   drawSceneSummary(canvas_, scene, x, y, width, visible_top, panel_bottom);
   y += 8.0f;
-  drawAssetStudioPanel(canvas_, selected_asset_, selected_asset_tab_, selected_texture_, runtime,
-                       x, y, width, visible_top, panel_bottom);
+  drawAssetStudioPanel(canvas_, selected_asset_, selected_asset_tab_, selected_texture_,
+                       selected_material_lab_node_, selected_material_lab_mesh_,
+                       selected_material_lab_environment_, material_lab_asset_,
+                       material_lab_graph_, material_lab_loaded_asset_id_,
+                       material_lab_save_path_, material_lab_save_supported_,
+                       material_lab_dirty_, material_lab_cache_key_, material_lab_previews_,
+                       material_lab_diagnostics_, runtime, x, y, width, visible_top,
+                       panel_bottom);
   y += 8.0f;
   drawObjectFatePanel(canvas_, selected_object_fate_, runtime.frame_forensics, x, y, width,
                       visible_top, panel_bottom);

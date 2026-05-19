@@ -2061,6 +2061,115 @@ void LumenRun::rebuildScene() {
   appendCaveFeatures(cave_complex.features, cave_spec.features);
   appendCaveFeatures(deep_cave_complex.features, deep_cave_spec.features);
 
+  const CaveTunnelFrame gauntlet_entry_frame =
+      sampleCaveTunnelFrameAtDistance(deep_cave_spec.tunnel, 8.4f);
+  const CaveTunnelFrame gauntlet_plate_frame =
+      sampleCaveTunnelFrameAtDistance(deep_cave_spec.tunnel, 10.8f);
+  const CaveTunnelFrame gauntlet_door_frame =
+      sampleCaveTunnelFrameAtDistance(deep_cave_spec.tunnel, 13.2f);
+  const CaveTunnelFrame gauntlet_lift_frame =
+      sampleCaveTunnelFrameAtDistance(deep_cave_spec.tunnel, 16.4f);
+  const CaveTunnelFrame gauntlet_exit_frame =
+      sampleCaveTunnelFrameAtDistance(deep_cave_spec.tunnel, 21.2f);
+  classic_gauntlet_entry_ = gauntlet_entry_frame.floor_center + gauntlet_entry_frame.up * 0.28f;
+  classic_gauntlet_plate_ = gauntlet_plate_frame.floor_center + gauntlet_plate_frame.up * 0.055f;
+  classic_gauntlet_door_center_ =
+      gauntlet_door_frame.floor_center + gauntlet_door_frame.up * 0.72f;
+  classic_gauntlet_door_side_ = length(gauntlet_door_frame.side) > 0.0001f
+                                    ? normalize(gauntlet_door_frame.side)
+                                    : Vec3{1.0f, 0.0f, 0.0f};
+  classic_gauntlet_lift_base_ = gauntlet_lift_frame.floor_center + gauntlet_lift_frame.up * 0.08f;
+  classic_gauntlet_exit_ = gauntlet_exit_frame.floor_center + gauntlet_exit_frame.up * 0.52f;
+  const float gauntlet_yaw = std::atan2(gauntlet_door_frame.tangent.x,
+                                        gauntlet_door_frame.tangent.z);
+
+  Material gauntlet_bulkhead = weathered_iron;
+  gauntlet_bulkhead.base_color = {0.16f, 0.18f, 0.19f};
+  gauntlet_bulkhead.emission_color = {0.90f, 0.18f, 0.10f};
+  gauntlet_bulkhead.emission_strength = 0.04f;
+  gauntlet_bulkhead.edge_wear = std::max(gauntlet_bulkhead.edge_wear, 0.46f);
+  Material gauntlet_lens = industrial_wall_lens;
+  gauntlet_lens.emission_strength = 0.08f;
+  Material gauntlet_floor = cave_floor;
+  gauntlet_floor.emission_color = {0.30f, 0.78f, 0.86f};
+  gauntlet_floor.emission_strength = 0.025f;
+  Material gauntlet_map_material =
+      material({0.025f, 0.062f, 0.055f}, {0.18f, 0.80f, 0.62f}, 0.34f, 0.0f, 0.18f,
+               0.18f, 9.0f, 0.02f, 0.94f, SurfacePattern::CourseCells, {8.0f, 6.0f}, 0.014f,
+               0.64f, 0.03f);
+  gauntlet_map_material.emission_strength = 0.24f;
+
+  appendScenery("Classic gauntlet pressure glyph", MeshPrimitive::Box,
+                classic_gauntlet_plate_, {0.72f, 0.035f, 0.72f}, {0.0f, gauntlet_yaw, 0.0f},
+                gauntlet_floor);
+  classic_gauntlet_plate_object_ = scene_.objects().size() - 1u;
+  classic_gauntlet_door_objects_.push_back(keepCameraSolid(appendScenery(
+      "Classic gauntlet prism bulkhead left", MeshPrimitive::Box,
+      classic_gauntlet_door_center_ - classic_gauntlet_door_side_ * 0.42f,
+      {0.42f, 0.82f, 0.12f}, {0.0f, gauntlet_yaw, 0.0f}, gauntlet_bulkhead)));
+  classic_gauntlet_door_objects_.push_back(keepCameraSolid(appendScenery(
+      "Classic gauntlet prism bulkhead right", MeshPrimitive::Box,
+      classic_gauntlet_door_center_ + classic_gauntlet_door_side_ * 0.42f,
+      {0.42f, 0.82f, 0.12f}, {0.0f, gauntlet_yaw, 0.0f}, gauntlet_bulkhead)));
+  for (int i = 0; i < 4; ++i) {
+    const float side = i < 2 ? -1.0f : 1.0f;
+    const float lift = (i % 2) == 0 ? -0.42f : 0.42f;
+    classic_gauntlet_signal_objects_.push_back(appendScenery(
+        "Classic gauntlet red status lens", MeshPrimitive::Crystal,
+        classic_gauntlet_door_center_ + classic_gauntlet_door_side_ * side * 0.92f +
+            Vec3{0.0f, lift, 0.0f},
+        {0.070f, 0.11f, 0.070f}, {0.0f, gauntlet_yaw, 0.0f}, gauntlet_lens));
+  }
+  classic_gauntlet_lift_object_ = keepCameraSolid(appendScenery(
+      "Classic gauntlet lift platform", MeshPrimitive::Box, classic_gauntlet_lift_base_,
+      {1.05f, 0.055f, 0.82f}, {0.0f, gauntlet_yaw, 0.0f}, gauntlet_floor));
+  classic_gauntlet_map_object_ = appendScenery(
+      "Classic gauntlet automap console", MeshPrimitive::Box,
+      classic_gauntlet_entry_ + gauntlet_entry_frame.side * -0.82f + Vec3{0.0f, 0.52f, 0.0f},
+      {0.48f, 0.25f, 0.045f}, {0.0f, gauntlet_yaw + radians(12.0f), 0.0f},
+      gauntlet_map_material);
+  classic_gauntlet_mechanisms_.add({.id = "classic.bulkhead",
+                                    .kind = WorldMechanismKind::Door,
+                                    .closed_position = classic_gauntlet_door_center_,
+                                    .open_position = classic_gauntlet_door_center_ +
+                                                     gauntlet_door_frame.up * 0.02f,
+                                    .speed = 0.82f,
+                                    .hold_seconds = 0.0f,
+                                    .light_intensity_closed = 0.08f,
+                                    .light_intensity_open = 1.0f});
+  classic_gauntlet_mechanisms_.add({.id = "classic.lift",
+                                    .kind = WorldMechanismKind::Lift,
+                                    .closed_position = classic_gauntlet_lift_base_,
+                                    .open_position = classic_gauntlet_lift_base_ +
+                                                     gauntlet_lift_frame.up * 0.62f,
+                                    .speed = 0.42f,
+                                    .hold_seconds = 0.0f,
+                                    .light_intensity_closed = 0.04f,
+                                    .light_intensity_open = 0.88f});
+  for (int i = 0; i < 3; ++i) {
+    const float offset = static_cast<float>(i - 1) * 0.62f;
+    const Vec3 actor_position = gauntlet_lift_frame.floor_center + gauntlet_lift_frame.side * offset +
+                                gauntlet_lift_frame.tangent * (0.52f + 0.35f * i) +
+                                gauntlet_lift_frame.up * 0.24f;
+    const std::string actor_id = "classic.gauntlet.sentinel." + std::to_string(i);
+    classic_gauntlet_actors_.spawn({.id = actor_id,
+                                    .kind = ClassicActorKind::Scout,
+                                    .position = actor_position,
+                                    .home = actor_position,
+                                    .radius = 0.28f,
+                                    .speed = 0.92f + static_cast<float>(i) * 0.08f,
+                                    .notice_radius = 5.2f,
+                                    .strike_radius = 0.56f,
+                                    .strike_cooldown = 1.25f,
+                                    .health = 2,
+                                    .seed = 0xA57E9000u + static_cast<std::uint32_t>(i)});
+    const std::size_t actor_object = appendScenery(
+        "Classic gauntlet encounter sentinel", MeshPrimitive::Crystal, actor_position,
+        {0.34f, 0.26f, 0.34f}, {0.0f, gauntlet_yaw, 0.0f}, cave_skitter_material);
+    classic_gauntlet_actor_visuals_.push_back({actor_id, actor_object});
+  }
+  refreshClassicGauntletAutomap();
+
   Vec3 sign_base = {cave_entrance.x - 1.78f, cave_floor_y + 0.72f, cave_entrance.z + 1.32f};
   if (const TerrainSurfaceSample sign_ground = groundDrapeSurface({sign_base.x, sign_base.z});
       sign_ground.valid) {

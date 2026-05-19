@@ -267,6 +267,15 @@ struct RendererForensicsSettings {
   bool backend_certification = true;
 };
 
+enum class MaterialDebugView {
+  Beauty,
+  BaseColor,
+  Normal,
+  Roughness,
+  AmbientOcclusion,
+  Fog,
+};
+
 struct RendererSettings {
   float exposure = 1.05f;
   float ambient_strength = 0.18f;
@@ -290,6 +299,7 @@ struct RendererSettings {
   RendererReflectionSettings reflections{};
   RendererForensicsSettings forensics{};
   RenderStyleProfile style{};
+  MaterialDebugView material_debug_view = MaterialDebugView::Beauty;
 };
 
 struct FrameStats {

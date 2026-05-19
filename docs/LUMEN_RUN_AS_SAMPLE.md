@@ -19,10 +19,19 @@ new gameplay assumptions into the engine. Before new sample-game features become
 engine work, backend presentation, GPU timings, feature parity, asset compiler
 diagnostics, and cooked-content workflows must stay visible and testable.
 
+## Classic Gauntlet
+
+The deep cave includes a Classic Gauntlet route built from Aster-native systems
+ported from the FarukAlpay source family: deterministic command/replay support,
+classic actor state transitions, switch-driven doors/lifts, automap markers,
+HUD alerts, and melt-wipe presentation. The route is deliberately content-owned
+by Lumen Run; reusable behavior stays in `include/aster` and `src`.
+
 Useful commands:
 
 ```bash
 ./build/aster_lumen_run --smoke-test --no-vsync
 ./build/aster_lumen_run --frame-report --run-frames 240 --window-width 1280 --window-height 720
 ./build/aster_lumen_run --screenshot /tmp/lumen_run.ppm --screenshot-frame 8 --capture-hud
+./build/aster_lumen_run --screenshot /tmp/lumen_classic.ppm --capture-route classic-gauntlet --screenshot-frame 96 --capture-hud --msaa 0 --window-width 1280 --window-height 720
 ```

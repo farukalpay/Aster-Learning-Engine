@@ -6,9 +6,14 @@
 #include "aster/asset/asset_database.hpp"
 #include "aster/asset/asset_factory.hpp"
 #include "aster/asset/asset_production_model.hpp"
+#include "aster/material/material_lab.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/render_device.hpp"
 #include "aster/ui/ui_canvas.hpp"
+
+#include <string>
+#include <vector>
+#include <filesystem>
 
 namespace aster {
 
@@ -49,10 +54,22 @@ private:
   std::size_t selected_asset_ = 0u;
   std::size_t selected_asset_tab_ = 0u;
   std::size_t selected_texture_ = 0u;
+  std::size_t selected_material_lab_node_ = 0u;
+  std::size_t selected_material_lab_mesh_ = 0u;
+  std::size_t selected_material_lab_environment_ = 0u;
   std::size_t selected_object_fate_ = 0u;
   std::size_t selected_timeline_event_ = 0u;
   std::size_t selected_resource_provenance_ = 0u;
   std::size_t selected_regression_entry_ = 0u;
+  MaterialAsset material_lab_asset_{};
+  MaterialAuthoringGraph material_lab_graph_{};
+  std::string material_lab_loaded_asset_id_;
+  std::filesystem::path material_lab_save_path_;
+  std::string material_lab_cache_key_;
+  std::vector<MaterialLabPreviewImage> material_lab_previews_;
+  std::vector<std::string> material_lab_diagnostics_;
+  bool material_lab_dirty_ = false;
+  bool material_lab_save_supported_ = false;
   bool initialized_ = false;
 };
 

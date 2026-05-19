@@ -252,6 +252,164 @@ void LumenRun::updatePrismRelayVisuals(const float dt) {
   }
 }
 
+void LumenRun::refreshClassicGauntletAutomap() {
+  classic_gauntlet_automap_.clear();
+  const Vec2 entry{classic_gauntlet_entry_.x, classic_gauntlet_entry_.z};
+  const Vec2 plate{classic_gauntlet_plate_.x, classic_gauntlet_plate_.z};
+  const Vec2 door{classic_gauntlet_door_center_.x, classic_gauntlet_door_center_.z};
+  const Vec2 lift{classic_gauntlet_lift_base_.x, classic_gauntlet_lift_base_.z};
+  const Vec2 exit{classic_gauntlet_exit_.x, classic_gauntlet_exit_.z};
+  classic_gauntlet_automap_.addLine({entry, plate, false, false});
+  classic_gauntlet_automap_.addLine({plate, door, false, true});
+  classic_gauntlet_automap_.addLine({door, lift, false, false});
+  classic_gauntlet_automap_.addLine({lift, exit, false, false});
+  classic_gauntlet_automap_.addMarker({"bulkhead", AutomapMarkerKind::Door, door, false, 0.0f});
+  classic_gauntlet_automap_.addMarker({"lift", AutomapMarkerKind::Lift, lift, false, 0.0f});
+  classic_gauntlet_automap_.addMarker({"exit", AutomapMarkerKind::Objective, exit, false, 0.0f});
+  for (const ClassicGauntletActorVisual &visual : classic_gauntlet_actor_visuals_) {
+    if (const ClassicActorState *actor = classic_gauntlet_actors_.find(visual.id)) {
+      classic_gauntlet_automap_.addMarker(
+          {visual.id, AutomapMarkerKind::Threat, {actor->position.x, actor->position.z}, false,
+           0.0f});
+    }
+  }
+}
+
+void LumenRun::updateClassicGauntlet(const float dt) {
+  ASTER_PROFILE_SCOPE("LumenRun::updateClassicGauntlet");
+  if (classic_gauntlet_actor_visuals_.empty()) {
+    classic_gauntlet_hud_ = {};
+    return;
+  }
+
+  classic_gauntlet_hurt_seconds_ = std::max(0.0f, classic_gauntlet_hurt_seconds_ - dt);
+  const float entry_distance = distanceOnArena(player_position_, classic_gauntlet_entry_);
+  const float plate_distance = distanceOnArena(player_position_, classic_gauntlet_plate_);
+  const bool entered = entry_distance < 4.2f || plate_distance < 3.0f;
+  if (entered) {
+    classic_gauntlet_active_ = true;
+    classic_gauntlet_discovered_ = true;
+    if (!classic_gauntlet_wipe_started_) {
+      classic_gauntlet_wipe_.start(72, 720, 0xA57E901Du, 0.72f);
+      classic_gauntlet_wipe_started_ = true;
+    }
+  }
+
+  if (classic_gauntlet_active_) {
+    classic_gauntlet_mechanisms_.trigger("classic.bulkhead", true);
+    if (plate_distance < 1.9f) {
+      classic_gauntlet_mechanisms_.trigger("classic.lift", true);
+    }
+  }
+
+  classic_gauntlet_mechanisms_.update(dt);
+  if (const WorldMechanismState *bulkhead =
+          classic_gauntlet_mechanisms_.find("classic.bulkhead")) {
+    if (bulkhead->progress > 0.74f &&
+        distanceOnArena(player_position_, classic_gauntlet_lift_base_) < 2.6f) {
+      classic_gauntlet_mechanisms_.trigger("classic.lift", true);
+    }
+  }
+
+  if (classic_gauntlet_active_) {
+    const int health_before = status_.health;
+    const ClassicActorFrame frame = classic_gauntlet_actors_.update(player_position_, dt);
+    for (const ClassicActorEvent &event : frame.events) {
+      if (event.strike) {
+        const ClassicActorState *actor = classic_gauntlet_actors_.find(event.actor_id);
+        (void)applyPlayerDamage(2, actor != nullptr ? actor->position : classic_gauntlet_entry_);
+      }
+    }
+    if (status_.health < health_before) {
+      classic_gauntlet_hurt_seconds_ = 0.54f;
+    }
+  }
+
+  classic_gauntlet_wipe_.update(dt);
+  classic_gauntlet_automap_.setPlayer({player_position_.x, player_position_.z},
+                                      player_facing_yaw_);
+  if (classic_gauntlet_discovered_) {
+    classic_gauntlet_automap_.revealWithin({player_position_.x, player_position_.z}, 7.4f);
+  }
+
+  bool threat_visible = false;
+  for (const ClassicActorState &actor : classic_gauntlet_actors_.actors()) {
+    threat_visible = threat_visible ||
+                     (actor.mode == ClassicActorMode::Chase ||
+                      actor.mode == ClassicActorMode::Strike ||
+                      actor.mode == ClassicActorMode::Alert);
+  }
+  bool mechanism_active = false;
+  for (const WorldMechanismState &state : classic_gauntlet_mechanisms_.states()) {
+    mechanism_active = mechanism_active || state.mode == WorldMechanismMode::Opening ||
+                       state.mode == WorldMechanismMode::Open;
+  }
+  classic_gauntlet_hud_ = evaluateClassicHudSignals({.health = status_.health,
+                                                     .max_health = status_.max_health,
+                                                     .gauntlet_active = classic_gauntlet_active_,
+                                                     .threat_visible = threat_visible,
+                                                     .mechanism_active = mechanism_active,
+                                                     .hurt_seconds = classic_gauntlet_hurt_seconds_});
+}
+
+void LumenRun::updateClassicGauntletVisuals(const float dt) {
+  (void)dt;
+  auto &objects = scene_.objects();
+  const WorldMechanismState *bulkhead = classic_gauntlet_mechanisms_.find("classic.bulkhead");
+  const float door_open = bulkhead != nullptr ? clamp(bulkhead->progress, 0.0f, 1.0f) : 0.0f;
+  for (std::size_t i = 0; i < classic_gauntlet_door_objects_.size(); ++i) {
+    const std::size_t object_index = classic_gauntlet_door_objects_[i];
+    if (object_index >= objects.size()) {
+      continue;
+    }
+    const float side = i == 0u ? -1.0f : 1.0f;
+    RenderObject &door = objects[object_index];
+    door.transform.position =
+        classic_gauntlet_door_center_ + classic_gauntlet_door_side_ * (side * (0.42f + door_open * 0.66f));
+    door.material.emission_strength = 0.04f + door_open * 0.10f;
+  }
+
+  if (const WorldMechanismState *lift = classic_gauntlet_mechanisms_.find("classic.lift")) {
+    if (classic_gauntlet_lift_object_ < objects.size()) {
+      RenderObject &platform = objects[classic_gauntlet_lift_object_];
+      platform.transform.position = lift->position;
+      platform.material.emission_strength = 0.06f + lift->progress * 0.12f;
+    }
+  }
+
+  for (std::size_t i = 0; i < classic_gauntlet_signal_objects_.size(); ++i) {
+    if (classic_gauntlet_signal_objects_[i] >= objects.size()) {
+      continue;
+    }
+    RenderObject &signal = objects[classic_gauntlet_signal_objects_[i]];
+    const float pulse =
+        0.5f + 0.5f * std::sin(status_.elapsed_seconds * 5.2f + static_cast<float>(i) * 0.71f);
+    signal.material.emission_strength =
+        classic_gauntlet_active_ ? 0.18f + pulse * 0.18f : 0.035f + pulse * 0.025f;
+  }
+
+  for (const ClassicGauntletActorVisual &visual : classic_gauntlet_actor_visuals_) {
+    if (visual.object_index >= objects.size()) {
+      continue;
+    }
+    const ClassicActorState *actor = classic_gauntlet_actors_.find(visual.id);
+    if (actor == nullptr || actor->mode == ClassicActorMode::Dead) {
+      hideRenderObject(objects[visual.object_index]);
+      continue;
+    }
+    RenderObject &object = objects[visual.object_index];
+    const float alert = actor->mode == ClassicActorMode::Chase ||
+                                actor->mode == ClassicActorMode::Strike
+                            ? 1.0f
+                            : 0.0f;
+    object.transform.position = actor->position + Vec3{0.0f, 0.17f, 0.0f};
+    object.transform.rotation =
+        quatFromEulerXyz({0.0f, actor->facing_yaw, 0.09f * std::sin(actor->age * 7.0f)});
+    object.transform.scale = {0.34f + alert * 0.06f, 0.26f, 0.34f + alert * 0.06f};
+    object.material.emission_strength = 0.08f + alert * 0.26f;
+  }
+}
+
 void LumenRun::updateCaveVisuals(const float dt) {
   auto &objects = scene_.objects();
   CaveInteriorSample player_cave_sample{};

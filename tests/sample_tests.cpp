@@ -765,6 +765,56 @@ void testLumenPondWallLightIsMountedOutsideWater() {
   assert(saw_wall_fixture);
 }
 
+void testLumenClassicGauntletVisibleAndAutomapped() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  bool saw_bulkhead = false;
+  bool saw_lift = false;
+  bool saw_console = false;
+  bool saw_encounter_actor = false;
+  aster::Vec3 left_door_before{};
+  aster::Vec3 right_door_before{};
+  for (const aster::RenderObject &object : run.scene().objects()) {
+    if (object.name == "Classic gauntlet prism bulkhead left") {
+      saw_bulkhead = true;
+      left_door_before = object.transform.position;
+      assert(object.material.emission_strength > 0.0f);
+    }
+    if (object.name == "Classic gauntlet prism bulkhead right") {
+      right_door_before = object.transform.position;
+    }
+    saw_lift = saw_lift || object.name == "Classic gauntlet lift platform";
+    saw_console = saw_console || object.name == "Classic gauntlet automap console";
+    saw_encounter_actor =
+        saw_encounter_actor || object.name == "Classic gauntlet encounter sentinel";
+  }
+  assert(saw_bulkhead);
+  assert(saw_lift);
+  assert(saw_console);
+  assert(saw_encounter_actor);
+
+  run.relocatePlayer(run.classicGauntletEntryPosition(), run.classicGauntletCameraYaw());
+  for (int i = 0; i < 140; ++i) {
+    run.update(1.0f / 60.0f, {}, false, false);
+  }
+  assert(run.classicGauntletActive());
+  assert(run.classicGauntletAutomap().hasDiscovery());
+  assert(run.classicHudSignals().visible);
+
+  aster::Vec3 left_door_after{};
+  aster::Vec3 right_door_after{};
+  for (const aster::RenderObject &object : run.scene().objects()) {
+    if (object.name == "Classic gauntlet prism bulkhead left") {
+      left_door_after = object.transform.position;
+    }
+    if (object.name == "Classic gauntlet prism bulkhead right") {
+      right_door_after = object.transform.position;
+    }
+  }
+  assert(aster::length(left_door_after - right_door_after) >
+         aster::length(left_door_before - right_door_before) + 0.25f);
+  assert(!run.classicTransitionWipe().column_progress.empty());
+}
+
 } // namespace
 
 int main() {
@@ -778,6 +828,7 @@ int main() {
   testLumenDeepCaveCaptureLightingContract();
   testLumenCaveTraversalAndLightingContracts();
   testLumenPondWallLightIsMountedOutsideWater();
+  testLumenClassicGauntletVisibleAndAutomapped();
   std::cout << "sample_tests passed.\n";
   return 0;
 }

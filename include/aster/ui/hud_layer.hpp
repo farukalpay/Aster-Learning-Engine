@@ -4,8 +4,11 @@
 #pragma once
 
 #include "aster/math/vec.hpp"
+#include "aster/ui/automap_model.hpp"
+#include "aster/ui/classic_hud_signals.hpp"
 #include "aster/ui/control_legend.hpp"
 #include "aster/ui/inventory_overlay.hpp"
+#include "aster/ui/transition_wipe.hpp"
 #include "aster/ui/ui_canvas.hpp"
 
 #include <string>
@@ -66,6 +69,11 @@ struct ChestContentsHudModel {
   std::vector<ChestContentsSlotModel> slots;
 };
 
+struct AutomapHudModel {
+  bool visible = false;
+  AutomapModel map;
+};
+
 struct HudVisibilityPolicy {
   bool status_panel = true;
   bool health = true;
@@ -103,6 +111,9 @@ struct HudModel {
   FocusPromptModel focus_prompt;
   HotbarHudModel hotbar;
   ChestContentsHudModel chest_contents;
+  AutomapHudModel automap;
+  ClassicHudSignalModel classic_signals;
+  TransitionWipeFrame transition_wipe;
   HudVisibilityPolicy visibility;
 };
 

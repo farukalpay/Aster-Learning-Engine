@@ -83,6 +83,9 @@ CPU-side scene import and mesh preparation. Importers translate data into engine
 materials and mesh primitives. The mesh pipeline validates topology, rebuilds
 missing normals, generates tangents, compacts equivalent vertices, and performs
 bounded cache/fetch ordering before render code sees the mesh.
+`LegacyLumpArchive` lives here as a CPU-side indexed asset reader for classic
+lump/WAD-style data, with reload diagnostics and cache profile reporting instead
+of renderer-owned file access.
 
 `include/aster/geometry`
 
@@ -101,12 +104,15 @@ in this layer so games wire specs instead of rebuilding generation rules.
 Message framing, routing, and TCP transport. `NetMessage`, `NodeRouter`, and
 `TcpNode` stay as the app-facing contracts. The transport is a POSIX socket
 event loop with owned queues and frame decoding; application code never parses
-socket bytes directly.
+socket bytes directly. `LockstepCommandChannel` adds deterministic command-window
+packet encoding, checksums, and resend hints without carrying legacy serial or
+IPX drivers forward.
 
 `include/aster/core`
 
-Configuration, clocks, frame timing, and profiling. The profiler macros map to a
-lightweight CPU trace sink with scope timing, an in-memory ring, and text export.
+Configuration, clocks, frame timing, deterministic command/replay helpers, and
+profiling. The profiler macros map to a lightweight CPU trace sink with scope
+timing, an in-memory ring, and text export.
 
 `include/aster/platform`
 
@@ -190,9 +196,9 @@ resources.
 `include/aster/systems`
 
 Reusable simulation and gameplay-facing systems: movement, interaction,
-inventory, items, equipment, lighting, particles, creature motion, and camera
-behavior. These modules are sample-agnostic and must not encode Lumen Run
-content assumptions.
+inventory, items, equipment, lighting, particles, creature motion, classic actor
+state machines, switch/door/lift mechanisms, and camera behavior. These modules
+are sample-agnostic and must not encode Lumen Run content assumptions.
 
 `include/aster/samples`
 
@@ -211,7 +217,9 @@ data do not become engine defaults by accident.
 Immediate UI canvas, HUD, inventory overlay, editor UI, and control legends. UI
 consumes explicit data models and input snapshots. Canvas clipping and panel
 scrolling are part of the UI contract, so editor controls can grow without
-requiring app-specific layout branches.
+requiring app-specific layout branches. Automap, classic HUD signals, and melt
+wipe presentation are modeled as data here so samples can render classic
+feedback without owning UI algorithms.
 
 `apps`
 

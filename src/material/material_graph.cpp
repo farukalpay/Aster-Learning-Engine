@@ -3,6 +3,8 @@
 
 #include "aster/material/material_graph.hpp"
 
+#include <utility>
+
 namespace aster {
 namespace {
 
@@ -106,6 +108,56 @@ MaterialGraph materialGraphForAsset(const MaterialAsset &asset) {
                            .inputs = layer.arguments,
                            .op = operation,
                            .value_type = valueTypeForOperation(operation)});
+  }
+  return graph;
+}
+
+MaterialAuthoringGraph materialAuthoringGraphForAsset(const MaterialAsset &asset) {
+  MaterialAuthoringGraph graph;
+  graph.source_id = asset.id;
+  graph.source_kind = "astermat";
+  graph.nodes.reserve(asset.layers.size() + asset.textures.size() + 1u);
+  for (const auto &[role, texture] : asset.textures) {
+    (void)texture;
+    graph.nodes.push_back({.id = "texture." + role,
+                           .label = role,
+                           .operation = "texture",
+                           .role = role,
+                           .op = MaterialGraphOperation::TextureSample,
+                           .value_type = MaterialGraphValueType::Texture2D,
+                           .capability_status = "source-texture"});
+  }
+  for (const MaterialLayerExpression &layer : asset.layers) {
+    const MaterialGraphOperation operation = operationForName(layer.operation);
+    MaterialAuthoringNode node{.id = "layer." + layer.name,
+                               .label = layer.name,
+                               .operation = layer.operation,
+                               .role = "material-layer",
+                               .op = operation,
+                               .value_type = valueTypeForOperation(operation),
+                               .capability_status = operation == MaterialGraphOperation::Unknown
+                                                        ? "unsupported"
+                                                        : "runtime-reference"};
+    node.params["raw"] = layer.raw;
+    for (std::size_t i = 0u; i < layer.arguments.size(); ++i) {
+      node.params["arg" + std::to_string(i)] = layer.arguments[i];
+      if (asset.textures.find(layer.arguments[i]) != asset.textures.end()) {
+        graph.edges.push_back(
+            {.from = "texture." + layer.arguments[i], .to = node.id, .role = "input"});
+      }
+    }
+    graph.nodes.push_back(std::move(node));
+  }
+  if (!asset.layers.empty()) {
+    graph.nodes.push_back({.id = "output.surface",
+                           .label = "surface",
+                           .operation = "output",
+                           .role = "surface",
+                           .op = MaterialGraphOperation::Output,
+                           .value_type = MaterialGraphValueType::MaterialLayer,
+                           .capability_status = "runtime-reference"});
+    graph.edges.push_back(
+        {.from = "layer." + asset.layers.back().name, .to = "output.surface", .role = "surface"});
   }
   return graph;
 }

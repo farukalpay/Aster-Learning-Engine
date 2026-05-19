@@ -291,6 +291,7 @@ void LumenRun::updateSceneObjects(const float animation_dt) {
   updatePrismRelayVisuals(animation_dt);
   updateChestVisuals(animation_dt);
   updateEquipmentVisuals(animation_dt);
+  updateClassicGauntletVisuals(animation_dt);
   updateCaveVisuals(animation_dt);
   updateCaveSkitterVisuals(animation_dt);
   updateFishingVisual();

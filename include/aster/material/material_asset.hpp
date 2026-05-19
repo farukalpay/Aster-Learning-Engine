@@ -88,6 +88,10 @@ struct MaterialAsset {
   RenderDepthPolicy depth_policy{};
   bool receives_decals = false;
   bool receives_shadows = true;
+  std::map<std::string, std::string> provenance;
+  std::map<std::string, std::string> authoring;
+  std::map<std::string, std::string> preview;
+  std::map<std::string, std::string> quality_profile;
   std::map<std::string, MaterialTextureSlot> textures;
   std::map<std::string, float> params;
   std::map<std::string, bool> explicit_features;
@@ -114,6 +118,7 @@ struct MaterialAssetLoadResult {
 [[nodiscard]] MaterialAssetLoadResult parseMaterialAsset(std::string_view source,
                                                         std::filesystem::path source_path = {});
 [[nodiscard]] MaterialAssetLoadResult loadMaterialAsset(const std::filesystem::path &path);
+[[nodiscard]] std::string serializeMaterialAsset(const MaterialAsset &asset);
 [[nodiscard]] std::vector<MaterialDiagnostic> validateMaterialAsset(const MaterialAsset &asset);
 [[nodiscard]] MaterialFeatureSet materialFeatureSet(const MaterialAsset &asset);
 [[nodiscard]] std::uint64_t materialFeatureMask(const MaterialFeatureSet &features);

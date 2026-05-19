@@ -89,6 +89,7 @@ set(ASTER_GAME_SDK_SOURCES
 
 set(ASTER_CORE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/clock.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/deterministic_sim.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/fixed_timestep.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/frame_time_stats.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/profiler.cpp"
@@ -112,6 +113,7 @@ set(ASTER_ASSET_SOURCES
   "${PROJECT_SOURCE_DIR}/src/asset/asset_factory.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_production_model.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/compiled_scene_asset.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/legacy_lump_archive.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/mesh_pipeline.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/procedural_asset_graph.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/scene_asset_importer.cpp"
@@ -122,6 +124,7 @@ set(ASTER_MATERIAL_SOURCES
   "${PROJECT_SOURCE_DIR}/src/material/material_compiler.cpp"
   "${PROJECT_SOURCE_DIR}/src/material/material_graph.cpp"
   "${PROJECT_SOURCE_DIR}/src/material/material_instance.cpp"
+  "${PROJECT_SOURCE_DIR}/src/material/material_lab.cpp"
   "${PROJECT_SOURCE_DIR}/src/material/material_parameter_block.cpp"
 )
 
@@ -216,6 +219,7 @@ set(ASTER_PHYSICS_SOURCES
 
 set(ASTER_SYSTEMS_SOURCES
   "${PROJECT_SOURCE_DIR}/src/systems/animation_system.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/classic_actor_runtime.cpp"
   "${PROJECT_SOURCE_DIR}/src/systems/creature_motion.cpp"
   "${PROJECT_SOURCE_DIR}/src/systems/equipment_system.cpp"
   "${PROJECT_SOURCE_DIR}/src/systems/interaction_system.cpp"
@@ -226,6 +230,7 @@ set(ASTER_SYSTEMS_SOURCES
   "${PROJECT_SOURCE_DIR}/src/systems/particle_system.cpp"
   "${PROJECT_SOURCE_DIR}/src/systems/player_motion.cpp"
   "${PROJECT_SOURCE_DIR}/src/systems/third_person_camera.cpp"
+  "${PROJECT_SOURCE_DIR}/src/systems/world_mechanism.cpp"
 )
 
 set(ASTER_AI_SOURCES
@@ -238,14 +243,18 @@ set(ASTER_INPUT_SOURCES
 )
 
 set(ASTER_UI_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/ui/automap_model.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ui/classic_hud_signals.cpp"
   "${PROJECT_SOURCE_DIR}/src/ui/control_legend.cpp"
   "${PROJECT_SOURCE_DIR}/src/ui/editor_ui.cpp"
   "${PROJECT_SOURCE_DIR}/src/ui/hud_layer.cpp"
   "${PROJECT_SOURCE_DIR}/src/ui/inventory_overlay.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ui/transition_wipe.cpp"
   "${PROJECT_SOURCE_DIR}/src/ui/ui_canvas.cpp"
 )
 
 set(ASTER_NET_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/net/lockstep_command_channel.cpp"
   "${PROJECT_SOURCE_DIR}/src/net/net_message.cpp"
   "${PROJECT_SOURCE_DIR}/src/net/node_router.cpp"
   "${PROJECT_SOURCE_DIR}/src/net/tcp_node.cpp"
@@ -539,6 +548,10 @@ if(ASTER_BUILD_TESTS)
              COMMAND aster_lumen_run --validate-cave)
     add_test(NAME aster_lumen_run_smoke_test
              COMMAND aster_lumen_run --smoke-test --no-vsync)
+    add_test(NAME aster_studio_material_lab_smoke
+             COMMAND aster_studio --smoke-test --asset-db
+                     "${PROJECT_SOURCE_DIR}/showcases/material_lab/cooked/desktop/assetdb.asterdb.json"
+                     --window-width 640 --window-height 480)
   endif()
 
   add_executable(aster_kernel_contract_tests tests/kernel_contract_tests.cpp)
@@ -641,6 +654,9 @@ if(ASTER_BUILD_TESTS)
   )
   foreach(material_shader_case
       material_asset_parser_and_compiler
+      material_asset_metadata_round_trip
+      material_authoring_graph_and_lab_audit
+      material_lab_preview_debug_views
       shader_library_and_reflection
       texture_validation_and_debug
       render_quality_profile

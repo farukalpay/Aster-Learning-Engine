@@ -105,6 +105,27 @@ void LumenRun::reset() {
   cave_webs_.clear();
   cave_skitters_.clear();
   cave_sections_.clear();
+  classic_gauntlet_mechanisms_.clear();
+  classic_gauntlet_actors_.clear();
+  classic_gauntlet_automap_.clear();
+  classic_gauntlet_wipe_.finish();
+  classic_gauntlet_hud_ = {};
+  classic_gauntlet_entry_ = {};
+  classic_gauntlet_plate_ = {};
+  classic_gauntlet_door_center_ = {};
+  classic_gauntlet_door_side_ = {1.0f, 0.0f, 0.0f};
+  classic_gauntlet_lift_base_ = {};
+  classic_gauntlet_exit_ = {};
+  classic_gauntlet_door_objects_.clear();
+  classic_gauntlet_signal_objects_.clear();
+  classic_gauntlet_actor_visuals_.clear();
+  classic_gauntlet_lift_object_ = 0;
+  classic_gauntlet_plate_object_ = 0;
+  classic_gauntlet_map_object_ = 0;
+  classic_gauntlet_active_ = false;
+  classic_gauntlet_discovered_ = false;
+  classic_gauntlet_wipe_started_ = false;
+  classic_gauntlet_hurt_seconds_ = 0.0f;
   cave_collision_meshes_.clear();
   cave_exterior_hidden_objects_.clear();
   cave_viewer_cull_volume_ = {};
@@ -210,6 +231,7 @@ void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
   updatePrismRelay(step);
   updateCrocodile(step);
   updateCaveSkitters(step);
+  updateClassicGauntlet(step);
   updateCastleBirds(step);
 
   collectOverlaps();
@@ -998,6 +1020,42 @@ std::optional<DynamicPointLight> LumenRun::prismRelayLight() const {
 
 CaveLightingState LumenRun::caveLightingState() const {
   return caveLightingStateAt(player_position_);
+}
+
+bool LumenRun::classicGauntletActive() const {
+  return classic_gauntlet_active_;
+}
+
+const AutomapModel &LumenRun::classicGauntletAutomap() const {
+  return classic_gauntlet_automap_;
+}
+
+ClassicHudSignalModel LumenRun::classicHudSignals() const {
+  return classic_gauntlet_hud_;
+}
+
+TransitionWipeFrame LumenRun::classicTransitionWipe() const {
+  return classic_gauntlet_wipe_.frame();
+}
+
+Vec3 LumenRun::classicGauntletEntryPosition() const {
+  return classic_gauntlet_entry_;
+}
+
+Vec3 LumenRun::classicGauntletLookTarget() const {
+  if (length(classic_gauntlet_door_center_) > 0.0001f &&
+      length(classic_gauntlet_lift_base_) > 0.0001f) {
+    return classic_gauntlet_door_center_ +
+           (classic_gauntlet_lift_base_ - classic_gauntlet_door_center_) * 0.46f +
+           Vec3{0.0f, 0.28f, 0.0f};
+  }
+  return length(classic_gauntlet_exit_) <= 0.0001f ? player_position_ : classic_gauntlet_exit_;
+}
+
+float LumenRun::classicGauntletCameraYaw() const {
+  const Vec3 target = classicGauntletLookTarget();
+  const Vec3 delta = target - classic_gauntlet_entry_;
+  return std::atan2(delta.x, delta.z);
 }
 
 const LumenRun::AuthoredCaveSection *

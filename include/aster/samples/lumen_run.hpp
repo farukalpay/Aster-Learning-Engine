@@ -5,6 +5,7 @@
 
 #include "aster/game_sdk/game_sdk.hpp"
 #include "aster/systems/animation_system.hpp"
+#include "aster/systems/classic_actor_runtime.hpp"
 #include "aster/systems/creature_motion.hpp"
 #include "aster/systems/equipment_system.hpp"
 #include "aster/systems/interaction_system.hpp"
@@ -13,6 +14,7 @@
 #include "aster/systems/light_system.hpp"
 #include "aster/systems/mining_system.hpp"
 #include "aster/systems/particle_system.hpp"
+#include "aster/systems/world_mechanism.hpp"
 #include "aster/geometry/cave_system.hpp"
 #include "aster/geometry/terrain_mesh.hpp"
 #include "aster/math/vec.hpp"
@@ -152,6 +154,13 @@ public:
   [[nodiscard]] std::optional<DynamicPointLight> prismRelayLight() const;
   [[nodiscard]] CaveLightingState caveLightingState() const;
   [[nodiscard]] CaveLightingState caveLightingStateAt(Vec3 position) const;
+  [[nodiscard]] bool classicGauntletActive() const;
+  [[nodiscard]] const AutomapModel &classicGauntletAutomap() const;
+  [[nodiscard]] ClassicHudSignalModel classicHudSignals() const;
+  [[nodiscard]] TransitionWipeFrame classicTransitionWipe() const;
+  [[nodiscard]] Vec3 classicGauntletEntryPosition() const;
+  [[nodiscard]] Vec3 classicGauntletLookTarget() const;
+  [[nodiscard]] float classicGauntletCameraYaw() const;
   void setCaveDebugOverlayEnabled(bool enabled);
   [[nodiscard]] bool caveDebugOverlayEnabled() const;
   void setCaveDebugOverlayLayerMask(std::uint32_t mask);
@@ -325,6 +334,11 @@ private:
     Vec3 last_hit_normal{0.0f, 1.0f, 0.0f};
   };
 
+  struct ClassicGauntletActorVisual {
+    std::string id;
+    std::size_t object_index = 0;
+  };
+
   std::size_t appendObject(RenderObject object);
   void rebuildScene();
   void rebuildPhysicsWorld();
@@ -351,6 +365,9 @@ private:
   void updateEquipmentVisuals(float dt);
   void updatePrismRelay(float dt);
   void updatePrismRelayVisuals(float dt);
+  void updateClassicGauntlet(float dt);
+  void updateClassicGauntletVisuals(float dt);
+  void refreshClassicGauntletAutomap();
   void updateCaveVisuals(float dt);
   void updateCaveDebugOverlayVisibility();
   [[nodiscard]] float caveWebSlowScaleAt(Vec3 position) const;
@@ -450,6 +467,27 @@ private:
   std::vector<CaveWebObstacle> cave_webs_;
   std::vector<CaveSkitter> cave_skitters_;
   std::vector<AuthoredCaveSection> cave_sections_;
+  WorldMechanismSystem classic_gauntlet_mechanisms_;
+  ClassicActorRuntime classic_gauntlet_actors_;
+  AutomapModel classic_gauntlet_automap_;
+  TransitionWipe classic_gauntlet_wipe_;
+  ClassicHudSignalModel classic_gauntlet_hud_;
+  Vec3 classic_gauntlet_entry_{};
+  Vec3 classic_gauntlet_plate_{};
+  Vec3 classic_gauntlet_door_center_{};
+  Vec3 classic_gauntlet_door_side_{1.0f, 0.0f, 0.0f};
+  Vec3 classic_gauntlet_lift_base_{};
+  Vec3 classic_gauntlet_exit_{};
+  std::vector<std::size_t> classic_gauntlet_door_objects_;
+  std::vector<std::size_t> classic_gauntlet_signal_objects_;
+  std::vector<ClassicGauntletActorVisual> classic_gauntlet_actor_visuals_;
+  std::size_t classic_gauntlet_lift_object_ = 0;
+  std::size_t classic_gauntlet_plate_object_ = 0;
+  std::size_t classic_gauntlet_map_object_ = 0;
+  bool classic_gauntlet_active_ = false;
+  bool classic_gauntlet_discovered_ = false;
+  bool classic_gauntlet_wipe_started_ = false;
+  float classic_gauntlet_hurt_seconds_ = 0.0f;
   Vec3 cave_entrance_light_position_{};
   std::vector<std::shared_ptr<const CpuMesh>> cave_collision_meshes_;
   std::vector<std::size_t> cave_exterior_hidden_objects_;

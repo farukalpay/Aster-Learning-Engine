@@ -422,6 +422,121 @@ aster::HudAction drawPauseMenu(aster::UiCanvas &canvas, const aster::HudModel &m
   return action;
 }
 
+aster::UiColor markerColor(const aster::AutomapMarkerKind kind) {
+  switch (kind) {
+  case aster::AutomapMarkerKind::Door:
+    return {0.96f, 0.50f, 0.18f, 0.95f};
+  case aster::AutomapMarkerKind::Lift:
+    return {0.42f, 0.86f, 0.92f, 0.95f};
+  case aster::AutomapMarkerKind::Threat:
+    return {0.92f, 0.10f, 0.08f, 0.98f};
+  case aster::AutomapMarkerKind::Secret:
+    return {0.68f, 0.46f, 1.0f, 0.92f};
+  case aster::AutomapMarkerKind::Player:
+    return {0.98f, 0.86f, 0.44f, 1.0f};
+  case aster::AutomapMarkerKind::Objective:
+    return {0.50f, 1.0f, 0.58f, 0.96f};
+  }
+  return {0.90f, 0.90f, 0.82f, 1.0f};
+}
+
+void drawAutomap(aster::UiCanvas &canvas, const aster::AutomapHudModel &automap) {
+  if (!automap.visible || !automap.map.hasDiscovery()) {
+    return;
+  }
+  const aster::Vec2 viewport = canvas.viewportSize();
+  const float width = std::clamp(viewport.x * 0.31f, 260.0f, 430.0f);
+  const float height = std::clamp(viewport.y * 0.32f, 190.0f, 300.0f);
+  const aster::UiRect rect{viewport.x - width - 20.0f, 20.0f, width, height};
+  canvas.fillRoundRect({rect.x + 2.0f, rect.y + 4.0f, rect.width, rect.height}, 7.0f,
+                       {0.0f, 0.0f, 0.0f, 0.25f});
+  canvas.fillRoundRect(rect, 7.0f, {0.012f, 0.018f, 0.019f, 0.78f});
+  canvas.strokeRect(rect, {0.68f, 0.90f, 0.82f, 0.38f}, 1.0f);
+  canvas.text("Gauntlet map", {rect.x + 14.0f, rect.y + 12.0f}, {0.88f, 0.96f, 0.88f, 0.92f},
+              1.25f);
+
+  const aster::Vec2 local_viewport{rect.width, rect.height};
+  aster::AutomapView view;
+  view.half_extents = {11.0f, 8.0f};
+  view.pixels_per_meter = std::min(width / 22.0f, height / 16.0f);
+  view.follow_player = true;
+  const auto toScreen = [&](const aster::Vec2 world) {
+    aster::AutomapProjectedPoint projected = automap.map.project(world, local_viewport, view);
+    projected.position = projected.position + aster::Vec2{rect.x, rect.y + 8.0f};
+    return projected;
+  };
+
+  canvas.pushClip({rect.x + 8.0f, rect.y + 34.0f, rect.width - 16.0f, rect.height - 42.0f});
+  for (const aster::AutomapLine &line : automap.map.lines()) {
+    if (!line.discovered) {
+      continue;
+    }
+    const aster::AutomapProjectedPoint a = toScreen(line.from);
+    const aster::AutomapProjectedPoint b = toScreen(line.to);
+    if (!a.visible || !b.visible) {
+      continue;
+    }
+    canvas.line(a.position, b.position,
+                line.blocking ? aster::UiColor{0.96f, 0.32f, 0.16f, 0.78f}
+                              : aster::UiColor{0.58f, 0.86f, 0.80f, 0.70f},
+                line.blocking ? 2.2f : 1.5f);
+  }
+  for (const aster::AutomapMarker &marker : automap.map.markers()) {
+    if (!marker.discovered) {
+      continue;
+    }
+    const aster::AutomapProjectedPoint projected = toScreen(marker.position);
+    if (!projected.visible) {
+      continue;
+    }
+    const aster::UiColor color = markerColor(marker.kind);
+    const float radius = 4.5f + marker.pulse * 2.0f;
+    canvas.fillCircle(projected.position, radius, color, 18);
+    canvas.strokeCircle(projected.position, radius + 2.0f, {color.r, color.g, color.b, 0.24f},
+                        1.0f, 18);
+  }
+  const aster::AutomapProjectedPoint player = toScreen(automap.map.playerPosition());
+  if (player.visible) {
+    const float yaw = automap.map.playerYaw();
+    const aster::Vec2 nose{std::sin(yaw) * 9.0f, -std::cos(yaw) * 9.0f};
+    canvas.fillCircle(player.position, 5.5f, markerColor(aster::AutomapMarkerKind::Player), 18);
+    canvas.line(player.position, player.position + nose, {1.0f, 0.82f, 0.34f, 0.95f}, 2.0f);
+  }
+  canvas.popClip();
+}
+
+void drawClassicSignals(aster::UiCanvas &canvas, const aster::ClassicHudSignalModel &signals) {
+  if (!signals.visible) {
+    return;
+  }
+  const aster::Vec2 viewport = canvas.viewportSize();
+  const float width = std::clamp(viewport.x * 0.24f, 210.0f, 320.0f);
+  const aster::UiRect rect{viewport.x - width - 20.0f, viewport.y - 132.0f, width, 46.0f};
+  const float danger = std::max(signals.hurt_flash, 1.0f - signals.health_fraction);
+  canvas.fillRoundRect(rect, 5.0f,
+                       {0.050f + danger * 0.10f, 0.018f, 0.016f, 0.74f + danger * 0.12f});
+  canvas.strokeRect(rect, {1.0f, 0.42f, 0.20f, 0.36f + danger * 0.34f}, 1.0f);
+  canvas.text(signals.threat > 0.0f ? "THREAT LOCK" : "GAUNTLET LINK",
+              {rect.x + 12.0f, rect.y + 8.0f}, {0.98f, 0.82f, 0.48f, 0.96f}, 1.18f);
+  canvas.progressBar({rect.x + 12.0f, rect.y + 28.0f, rect.width - 24.0f, 7.0f},
+                     std::clamp(signals.mechanism * 0.65f + signals.threat * 0.35f, 0.0f, 1.0f),
+                     {0.90f, 0.18f, 0.12f, 0.90f}, {0.10f, 0.13f, 0.12f, 0.92f});
+}
+
+void drawTransitionWipe(aster::UiCanvas &canvas, const aster::TransitionWipeFrame &wipe) {
+  if (!wipe.active || wipe.column_progress.empty()) {
+    return;
+  }
+  const aster::Vec2 viewport = canvas.viewportSize();
+  const float column_width = viewport.x / static_cast<float>(wipe.column_progress.size());
+  for (std::size_t i = 0; i < wipe.column_progress.size(); ++i) {
+    const float progress = std::clamp(wipe.column_progress[i], 0.0f, 1.0f);
+    const float height = viewport.y * progress;
+    canvas.fillRect({static_cast<float>(i) * column_width, 0.0f, column_width + 1.0f, height},
+                    {0.0f, 0.0f, 0.0f, 0.74f});
+  }
+}
+
 } // namespace
 
 namespace aster {
@@ -494,6 +609,8 @@ HudAction HudLayer::draw(const HudModel &model) {
   if (model.visibility.focus_prompt) {
     drawFocusPrompt(canvas_, model.focus_prompt);
   }
+  drawAutomap(canvas_, model.automap);
+  drawClassicSignals(canvas_, model.classic_signals);
   if (model.visibility.pointer) {
     drawPointerCue(canvas_, model.pointer);
   }
@@ -504,6 +621,7 @@ HudAction HudLayer::draw(const HudModel &model) {
   if (model.visibility.game_cursor) {
     drawGameCursor(canvas_, model.game_cursor);
   }
+  drawTransitionWipe(canvas_, model.transition_wipe);
 
   if (model.victory || model.defeated) {
     const UiRect result{viewport.x * 0.5f - 180.0f, viewport.y * 0.5f - 58.0f, 360.0f, 116.0f};

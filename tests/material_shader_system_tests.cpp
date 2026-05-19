@@ -3,6 +3,7 @@
 
 #include "aster/material/material_compiler.hpp"
 #include "aster/material/material_graph.hpp"
+#include "aster/material/material_lab.hpp"
 #include "aster/asset/procedural_asset_graph.hpp"
 #include "aster/math/color.hpp"
 #include "aster/shader/shader_compiler.hpp"
@@ -178,6 +179,148 @@ void testMaterialAssetParserAndCompiler() {
   assert(graph.nodes.front().op == aster::MaterialGraphOperation::TriplanarSample);
   assert(graph.nodes.front().value_type == aster::MaterialGraphValueType::MaterialLayer);
   assert(aster::materialGraphOperationName(graph.nodes.back().op) == "height-blend");
+}
+
+void testMaterialAssetMetadataRoundTrip() {
+  const aster::MaterialAssetLoadResult loaded = aster::parseMaterialAsset(R"mat(
+material RoundTripRock {
+  schema_version: 1
+  name: "Round Trip Rock"
+  shading_model: LitPBR
+  surface_profile: stratified-rock
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  provenance {
+    generator: "unit-test"
+    source_surface: "wet-cave-wall"
+  }
+
+  authoring {
+    texel_density: 2.7
+    mapping_policy: triplanar
+  }
+
+  preview {
+    environment: "cave-dark"
+    rig: "material-lab"
+  }
+
+  quality_profile {
+    mobile_drop_parallax: true
+    mobile_max_texture_size: 1024
+  }
+
+  textures {
+    albedo: "albedo.ktx2"
+    normal: "normal.ktx2"
+    orm: "orm.ktx2"
+  }
+
+  params {
+    roughness: 0.72
+    metallic: 0.0
+  }
+
+  features {
+    triplanar: true
+    normal_map: true
+  }
+
+  layers {
+    base: triplanar(albedo, normal, orm)
+  }
+}
+)mat",
+                                                              "roundtrip.astermat");
+  assert(loaded.ok());
+  assert(loaded.value.provenance.at("generator") == "unit-test");
+  assert(loaded.value.authoring.at("texel_density") == "2.7");
+  assert(loaded.value.preview.at("environment") == "cave-dark");
+  assert(loaded.value.quality_profile.at("mobile_max_texture_size") == "1024");
+
+  const std::string serialized = aster::serializeMaterialAsset(loaded.value);
+  assert(serialized.find("quality_profile") != std::string::npos);
+  const aster::MaterialAssetLoadResult reparsed =
+      aster::parseMaterialAsset(serialized, "roundtrip_saved.astermat");
+  assert(reparsed.ok());
+  assert(reparsed.value.provenance == loaded.value.provenance);
+  assert(reparsed.value.authoring == loaded.value.authoring);
+  assert(reparsed.value.preview == loaded.value.preview);
+  assert(reparsed.value.quality_profile == loaded.value.quality_profile);
+  assert(reparsed.value.layers.size() == loaded.value.layers.size());
+}
+
+void testMaterialAuthoringGraphAndLabAudit() {
+  aster::MaterialAssetLoadResult loaded =
+      aster::parseMaterialAsset(sampleMaterialSource(), "lab_audit.astermat");
+  assert(loaded.ok());
+  loaded.value.quality_profile["mobile_drop_parallax"] = "true";
+  const aster::MaterialAuthoringGraph graph =
+      aster::materialAuthoringGraphForAsset(loaded.value);
+  assert(graph.source_kind == "astermat");
+  assert(graph.nodes.size() >= loaded.value.layers.size());
+  assert(!graph.edges.empty());
+
+  const aster::TextureSetValidation validation =
+      aster::validateMaterialTextureSet(loaded.value, {}, {.require_existing_files = false});
+  const aster::MaterialLabAudit audit = aster::buildMaterialLabAudit(loaded.value, validation);
+  assert(audit.shader_variant_key != 0u);
+  assert(audit.feature_mask != 0u);
+  assert(!audit.mobile_degradations.empty());
+  assert(std::any_of(audit.provenance_notes.begin(), audit.provenance_notes.end(),
+                     [](const std::string &note) {
+                       return note.find("histogram unavailable") != std::string::npos;
+                     }));
+
+  aster::MaterialAsset changed = loaded.value;
+  changed.explicit_features["parallax"] = false;
+  const aster::MaterialLabAudit changed_audit =
+      aster::buildMaterialLabAudit(changed, validation);
+  assert(changed_audit.shader_variant_key != audit.shader_variant_key);
+
+  const aster::MaterialAssetLoadResult unsupported = aster::parseMaterialAsset(R"mat(
+material UnsupportedLayer {
+  shading_model: LitPBR
+  layers {
+    mystery: not_a_node(albedo)
+  }
+}
+)mat",
+                                                                              "unsupported.astermat");
+  const aster::MaterialAuthoringGraph unsupported_graph =
+      aster::materialAuthoringGraphForAsset(unsupported.value);
+  assert(std::any_of(unsupported_graph.nodes.begin(), unsupported_graph.nodes.end(),
+                     [](const aster::MaterialAuthoringNode &node) {
+                       return node.capability_status == "unsupported";
+                     }));
+}
+
+void testMaterialLabPreviewRendersDebugViews() {
+  const aster::MaterialAssetLoadResult loaded =
+      aster::parseMaterialAsset(sampleMaterialSource(), "preview_lab.astermat");
+  assert(loaded.ok());
+  const aster::MaterialLabPreviewImage beauty =
+      aster::renderMaterialLabPreview(loaded.value,
+                                      {.mode = aster::MaterialLabPreviewMode::Beauty,
+                                       .mesh = aster::MaterialLabMeshTarget::Rock,
+                                       .environment = aster::MaterialLabEnvironmentRig::CaveDark,
+                                       .width = 64,
+                                       .height = 48});
+  const aster::MaterialLabPreviewImage normal =
+      aster::renderMaterialLabPreview(loaded.value,
+                                      {.mode = aster::MaterialLabPreviewMode::Normal,
+                                       .mesh = aster::MaterialLabMeshTarget::Rock,
+                                       .environment = aster::MaterialLabEnvironmentRig::CaveDark,
+                                       .width = 64,
+                                       .height = 48});
+  assert(beauty.available);
+  assert(normal.available);
+  assert(beauty.rgba8.size() == 64u * 48u * 4u);
+  assert(normal.rgba8.size() == beauty.rgba8.size());
+  assert(beauty.rgba8 != normal.rgba8);
 }
 
 void testShaderLibraryAndReflection() {
@@ -562,6 +705,9 @@ struct TestCase {
 
 constexpr TestCase kTestCases[] = {
     {"material_asset_parser_and_compiler", testMaterialAssetParserAndCompiler},
+    {"material_asset_metadata_round_trip", testMaterialAssetMetadataRoundTrip},
+    {"material_authoring_graph_and_lab_audit", testMaterialAuthoringGraphAndLabAudit},
+    {"material_lab_preview_debug_views", testMaterialLabPreviewRendersDebugViews},
     {"shader_library_and_reflection", testShaderLibraryAndReflection},
     {"texture_validation_and_debug", testTextureValidationAndDebugContracts},
     {"render_quality_profile", testRenderQualityProfileContracts},

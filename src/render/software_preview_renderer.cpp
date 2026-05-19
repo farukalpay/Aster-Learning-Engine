@@ -527,6 +527,26 @@ Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
 
   const float metallic = std::clamp(hit.material.metallic, 0.0f, 1.0f);
   const float roughness = effectiveRoughness(sample_hit);
+  if (settings.material_debug_view != MaterialDebugView::Beauty) {
+    switch (settings.material_debug_view) {
+    case MaterialDebugView::BaseColor:
+      return gamma_encode(clamp(albedo, 0.0f, 4.0f));
+    case MaterialDebugView::Normal:
+      return {normal.x * 0.5f + 0.5f, normal.y * 0.5f + 0.5f, normal.z * 0.5f + 0.5f};
+    case MaterialDebugView::Roughness:
+      return {roughness, roughness, roughness};
+    case MaterialDebugView::AmbientOcclusion: {
+      const float ao = std::clamp(hit.material.ambient_occlusion, 0.0f, 1.0f);
+      return {ao, ao, ao};
+    }
+    case MaterialDebugView::Fog: {
+      const float fog = evaluateFogFactor(settings.atmosphere, length(ray.origin - hit.position));
+      return mixVec({0.02f, 0.025f, 0.03f}, settings.atmosphere.fog_color, fog);
+    }
+    case MaterialDebugView::Beauty:
+      break;
+    }
+  }
   const float alpha = roughness * roughness;
   const float alpha2 = std::max(alpha * alpha, 0.0005f);
   const float n_dot_v = std::max(dot(normal, view), 0.001f);
