@@ -126,6 +126,30 @@ void testProceduralModelingLayer() {
                                                    .height = 0.035f});
   assertFiniteRenderableMesh(ridge);
 
+  aster::CpuMesh ribbon = aster::makeRibbonStrip({.centerline = {{-0.25f, 0.12f, -0.10f},
+                                                                 {0.00f, 0.20f, 0.08f},
+                                                                 {0.28f, 0.15f, 0.20f}},
+                                                  .half_widths = {0.04f, 0.055f, 0.035f},
+                                                  .up = {0.0f, 1.0f, 0.0f},
+                                                  .thickness = 0.006f});
+  assertFiniteRenderableMesh(ribbon);
+
+  aster::CpuMesh capsule = aster::makeCapsule({.start = {-0.10f, 0.2f, -0.25f},
+                                               .end = {0.12f, 0.42f, 0.24f},
+                                               .radius = 0.035f,
+                                               .segments = 12,
+                                               .rings = 6,
+                                               .profile_vertical_scale = 0.62f});
+  assertFiniteRenderableMesh(capsule);
+  const aster::Vec3 before_detail = capsule.vertices.front().position;
+  aster::applyDeterministicSurfaceDetail(capsule, {.amplitude = 0.0035f,
+                                                   .frequency = 18.0f,
+                                                   .ridge_strength = 0.45f,
+                                                   .cavity_ao_strength = 0.08f,
+                                                   .seed = 91u});
+  assertFiniteRenderableMesh(capsule);
+  assert(aster::distance(before_detail, capsule.vertices.front().position) > 0.00001f);
+
   aster::AsterMeshAssembly assembly;
   const std::uint32_t part = assembly.beginPart("procedural proof");
   aster::mergeMesh(assembly.mesh(), ellipsoid);
@@ -140,9 +164,9 @@ void testProceduralModelingLayer() {
 void testCercopithecidaeAnatomyModel() {
   const aster::AnatomicalModel model =
       aster::makeCercopithecidaeModel({.surface_segments = 28, .surface_rings = 14});
-  assert(model.parts.size() >= 9u);
-  assert(model.vertexCount() > 5000u);
-  assert(model.indexCount() > 15000u);
+  assert(model.parts.size() >= 10u);
+  assert(model.vertexCount() > 10000u);
+  assert(model.indexCount() > 30000u);
 
   std::set<aster::AnatomicalTissue> tissues;
   bool saw_cranium = false;
@@ -164,6 +188,7 @@ void testCercopithecidaeAnatomyModel() {
   assert(tissues.count(aster::AnatomicalTissue::Bone) == 1u);
   assert(tissues.count(aster::AnatomicalTissue::Enamel) == 1u);
   assert(tissues.count(aster::AnatomicalTissue::Muscle) == 1u);
+  assert(tissues.count(aster::AnatomicalTissue::Tendon) == 1u);
   assert(tissues.count(aster::AnatomicalTissue::SoftTissue) == 1u);
   assert(tissues.count(aster::AnatomicalTissue::PlantarPad) == 1u);
   assert(tissues.count(aster::AnatomicalTissue::FurSkin) == 1u);
@@ -171,28 +196,37 @@ void testCercopithecidaeAnatomyModel() {
   const auto &cranio = model.report.craniofacial;
   assert(cranio.neurocranium_volume_proxy > 0.16f);
   assert(cranio.supraorbital_ridge_projection > 0.075f);
+  assert(cranio.zygomatic_arch_span > 0.70f);
   assert(cranio.maxilla_prognathism > 0.25f);
   assert(cranio.mandibular_ramus_height > 0.18f);
   assert(cranio.molar_count == 8);
   assert(cranio.bilophodont_loph_pairs == 16);
+  assert(cranio.cranial_suture_count >= 4);
+  assert(cranio.dentition_cusp_count >= 32);
 
   const auto &post = model.report.postcranial;
   assert(post.cervical_vertebrae == 7);
   assert(post.thoracic_vertebrae == 12);
   assert(post.lumbar_vertebrae == 7);
+  assert(post.rib_pairs == 12);
   assert(post.pronation_supination_range_degrees >= 140.0f);
   assert(post.opposable_pollex_angle_degrees >= 50.0f);
   assert(post.iliac_crest_width > 0.55f);
   assert(post.femoroacetabular_angle_degrees > 120.0f);
   assert(post.plantar_pad_thickness > 0.045f);
   assert(post.pes_phalanx_elongation > 1.15f);
+  assert(post.tendon_band_count >= 20);
+  assert(post.fur_strand_guides >= 70);
 
   assert(hasLandmark(model.report, "neurocranium.volume_proxy"));
   assert(hasLandmark(model.report, "supraorbital.ridge_projection"));
   assert(hasLandmark(model.report, "dentition.bilophodont_loph_pairs"));
+  assert(hasLandmark(model.report, "zygomatic.arch_span"));
+  assert(hasLandmark(model.report, "axial.rib_pairs"));
   assert(hasLandmark(model.report, "antebrachium.pronation_supination"));
   assert(hasLandmark(model.report, "manus.opposable_pollex_angle"));
   assert(hasLandmark(model.report, "pes.phalanx_elongation"));
+  assert(hasLandmark(model.report, "skin.fur_strand_guides"));
   assertFiniteRenderableMesh(model.mergedMesh());
 }
 
@@ -243,10 +277,20 @@ void testAssetGraphAndRuntimeMeshResolution() {
                        return node.kind == "measurement_probe" &&
                               node.capability_status == "runtime-procedural-reference";
                      }));
+  assert(std::any_of(package.nodes.begin(), package.nodes.end(),
+                     [](const aster::ProceduralAssetGraphNode &node) {
+                       return node.kind == "surface_displacement" &&
+                              node.capability_status == "runtime-procedural-reference";
+                     }));
+  assert(std::any_of(package.nodes.begin(), package.nodes.end(),
+                     [](const aster::ProceduralAssetGraphNode &node) {
+                       return node.kind == "anatomical_texture" &&
+                              node.capability_status == "runtime-procedural-reference";
+                     }));
 
   const aster::CpuMesh runtime_mesh = aster::proceduralAssetGraphMesh(package);
   assertFiniteRenderableMesh(runtime_mesh);
-  assert(runtime_mesh.vertices.size() > 5000u);
+  assert(runtime_mesh.vertices.size() > 10000u);
 
   const std::string cook_command = shellQuote(assetc) + " cook --project " + shellQuote(project) +
                                    " --platform desktop --output " + shellQuote(cooked);

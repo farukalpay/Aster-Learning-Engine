@@ -49,6 +49,68 @@ void appendIndexQuad(CpuMesh &mesh, const std::uint32_t a, const std::uint32_t b
   return {.position = position, .normal = safeNormalize(normal, {0.0f, 1.0f, 0.0f}), .uv = uv};
 }
 
+[[nodiscard]] float saturate(const float value) {
+  return std::clamp(value, 0.0f, 1.0f);
+}
+
+[[nodiscard]] float fractValue(const float value) {
+  return value - std::floor(value);
+}
+
+[[nodiscard]] float hash31(Vec3 p) {
+  p = {fractValue(p.x * 0.1031f), fractValue(p.y * 0.11369f), fractValue(p.z * 0.13787f)};
+  const float d = p.x * (p.y + 19.19f) + p.y * (p.z + 19.19f) + p.z * (p.x + 19.19f);
+  p = p + Vec3{d, d, d};
+  return fractValue((p.x + p.y) * p.z);
+}
+
+[[nodiscard]] float valueNoise(const Vec3 p) {
+  const Vec3 i{std::floor(p.x), std::floor(p.y), std::floor(p.z)};
+  Vec3 f{fractValue(p.x), fractValue(p.y), fractValue(p.z)};
+  f = f * f * (Vec3{3.0f, 3.0f, 3.0f} - f * 2.0f);
+
+  const float n000 = hash31(i + Vec3{0.0f, 0.0f, 0.0f});
+  const float n100 = hash31(i + Vec3{1.0f, 0.0f, 0.0f});
+  const float n010 = hash31(i + Vec3{0.0f, 1.0f, 0.0f});
+  const float n110 = hash31(i + Vec3{1.0f, 1.0f, 0.0f});
+  const float n001 = hash31(i + Vec3{0.0f, 0.0f, 1.0f});
+  const float n101 = hash31(i + Vec3{1.0f, 0.0f, 1.0f});
+  const float n011 = hash31(i + Vec3{0.0f, 1.0f, 1.0f});
+  const float n111 = hash31(i + Vec3{1.0f, 1.0f, 1.0f});
+
+  const float nx00 = std::lerp(n000, n100, f.x);
+  const float nx10 = std::lerp(n010, n110, f.x);
+  const float nx01 = std::lerp(n001, n101, f.x);
+  const float nx11 = std::lerp(n011, n111, f.x);
+  return std::lerp(std::lerp(nx00, nx10, f.y), std::lerp(nx01, nx11, f.y), f.z);
+}
+
+[[nodiscard]] float fbm(Vec3 p, const std::uint32_t seed) {
+  p = p + Vec3{static_cast<float>((seed & 255u) + 17u) * 0.37f,
+               static_cast<float>(((seed >> 8u) & 255u) + 31u) * 0.29f,
+               static_cast<float>(((seed >> 16u) & 255u) + 47u) * 0.23f};
+  float sum = 0.0f;
+  float amplitude = 0.54f;
+  float amplitude_sum = 0.0f;
+  for (int octave = 0; octave < 4; ++octave) {
+    sum += valueNoise(p) * amplitude;
+    amplitude_sum += amplitude;
+    p = p * 2.07f + Vec3{11.3f, 17.1f, 23.7f};
+    amplitude *= 0.52f;
+  }
+  return amplitude_sum > 0.0f ? sum / amplitude_sum : 0.0f;
+}
+
+[[nodiscard]] float widthAt(const RibbonStripSpec &spec, const int index) {
+  if (spec.half_widths.empty()) {
+    return 0.05f;
+  }
+  if (index < static_cast<int>(spec.half_widths.size())) {
+    return std::max(spec.half_widths[static_cast<std::size_t>(index)], 0.0001f);
+  }
+  return std::max(spec.half_widths.back(), 0.0001f);
+}
+
 } // namespace
 
 std::uint32_t AsterMeshAssembly::beginPart(std::string name) {
@@ -306,6 +368,124 @@ void appendExtrudedRidge(CpuMesh &mesh, const ExtrudedRidgeSpec &spec) {
   rebuildAngleWeightedNormals(mesh);
 }
 
+void appendRibbonStrip(CpuMesh &mesh, const RibbonStripSpec &spec) {
+  if (spec.centerline.size() < 2u || spec.uv_scale.x <= 0.0f || spec.uv_scale.y <= 0.0f ||
+      spec.thickness < 0.0f) {
+    throw std::invalid_argument(
+        "Ribbon strip requires at least two centerline points, positive UV scale, and thickness >= 0.");
+  }
+
+  const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
+  const int count = static_cast<int>(spec.centerline.size());
+  const bool thick = spec.thickness > 0.0001f;
+  const int row_vertices = thick ? 4 : 2;
+  mesh.vertices.reserve(mesh.vertices.size() + static_cast<std::size_t>(count * row_vertices));
+  mesh.indices.reserve(mesh.indices.size() +
+                       static_cast<std::size_t>((count - 1) * (thick ? 24 : 6) + 12));
+
+  for (int i = 0; i < count; ++i) {
+    const Vec3 prev = spec.centerline[static_cast<std::size_t>(std::max(i - 1, 0))];
+    const Vec3 next = spec.centerline[static_cast<std::size_t>(std::min(i + 1, count - 1))];
+    Vec3 up{};
+    const Vec3 side = safeCrossBasis(next - prev, spec.up, up);
+    const Vec3 center = spec.centerline[static_cast<std::size_t>(i)];
+    const float half_width = widthAt(spec, i);
+    const float v = count == 1 ? 0.0f : static_cast<float>(i) / static_cast<float>(count - 1);
+    const Vec3 left = center - side * half_width;
+    const Vec3 right = center + side * half_width;
+    mesh.vertices.push_back(vertex(left, up, {0.0f, v * spec.uv_scale.y}));
+    mesh.vertices.push_back(vertex(right, up, {spec.uv_scale.x, v * spec.uv_scale.y}));
+    if (thick) {
+      mesh.vertices.push_back(
+          vertex(left - up * spec.thickness, -up, {0.0f, v * spec.uv_scale.y}));
+      mesh.vertices.push_back(
+          vertex(right - up * spec.thickness, -up, {spec.uv_scale.x, v * spec.uv_scale.y}));
+    }
+  }
+
+  for (int i = 0; i + 1 < count; ++i) {
+    const std::uint32_t a0 = base + static_cast<std::uint32_t>(i * row_vertices);
+    const std::uint32_t b0 = a0 + 1u;
+    const std::uint32_t a1 = base + static_cast<std::uint32_t>((i + 1) * row_vertices);
+    const std::uint32_t b1 = a1 + 1u;
+    appendIndexQuad(mesh, a0, a1, b1, b0);
+    if (thick) {
+      const std::uint32_t c0 = a0 + 2u;
+      const std::uint32_t d0 = a0 + 3u;
+      const std::uint32_t c1 = a1 + 2u;
+      const std::uint32_t d1 = a1 + 3u;
+      appendIndexQuad(mesh, d0, d1, c1, c0);
+      appendIndexQuad(mesh, c0, c1, a1, a0);
+      appendIndexQuad(mesh, b0, b1, d1, d0);
+    }
+  }
+
+  if (thick && spec.cap_ends) {
+    appendIndexQuad(mesh, base + 2u, base, base + 1u, base + 3u);
+    const std::uint32_t last = base + static_cast<std::uint32_t>((count - 1) * row_vertices);
+    appendIndexQuad(mesh, last, last + 2u, last + 3u, last + 1u);
+  }
+  rebuildAngleWeightedNormals(mesh);
+}
+
+void appendCapsule(CpuMesh &mesh, const CapsuleSpec &spec) {
+  if (spec.radius <= 0.0f || spec.segments < 6 || spec.rings < 4 ||
+      distance(spec.start, spec.end) <= kEpsilon || spec.end_radius_scale <= 0.0f ||
+      spec.profile_vertical_scale <= 0.0f) {
+    throw std::invalid_argument(
+        "Capsule requires separated endpoints, positive radius, and enough detail.");
+  }
+
+  SweepPath path;
+  path.points = {{.position = spec.start, .radius_scale = spec.end_radius_scale},
+                 {.position = spec.end, .radius_scale = spec.end_radius_scale}};
+  appendSweptTube(mesh, {.path = path,
+                         .profile = makeCircularSweepProfile(spec.segments, 1.0f,
+                                                              spec.profile_vertical_scale),
+                         .radius = spec.radius});
+  appendEllipsoidSection(mesh, {.center = spec.start,
+                                .radius = {spec.radius * spec.end_radius_scale,
+                                           spec.radius * spec.end_radius_scale,
+                                           spec.radius * spec.end_radius_scale},
+                                .segments = spec.segments,
+                                .rings = spec.rings});
+  appendEllipsoidSection(mesh, {.center = spec.end,
+                                .radius = {spec.radius * spec.end_radius_scale,
+                                           spec.radius * spec.end_radius_scale,
+                                           spec.radius * spec.end_radius_scale},
+                                .segments = spec.segments,
+                                .rings = spec.rings});
+  rebuildAngleWeightedNormals(mesh);
+}
+
+void applyDeterministicSurfaceDetail(CpuMesh &mesh, const SurfaceDisplacementSpec &spec) {
+  if (mesh.vertices.empty() || spec.amplitude == 0.0f) {
+    return;
+  }
+  if (spec.frequency <= 0.0f) {
+    throw std::invalid_argument("Surface detail frequency must be positive.");
+  }
+
+  const float directional_weight = length(spec.directional_bias) > kEpsilon ? 1.0f : 0.0f;
+  const Vec3 directional = directional_weight > 0.0f ? normalize(spec.directional_bias) : Vec3{};
+  for (Vertex &v : mesh.vertices) {
+    const Vec3 normal = safeNormalize(v.normal, {0.0f, 1.0f, 0.0f});
+    const float coarse = fbm(v.position * spec.frequency, spec.seed);
+    const float fine = fbm(v.position * (spec.frequency * 2.83f) + normal * 1.7f,
+                           spec.seed ^ 0xa511e9b3u);
+    const float ridge = 1.0f - std::abs(fine * 2.0f - 1.0f);
+    const float bias = directional_weight * dot(normal, directional) * 0.35f;
+    const float signed_detail =
+        (coarse - 0.5f) * 2.0f + (ridge - 0.5f) * spec.ridge_strength + bias;
+    v.position = v.position + normal * (signed_detail * spec.amplitude);
+    const float cavity = saturate((0.54f - fine) * 2.2f);
+    v.ambient_occlusion = saturate(v.ambient_occlusion - cavity * spec.cavity_ao_strength);
+  }
+  if (spec.rebuild_normals) {
+    rebuildAngleWeightedNormals(mesh);
+  }
+}
+
 CpuMesh makeLathedSurface(const LatheSurfaceSpec &spec) {
   CpuMesh mesh;
   appendLathedSurface(mesh, spec);
@@ -327,6 +507,18 @@ CpuMesh makeSweptTube(const SweptTubeSpec &spec) {
 CpuMesh makeExtrudedRidge(const ExtrudedRidgeSpec &spec) {
   CpuMesh mesh;
   appendExtrudedRidge(mesh, spec);
+  return mesh;
+}
+
+CpuMesh makeRibbonStrip(const RibbonStripSpec &spec) {
+  CpuMesh mesh;
+  appendRibbonStrip(mesh, spec);
+  return mesh;
+}
+
+CpuMesh makeCapsule(const CapsuleSpec &spec) {
+  CpuMesh mesh;
+  appendCapsule(mesh, spec);
   return mesh;
 }
 

@@ -292,7 +292,14 @@ Material proceduralAssetGraphMaterial(const ProceduralAssetGraphPackage &package
 CpuMesh proceduralAssetGraphMesh(const ProceduralAssetGraphPackage &package) {
   const std::string primitive = normalized(package.mesh.primitive);
   if (primitive == "cercopithecidae" || primitive == "primate-cercopithecidae") {
-    return makeCercopithecidaeMesh({.surface_segments = 28, .surface_rings = 14});
+    return makeCercopithecidaeMesh({.surface_segments = 36,
+                                    .surface_rings = 18,
+                                    .include_soft_tissue = true,
+                                    .include_muscle_insertions = true,
+                                    .include_surface_pads = true,
+                                    .include_surface_detail = true,
+                                    .fur_strand_guides = 96,
+                                    .surface_detail_strength = 1.0f});
   }
   if (primitive == "sphere" || primitive == "uv-sphere") {
     return makeUvSphere(32, 16, 1.0f);

@@ -548,6 +548,85 @@ Scene makeSceneLabShowcaseScene() {
   return scene;
 }
 
+Scene makeCleanCaveShowcaseScene() {
+  Scene scene;
+
+  const Material wet_rock =
+      material({0.18f, 0.17f, 0.155f}, {}, 0.88f, 0.0f, 0.0f, 0.84f, 6.8f, 0.22f, 0.78f,
+               SurfacePattern::CaveRock, {3.0f, 4.2f}, 0.28f, 0.62f, 0.055f,
+               {.macro_variation = 0.60f,
+                .micro_normal_strength = 0.48f,
+                .roughness_variation = 0.32f,
+                .wetness = 0.42f,
+                .height_shading = 0.25f});
+  const Material floor_material = makeSupportSurfaceMaterial(wet_rock);
+  const Material warm_lamp =
+      material({0.68f, 0.36f, 0.14f}, {1.0f, 0.46f, 0.14f}, 0.36f, 0.0f, 0.55f, 0.20f,
+               3.0f, 0.04f, 1.0f, SurfacePattern::AmberResin, {2.0f, 2.0f}, 0.10f, 0.34f);
+  const Material mineral =
+      material({0.30f, 0.30f, 0.27f}, {0.02f, 0.025f, 0.030f}, 0.74f, 0.05f, 0.04f, 0.46f,
+               5.0f, 0.18f, 0.82f, SurfacePattern::CoalVein, {2.2f, 3.4f}, 0.16f, 0.46f);
+
+  RenderObject floor;
+  floor.name = "clean cave wet floor";
+  floor.primitive = MeshPrimitive::Plane;
+  floor.transform.scale = {1.20f, 1.0f, 1.12f};
+  floor.material = floor_material;
+  floor.auto_contact_shadow = false;
+  scene.objects().push_back(floor);
+
+  struct WallSpec {
+    const char *name;
+    Vec3 position;
+    Vec3 scale;
+    Vec3 rotation;
+    Material material;
+  };
+  const WallSpec walls[] = {
+      {"clean cave back wall", {0.0f, 1.14f, -2.22f}, {5.80f, 1.84f, 0.22f}, {}, wet_rock},
+      {"clean cave left wall", {-2.86f, 1.06f, -0.35f}, {0.22f, 1.70f, 2.58f},
+       {0.0f, radians(7.0f), 0.0f}, wet_rock},
+      {"clean cave right wall", {2.74f, 1.08f, -0.25f}, {0.22f, 1.72f, 2.70f},
+       {0.0f, radians(-9.0f), 0.0f}, wet_rock},
+      {"clean cave low ceiling", {0.0f, 1.92f, -0.76f}, {5.60f, 0.22f, 2.86f},
+       {radians(3.0f), 0.0f, radians(-1.5f)}, wet_rock},
+      {"clean cave mineral shelf", {-0.82f, 0.58f, -1.96f}, {0.95f, 0.16f, 0.22f},
+       {0.0f, radians(-3.0f), radians(2.0f)}, mineral},
+  };
+  for (const WallSpec &spec : walls) {
+    RenderObject wall;
+    wall.name = spec.name;
+    wall.primitive = MeshPrimitive::Box;
+    wall.transform.position = spec.position;
+    wall.transform.scale = spec.scale;
+    wall.transform.rotation = quatFromEulerXyz(spec.rotation);
+    wall.material = spec.material;
+    wall.casts_shadows = true;
+    scene.objects().push_back(wall);
+  }
+
+  for (const Vec3 position : {Vec3{-1.30f, 1.22f, -1.66f}, Vec3{1.22f, 1.06f, -1.90f},
+                              Vec3{0.0f, 0.82f, -2.05f}}) {
+    RenderObject lamp;
+    lamp.name = "clean cave warm crystal";
+    lamp.primitive = MeshPrimitive::Crystal;
+    lamp.transform.position = position;
+    lamp.transform.scale = {0.13f, 0.26f, 0.13f};
+    lamp.material = warm_lamp;
+    lamp.casts_contact_shadow = false;
+    scene.objects().push_back(lamp);
+  }
+
+  scene.reflectionProbes().push_back({.name = "clean cave reflection probe",
+                                      .position = {0.0f, 0.82f, -0.92f},
+                                      .influence_radius = 4.6f,
+                                      .sky_irradiance = {0.18f, 0.22f, 0.28f},
+                                      .ground_irradiance = {0.085f, 0.070f, 0.052f},
+                                      .specular_tint = {1.0f, 0.90f, 0.78f},
+                                      .intensity = 1.15f});
+  return scene;
+}
+
 Scene makeCaveConformanceShowcaseScene() {
   Scene scene;
 
@@ -682,19 +761,29 @@ Scene makeCercopithecidaeShowcaseScene() {
   floor.auto_contact_shadow = false;
   scene.objects().push_back(floor);
 
-  const AnatomicalModel model = makeCercopithecidaeModel({.surface_segments = 28,
-                                                          .surface_rings = 14,
+  const AnatomicalModel model = makeCercopithecidaeModel({.surface_segments = 36,
+                                                          .surface_rings = 18,
                                                           .include_soft_tissue = true,
                                                           .include_muscle_insertions = true,
-                                                          .include_surface_pads = true});
+                                                          .include_surface_pads = true,
+                                                          .include_surface_detail = true,
+                                                          .fur_strand_guides = 96,
+                                                          .surface_detail_strength = 1.0f});
   for (const AnatomicalModelPart &part : model.parts) {
     RenderObject object;
     object.name = "Cercopithecidae " + part.name;
     object.primitive = MeshPrimitive::Box;
     object.custom_mesh = std::make_shared<const CpuMesh>(part.mesh);
-    object.transform.position = {0.0f, 0.04f, 0.24f};
+    const bool envelope = part.tissue == AnatomicalTissue::FurSkin;
+    object.transform.position = {envelope ? 0.58f : -0.36f, 0.04f, envelope ? 0.18f : 0.26f};
     object.transform.rotation = quatFromEulerXyz({0.0f, radians(-17.0f), 0.0f});
+    object.transform.scale = envelope ? Vec3{0.96f, 0.96f, 0.96f} : Vec3{0.98f, 0.98f, 0.98f};
     object.material = cercopithecidaeMaterialFor(part.tissue);
+    if (envelope) {
+      object.material.opacity = 0.58f;
+      object.material.alpha_mode = MaterialAlphaMode::Blend;
+      object.material.depth_write = MaterialDepthWrite::Disabled;
+    }
     object.material_asset_id = std::string("procedural.cercopithecidae.") +
                                anatomicalTissueName(part.tissue);
     object.casts_contact_shadow = true;

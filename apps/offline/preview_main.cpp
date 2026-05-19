@@ -46,6 +46,9 @@ aster::Scene makeScene(const std::string &scene_name) {
   if (scene_name == "cave-conformance") {
     return aster::makeCaveConformanceShowcaseScene();
   }
+  if (scene_name == "clean-cave") {
+    return aster::makeCleanCaveShowcaseScene();
+  }
   if (scene_name == "cercopithecidae") {
     return aster::makeCercopithecidaeShowcaseScene();
   }
@@ -105,12 +108,20 @@ aster::OrbitCamera makeCamera(const std::string &scene_name) {
     camera.vertical_fov = aster::radians(43.0f);
     return camera;
   }
+  if (scene_name == "clean-cave") {
+    camera.target = {0.0f, 0.82f, -1.35f};
+    camera.yaw = aster::radians(0.0f);
+    camera.pitch = aster::radians(7.0f);
+    camera.radius = 3.55f;
+    camera.vertical_fov = aster::radians(43.0f);
+    return camera;
+  }
   if (scene_name == "cercopithecidae") {
-    camera.target = {0.0f, 0.92f, -0.48f};
-    camera.yaw = aster::radians(35.0f);
-    camera.pitch = aster::radians(18.0f);
-    camera.radius = 4.7f;
-    camera.vertical_fov = aster::radians(38.0f);
+    camera.target = {0.08f, 0.92f, -0.52f};
+    camera.yaw = aster::radians(28.0f);
+    camera.pitch = aster::radians(16.0f);
+    camera.radius = 5.35f;
+    camera.vertical_fov = aster::radians(40.0f);
     return camera;
   }
   camera.target = {0.0f, 1.18f, -0.35f};
@@ -227,10 +238,41 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
         aster::Light{{0.0f, 0.82f, 0.72f}, {0.62f, 1.05f, 1.45f}, 1.0f, 0.86f},
     };
   }
+  if (scene_name == "clean-cave") {
+    settings.exposure = 0.94f;
+    settings.ambient_strength = 0.17f;
+    settings.ambient_floor = 0.022f;
+    settings.sun_light.enabled = true;
+    settings.sun_light.direction_to_light = {-0.38f, 0.84f, 0.30f};
+    settings.sun_light.color = {1.0f, 0.82f, 0.62f};
+    settings.sun_light.intensity = 1.22f;
+    settings.pipeline.clear_color = {0.014f, 0.014f, 0.016f};
+    settings.atmosphere.fog_color = {0.050f, 0.046f, 0.041f};
+    settings.atmosphere.fog_start = 2.2f;
+    settings.atmosphere.fog_end = 7.2f;
+    settings.atmosphere.fog_strength = 0.24f;
+    settings.grounding.enabled = true;
+    settings.grounding.contact_shadows = true;
+    settings.grounding.auto_contact_shadows = true;
+    settings.shadows.enabled = true;
+    settings.shadows.cascaded_directional = true;
+    settings.shadows.directional_cascades = 2u;
+    settings.shadows.atlas_size = 128u;
+    settings.reflections.enabled = true;
+    settings.reflections.static_local_probes = true;
+    settings.reflections.probe_resolution = 16u;
+    settings.reflections.max_active_probes = 1u;
+    settings.reflections.fallback_intensity = 0.78f;
+    settings.light_rig = {
+        aster::Light{{-1.30f, 1.22f, -1.66f}, {4.6f, 1.9f, 0.62f}, 1.0f, 0.52f},
+        aster::Light{{1.22f, 1.06f, -1.90f}, {3.7f, 1.5f, 0.52f}, 1.0f, 0.52f},
+        aster::Light{{0.0f, 0.82f, -2.05f}, {2.2f, 1.5f, 1.1f}, 1.0f, 0.72f},
+    };
+  }
   if (scene_name == "cercopithecidae") {
-    settings.exposure = 1.08f;
-    settings.ambient_strength = 0.28f;
-    settings.sun_light.intensity = 2.20f;
+    settings.exposure = 1.12f;
+    settings.ambient_strength = 0.30f;
+    settings.sun_light.intensity = 2.35f;
     settings.sun_light.direction_to_light = {-0.40f, 0.82f, 0.26f};
     settings.pipeline.clear_color = {0.020f, 0.024f, 0.026f};
     settings.atmosphere.fog_strength = 0.06f;

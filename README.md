@@ -48,9 +48,9 @@ hashes, shader variant keys, and the frame-forensics timeline.
 
 ![Lumen Run cave entry motion](assets/screenshots/lumen_cave_entry.gif)
 
-![Lumen Run Classic Gauntlet HUD and automap](assets/screenshots/lumen_run.png)
+![Cercopithecidae procedural anatomy model](assets/screenshots/cercopithecidae_model.png)
 
-![Lumen Run Classic Gauntlet cave interior](assets/screenshots/lumen_cave_interior.png)
+![Clean cave material showcase](assets/screenshots/clean_cave_showcase.png)
 
 ## First Scene
 
@@ -103,6 +103,8 @@ Run built-in lab scenes:
 ./build/aster_preview --scene mesh-lab --output /tmp/mesh_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene lighting-lab --output /tmp/lighting_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene scene-lab --output /tmp/scene_lab.ppm --width 1280 --height 720 --samples 2
+./build/aster_preview --scene cercopithecidae --output /tmp/cercopithecidae_model.ppm --width 1280 --height 720 --samples 2
+./build/aster_preview --scene clean-cave --output /tmp/clean_cave_showcase.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene cave-conformance --output /tmp/cave_conformance.ppm --width 1280 --height 720 --samples 2
 ```
 
@@ -129,6 +131,10 @@ Run built-in lab scenes:
 - Procedural geometry and mesh tooling for terrain, caves, tubes, cables,
   fracture pieces, water, architecture, vegetation, projected meshes, and
   generated scenery.
+- AssetFactory-inspired Aster-native procedural anatomy tooling, including the
+  `primate_lab` Cercopithecidae graph, sweep/ribbon/capsule mesh generation,
+  anatomical landmark probes, bilophodont dentition, tendon/fur guide systems,
+  and procedural surface-detail texture channels.
 - Material/shader contracts for strict `.astermat` cooking, required
   albedo/normal/ORM LitPBR roles, source texture validation, typed material
   graph nodes, shader variants, render quality profiles, and hot reload.

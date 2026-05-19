@@ -1897,6 +1897,11 @@ fn graph_node_capability_status(kind: &str) -> &'static str {
         | "muscle_volume"
         | "tendon_band"
         | "surface_pad"
+        | "rib_cage"
+        | "suture_curve"
+        | "fur_guide"
+        | "surface_displacement"
+        | "anatomical_texture"
         | "measurement_probe"
         | "probe_helper"
         | "prefab_variant"
@@ -2153,6 +2158,10 @@ fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
             "joint_range" => set(23),
             "muscle_volume" | "tendon_band" => set(24),
             "surface_pad" => set(25),
+            "rib_cage" | "suture_curve" => set(26),
+            "fur_guide" => set(27),
+            "surface_displacement" => set(28),
+            "anatomical_texture" => set(29),
             _ => {}
         }
     }

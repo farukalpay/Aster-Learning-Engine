@@ -104,6 +104,35 @@ struct ExtrudedRidgeSpec {
   bool cap_ends = true;
 };
 
+struct RibbonStripSpec {
+  std::vector<Vec3> centerline;
+  std::vector<float> half_widths;
+  Vec3 up{0.0f, 1.0f, 0.0f};
+  float thickness = 0.0f;
+  bool cap_ends = true;
+  Vec2 uv_scale{1.0f, 1.0f};
+};
+
+struct CapsuleSpec {
+  Vec3 start{};
+  Vec3 end{0.0f, 1.0f, 0.0f};
+  float radius = 0.1f;
+  float end_radius_scale = 1.0f;
+  int segments = 16;
+  int rings = 8;
+  float profile_vertical_scale = 1.0f;
+};
+
+struct SurfaceDisplacementSpec {
+  float amplitude = 0.0f;
+  float frequency = 1.0f;
+  float ridge_strength = 0.0f;
+  float cavity_ao_strength = 0.0f;
+  std::uint32_t seed = 0u;
+  Vec3 directional_bias{};
+  bool rebuild_normals = true;
+};
+
 [[nodiscard]] SweepProfile makeCircularSweepProfile(int segments, float radius = 1.0f,
                                                     float vertical_scale = 1.0f);
 
@@ -114,10 +143,15 @@ void appendLathedSurface(CpuMesh &mesh, const LatheSurfaceSpec &spec);
 void appendEllipsoidSection(CpuMesh &mesh, const EllipsoidSectionSpec &spec);
 void appendSweptTube(CpuMesh &mesh, const SweptTubeSpec &spec);
 void appendExtrudedRidge(CpuMesh &mesh, const ExtrudedRidgeSpec &spec);
+void appendRibbonStrip(CpuMesh &mesh, const RibbonStripSpec &spec);
+void appendCapsule(CpuMesh &mesh, const CapsuleSpec &spec);
+void applyDeterministicSurfaceDetail(CpuMesh &mesh, const SurfaceDisplacementSpec &spec);
 
 [[nodiscard]] CpuMesh makeLathedSurface(const LatheSurfaceSpec &spec);
 [[nodiscard]] CpuMesh makeEllipsoidSection(const EllipsoidSectionSpec &spec);
 [[nodiscard]] CpuMesh makeSweptTube(const SweptTubeSpec &spec);
 [[nodiscard]] CpuMesh makeExtrudedRidge(const ExtrudedRidgeSpec &spec);
+[[nodiscard]] CpuMesh makeRibbonStrip(const RibbonStripSpec &spec);
+[[nodiscard]] CpuMesh makeCapsule(const CapsuleSpec &spec);
 
 } // namespace aster
