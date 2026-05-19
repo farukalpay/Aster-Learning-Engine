@@ -902,6 +902,12 @@ AsterKernelFrameDiagnosticKind diagnosticKind(const aster::FrameDiagnosticKind k
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_BACKEND_PROJECTION_DRIFT;
   case aster::FrameDiagnosticKind::PredicateUncertainty:
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_PREDICATE_UNCERTAINTY;
+  case aster::FrameDiagnosticKind::AssetProvenanceWarning:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_ASSET_PROVENANCE_WARNING;
+  case aster::FrameDiagnosticKind::TextureRoleDegraded:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_TEXTURE_ROLE_DEGRADED;
+  case aster::FrameDiagnosticKind::MeshAttributeDegraded:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_MESH_ATTRIBUTE_DEGRADED;
   case aster::FrameDiagnosticKind::BackendFallback:
   default:
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_BACKEND_FALLBACK;

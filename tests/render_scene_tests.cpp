@@ -568,6 +568,111 @@ void testFrameDebuggerMaterialBindingTrace() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
 
+void testFrameDebuggerAssetProvenanceTrace() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+  const std::filesystem::path dir =
+      std::filesystem::temp_directory_path() / "aster_frame_debug_asset_provenance";
+  std::filesystem::create_directories(dir);
+  writeRenderTraceKtx2Header(dir / "bad_albedo.ktx2", 16u, 16u, 1u);
+
+  aster::MaterialAsset asset;
+  asset.id = "BadAssetMaterial";
+  asset.name = "Bad Asset Material";
+  asset.source_path = dir / "bad_asset.astermat";
+  asset.textures["albedo"] = {.role = "albedo", .uri = "bad_albedo.ktx2", .srgb = true};
+  asset.textures["normal"] = {.role = "normal", .uri = "missing_normal.ktx2", .srgb = false};
+  asset.textures["mystery_role"] = {.role = "mystery_role", .uri = "unused.ktx2"};
+  asset.explicit_features["normal_map"] = true;
+
+  auto library = std::make_shared<aster::MaterialResourceLibrary>();
+  assert(library->addMaterialAsset(asset, dir, {.require_existing_files = false}));
+
+  aster::RenderObject object;
+  object.name = "asset provenance probe";
+  object.custom_mesh = std::make_shared<const aster::CpuMesh>(aster::makeBox());
+  object.transform.position = {0.0f, 0.5f, 0.0f};
+  object.material_asset_id = asset.id;
+  object.material = aster::makeMaterial({.base_color = {0.55f, 0.42f, 0.30f}});
+  object.material.asset_id = asset.id;
+  object.asset_provenance = {.source_asset_id = "bad_asset.glb",
+                             .source_path = dir / "bad_asset.glb",
+                             .source_node = "BadImportNode",
+                             .source_mesh = "BrokenUvMesh",
+                             .material_slot = "Bad Asset Material",
+                             .uv_channel = 0u,
+                             .uv0_present = false,
+                             .authored_tangent_basis = false,
+                             .degenerate_triangles = 2u,
+                             .invalid_normals = 3u,
+                             .generated_tangents = 0u};
+
+  aster::Scene scene;
+  scene.objects().push_back(object);
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.5f, 0.0f};
+  camera.radius = 4.5f;
+
+  aster::RendererSettings settings;
+  settings.sun_light.enabled = true;
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.setMaterialResourceLibrary(library);
+  renderer.prepareScene(scene);
+  (void)renderer.render(scene, camera, settings, 64, 48, 0.0);
+
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  const auto issue_seen = [&forensics](const std::string &issue) {
+    return std::any_of(forensics.asset_traces.begin(), forensics.asset_traces.end(),
+                       [&](const aster::AssetFrameTrace &trace) {
+                         return std::find(trace.issues.begin(), trace.issues.end(), issue) !=
+                                trace.issues.end();
+                       });
+  };
+  assert(forensics.asset_traces.size() == 1u);
+  const aster::AssetFrameTrace &trace = forensics.asset_traces.front();
+  assert(trace.object_name == "asset provenance probe");
+  assert(trace.source_asset_id == "bad_asset.glb");
+  assert(trace.source_node == "BadImportNode");
+  assert(trace.source_mesh == "BrokenUvMesh");
+  assert(trace.trace_hash != 0u);
+  assert(issue_seen("mesh:uv0-missing-required-by-material-textures"));
+  assert(issue_seen("mesh:tangent-basis-missing-for-normal-map"));
+  assert(issue_seen("mesh:degenerate-triangles-dropped=2"));
+  assert(issue_seen("mesh:invalid-normals-rebuilt=3"));
+  assert(issue_seen("texture:normal:fallback-source-missing"));
+  assert(issue_seen("texture:albedo:mip-chain-incomplete expected=5 actual=1"));
+  assert(issue_seen("texture:mystery_role:unknown-role-not-bound"));
+  assert(std::any_of(trace.backend_degradations.begin(), trace.backend_degradations.end(),
+                     [](const std::string &degradation) {
+                       return degradation.find("normal-map-degraded-to-vertex-normal") !=
+                              std::string::npos;
+                     }));
+  assert(std::any_of(forensics.material_bindings.begin(), forensics.material_bindings.end(),
+                     [](const aster::MaterialBindingTrace &binding) {
+                       return binding.role == "normal" && binding.fallback &&
+                              binding.fallback_reason.find("missing_normal.ktx2") !=
+                                  std::string::npos;
+                     }));
+  const auto fate = std::find_if(forensics.object_fates.begin(), forensics.object_fates.end(),
+                                 [](const aster::ObjectRenderFateTrace &candidate) {
+                                   return candidate.object_name == "asset provenance probe";
+                                 });
+  assert(fate != forensics.object_fates.end());
+  assert(fate->asset_source_node == "BadImportNode");
+  assert(std::find(fate->asset_issues.begin(), fate->asset_issues.end(),
+                   "texture:normal:fallback-source-missing") != fate->asset_issues.end());
+  assert(std::any_of(forensics.events.begin(), forensics.events.end(),
+                     [](const aster::FrameDiagnosticEvent &event) {
+                       return event.kind == aster::FrameDiagnosticKind::TextureRoleDegraded &&
+                              event.message == "texture:normal:fallback-source-missing";
+                     }));
+
+  std::filesystem::remove_all(dir);
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
 void testSoftwareReferenceFrameResourceCaptures() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
   setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
@@ -1834,6 +1939,7 @@ constexpr TestCase kTestCases[] = {
     {"prepare_scene_custom_mesh_cache", testPrepareSceneInvalidatesCustomMeshCache},
     {"frame_math_diagnostics", testFrameMathDiagnostics},
     {"frame_debugger_material_binding_trace", testFrameDebuggerMaterialBindingTrace},
+    {"frame_debugger_asset_provenance_trace", testFrameDebuggerAssetProvenanceTrace},
     {"software_reference_frame_resource_captures", testSoftwareReferenceFrameResourceCaptures},
     {"retro_style_neutral_preview", testRetroStyleNeutralSoftwarePreviewMatchesDefault},
     {"retro_style_preview_effects", testRetroStyleSoftwarePreviewEffects},

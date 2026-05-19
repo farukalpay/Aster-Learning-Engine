@@ -439,6 +439,11 @@ struct MaterialBindingTrace {
   std::string object_name;
   std::string material_asset_id;
   std::string role;
+  std::string source_path;
+  std::string texture_kind;
+  std::string color_space;
+  std::string fallback_reason;
+  std::string backend_degradation;
   bool valid = false;
   bool fallback = true;
   bool bound = false;
@@ -446,6 +451,20 @@ struct MaterialBindingTrace {
   std::uint32_t height = 0u;
   std::uint32_t mip_count = 0u;
   std::uint64_t descriptor_layout_hash = 0u;
+};
+
+struct AssetFrameTrace {
+  std::string object_name;
+  std::size_t object_index = 0u;
+  std::string source_asset_id;
+  std::string source_path;
+  std::string source_node;
+  std::string source_mesh;
+  std::string material_slot;
+  std::vector<std::string> issues;
+  std::vector<std::string> texture_roles;
+  std::vector<std::string> backend_degradations;
+  std::uint64_t trace_hash = 0u;
 };
 
 struct MeshVisibilityTrace {
@@ -473,6 +492,12 @@ struct ObjectRenderFateTrace {
   std::string material_asset_id;
   std::string shader_variant_key;
   std::string pipeline_tag;
+  std::string asset_source_path;
+  std::string asset_source_node;
+  std::string asset_source_mesh;
+  std::string asset_material_slot;
+  std::vector<std::string> asset_issues;
+  std::vector<std::string> backend_degradations;
   std::vector<std::string> texture_roles;
   std::vector<std::string> pass_list;
   std::vector<std::string> resource_transitions;
@@ -504,6 +529,9 @@ enum class FrameDiagnosticKind : std::uint32_t {
   ViewportOriginMismatch,
   BackendProjectionDrift,
   PredicateUncertainty,
+  AssetProvenanceWarning,
+  TextureRoleDegraded,
+  MeshAttributeDegraded,
 };
 
 struct FrameDiagnosticEvent {
@@ -531,6 +559,7 @@ struct FrameForensics {
   std::vector<FramePassArtifact> pass_artifacts;
   std::vector<FrameResourceTrace> resource_traces;
   std::vector<MaterialBindingTrace> material_bindings;
+  std::vector<AssetFrameTrace> asset_traces;
   std::vector<MeshVisibilityTrace> mesh_visibility;
   std::vector<ObjectClusterMembershipTrace> object_clusters;
   std::vector<ObjectRenderFateTrace> object_fates;

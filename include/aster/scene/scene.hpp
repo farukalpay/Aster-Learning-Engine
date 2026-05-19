@@ -191,6 +191,20 @@ struct DynamicMeshResourceKeyHash {
   }
 };
 
+struct RenderObjectAssetProvenance {
+  std::string source_asset_id;
+  std::filesystem::path source_path;
+  std::string source_node;
+  std::string source_mesh;
+  std::string material_slot;
+  std::uint32_t uv_channel = 0u;
+  bool uv0_present = true;
+  bool authored_tangent_basis = true;
+  std::size_t degenerate_triangles = 0u;
+  std::size_t invalid_normals = 0u;
+  std::size_t generated_tangents = 0u;
+};
+
 struct Material {
   std::string asset_id;
   LinearRgb base_color{1.0f, 1.0f, 1.0f};
@@ -282,6 +296,7 @@ struct RenderObject {
   RenderVisibilityHint visibility_hint{};
   RenderLodPolicy lod{};
   DynamicMeshResourceKey dynamic_mesh{};
+  RenderObjectAssetProvenance asset_provenance{};
 };
 
 struct ReflectionProbe {

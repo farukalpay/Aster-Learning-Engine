@@ -289,7 +289,11 @@ RuntimeTexture runtimeTextureForSlot(const std::string_view role, const Material
   const TextureKind kind = textureKindForRole(canonical_role);
   const TextureAssetMetadata metadata = inspectTextureAsset(path, kind, inspect_options);
   if (!metadata.valid) {
-    return makeRuntimeFallbackTexture(canonical_role);
+    RuntimeTexture fallback = makeRuntimeFallbackTexture(canonical_role);
+    fallback.source_path = path;
+    fallback.kind = kind;
+    fallback.color_space = slot.srgb ? TextureColorSpace::SRGB : fallback.color_space;
+    return fallback;
   }
 
   RuntimeTexture texture;

@@ -699,14 +699,21 @@ void importNode(const AssetData &data, const Json &node, const Mat4 &parent,
     const Json &mesh = data.root.at("meshes").at(static_cast<std::size_t>(mesh_index_value->numeric()));
     const std::string mesh_name(mesh.find("name") == nullptr ? "" : mesh.find("name")->text());
     const Json *node_name = node.find("name");
-    for (const Json &primitive : mesh.at("primitives").array) {
+    const auto &primitives = mesh.at("primitives").array;
+    for (std::size_t primitive_index = 0u; primitive_index < primitives.size(); ++primitive_index) {
+      const Json &primitive = primitives[primitive_index];
+      const Json &attributes = primitive.at("attributes");
       SceneMeshChunk chunk;
-      chunk.name = node_name == nullptr || node_name->text().empty()
-                       ? mesh_name
-                       : std::string(node_name->text()) + "/" + mesh_name;
+      chunk.source_node = node_name == nullptr ? "" : std::string(node_name->text());
+      chunk.source_mesh = mesh_name;
+      chunk.source_primitive_index = static_cast<std::uint32_t>(primitive_index);
+      chunk.source_has_uv0 = attributes.find("TEXCOORD_0") != nullptr;
+      chunk.source_has_tangents = attributes.find("TANGENT") != nullptr;
+      chunk.name =
+          chunk.source_node.empty() ? mesh_name : chunk.source_node + "/" + mesh_name;
       chunk.material_slot = materialSlot(primitive.find("material"));
       MeshProcessOptions mesh_options = options.mesh_options;
-      if (primitive.at("attributes").find("TANGENT") != nullptr) {
+      if (chunk.source_has_tangents) {
         mesh_options.generate_tangents = false;
       }
       chunk.mesh = prepareMeshForRendering(
@@ -750,6 +757,7 @@ SceneAsset importSceneAsset(const std::filesystem::path &path,
                             const SceneAssetImportOptions options) {
   AssetData data = loadAssetData(path);
   SceneAsset asset;
+  asset.source_path = path;
   asset.material_slots.push_back(importedMaterialSlot(nullptr));
   if (const Json *materials = data.root.find("materials")) {
     for (const Json &material : materials->array) {
@@ -769,6 +777,32 @@ SceneAsset importSceneAsset(const std::filesystem::path &path,
   }
   applyOriginPolicy(asset, options.origin_policy);
   return asset;
+}
+
+RenderObjectAssetProvenance
+renderObjectProvenanceForSceneMeshChunk(const SceneAsset &asset,
+                                        const std::size_t mesh_chunk_index) {
+  RenderObjectAssetProvenance provenance;
+  provenance.source_path = asset.source_path;
+  if (!asset.source_path.empty()) {
+    provenance.source_asset_id = asset.source_path.stem().generic_string();
+  }
+  if (mesh_chunk_index >= asset.mesh_chunks.size()) {
+    return provenance;
+  }
+
+  const SceneMeshChunk &chunk = asset.mesh_chunks[mesh_chunk_index];
+  provenance.source_node = chunk.source_node;
+  provenance.source_mesh = chunk.source_mesh.empty() ? chunk.name : chunk.source_mesh;
+  provenance.uv0_present = chunk.source_has_uv0;
+  provenance.authored_tangent_basis = chunk.source_has_tangents;
+  provenance.degenerate_triangles = chunk.diagnostics.degenerate_triangles;
+  provenance.invalid_normals = chunk.diagnostics.invalid_normals;
+  provenance.generated_tangents = chunk.diagnostics.generated_tangents;
+  if (chunk.material_slot < asset.material_slots.size()) {
+    provenance.material_slot = asset.material_slots[chunk.material_slot].name;
+  }
+  return provenance;
 }
 
 } // namespace aster

@@ -2322,6 +2322,13 @@ void appendRenderMathContractDiagnostics(const aster::Scene &scene,
   }
 }
 
+std::uint64_t appendEvidenceText(std::uint64_t hash, std::string_view value);
+void appendUnique(std::vector<std::string> &values, std::string value);
+std::string materialAssetIdFor(const aster::RenderObject &object);
+std::string textureRoleFate(const aster::MaterialRuntimeResource *runtime_material,
+                            const aster::RenderBackendCapabilities &capabilities,
+                            std::string_view role);
+
 const aster::framegraph::CompiledResource *
 compiledResourceFor(const aster::FixedRenderGraph &graph, const aster::framegraph::ResourceHandle handle) {
   const auto found = std::find_if(graph.resources.begin(), graph.resources.end(),
@@ -2356,6 +2363,114 @@ bool authoredTextureRole(const aster::MaterialRuntimeResource *resource,
   }
   const aster::RuntimeTexture *texture = resource->texture_set.find(role);
   return texture != nullptr && texture->valid && !texture->fallback;
+}
+
+bool materialDeclaresTextureRole(const aster::MaterialRuntimeResource *resource,
+                                 const std::string_view role) {
+  if (resource == nullptr) {
+    return false;
+  }
+  for (const auto &[declared_role, slot] : resource->compiled.asset.textures) {
+    (void)slot;
+    if (aster::canonicalMaterialTextureRole(declared_role) == role) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool materialWantsNormalMap(const aster::MaterialRuntimeResource *resource) {
+  if (resource == nullptr) {
+    return false;
+  }
+  const aster::MaterialFeatureSet features = aster::materialFeatureSet(resource->compiled.asset);
+  return features.normal_map;
+}
+
+std::string textureFallbackReason(const aster::MaterialRuntimeResource *resource,
+                                  const aster::RuntimeTexture *texture,
+                                  const std::string_view role) {
+  if (texture == nullptr) {
+    return "runtime texture role is absent from the material resource";
+  }
+  if (!texture->valid) {
+    return "runtime texture failed validation";
+  }
+  if (!texture->fallback) {
+    return {};
+  }
+  if (materialDeclaresTextureRole(resource, role)) {
+    if (!texture->source_path.empty()) {
+      return "authored texture source was unavailable: " + texture->source_path.generic_string();
+    }
+    return "authored texture source degraded to fallback";
+  }
+  return "role uses the renderer fallback texture";
+}
+
+std::string textureBackendDegradation(const aster::RenderBackendCapabilities &capabilities,
+                                      const aster::RuntimeTexture *texture) {
+  if (texture == nullptr || !texture->valid) {
+    return "texture resource is not valid for backend binding";
+  }
+  if (!capabilities.supports_texture_sampling && !texture->fallback) {
+    return std::string(aster::renderBackendKindName(capabilities.kind)) +
+           " cannot sample authored material textures";
+  }
+  return {};
+}
+
+std::uint32_t expectedMipCount(const aster::RuntimeTexture &texture) {
+  const std::uint32_t width =
+      texture.mips.empty() ? texture.width : std::max(texture.mips.front().width, 1u);
+  const std::uint32_t height =
+      texture.mips.empty() ? texture.height : std::max(texture.mips.front().height, 1u);
+  return aster::textureMipCount(std::max(width, 1u), std::max(height, 1u));
+}
+
+bool meshUv0LooksUnset(const aster::CpuMesh *mesh) {
+  if (mesh == nullptr || mesh->vertices.empty()) {
+    return false;
+  }
+  return std::all_of(mesh->vertices.begin(), mesh->vertices.end(), [](const aster::Vertex &vertex) {
+    return std::abs(vertex.uv.x) <= 0.000001f && std::abs(vertex.uv.y) <= 0.000001f;
+  });
+}
+
+bool meshHasInvalidTangentBasis(const aster::CpuMesh *mesh) {
+  if (mesh == nullptr || mesh->vertices.empty()) {
+    return false;
+  }
+  return std::any_of(mesh->vertices.begin(), mesh->vertices.end(), [](const aster::Vertex &vertex) {
+    const aster::Vec3 tangent{vertex.tangent.x, vertex.tangent.y, vertex.tangent.z};
+    return !aster::allFinite(tangent) || aster::length(tangent) <= 0.0001f ||
+           !std::isfinite(vertex.tangent.w);
+  });
+}
+
+void appendAssetIssue(std::vector<std::string> &issues, std::string issue) {
+  appendUnique(issues, std::move(issue));
+}
+
+std::uint64_t assetFrameTraceHash(const aster::AssetFrameTrace &trace) {
+  std::uint64_t hash = 1469598103934665603ull;
+  hash = appendEvidenceValue(hash, trace.object_index);
+  hash = appendEvidenceText(hash, trace.object_name);
+  hash = appendEvidenceText(hash, trace.source_asset_id);
+  hash = appendEvidenceText(hash, trace.source_path);
+  hash = appendEvidenceText(hash, trace.source_node);
+  hash = appendEvidenceText(hash, trace.source_mesh);
+  hash = appendEvidenceText(hash, trace.material_slot);
+  for (const std::string &issue : trace.issues) {
+    hash = appendEvidenceText(hash, issue);
+  }
+  for (const std::string &role : trace.texture_roles) {
+    hash = appendEvidenceText(hash, role);
+  }
+  for (const std::string &degradation : trace.backend_degradations) {
+    hash = appendEvidenceText(hash, degradation);
+  }
+  return hash;
 }
 
 std::uint64_t materialNativePipelineKey(const aster::RenderObject &object,
@@ -2974,11 +3089,24 @@ void appendMaterialBindingTraces(const aster::Scene &scene, const aster::FrameRe
       for (const std::string_view role : aster::materialRuntimeTextureRoles()) {
         const aster::RuntimeTexture *texture =
             runtime_material == nullptr ? nullptr : runtime_material->texture_set.find(role);
+        const std::string degradation = textureBackendDegradation(capabilities, texture);
         traces.push_back({.object_name = object.name,
                           .material_asset_id = object.material_asset_id.empty()
                                                    ? object.material.asset_id
                                                    : object.material_asset_id,
                           .role = std::string(role),
+                          .source_path = texture == nullptr ? std::string()
+                                                            : texture->source_path.generic_string(),
+                          .texture_kind =
+                              texture == nullptr
+                                  ? std::string()
+                                  : std::string(aster::textureKindName(texture->kind)),
+                          .color_space =
+                              texture == nullptr
+                                  ? std::string()
+                                  : std::string(aster::textureColorSpaceName(texture->color_space)),
+                          .fallback_reason = textureFallbackReason(runtime_material, texture, role),
+                          .backend_degradation = degradation,
                           .valid = texture != nullptr && texture->valid,
                           .fallback = texture == nullptr || texture->fallback,
                           .bound = capabilities.supports_texture_sampling && texture != nullptr &&
@@ -3092,6 +3220,143 @@ void appendObjectDebuggerTraces(const aster::Scene &scene, const aster::FrameRen
   }
 }
 
+void appendAssetFrameTraces(const aster::Scene &scene,
+                            const aster::MaterialResourceLibrary *library,
+                            const aster::RenderBackendCapabilities &capabilities,
+                            aster::FrameForensics &forensics) {
+  forensics.asset_traces.clear();
+  forensics.asset_traces.reserve(scene.objects().size());
+
+  for (std::size_t object_index = 0u; object_index < scene.objects().size(); ++object_index) {
+    const aster::RenderObject &object = scene.objects()[object_index];
+    const aster::MaterialRuntimeResource *runtime_material =
+        library == nullptr ? nullptr : library->findForMaterialIds(object.material_asset_id,
+                                                                   object.material.asset_id);
+    const aster::RenderObjectAssetProvenance &provenance = object.asset_provenance;
+    aster::AssetFrameTrace trace;
+    trace.object_name = objectDiagnosticLabel(object, object_index);
+    trace.object_index = object_index;
+    trace.source_asset_id =
+        provenance.source_asset_id.empty() ? materialAssetIdFor(object) : provenance.source_asset_id;
+    if (!provenance.source_path.empty()) {
+      trace.source_path = provenance.source_path.generic_string();
+    } else if (runtime_material != nullptr &&
+               !runtime_material->compiled.asset.source_path.empty()) {
+      trace.source_path = runtime_material->compiled.asset.source_path.generic_string();
+    }
+    trace.source_node = provenance.source_node;
+    trace.source_mesh = provenance.source_mesh;
+    trace.material_slot = provenance.material_slot.empty() && runtime_material != nullptr
+                              ? runtime_material->compiled.asset.name
+                              : provenance.material_slot;
+
+    const bool material_has_texture_declarations =
+        runtime_material != nullptr && !runtime_material->compiled.asset.textures.empty();
+    const bool normal_map_expected = materialWantsNormalMap(runtime_material);
+    if (object.custom_mesh != nullptr && material_has_texture_declarations) {
+      if (!provenance.uv0_present) {
+        appendAssetIssue(trace.issues, "mesh:uv0-missing-required-by-material-textures");
+      } else if (meshUv0LooksUnset(object.custom_mesh.get())) {
+        appendAssetIssue(trace.issues, "mesh:uv0-all-zero-or-unset-for-textured-material");
+      }
+    }
+    if (provenance.degenerate_triangles > 0u) {
+      appendAssetIssue(trace.issues,
+                       "mesh:degenerate-triangles-dropped=" +
+                           std::to_string(provenance.degenerate_triangles));
+    }
+    if (provenance.invalid_normals > 0u) {
+      appendAssetIssue(trace.issues,
+                       "mesh:invalid-normals-rebuilt=" +
+                           std::to_string(provenance.invalid_normals));
+    }
+    if (normal_map_expected) {
+      if (!authoredTextureRole(runtime_material, "normal")) {
+        appendAssetIssue(trace.issues, "texture:normal:fallback-source-missing");
+        appendUnique(trace.backend_degradations,
+                     std::string(aster::renderBackendKindName(capabilities.kind)) +
+                         ":normal-map-degraded-to-vertex-normal");
+      }
+      if ((!provenance.authored_tangent_basis && provenance.generated_tangents == 0u) ||
+          meshHasInvalidTangentBasis(object.custom_mesh.get())) {
+        appendAssetIssue(trace.issues, "mesh:tangent-basis-missing-for-normal-map");
+      } else if (!provenance.authored_tangent_basis && provenance.generated_tangents > 0u) {
+        appendAssetIssue(trace.issues,
+                         "mesh:tangent-basis-generated-by-importer=" +
+                             std::to_string(provenance.generated_tangents));
+      }
+      const aster::Vec3 scale = object.transform.scale;
+      if (scale.x * scale.y * scale.z < 0.0f) {
+        appendAssetIssue(trace.issues, "mesh:tangent-basis-flipped-by-negative-scale");
+      }
+    }
+
+    if (runtime_material != nullptr) {
+      for (const auto &[declared_role, slot] : runtime_material->compiled.asset.textures) {
+        (void)slot;
+        const std::string canonical_role(
+            aster::canonicalMaterialTextureRole(declared_role));
+        if (aster::textureKindForRole(canonical_role) == aster::TextureKind::Unknown) {
+          appendAssetIssue(trace.issues,
+                           "texture:" + declared_role + ":unknown-role-not-bound");
+        }
+      }
+    }
+
+    for (const std::string_view role : aster::materialRuntimeTextureRoles()) {
+      const aster::RuntimeTexture *texture =
+          runtime_material == nullptr ? nullptr : runtime_material->texture_set.find(role);
+      trace.texture_roles.push_back(textureRoleFate(runtime_material, capabilities, role));
+      if (!materialDeclaresTextureRole(runtime_material, role)) {
+        continue;
+      }
+      if (texture == nullptr || !texture->valid || texture->fallback) {
+        appendAssetIssue(trace.issues,
+                         "texture:" + std::string(role) + ":fallback-source-missing");
+        continue;
+      }
+      const std::uint32_t expected_mips = expectedMipCount(*texture);
+      const std::uint32_t actual_mips = static_cast<std::uint32_t>(texture->mips.size());
+      if (actual_mips < expected_mips) {
+        appendAssetIssue(trace.issues,
+                         "texture:" + std::string(role) + ":mip-chain-incomplete expected=" +
+                             std::to_string(expected_mips) + " actual=" +
+                             std::to_string(actual_mips));
+      }
+      const aster::TextureColorSpace expected_color_space =
+          aster::defaultTextureColorSpace(texture->kind);
+      if (texture->color_space != expected_color_space) {
+        appendAssetIssue(trace.issues,
+                         "texture:" + std::string(role) + ":color-space-" +
+                             std::string(aster::textureColorSpaceName(texture->color_space)) +
+                             "-expected-" +
+                             std::string(aster::textureColorSpaceName(expected_color_space)));
+      }
+      const std::string degradation = textureBackendDegradation(capabilities, texture);
+      if (!degradation.empty()) {
+        appendUnique(trace.backend_degradations, degradation);
+      }
+    }
+
+    trace.trace_hash = assetFrameTraceHash(trace);
+    for (const std::string &issue : trace.issues) {
+      const aster::FrameDiagnosticKind kind =
+          issue.rfind("texture:", 0u) == 0u
+              ? aster::FrameDiagnosticKind::TextureRoleDegraded
+              : (issue.rfind("mesh:", 0u) == 0u
+                     ? aster::FrameDiagnosticKind::MeshAttributeDegraded
+                     : aster::FrameDiagnosticKind::AssetProvenanceWarning);
+      forensics.events.push_back({.kind = kind,
+                                  .severity = aster::FrameDiagnosticSeverity::Warning,
+                                  .pass = "asset-frame-trace",
+                                  .label = trace.object_name,
+                                  .message = issue,
+                                  .value = object_index});
+    }
+    forensics.asset_traces.push_back(std::move(trace));
+  }
+}
+
 std::uint64_t appendEvidenceText(std::uint64_t hash, const std::string_view value) {
   for (const char c : value) {
     hash = appendEvidenceValue(hash, static_cast<std::uint8_t>(c));
@@ -3144,6 +3409,16 @@ std::uint64_t objectFateHash(const aster::ObjectRenderFateTrace &fate) {
   hash = appendEvidenceText(hash, fate.material_asset_id);
   hash = appendEvidenceText(hash, fate.shader_variant_key);
   hash = appendEvidenceText(hash, fate.pipeline_tag);
+  hash = appendEvidenceText(hash, fate.asset_source_path);
+  hash = appendEvidenceText(hash, fate.asset_source_node);
+  hash = appendEvidenceText(hash, fate.asset_source_mesh);
+  hash = appendEvidenceText(hash, fate.asset_material_slot);
+  for (const std::string &value : fate.asset_issues) {
+    hash = appendEvidenceText(hash, value);
+  }
+  for (const std::string &value : fate.backend_degradations) {
+    hash = appendEvidenceText(hash, value);
+  }
   for (const std::string &value : fate.texture_roles) {
     hash = appendEvidenceText(hash, value);
   }
@@ -3186,6 +3461,19 @@ void appendObjectRenderFateTraces(const aster::Scene &scene, const aster::FrameR
     fate.material_asset_id = material_asset_id;
     fate.shader_variant_key = std::to_string(object.material.shader_variant_key);
     fate.pipeline_tag = compiled.pipeline_tag;
+    const auto asset_trace =
+        std::find_if(forensics.asset_traces.begin(), forensics.asset_traces.end(),
+                     [object_index](const aster::AssetFrameTrace &trace) {
+                       return trace.object_index == object_index;
+                     });
+    if (asset_trace != forensics.asset_traces.end()) {
+      fate.asset_source_path = asset_trace->source_path;
+      fate.asset_source_node = asset_trace->source_node;
+      fate.asset_source_mesh = asset_trace->source_mesh;
+      fate.asset_material_slot = asset_trace->material_slot;
+      fate.asset_issues = asset_trace->issues;
+      fate.backend_degradations = asset_trace->backend_degradations;
+    }
     for (const std::string_view role : aster::materialRuntimeTextureRoles()) {
       fate.texture_roles.push_back(textureRoleFate(runtime_material, capabilities, role));
     }
@@ -3642,6 +3930,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                                     active_capabilities, last_forensics_.rhi_trace.pipelines);
     appendObjectDebuggerTraces(scene, plan, camera, settings, framebuffer_width,
                                framebuffer_height, last_forensics_);
+    appendAssetFrameTraces(scene, material_library_.get(), active_capabilities,
+                           last_forensics_);
     appendObjectRenderFateTraces(scene, plan, settings, material_library_.get(),
                                  active_capabilities, last_forensics_);
     last_forensics_.events.insert(last_forensics_.events.end(),

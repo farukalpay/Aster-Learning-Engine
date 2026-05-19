@@ -75,10 +75,17 @@ PBR, tonemap, fog, triplanar, normal mapping, clearcoat, wetness, parallax,
 detail normals, alpha helpers, and material debug outputs.
 
 Frame forensics expose material binding status per visible object and role:
-valid/fallback/bound, dimensions, mip count, and descriptor layout hash. Debug
-view names exist for base color, normal, roughness, metallic, AO, emissive, UV,
-mip level, overdraw, light clusters, shadow mask, fog, and reflection probes.
-Software frame captures now carry RGBA payloads plus content hashes for the
-final frame and reference shadow/fog/probe resources. Mesh visibility traces and
-object cluster membership traces sit next to the material binding trace so a
-debugger can connect material, visibility, and lighting decisions.
+source path, texture kind, color space, fallback/degrade reason,
+valid/fallback/bound, dimensions, mip count, and descriptor layout hash. Asset
+frame traces connect the render object back to source asset, source node, source
+mesh, material slot, mesh import diagnostics, texture roles, and backend
+degradations. A bad frame should therefore say whether the failure came from a
+missing UV channel, generated or missing tangent basis, incomplete mip chain,
+wrong color space, fallback texture, unknown texture role, or backend sampling
+degrade. Debug view names exist for base color, normal, roughness, metallic, AO,
+emissive, UV, mip level, overdraw, light clusters, shadow mask, fog, and
+reflection probes. Software frame captures now carry RGBA payloads plus content
+hashes for the final frame and reference shadow/fog/probe resources. Mesh
+visibility traces and object cluster membership traces sit next to the material
+binding and asset traces so a debugger can connect material, visibility,
+lighting, and asset-production decisions.

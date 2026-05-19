@@ -50,12 +50,17 @@ struct SceneAssetNode {
 
 struct SceneMeshChunk {
   std::string name;
+  std::string source_node;
+  std::string source_mesh;
+  std::uint32_t source_primitive_index = 0u;
   CpuMesh mesh;
   std::size_t material_slot = 0;
   MeshDiagnostics diagnostics{};
   Vec3 bounds_min{};
   Vec3 bounds_max{};
   bool bounds_valid = false;
+  bool source_has_uv0 = true;
+  bool source_has_tangents = false;
 };
 
 struct SceneCollisionTriangle {
@@ -92,6 +97,7 @@ struct SceneAssetCacheMetadata {
 };
 
 struct SceneAsset {
+  std::filesystem::path source_path;
   SceneAssetCacheMetadata cache_metadata{};
   std::vector<SceneAssetNode> scene_nodes;
   std::vector<SceneMaterialSlot> material_slots;
@@ -115,5 +121,7 @@ struct SceneAssetImportOptions {
 [[nodiscard]] SceneAsset importSceneAsset(const std::filesystem::path &path,
                                           SceneAssetImportOptions options = {});
 [[nodiscard]] SceneAsset loadCompiledSceneAsset(const std::filesystem::path &path);
+[[nodiscard]] RenderObjectAssetProvenance
+renderObjectProvenanceForSceneMeshChunk(const SceneAsset &asset, std::size_t mesh_chunk_index);
 
 } // namespace aster

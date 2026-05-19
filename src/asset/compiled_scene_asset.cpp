@@ -402,6 +402,7 @@ SceneAsset loadCompiledSceneAsset(const std::filesystem::path &path) {
   }
 
   SceneAsset asset;
+  asset.source_path = path;
   asset.cache_metadata = readMetadata(requiredChunk(chunks, kChunkMetadata));
   if (asset.cache_metadata.source_hash.bytes != header_source_hash.bytes ||
       asset.cache_metadata.options_hash.bytes != header_options_hash.bytes) {
