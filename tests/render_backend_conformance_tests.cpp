@@ -17,6 +17,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <span>
 #include <sstream>
 #include <string>
@@ -79,6 +80,8 @@ struct LabSceneCase {
 
 constexpr int kGoldenWidth = 96;
 constexpr int kGoldenHeight = 64;
+constexpr int kCaveConformanceWidth = 160;
+constexpr int kCaveConformanceHeight = 90;
 
 const LabSceneCase kLabScenes[] = {
     {"material_lab", aster::makeMaterialLabShowcaseScene},
@@ -110,6 +113,37 @@ void writeTextFile(const std::filesystem::path &path, const std::string &text) {
   std::ofstream output(path, std::ios::binary);
   output << text;
   assert(output.good());
+}
+
+void writeKtx2Header(const std::filesystem::path &path, const std::uint32_t width,
+                     const std::uint32_t height, const std::uint32_t mip_count) {
+  std::filesystem::create_directories(path.parent_path());
+  std::ofstream file(path, std::ios::binary);
+  file.put(static_cast<char>(0xab));
+  file.write("KTX 20", 6);
+  file.put(static_cast<char>(0xbb));
+  file.put('\r');
+  file.put('\n');
+  file.put(static_cast<char>(0x1a));
+  file.put('\n');
+  const auto write_le32 = [&file](const std::uint32_t value) {
+    const char bytes[4] = {static_cast<char>(value & 0xffu),
+                           static_cast<char>((value >> 8u) & 0xffu),
+                           static_cast<char>((value >> 16u) & 0xffu),
+                           static_cast<char>((value >> 24u) & 0xffu)};
+    file.write(bytes, 4);
+  };
+  write_le32(37u);
+  write_le32(1u);
+  write_le32(width);
+  write_le32(height);
+  write_le32(0u);
+  write_le32(0u);
+  write_le32(1u);
+  write_le32(mip_count);
+  write_le32(1u);
+  file.write("ASTER_CAVE_CONFORMANCE_TEXTURE", 30);
+  assert(file.good());
 }
 
 void writePpmFromRgba(const std::filesystem::path &path, const CapturedImage &image) {
@@ -465,6 +499,125 @@ aster::RendererSettings makeContractSettings() {
   return settings;
 }
 
+std::filesystem::path caveMaterialRoot() {
+  const std::filesystem::path root = artifactRoot() / "cave_conformance_materials";
+  std::filesystem::create_directories(root);
+  return root;
+}
+
+std::shared_ptr<aster::MaterialResourceLibrary> makeCaveConformanceMaterialLibrary() {
+  const std::filesystem::path root = caveMaterialRoot();
+  for (const char *name : {"cave_albedo.ktx2",   "cave_normal.ktx2",  "cave_orm.ktx2",
+                           "cave_height.ktx2",   "cave_wetness.ktx2", "cave_opacity.ktx2",
+                           "lamp_emissive.ktx2", "metal_rough.ktx2",  "metal_ao.ktx2"}) {
+    writeKtx2Header(root / name, 32u, 32u, 4u);
+  }
+
+  aster::MaterialAsset wet_rock;
+  wet_rock.id = "CaveConformanceWetRock";
+  wet_rock.name = "Cave Conformance Wet Rock";
+  wet_rock.surface_profile = aster::MaterialSurfaceProfile::StratifiedRock;
+  wet_rock.receives_shadows = true;
+  wet_rock.textures["albedo"] = {.role = "albedo", .uri = "cave_albedo.ktx2", .srgb = true};
+  wet_rock.textures["normal"] = {.role = "normal", .uri = "cave_normal.ktx2"};
+  wet_rock.textures["orm"] = {.role = "orm", .uri = "cave_orm.ktx2"};
+  wet_rock.textures["height"] = {.role = "height", .uri = "cave_height.ktx2"};
+  wet_rock.textures["wetness"] = {.role = "wetness", .uri = "cave_wetness.ktx2"};
+  wet_rock.textures["opacity"] = {.role = "opacity", .uri = "cave_opacity.ktx2"};
+  wet_rock.params["base_color_r"] = 0.19f;
+  wet_rock.params["base_color_g"] = 0.17f;
+  wet_rock.params["base_color_b"] = 0.145f;
+  wet_rock.params["roughness"] = 0.86f;
+  wet_rock.params["wetness_strength"] = 0.64f;
+  wet_rock.params["micro_normal_strength"] = 0.56f;
+  wet_rock.params["height_shading"] = 0.34f;
+  wet_rock.explicit_features["normal_map"] = true;
+  wet_rock.explicit_features["parallax"] = true;
+  wet_rock.explicit_features["triplanar"] = true;
+
+  aster::MaterialAsset lamp;
+  lamp.id = "CaveConformanceEmissive";
+  lamp.name = "Cave Conformance Emissive";
+  lamp.shading_model = aster::MaterialShadingModel::Emissive;
+  lamp.surface_profile = aster::MaterialSurfaceProfile::Resin;
+  lamp.textures["emissive"] = {.role = "emissive", .uri = "lamp_emissive.ktx2"};
+  lamp.params["base_color_r"] = 0.74f;
+  lamp.params["base_color_g"] = 0.34f;
+  lamp.params["base_color_b"] = 0.12f;
+  lamp.params["emission_strength"] = 0.92f;
+
+  aster::MaterialAsset metal;
+  metal.id = "CaveConformanceWetMetal";
+  metal.name = "Cave Conformance Wet Metal";
+  metal.surface_profile = aster::MaterialSurfaceProfile::CorrodedMetal;
+  metal.textures["albedo"] = {.role = "albedo", .uri = "cave_albedo.ktx2", .srgb = true};
+  metal.textures["normal"] = {.role = "normal", .uri = "cave_normal.ktx2"};
+  metal.textures["roughness"] = {.role = "roughness", .uri = "metal_rough.ktx2"};
+  metal.textures["ao"] = {.role = "ao", .uri = "metal_ao.ktx2"};
+  metal.textures["wetness"] = {.role = "wetness", .uri = "cave_wetness.ktx2"};
+  metal.params["metallic"] = 0.76f;
+  metal.params["roughness"] = 0.58f;
+
+  auto library = std::make_shared<aster::MaterialResourceLibrary>();
+  assert(library->addMaterialAsset(wet_rock, root, {.require_existing_files = true}));
+  assert(library->addMaterialAsset(lamp, root, {.require_existing_files = true}));
+  assert(library->addMaterialAsset(metal, root, {.require_existing_files = true}));
+  return library;
+}
+
+aster::OrbitCamera makeCaveConformanceCamera() {
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.92f, -0.92f};
+  camera.yaw = aster::radians(28.0f);
+  camera.pitch = aster::radians(13.0f);
+  camera.radius = 4.9f;
+  camera.vertical_fov = aster::radians(43.0f);
+  camera.near_plane = 0.04f;
+  camera.far_plane = 64.0f;
+  return camera;
+}
+
+aster::RendererSettings makeCaveConformanceSettings() {
+  aster::RendererSettings settings = makeContractSettings();
+  settings.exposure = 0.88f;
+  settings.ambient_strength = 0.15f;
+  settings.ambient_floor = 0.020f;
+  settings.pipeline.clear_color = {0.014f, 0.014f, 0.016f};
+  settings.sun_light.enabled = true;
+  settings.sun_light.direction_to_light = {-0.42f, 0.84f, 0.28f};
+  settings.sun_light.color = {1.0f, 0.82f, 0.58f};
+  settings.sun_light.intensity = 1.35f;
+  settings.light_rig = {
+      aster::Light{{-1.58f, 1.20f, -1.52f}, {5.2f, 2.0f, 0.62f}, 1.0f, 0.52f},
+      aster::Light{{1.35f, 1.08f, -1.82f}, {4.4f, 1.7f, 0.54f}, 1.0f, 0.48f},
+      aster::Light{{0.0f, 0.82f, 0.72f}, {0.62f, 1.05f, 1.45f}, 1.0f, 0.86f},
+  };
+  settings.light_policy.max_point_lights = 8u;
+  settings.clustered_lighting.enabled = true;
+  settings.clustered_lighting.cluster_count_x = 4u;
+  settings.clustered_lighting.cluster_count_y = 3u;
+  settings.clustered_lighting.cluster_count_z = 4u;
+  settings.atmosphere.enabled = true;
+  settings.atmosphere.fog_color = {0.048f, 0.044f, 0.040f};
+  settings.atmosphere.fog_start = 2.0f;
+  settings.atmosphere.fog_end = 7.4f;
+  settings.atmosphere.fog_strength = 0.30f;
+  settings.grounding.enabled = true;
+  settings.grounding.contact_shadows = true;
+  settings.grounding.auto_contact_shadows = true;
+  settings.shadows.enabled = true;
+  settings.shadows.cascaded_directional = true;
+  settings.shadows.directional_cascades = 2u;
+  settings.shadows.atlas_size = 128u;
+  settings.shadows.max_distance = 14.0f;
+  settings.reflections.enabled = true;
+  settings.reflections.static_local_probes = true;
+  settings.reflections.probe_resolution = 16u;
+  settings.reflections.max_active_probes = 1u;
+  settings.reflections.fallback_intensity = 0.86f;
+  return settings;
+}
+
 struct RenderResult {
   aster::RenderBackendCapabilities backend{};
   aster::FrameStats stats{};
@@ -528,6 +681,45 @@ LabRenderResult renderLabFrame(const LabSceneCase &lab, const bool force_softwar
   result.image.rgba.assign(framebuffer.rgba8().begin(), framebuffer.rgba8().end());
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
   return result;
+}
+
+LabRenderResult renderCaveConformanceFrameForBackend(const bool force_software,
+                                                     const bool force_null,
+                                                     const std::filesystem::path &capture_path) {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", force_software);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", force_null);
+  auto library = makeCaveConformanceMaterialLibrary();
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.setMaterialResourceLibrary(library);
+  aster::Scene scene = aster::makeCaveConformanceShowcaseScene();
+  renderer.prepareScene(scene);
+  const aster::RendererSettings settings = makeCaveConformanceSettings();
+  const aster::FrameStats stats =
+      renderer.render(scene, makeCaveConformanceCamera(), settings, kCaveConformanceWidth,
+                      kCaveConformanceHeight, 0.0);
+  aster::writeFramebufferPpm(capture_path, kCaveConformanceWidth, kCaveConformanceHeight);
+  const aster::SoftwareFrameBuffer &framebuffer = aster::activeFrameBuffer();
+  LabRenderResult result;
+  result.backend = renderer.backendCapabilities();
+  result.stats = stats;
+  result.forensics = renderer.lastFrameForensics();
+  result.metrics = metricsForActiveFrame(settings.pipeline.clear_color);
+  result.image.width = framebuffer.width();
+  result.image.height = framebuffer.height();
+  result.image.rgba.assign(framebuffer.rgba8().begin(), framebuffer.rgba8().end());
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+  return result;
+}
+
+LabRenderResult renderCaveConformanceFrame(const bool force_software,
+                                           const std::filesystem::path &capture_path) {
+  return renderCaveConformanceFrameForBackend(force_software, false, capture_path);
+}
+
+LabRenderResult renderCaveConformanceNullFrame(const std::filesystem::path &capture_path) {
+  return renderCaveConformanceFrameForBackend(false, true, capture_path);
 }
 
 void assertRenderableFrame(const RenderResult &result) {
@@ -625,7 +817,8 @@ void testBackendCapabilityTableContracts() {
         native.backend.kind == aster::RenderBackendKind::D3D12) {
       assert(native.backend.capability_table.storage_buffers);
       assert(native.backend.capability_table.texture_arrays);
-      assert(!native.backend.capability_table.shadow_maps);
+      assert(native.backend.capability_table.shadow_maps ==
+             (native.backend.kind == aster::RenderBackendKind::Metal));
     }
   }
 }
@@ -657,6 +850,252 @@ void testGoldenLabScenes() {
       assert(false);
     }
   }
+}
+
+const aster::FrameDebugCapture *captureFor(const aster::FrameForensics &forensics,
+                                           const aster::RenderGraphResource resource) {
+  const auto it = std::find_if(forensics.captures.begin(), forensics.captures.end(),
+                               [resource](const aster::FrameDebugCapture &capture) {
+                                 return capture.resource == resource && capture.available;
+                               });
+  return it == forensics.captures.end() ? nullptr : &*it;
+}
+
+bool hasCapabilityMismatchForProofResources(const aster::FrameForensics &forensics) {
+  for (const aster::FrameDiagnosticEvent &event : forensics.events) {
+    if (event.kind == aster::FrameDiagnosticKind::CapabilityMismatch &&
+        (event.pass == "shadow-atlas" || event.pass == "volumetric-fog" ||
+         event.pass == "reflection-probe")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void assertCaveProofCaptures(const LabRenderResult &result) {
+  const aster::FrameDebugCapture *shadow =
+      captureFor(result.forensics, aster::RenderGraphResource::ShadowAtlas);
+  const aster::FrameDebugCapture *fog =
+      captureFor(result.forensics, aster::RenderGraphResource::VolumetricFog);
+  const aster::FrameDebugCapture *reflection =
+      captureFor(result.forensics, aster::RenderGraphResource::ReflectionProbes);
+  const aster::FrameDebugCapture *final =
+      captureFor(result.forensics, aster::RenderGraphResource::CaptureReadback);
+  assert(shadow != nullptr);
+  assert(shadow->width == 128u && shadow->height == 128u && shadow->content_hash != 0u);
+  assert(fog != nullptr);
+  assert(fog->width == 40u && fog->height == 22u && fog->content_hash != 0u);
+  assert(reflection != nullptr);
+  assert(reflection->width == 96u && reflection->height == 16u &&
+         reflection->content_hash != 0u);
+  assert(final != nullptr);
+  assert(final->width == kCaveConformanceWidth && final->height == kCaveConformanceHeight);
+}
+
+void testCaveConformanceSoftwareGolden() {
+  std::filesystem::create_directories(artifactRoot());
+  const std::filesystem::path first_path = artifactRoot() / "cave_conformance_software_current.ppm";
+  const std::filesystem::path second_path = artifactRoot() / "cave_conformance_software_second.ppm";
+  const LabRenderResult first = renderCaveConformanceFrame(true, first_path);
+  const LabRenderResult second = renderCaveConformanceFrame(true, second_path);
+  assert(first.backend.kind == aster::RenderBackendKind::SoftwareReference);
+  assert(second.backend.kind == aster::RenderBackendKind::SoftwareReference);
+  assert(first.stats.visible_objects >= 8u);
+  assert(first.metrics.foreground_ratio > 0.18);
+  assert(first.metrics.hash == second.metrics.hash);
+  assertCaveProofCaptures(first);
+
+  bool saw_albedo = false;
+  bool saw_normal = false;
+  bool saw_orm = false;
+  bool saw_height = false;
+  bool saw_wetness = false;
+  bool saw_emissive = false;
+  bool saw_opacity = false;
+  for (const aster::MaterialBindingTrace &binding : first.forensics.material_bindings) {
+    const bool authored = binding.valid && binding.bound && !binding.fallback;
+    saw_albedo = saw_albedo || (binding.role == "albedo" && authored);
+    saw_normal = saw_normal || (binding.role == "normal" && authored);
+    saw_orm = saw_orm || (binding.role == "orm" && authored);
+    saw_height = saw_height || (binding.role == "height" && authored);
+    saw_wetness = saw_wetness || (binding.role == "wetness" && authored);
+    saw_emissive = saw_emissive || (binding.role == "emissive" && authored);
+    saw_opacity = saw_opacity || (binding.role == "opacity" && authored);
+  }
+  assert(saw_albedo && saw_normal && saw_orm && saw_height && saw_wetness && saw_emissive &&
+         saw_opacity);
+
+  const std::filesystem::path expected_path = goldenRoot() / "cave_conformance_software.ppm";
+  if (!std::filesystem::exists(expected_path)) {
+    std::cerr << "Missing golden baseline: " << expected_path << '\n';
+    assert(false);
+  }
+  const std::vector<std::uint8_t> expected = readBytes(expected_path);
+  const std::vector<std::uint8_t> current = readBytes(first_path);
+  if (expected != current) {
+    const CapturedImage reference = parsePpm(expected_path);
+    const ImageDiffMetrics metrics = diffImages(reference, first.image);
+    writeDiffArtifacts(artifactRoot(), "cave_conformance_software_golden_mismatch", reference,
+                       first.image, metrics);
+    std::cerr << "Software golden mismatch for cave_conformance"
+              << " mean_abs_error=" << metrics.mean_abs_error
+              << " max_abs_error=" << static_cast<int>(metrics.max_abs_error) << '\n';
+    assert(false);
+  }
+}
+
+void testCapabilityMismatchRequiresResourceMask() {
+  const LabRenderResult result =
+      renderCaveConformanceNullFrame(artifactRoot() / "cave_conformance_null.ppm");
+  assert(result.backend.kind == aster::RenderBackendKind::Null);
+  assert(hasCapabilityMismatchForProofResources(result.forensics));
+  assert(captureFor(result.forensics, aster::RenderGraphResource::ShadowAtlas) == nullptr);
+  assert(captureFor(result.forensics, aster::RenderGraphResource::VolumetricFog) == nullptr);
+  assert(captureFor(result.forensics, aster::RenderGraphResource::ReflectionProbes) == nullptr);
+}
+
+void testNativeCaveConformanceWhenAvailable() {
+  const LabRenderResult software =
+      renderCaveConformanceFrame(true, artifactRoot() / "cave_conformance_software_reference.ppm");
+  const LabRenderResult native =
+      renderCaveConformanceFrame(false, artifactRoot() / "cave_conformance_native_candidate.ppm");
+  if (native.backend.kind == aster::RenderBackendKind::Null ||
+      native.backend.kind == aster::RenderBackendKind::SoftwareReference) {
+    return;
+  }
+  assert(native.backend.supports_capture);
+  assert(native.stats.visible_objects == software.stats.visible_objects);
+  if (native.backend.kind == aster::RenderBackendKind::Metal) {
+    assert(native.backend.capability_table.shadow_maps);
+    assert((native.backend.graph_resource_mask &
+            aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas)) != 0u);
+    assert((native.backend.graph_resource_mask &
+            aster::renderGraphResourceBit(aster::RenderGraphResource::VolumetricFog)) != 0u);
+    assert((native.backend.graph_resource_mask &
+            aster::renderGraphResourceBit(aster::RenderGraphResource::ReflectionProbes)) != 0u);
+    assert(!hasCapabilityMismatchForProofResources(native.forensics));
+    assertCaveProofCaptures(native);
+  }
+#if defined(_WIN32)
+  if (native.backend.kind == aster::RenderBackendKind::D3D12) {
+    assert(native.backend.capability_table.presentation ==
+           aster::rhi::PresentationMode::D3D12OffscreenReadback);
+    if (!native.backend.capability_table.shadow_maps) {
+      assert((native.backend.graph_resource_mask &
+              aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas)) == 0u);
+      assert((native.backend.graph_resource_mask &
+              aster::renderGraphResourceBit(aster::RenderGraphResource::VolumetricFog)) == 0u);
+      assert((native.backend.graph_resource_mask &
+              aster::renderGraphResourceBit(aster::RenderGraphResource::ReflectionProbes)) == 0u);
+      assert(hasCapabilityMismatchForProofResources(native.forensics));
+      return;
+    }
+    assert((native.backend.graph_resource_mask &
+            aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas)) != 0u);
+    assert((native.backend.graph_resource_mask &
+            aster::renderGraphResourceBit(aster::RenderGraphResource::VolumetricFog)) != 0u);
+    assert((native.backend.graph_resource_mask &
+            aster::renderGraphResourceBit(aster::RenderGraphResource::ReflectionProbes)) != 0u);
+    assert(!hasCapabilityMismatchForProofResources(native.forensics));
+    assertCaveProofCaptures(native);
+  }
+#endif
+  const ImageDiffMetrics metrics = diffImages(software.image, native.image);
+  if (metrics.mean_abs_error > 62.0 || metrics.differing_pixel_ratio > 0.88) {
+    writeDiffArtifacts(artifactRoot(), "cave_conformance_native_reference_mismatch",
+                       software.image, native.image, metrics);
+    std::cerr << "Native/reference diff too high for cave_conformance"
+              << " mean_abs_error=" << metrics.mean_abs_error
+              << " differing_pixel_ratio=" << metrics.differing_pixel_ratio << '\n';
+    assert(false);
+  }
+}
+
+std::uint64_t firstMaterialPipelineKey(const aster::FrameForensics &forensics) {
+  for (const aster::rhi::PipelineStateTrace &pipeline : forensics.rhi_trace.pipelines) {
+    if (pipeline.label.rfind("material:", 0u) == 0u && pipeline.cache_key != 0u) {
+      return pipeline.cache_key;
+    }
+  }
+  return 0u;
+}
+
+LabRenderResult renderFeatureKeyProbe(const bool with_normal,
+                                      const std::filesystem::path &capture_path) {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+  const std::filesystem::path root = artifactRoot() / "pipeline_key_materials";
+  std::filesystem::create_directories(root);
+  writeKtx2Header(root / "feature_albedo.ktx2", 16u, 16u, 2u);
+  writeKtx2Header(root / "feature_normal.ktx2", 16u, 16u, 2u);
+
+  aster::MaterialAsset asset;
+  asset.id = with_normal ? "FeatureNormalMaterial" : "FeatureFlatMaterial";
+  asset.name = with_normal ? "Feature Normal Material" : "Feature Flat Material";
+  asset.surface_profile = aster::MaterialSurfaceProfile::StratifiedRock;
+  asset.textures["albedo"] = {.role = "albedo", .uri = "feature_albedo.ktx2", .srgb = true};
+  if (with_normal) {
+    asset.textures["normal"] = {.role = "normal", .uri = "feature_normal.ktx2"};
+    asset.explicit_features["normal_map"] = true;
+  }
+  auto library = std::make_shared<aster::MaterialResourceLibrary>();
+  assert(library->addMaterialAsset(asset, root, {.require_existing_files = true}));
+
+  aster::RenderObject object;
+  object.name = "feature pipeline key probe";
+  object.primitive = aster::MeshPrimitive::Box;
+  object.transform.position = {0.0f, 0.45f, 0.0f};
+  object.transform.scale = {0.70f, 0.70f, 0.70f};
+  object.material_asset_id = asset.id;
+  object.material = aster::makeMaterial({.base_color = {0.46f, 0.36f, 0.28f},
+                                         .roughness = 0.72f,
+                                         .surface_profile =
+                                             aster::MaterialSurfaceProfile::StratifiedRock});
+  object.material.asset_id = asset.id;
+  aster::Scene scene;
+  scene.objects().push_back(object);
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.setMaterialResourceLibrary(library);
+  renderer.prepareScene(scene);
+  aster::RendererSettings settings = makeContractSettings();
+  settings.shadows.enabled = true;
+  settings.shadows.atlas_size = 64u;
+  settings.atmosphere.enabled = true;
+  settings.reflections.enabled = false;
+  const aster::FrameStats stats =
+      renderer.render(scene, makeContractCamera(), settings, 80, 56, 0.0);
+  aster::writeFramebufferPpm(capture_path, 80, 56);
+  const aster::SoftwareFrameBuffer &framebuffer = aster::activeFrameBuffer();
+  LabRenderResult result;
+  result.backend = renderer.backendCapabilities();
+  result.stats = stats;
+  result.forensics = renderer.lastFrameForensics();
+  result.metrics = metricsForActiveFrame(settings.pipeline.clear_color);
+  result.image.width = framebuffer.width();
+  result.image.height = framebuffer.height();
+  result.image.rgba.assign(framebuffer.rgba8().begin(), framebuffer.rgba8().end());
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+  return result;
+}
+
+void testNativeMaterialPipelineKeyTracksFeatureBits() {
+  const LabRenderResult flat =
+      renderFeatureKeyProbe(false, artifactRoot() / "feature_key_flat.ppm");
+  const LabRenderResult normal =
+      renderFeatureKeyProbe(true, artifactRoot() / "feature_key_normal.ppm");
+  if (flat.backend.kind == aster::RenderBackendKind::Null ||
+      flat.backend.kind == aster::RenderBackendKind::SoftwareReference ||
+      normal.backend.kind == aster::RenderBackendKind::Null ||
+      normal.backend.kind == aster::RenderBackendKind::SoftwareReference) {
+    return;
+  }
+  const std::uint64_t flat_key = firstMaterialPipelineKey(flat.forensics);
+  const std::uint64_t normal_key = firstMaterialPipelineKey(normal.forensics);
+  assert(flat_key != 0u);
+  assert(normal_key != 0u);
+  assert(flat_key != normal_key);
 }
 
 void testNativeLabScenesMatchSoftwareReferenceWhenAvailable() {
@@ -708,6 +1147,11 @@ void writeGoldenBaselines() {
     assert(result.metrics.foreground_ratio > 0.08);
     std::cout << "wrote " << goldenPath(lab) << '\n';
   }
+  const std::filesystem::path cave_path = goldenRoot() / "cave_conformance_software.ppm";
+  const LabRenderResult cave = renderCaveConformanceFrame(true, cave_path);
+  assert(cave.backend.kind == aster::RenderBackendKind::SoftwareReference);
+  assert(cave.metrics.foreground_ratio > 0.18);
+  std::cout << "wrote " << cave_path << '\n';
 }
 
 struct TestCase {
@@ -720,6 +1164,12 @@ constexpr TestCase kTestCases[] = {
     {"native_backend_conforms_when_available", testNativeBackendConformsWhenAvailable},
     {"backend_capability_table_contracts", testBackendCapabilityTableContracts},
     {"golden_lab_scenes", testGoldenLabScenes},
+    {"cave_conformance_software_golden", testCaveConformanceSoftwareGolden},
+    {"resource_capability_mismatch_requires_resource_mask",
+     testCapabilityMismatchRequiresResourceMask},
+    {"native_cave_conformance_when_available", testNativeCaveConformanceWhenAvailable},
+    {"native_material_pipeline_key_tracks_feature_bits",
+     testNativeMaterialPipelineKeyTracksFeatureBits},
     {"native_lab_scenes_match_software_reference_when_available",
      testNativeLabScenesMatchSoftwareReferenceWhenAvailable},
     {"failure_artifact_writer", testFailureArtifactWriter},

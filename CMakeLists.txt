@@ -585,6 +585,10 @@ if(ASTER_BUILD_TESTS)
       native_backend_conforms_when_available
       backend_capability_table_contracts
       golden_lab_scenes
+      cave_conformance_software_golden
+      resource_capability_mismatch_requires_resource_mask
+      native_cave_conformance_when_available
+      native_material_pipeline_key_tracks_feature_bits
       native_lab_scenes_match_software_reference_when_available
       failure_artifact_writer
   )

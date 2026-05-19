@@ -5,6 +5,7 @@
 
 #include "aster/core/profiler.hpp"
 #include "aster/math/mat4.hpp"
+#include "aster/render/render_conformance.hpp"
 #include "aster/render/render_graph_executor.hpp"
 #include "aster/render/software_framebuffer.hpp"
 #include "aster/scene/scene.hpp"
@@ -57,7 +58,7 @@ aster::rhi::DeviceCapabilities metalCapabilityTable() {
   table.gpu_timestamps = false;
   table.storage_buffers = true;
   table.texture_arrays = true;
-  table.shadow_maps = false;
+  table.shadow_maps = true;
   table.debug_markers = false;
   table.hdr_render_targets = false;
   table.msaa = false;
@@ -137,6 +138,19 @@ struct MetalLightUniform {
   float color_intensity[4]{};
 };
 
+struct MetalShadowCascadeUniform {
+  float view_projection[16]{};
+  float tile[4]{};
+  float params[4]{};
+};
+
+struct MetalProbeUniform {
+  float position_radius[4]{};
+  float sky_intensity[4]{};
+  float ground_pad[4]{};
+  float specular_pad[4]{};
+};
+
 struct MetalSceneUniforms {
   float camera_time[4]{};
   float sun_direction_enabled[4]{};
@@ -151,7 +165,12 @@ struct MetalSceneUniforms {
   float style_params[4]{};
   float style_params2[4]{};
   float lighting_params[4]{};
+  float render_params[4]{};
+  float shadow_params[4]{};
+  float reflection_params[4]{};
   MetalLightUniform lights[aster::kRenderLightUniformCapacity]{};
+  MetalShadowCascadeUniform shadows[4]{};
+  MetalProbeUniform probes[4]{};
 };
 
 struct MetalObjectUniforms {
@@ -537,12 +556,18 @@ public:
     [library_ release];
     [opaque_pipeline_ release];
     [transparent_pipeline_ release];
+    [shadow_pipeline_ release];
+    [fog_pipeline_ release];
+    [reflection_pipeline_ release];
     [opaque_depth_ release];
     [read_only_depth_ release];
     [transparent_depth_ release];
     [disabled_depth_ release];
     [scene_texture_ release];
     [depth_texture_ release];
+    [shadow_atlas_texture_ release];
+    [fog_texture_ release];
+    [reflection_texture_ release];
     [object_uniform_buffer_ release];
   }
 
@@ -559,12 +584,17 @@ public:
            "using namespace metal;\n"
            "struct Vertex { float4 position; float4 normal; float4 uv_ao; float4 tangent; };\n"
            "struct Light { float4 position_radius; float4 color_intensity; };\n"
+           "struct ShadowCascade { float4x4 view_projection; float4 tile; float4 params; };\n"
+           "struct Probe { float4 position_radius; float4 sky_intensity; float4 ground_pad; "
+           "float4 specular_pad; };\n"
            "struct Scene { float4 camera_time; float4 sun_direction_enabled; float4 "
            "sun_color_intensity; "
            "float4 sky_ambient; float4 ground_ambient; float4 exposure_ambient; float4 "
            "fog_color_strength; "
            "float4 fog_params; float4 shadow_tint_strength; float4 highlight_tint_strength; "
-           "float4 style_params; float4 style_params2; float4 lighting_params; Light lights[64]; "
+           "float4 style_params; float4 style_params2; float4 lighting_params; float4 "
+           "render_params; float4 shadow_params; float4 reflection_params; Light lights[64]; "
+           "ShadowCascade shadows[4]; Probe probes[4]; "
            "};\n"
            "struct Object { float4x4 model; float4x4 mvp; float4 base_color_opacity; "
            "float4 emission_strength; float4 material_params; float4 pattern_params; "
@@ -900,6 +930,35 @@ public:
            "v.tangent.w); out.uv = "
            "v.uv_ao.xy; out.ao = v.uv_ao.z; out.object_index = instance_id; return out;\n"
            "}\n"
+           "struct FullscreenOut { float4 position [[position]]; float2 uv; };\n"
+           "vertex FullscreenOut fullscreen_vs(uint id [[vertex_id]]) { float2 pos[3] = { "
+           "float2(-1.0, -1.0), float2(3.0, -1.0), float2(-1.0, 3.0) }; float2 uv[3] = { "
+           "float2(0.0, 0.0), float2(2.0, 0.0), float2(0.0, 2.0) }; FullscreenOut out; "
+           "out.position = float4(pos[id], 0.0, 1.0); out.uv = uv[id]; return out; }\n"
+           "vertex float4 shadow_vs(uint id [[vertex_id]], device const Vertex *vertices "
+           "[[buffer(0)]], constant Object *objects [[buffer(2)]]) { constant Object &object = "
+           "objects[0]; Vertex v = vertices[id]; return object.mvp * float4(v.position.xyz, "
+           "1.0); }\n"
+           "fragment float4 fog_fs(FullscreenOut in [[stage_in]], constant Scene &scene "
+           "[[buffer(1)]]) { float2 uv = clamp(in.uv, float2(0.0), float2(1.0)); float vignette "
+           "= length(uv - float2(0.5)); float range = max(scene.fog_params.y - "
+           "scene.fog_params.x, 0.001); float distance = scene.fog_params.x + range * (0.18 + "
+           "uv.y * 0.82 + vignette * 0.24); float normalized = max((distance - "
+           "scene.fog_params.x) / range, 0.0); float curve = smooth1(0.0, 1.0, normalized); if "
+           "(scene.style_params2.y > 1.5) curve = pow(clamp(normalized, 0.0, 1.0), "
+           "max(scene.style_params2.z, 0.001)); else if (scene.style_params2.y > 0.5) curve = "
+           "1.0 - exp(-normalized * max(scene.style_params2.z, 0.001)); float fog = clamp(curve "
+           "* scene.fog_color_strength.w, 0.0, 1.0); return float4(scene.fog_color_strength.rgb "
+           "* fog, fog); }\n"
+           "fragment float4 reflection_fs(FullscreenOut in [[stage_in]], constant Scene &scene "
+           "[[buffer(1)]]) { float2 uv = clamp(in.uv, float2(0.0), float2(1.0)); float face = "
+           "fract(uv.x * 6.0); float edge = 1.0 - smooth1(0.42, 0.72, abs(face - 0.5) + "
+           "abs(uv.y - 0.5)); "
+           "float sky_mix = floor(fract(uv.x) * 6.0) / 5.0; float3 ground = "
+           "scene.probes[0].ground_pad.rgb; float3 sky = scene.probes[0].sky_intensity.rgb; "
+           "float intensity = scene.probes[0].sky_intensity.w; float3 tint = "
+           "scene.probes[0].specular_pad.rgb; float3 color = mix(ground, sky, sky_mix) * tint * "
+           "intensity * (0.72 + edge * 0.28); return float4(color, 1.0); }\n"
            "fragment float4 fs_main(VSOut in [[stage_in]], constant Scene &scene [[buffer(1)]], "
            "constant Object *objects [[buffer(2)]], texture2d<float> tex_albedo [[texture(0)]], "
            "texture2d<float> tex_normal [[texture(1)]], texture2d<float> tex_orm [[texture(2)]], "
@@ -907,7 +966,9 @@ public:
            "[[texture(4)]], texture2d<float> tex_ao [[texture(5)]], texture2d<float> tex_height "
            "[[texture(6)]], texture2d<float> tex_emissive [[texture(7)]], texture2d<float> "
            "tex_wetness [[texture(8)]], texture2d<float> tex_opacity [[texture(9)]], sampler "
-           "material_sampler [[sampler(0)]]) { constant Object &object = "
+           "material_sampler [[sampler(0)]], depth2d<float> shadow_atlas [[texture(10)]], "
+           "texture2d<float> fog_volume [[texture(11)]], texture2d<float> reflection_atlas "
+           "[[texture(12)]]) { constant Object &object = "
            "objects[in.object_index]; "
            "float opacity = object.base_color_opacity.w; if (object.material_flags.x > 0.5) { "
            "float2 centered = in.uv * 2.0 - 1.0; float soft = 1.0 - smooth1(0.12, 1.0, "
@@ -958,7 +1019,11 @@ public:
            "float env_gain = max(scene.lighting_params.z, 0.0); if (env_gain > 0.0001) { "
            "float3 reflected = reflect(-view, normal); float env_sky = saturate1(reflected.y * "
            "0.5 + 0.5); float3 env_color = mix(scene.ground_ambient.rgb, scene.sky_ambient.rgb, "
-           "env_sky); color += env_color * env_gain * (0.06 + metallic * 0.56) * "
+           "env_sky); if (scene.reflection_params.z > 0.5) { float face = floor(env_sky * 5.0); "
+           "float2 probe_uv = float2((face + saturate1(reflected.x * 0.5 + 0.5)) / 6.0, "
+           "saturate1(reflected.z * 0.5 + 0.5)); env_color = reflection_atlas.sample("
+           "material_sampler, probe_uv).rgb; } color += env_color * env_gain * (0.06 + metallic * "
+           "0.56) * "
            "(1.0 - layer_roughness * 0.72 + wetness * 0.22); } "
            "auto add_light = [&](float3 light_dir, float3 radiance) { float ndotl = "
            "max(dot(normal, light_dir), 0.0); float wrapped = ndotl * 0.86 + 0.14; float3 h = "
@@ -966,9 +1031,20 @@ public:
            "float spec_power = mix(64.0, 8.0, layer_roughness); float spec = pow(max(dot(normal, "
            "h), 0.0), spec_power) * (1.0 - layer_roughness) * mix(0.34, 0.72, metallic); "
            "color += (albedo * (0.78 - metallic * 0.42) * wrapped + spec) * radiance; }; "
+           "float shadow_visibility = 1.0; if (scene.shadow_params.y > 0.5 && "
+           "object.material_flags.x < 0.5 && object.material_flags.z < 0.5) { for (uint c = 0; c "
+           "< uint(min(scene.shadow_params.y, 4.0)); ++c) { float4 lp = "
+           "scene.shadows[c].view_projection * float4(in.world, 1.0); if (abs(lp.w) < 0.0001) "
+           "continue; float3 ndc = lp.xyz / lp.w; if (ndc.x < -1.0 || ndc.x > 1.0 || ndc.y < "
+           "-1.0 || ndc.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0) continue; float2 local_uv = "
+           "float2(ndc.x * 0.5 + 0.5, 1.0 - (ndc.y * 0.5 + 0.5)); float4 tile = "
+           "scene.shadows[c].tile; float2 atlas_uv = (tile.xy + local_uv * tile.zw) / "
+           "max(scene.shadow_params.xx, float2(1.0)); float closest = "
+           "shadow_atlas.sample(material_sampler, atlas_uv); float bias = max(scene.shadow_params.z, "
+           "0.0001); shadow_visibility = ndc.z + bias >= closest ? 1.0 : 0.42; break; } } "
            "if (scene.sun_direction_enabled.w > 0.5) "
            "add_light(normalize(scene.sun_direction_enabled.xyz), scene.sun_color_intensity.rgb * "
-           "scene.sun_color_intensity.w); "
+           "scene.sun_color_intensity.w * shadow_visibility); "
            "for (uint i = 0; i < uint(scene.lighting_params.x); ++i) { "
            "float3 lv = scene.lights[i].position_radius.xyz - "
            "in.world; float d2 = max(dot(lv, lv), 0.0001); "
@@ -977,7 +1053,10 @@ public:
            "scene.lights[i].color_intensity.rgb * (scene.lights[i].color_intensity.w / soft)); } "
            "color = mix(color, albedo * max(scene.exposure_ambient.y + scene.exposure_ambient.z "
            "+ 0.14, 0.18), clamp(scene.style_params.x, 0.0, 1.0)); "
-           "float fog = style_fog(distance(scene.camera_time.xyz, in.world), scene); "
+           "float fog = style_fog(distance(scene.camera_time.xyz, in.world), scene); if "
+           "(scene.render_params.z > 0.5 && scene.render_params.w > 0.5) { float2 screen_uv = "
+           "clamp(in.position.xy / max(scene.render_params.xy, float2(1.0)), float2(0.0), "
+           "float2(1.0)); fog = max(fog, fog_volume.sample(material_sampler, screen_uv).a); } "
            "color = mix(color, scene.fog_color_strength.rgb, clamp(fog, 0.0, 1.0)); float luma = "
            "dot(color, float3(0.2126, 0.7152, 0.0722)); "
            "color = mix(float3(luma), color, clamp(scene.fog_params.z, 0.0, 2.0)); color = (color "
@@ -998,6 +1077,10 @@ public:
 
       id<MTLFunction> vertex = [library_ newFunctionWithName:@"vs_main"];
       id<MTLFunction> fragment = [library_ newFunctionWithName:@"fs_main"];
+      id<MTLFunction> shadow_vertex = [library_ newFunctionWithName:@"shadow_vs"];
+      id<MTLFunction> fullscreen_vertex = [library_ newFunctionWithName:@"fullscreen_vs"];
+      id<MTLFunction> fog_fragment = [library_ newFunctionWithName:@"fog_fs"];
+      id<MTLFunction> reflection_fragment = [library_ newFunctionWithName:@"reflection_fs"];
 
       MTLRenderPipelineDescriptor *opaque_desc = [[MTLRenderPipelineDescriptor alloc] init];
       opaque_desc.vertexFunction = vertex;
@@ -1016,6 +1099,24 @@ public:
           MTLBlendFactorOneMinusSourceAlpha;
       transparent_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:transparent_desc
                                                                       error:&error];
+
+      MTLRenderPipelineDescriptor *shadow_desc = [[MTLRenderPipelineDescriptor alloc] init];
+      shadow_desc.vertexFunction = shadow_vertex;
+      shadow_desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+      shadow_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:shadow_desc error:&error];
+
+      MTLRenderPipelineDescriptor *fog_desc = [[MTLRenderPipelineDescriptor alloc] init];
+      fog_desc.vertexFunction = fullscreen_vertex;
+      fog_desc.fragmentFunction = fog_fragment;
+      fog_desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+      fog_pipeline_ = [device_ newRenderPipelineStateWithDescriptor:fog_desc error:&error];
+
+      MTLRenderPipelineDescriptor *reflection_desc = [[MTLRenderPipelineDescriptor alloc] init];
+      reflection_desc.vertexFunction = fullscreen_vertex;
+      reflection_desc.fragmentFunction = reflection_fragment;
+      reflection_desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+      reflection_pipeline_ =
+          [device_ newRenderPipelineStateWithDescriptor:reflection_desc error:&error];
 
       MTLDepthStencilDescriptor *opaque_depth_desc = [[MTLDepthStencilDescriptor alloc] init];
       opaque_depth_desc.depthCompareFunction = MTLCompareFunctionGreater;
@@ -1043,9 +1144,17 @@ public:
       [disabled_depth_desc release];
       [opaque_desc release];
       [transparent_desc release];
+      [shadow_desc release];
+      [fog_desc release];
+      [reflection_desc release];
       [vertex release];
       [fragment release];
-      return opaque_pipeline_ != nil && transparent_pipeline_ != nil && opaque_depth_ != nil &&
+      [shadow_vertex release];
+      [fullscreen_vertex release];
+      [fog_fragment release];
+      [reflection_fragment release];
+      return opaque_pipeline_ != nil && transparent_pipeline_ != nil && shadow_pipeline_ != nil &&
+             fog_pipeline_ != nil && reflection_pipeline_ != nil && opaque_depth_ != nil &&
              transparent_depth_ != nil && read_only_depth_ != nil && disabled_depth_ != nil;
     }
   }
@@ -1078,7 +1187,8 @@ public:
     }
 
     ensureTargets(framebuffer_width, framebuffer_height);
-    if (scene_texture_ == nil || depth_texture_ == nil) {
+    if (scene_texture_ == nil || depth_texture_ == nil ||
+        !ensureAuxiliaryTargets(scene, camera, settings, framebuffer_width, framebuffer_height)) {
       return stats;
     }
     evictRetiredMeshBuffers(meshes);
@@ -1087,6 +1197,19 @@ public:
 
     const auto encode_start = std::chrono::steady_clock::now();
     id<MTLCommandBuffer> command_buffer = [queue_ commandBuffer];
+    const MetalSceneUniforms scene_uniforms =
+        makeSceneUniforms(scene, camera, settings, frame_seconds);
+    const std::size_t uniform_capacity =
+        std::max<std::size_t>(plan.instances.size() + scene.objects().size(), 1u);
+    if (!ensureObjectUniformCapacity(uniform_capacity)) {
+      [command_buffer commit];
+      publishSceneTexture(scene_texture_, command_buffer, framebuffer_width, framebuffer_height);
+      return stats;
+    }
+
+    encodeShadowAtlas(command_buffer, scene, plan, settings, meshes, frame_seconds, stats);
+    encodeFogAndReflection(command_buffer, scene_uniforms);
+
     MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = scene_texture_;
     pass.colorAttachments[0].loadAction = MTLLoadActionClear;
@@ -1100,17 +1223,8 @@ public:
     pass.depthAttachment.clearDepth = 0.0;
 
     id<MTLRenderCommandEncoder> encoder = [command_buffer renderCommandEncoderWithDescriptor:pass];
-    const MetalSceneUniforms scene_uniforms = makeSceneUniforms(camera, settings, frame_seconds);
     [encoder setVertexBytes:&scene_uniforms length:sizeof(scene_uniforms) atIndex:1];
     [encoder setFragmentBytes:&scene_uniforms length:sizeof(scene_uniforms) atIndex:1];
-    const std::size_t uniform_capacity =
-        std::max<std::size_t>(plan.instances.size() + scene.objects().size(), 1u);
-    if (!ensureObjectUniformCapacity(uniform_capacity)) {
-      [encoder endEncoding];
-      [command_buffer commit];
-      publishSceneTexture(scene_texture_, command_buffer, framebuffer_width, framebuffer_height);
-      return stats;
-    }
     object_uniform_cursor_ = 0;
     const aster::Vec3 camera_position = camera.position();
 
@@ -1168,6 +1282,7 @@ public:
       [encoder setVertexBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
       [encoder setFragmentBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
       bindMaterialTextures(encoder, runtime_material);
+      bindFrameGraphTextures(encoder);
       [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                           indexCount:buffers->index_count
                            indexType:MTLIndexTypeUInt32
@@ -1278,6 +1393,7 @@ public:
       [encoder setVertexBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
       [encoder setFragmentBuffer:object_uniform_buffer_ offset:object_uniform_offset atIndex:2];
       bindMaterialTextures(encoder, nullptr);
+      bindFrameGraphTextures(encoder);
       [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                           indexCount:buffers->index_count
                            indexType:MTLIndexTypeUInt32
@@ -1350,6 +1466,8 @@ public:
     stats.render_encode_seconds =
         std::chrono::duration<double>(encode_end - encode_start).count();
     [command_buffer commit];
+    [command_buffer waitUntilCompleted];
+    appendNativeCapturePayloads(forensics);
 
     publishSceneTexture(scene_texture_, command_buffer, framebuffer_width, framebuffer_height);
     return stats;
@@ -1364,6 +1482,9 @@ public:
         aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::LightClusters) |
+        aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas) |
+        aster::renderGraphResourceBit(aster::RenderGraphResource::VolumetricFog) |
+        aster::renderGraphResourceBit(aster::RenderGraphResource::ReflectionProbes) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::UiOverlay) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::CaptureReadback);
     return {.kind = aster::RenderBackendKind::Metal,
@@ -1408,7 +1529,182 @@ private:
     depth_texture_ = [device_ newTextureWithDescriptor:depth_desc];
   }
 
-  MetalSceneUniforms makeSceneUniforms(const aster::OrbitCamera &camera,
+  bool ensureAuxiliaryTargets(const aster::Scene &scene, const aster::OrbitCamera &camera,
+                              const aster::RendererSettings &settings, const int width,
+                              const int height) {
+    shadow_contract_ = aster::makeShadowAtlasContract(camera, settings);
+    fog_contract_ = aster::makeFogVolumeContract(
+        settings, static_cast<std::uint32_t>(std::max(width, 0)),
+        static_cast<std::uint32_t>(std::max(height, 0)));
+    reflection_contract_ = aster::makeReflectionProbeAtlasContract(scene, settings);
+
+    const std::uint32_t shadow_size = std::max(shadow_contract_.atlas_size, 32u);
+    if (shadow_atlas_texture_ == nil || [shadow_atlas_texture_ width] != shadow_size ||
+        [shadow_atlas_texture_ height] != shadow_size) {
+      [shadow_atlas_texture_ release];
+      MTLTextureDescriptor *shadow_desc =
+          [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+                                                             width:shadow_size
+                                                            height:shadow_size
+                                                         mipmapped:NO];
+      shadow_desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+      shadow_desc.storageMode = MTLStorageModeShared;
+      shadow_atlas_texture_ = [device_ newTextureWithDescriptor:shadow_desc];
+    }
+
+    const std::uint32_t fog_width = std::max(fog_contract_.width, 1u);
+    const std::uint32_t fog_height = std::max(fog_contract_.height, 1u);
+    if (fog_texture_ == nil || [fog_texture_ width] != fog_width ||
+        [fog_texture_ height] != fog_height) {
+      [fog_texture_ release];
+      MTLTextureDescriptor *fog_desc =
+          [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                             width:fog_width
+                                                            height:fog_height
+                                                         mipmapped:NO];
+      fog_desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+      fog_desc.storageMode = MTLStorageModeShared;
+      fog_texture_ = [device_ newTextureWithDescriptor:fog_desc];
+    }
+
+    const std::uint32_t reflection_width = std::max(reflection_contract_.width, 1u);
+    const std::uint32_t reflection_height = std::max(reflection_contract_.height, 1u);
+    if (reflection_texture_ == nil || [reflection_texture_ width] != reflection_width ||
+        [reflection_texture_ height] != reflection_height) {
+      [reflection_texture_ release];
+      MTLTextureDescriptor *reflection_desc =
+          [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                             width:reflection_width
+                                                            height:reflection_height
+                                                         mipmapped:NO];
+      reflection_desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+      reflection_desc.storageMode = MTLStorageModeShared;
+      reflection_texture_ = [device_ newTextureWithDescriptor:reflection_desc];
+    }
+
+    return shadow_atlas_texture_ != nil && fog_texture_ != nil && reflection_texture_ != nil;
+  }
+
+  MetalObjectUniforms makeShadowObjectUniforms(const aster::RenderObject &object,
+                                               const aster::Mat4 &view_projection,
+                                               const aster::RendererSettings &settings,
+                                               const double frame_seconds) const {
+    const aster::Mat4 model =
+        settings.animate_scene && object.spin_rate != 0.0f
+            ? object.transform.matrix() *
+                  aster::rotation_y(static_cast<float>(frame_seconds) * object.spin_rate)
+            : object.transform.matrix();
+    const aster::Mat4 mvp = view_projection * model;
+    MetalObjectUniforms out;
+    std::memcpy(out.model, model.m.data(), sizeof(out.model));
+    std::memcpy(out.model_view_projection, mvp.m.data(), sizeof(out.model_view_projection));
+    return out;
+  }
+
+  void encodeShadowAtlas(id<MTLCommandBuffer> command_buffer, const aster::Scene &scene,
+                         const aster::FrameRenderPlan &plan,
+                         const aster::RendererSettings &settings,
+                         const aster::PreparedRenderMeshes &meshes,
+                         const double frame_seconds, aster::FrameStats &stats) {
+    if (shadow_contract_.atlas_size == 0u || shadow_contract_.cascade_count == 0u ||
+        shadow_atlas_texture_ == nil || shadow_pipeline_ == nil) {
+      return;
+    }
+
+    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.depthAttachment.texture = shadow_atlas_texture_;
+    pass.depthAttachment.loadAction = MTLLoadActionClear;
+    pass.depthAttachment.storeAction = MTLStoreActionStore;
+    pass.depthAttachment.clearDepth = 0.0;
+    id<MTLRenderCommandEncoder> encoder = [command_buffer renderCommandEncoderWithDescriptor:pass];
+    [encoder setRenderPipelineState:shadow_pipeline_];
+    [encoder setDepthStencilState:opaque_depth_];
+    [encoder setCullMode:MTLCullModeNone];
+    [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
+    [encoder setDepthBias:settings.shadows.receiver_bias
+               slopeScale:settings.shadows.normal_bias
+                    clamp:0.0f];
+
+    for (std::uint32_t cascade_index = 0u; cascade_index < shadow_contract_.cascade_count;
+         ++cascade_index) {
+      const aster::ShadowCascadeContract &cascade = shadow_contract_.cascades[cascade_index];
+      MTLViewport viewport{static_cast<double>(cascade.tile_x),
+                           static_cast<double>(cascade.tile_y),
+                           static_cast<double>(cascade.tile_width),
+                           static_cast<double>(cascade.tile_height),
+                           0.0,
+                           1.0};
+      [encoder setViewport:viewport];
+      for (const aster::FrameRenderInstance &instance : plan.instances) {
+        if (instance.object_index >= scene.objects().size()) {
+          continue;
+        }
+        const aster::RenderObject &object = scene.objects()[instance.object_index];
+        if (!aster::renderObjectCastsShadows(object) ||
+            aster::classifyMaterialRenderQueue(object.material) !=
+                aster::MaterialRenderQueue::Opaque ||
+            isContactShadowUtility(object)) {
+          continue;
+        }
+        const aster::CpuMesh *mesh = meshForObject(object, meshes);
+        if (mesh == nullptr || mesh->indices.empty()) {
+          continue;
+        }
+        MetalMeshBuffers *buffers = buffersForMesh(*mesh);
+        if (buffers == nullptr || buffers->vertices == nil || buffers->indices == nil ||
+            buffers->index_count == 0) {
+          continue;
+        }
+        const MetalObjectUniforms shadow_uniforms =
+            makeShadowObjectUniforms(object, cascade.view_projection, settings, frame_seconds);
+        [encoder setVertexBuffer:buffers->vertices offset:0 atIndex:0];
+        [encoder setVertexBytes:&shadow_uniforms length:sizeof(shadow_uniforms) atIndex:2];
+        [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                            indexCount:buffers->index_count
+                             indexType:MTLIndexTypeUInt32
+                           indexBuffer:buffers->indices
+                     indexBufferOffset:0];
+      }
+    }
+    [encoder endEncoding];
+    ++stats.draw_calls;
+  }
+
+  void encodeFogAndReflection(id<MTLCommandBuffer> command_buffer,
+                              const MetalSceneUniforms &scene_uniforms) {
+    if (fog_contract_.width != 0u && fog_contract_.height != 0u && fog_texture_ != nil &&
+        fog_pipeline_ != nil) {
+      MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+      pass.colorAttachments[0].texture = fog_texture_;
+      pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+      pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+      pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
+      id<MTLRenderCommandEncoder> encoder =
+          [command_buffer renderCommandEncoderWithDescriptor:pass];
+      [encoder setRenderPipelineState:fog_pipeline_];
+      [encoder setFragmentBytes:&scene_uniforms length:sizeof(scene_uniforms) atIndex:1];
+      [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+      [encoder endEncoding];
+    }
+
+    if (reflection_contract_.width != 0u && reflection_contract_.height != 0u &&
+        reflection_texture_ != nil && reflection_pipeline_ != nil) {
+      MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+      pass.colorAttachments[0].texture = reflection_texture_;
+      pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+      pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+      pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
+      id<MTLRenderCommandEncoder> encoder =
+          [command_buffer renderCommandEncoderWithDescriptor:pass];
+      [encoder setRenderPipelineState:reflection_pipeline_];
+      [encoder setFragmentBytes:&scene_uniforms length:sizeof(scene_uniforms) atIndex:1];
+      [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+      [encoder endEncoding];
+    }
+  }
+
+  MetalSceneUniforms makeSceneUniforms(const aster::Scene &scene,
+                                       const aster::OrbitCamera &camera,
                                        const aster::RendererSettings &settings,
                                        const double frame_seconds) const {
     const aster::Vec3 camera_position = camera.position();
@@ -1467,6 +1763,49 @@ private:
     out.lighting_params[2] =
         settings.reflections.enabled ? settings.reflections.fallback_intensity : 0.0f;
     out.lighting_params[3] = settings.shadows.enabled ? 1.0f : 0.0f;
+    out.render_params[0] = static_cast<float>(std::max(width_, 1));
+    out.render_params[1] = static_cast<float>(std::max(height_, 1));
+    out.render_params[2] = static_cast<float>(fog_contract_.width);
+    out.render_params[3] = static_cast<float>(fog_contract_.height);
+    out.shadow_params[0] = static_cast<float>(shadow_contract_.atlas_size);
+    out.shadow_params[1] = static_cast<float>(shadow_contract_.cascade_count);
+    out.shadow_params[2] = settings.shadows.receiver_bias;
+    out.shadow_params[3] = settings.shadows.pcf_radius;
+    for (std::uint32_t cascade_index = 0u;
+         cascade_index < shadow_contract_.cascade_count && cascade_index < 4u;
+         ++cascade_index) {
+      const aster::ShadowCascadeContract &cascade = shadow_contract_.cascades[cascade_index];
+      std::memcpy(out.shadows[cascade_index].view_projection, cascade.view_projection.m.data(),
+                  sizeof(out.shadows[cascade_index].view_projection));
+      out.shadows[cascade_index].tile[0] = static_cast<float>(cascade.tile_x);
+      out.shadows[cascade_index].tile[1] = static_cast<float>(cascade.tile_y);
+      out.shadows[cascade_index].tile[2] = static_cast<float>(cascade.tile_width);
+      out.shadows[cascade_index].tile[3] = static_cast<float>(cascade.tile_height);
+      out.shadows[cascade_index].params[0] = cascade.radius;
+    }
+    out.reflection_params[0] = static_cast<float>(reflection_contract_.width);
+    out.reflection_params[1] = static_cast<float>(reflection_contract_.height);
+    out.reflection_params[2] = static_cast<float>(reflection_contract_.probe_count);
+    out.reflection_params[3] = static_cast<float>(reflection_contract_.face_size);
+    const std::uint32_t probe_count =
+        std::min<std::uint32_t>(reflection_contract_.probe_count, 4u);
+    for (std::uint32_t probe_index = 0u; probe_index < probe_count; ++probe_index) {
+      const aster::ReflectionProbe &probe = scene.reflectionProbes()[probe_index];
+      out.probes[probe_index].position_radius[0] = probe.position.x;
+      out.probes[probe_index].position_radius[1] = probe.position.y;
+      out.probes[probe_index].position_radius[2] = probe.position.z;
+      out.probes[probe_index].position_radius[3] = probe.influence_radius;
+      out.probes[probe_index].sky_intensity[0] = probe.sky_irradiance.x;
+      out.probes[probe_index].sky_intensity[1] = probe.sky_irradiance.y;
+      out.probes[probe_index].sky_intensity[2] = probe.sky_irradiance.z;
+      out.probes[probe_index].sky_intensity[3] = probe.intensity;
+      out.probes[probe_index].ground_pad[0] = probe.ground_irradiance.x;
+      out.probes[probe_index].ground_pad[1] = probe.ground_irradiance.y;
+      out.probes[probe_index].ground_pad[2] = probe.ground_irradiance.z;
+      out.probes[probe_index].specular_pad[0] = probe.specular_tint.x;
+      out.probes[probe_index].specular_pad[1] = probe.specular_tint.y;
+      out.probes[probe_index].specular_pad[2] = probe.specular_tint.z;
+    }
     for (std::size_t i = 0; i < selected_lights.size(); ++i) {
       const aster::Light &light = selected_lights[i];
       out.lights[i].position_radius[0] = light.position.x;
@@ -1578,6 +1917,100 @@ private:
       [encoder setFragmentTexture:texture atIndex:static_cast<NSUInteger>(i)];
     }
     [encoder setFragmentSamplerState:materialSampler() atIndex:0];
+  }
+
+  void bindFrameGraphTextures(id<MTLRenderCommandEncoder> encoder) {
+    [encoder setFragmentTexture:shadow_atlas_texture_ atIndex:10];
+    [encoder setFragmentTexture:fog_texture_ atIndex:11];
+    [encoder setFragmentTexture:reflection_texture_ atIndex:12];
+  }
+
+  static std::uint64_t hashBytes(const std::vector<std::uint8_t> &bytes) {
+    std::uint64_t hash = 1469598103934665603ull;
+    for (const std::uint8_t byte : bytes) {
+      hash ^= byte;
+      hash *= 1099511628211ull;
+    }
+    return hash;
+  }
+
+  static void updateCapture(aster::FrameDebugCapture &capture, const std::uint32_t width,
+                            const std::uint32_t height, std::vector<std::uint8_t> rgba8) {
+    capture.width = width;
+    capture.height = height;
+    capture.row_stride_bytes = width * 4u;
+    capture.rgba8 = std::move(rgba8);
+    capture.content_hash = hashBytes(capture.rgba8);
+    capture.available = !capture.rgba8.empty() && capture.content_hash != 0u;
+  }
+
+  std::vector<std::uint8_t> readRgbaTexture(id<MTLTexture> texture, const std::uint32_t width,
+                                            const std::uint32_t height) const {
+    std::vector<std::uint8_t> rgba(static_cast<std::size_t>(width) * height * 4u);
+    if (texture == nil || width == 0u || height == 0u) {
+      return {};
+    }
+    MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+    [texture getBytes:rgba.data()
+          bytesPerRow:static_cast<NSUInteger>(width) * 4u
+           fromRegion:region
+          mipmapLevel:0];
+    return rgba;
+  }
+
+  std::vector<std::uint8_t> readDepthTextureAsRgba(id<MTLTexture> texture,
+                                                   const std::uint32_t width,
+                                                   const std::uint32_t height) const {
+    if (texture == nil || width == 0u || height == 0u) {
+      return {};
+    }
+    std::vector<float> depth(static_cast<std::size_t>(width) * height);
+    MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+    [texture getBytes:depth.data()
+          bytesPerRow:static_cast<NSUInteger>(width) * sizeof(float)
+           fromRegion:region
+          mipmapLevel:0];
+    std::vector<std::uint8_t> rgba(static_cast<std::size_t>(width) * height * 4u);
+    for (std::size_t i = 0u; i < depth.size(); ++i) {
+      const float value = std::clamp(depth[i], 0.0f, 1.0f);
+      const std::uint8_t byte = static_cast<std::uint8_t>(std::lround(value * 255.0f));
+      rgba[i * 4u + 0u] = byte;
+      rgba[i * 4u + 1u] = static_cast<std::uint8_t>(std::lround(value * 188.0f));
+      rgba[i * 4u + 2u] = static_cast<std::uint8_t>(std::lround(value * 132.0f));
+      rgba[i * 4u + 3u] = 255u;
+    }
+    return rgba;
+  }
+
+  void appendNativeCapturePayloads(aster::FrameForensics *forensics) const {
+    if (forensics == nullptr) {
+      return;
+    }
+    for (aster::FrameDebugCapture &capture : forensics->captures) {
+      if (capture.resource == aster::RenderGraphResource::ShadowAtlas &&
+          shadow_contract_.atlas_size != 0u) {
+        updateCapture(capture, shadow_contract_.atlas_size, shadow_contract_.atlas_size,
+                      readDepthTextureAsRgba(shadow_atlas_texture_, shadow_contract_.atlas_size,
+                                             shadow_contract_.atlas_size));
+      } else if (capture.resource == aster::RenderGraphResource::VolumetricFog &&
+                 fog_contract_.width != 0u && fog_contract_.height != 0u) {
+        updateCapture(capture, fog_contract_.width, fog_contract_.height,
+                      readRgbaTexture(fog_texture_, fog_contract_.width, fog_contract_.height));
+      } else if (capture.resource == aster::RenderGraphResource::ReflectionProbes &&
+                 reflection_contract_.width != 0u && reflection_contract_.height != 0u) {
+        updateCapture(capture, reflection_contract_.width, reflection_contract_.height,
+                      readRgbaTexture(reflection_texture_, reflection_contract_.width,
+                                      reflection_contract_.height));
+      } else if (capture.resource == aster::RenderGraphResource::CaptureReadback ||
+                 (capture.pass == aster::RenderGraphPass::UiComposite &&
+                  capture.resource == aster::RenderGraphResource::SceneColor)) {
+        updateCapture(capture, static_cast<std::uint32_t>(std::max(width_, 0)),
+                      static_cast<std::uint32_t>(std::max(height_, 0)),
+                      readRgbaTexture(scene_texture_,
+                                      static_cast<std::uint32_t>(std::max(width_, 0)),
+                                      static_cast<std::uint32_t>(std::max(height_, 0))));
+      }
+    }
   }
 
   void clearMaterialTextureCache() {
@@ -1746,16 +2179,25 @@ private:
   id<MTLLibrary> library_ = nil;
   id<MTLRenderPipelineState> opaque_pipeline_ = nil;
   id<MTLRenderPipelineState> transparent_pipeline_ = nil;
+  id<MTLRenderPipelineState> shadow_pipeline_ = nil;
+  id<MTLRenderPipelineState> fog_pipeline_ = nil;
+  id<MTLRenderPipelineState> reflection_pipeline_ = nil;
   id<MTLDepthStencilState> opaque_depth_ = nil;
   id<MTLDepthStencilState> read_only_depth_ = nil;
   id<MTLDepthStencilState> transparent_depth_ = nil;
   id<MTLDepthStencilState> disabled_depth_ = nil;
   id<MTLTexture> scene_texture_ = nil;
   id<MTLTexture> depth_texture_ = nil;
+  id<MTLTexture> shadow_atlas_texture_ = nil;
+  id<MTLTexture> fog_texture_ = nil;
+  id<MTLTexture> reflection_texture_ = nil;
   id<MTLBuffer> object_uniform_buffer_ = nil;
   id<MTLSamplerState> material_sampler_ = nil;
   int width_ = 0;
   int height_ = 0;
+  aster::ShadowAtlasContract shadow_contract_{};
+  aster::FogVolumeContract fog_contract_{};
+  aster::ReflectionProbeAtlasContract reflection_contract_{};
   std::size_t object_uniform_capacity_ = 0;
   std::size_t object_uniform_cursor_ = 0;
   std::unordered_map<const aster::CpuMesh *, MetalMeshBuffers> mesh_buffers_;

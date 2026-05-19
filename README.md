@@ -84,6 +84,7 @@ Run built-in lab scenes:
 ./build/aster_preview --scene mesh-lab --output /tmp/mesh_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene lighting-lab --output /tmp/lighting_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene scene-lab --output /tmp/scene_lab.ppm --width 1280 --height 720 --samples 2
+./build/aster_preview --scene cave-conformance --output /tmp/cave_conformance.ppm --width 1280 --height 720 --samples 2
 ```
 
 ## What Is Included
@@ -97,7 +98,8 @@ Run built-in lab scenes:
   Linux presentation, capture, preview rendering, and exact golden baselines.
 - A macOS Metal renderer with native scene rendering, readback/capture,
   translucent sorting, procedural material shading, contact shadows, fog,
-  tonemapping, frame pacing, and UI composition.
+  cave-conformance shadow/fog/probe resources, tonemapping, frame pacing, and
+  UI composition.
 - A Windows D3D12 offscreen raster/readback backend for scene-contract and
   capability conformance. Full Windows GPU presentation is future work.
 - Procedural geometry and mesh tooling for terrain, caves, tubes, cables,
@@ -188,8 +190,10 @@ ctest --test-dir build -R aster_material_shader_system_tests --output-on-failure
 ```
 
 The conformance suite stores deterministic software baselines in
-`tests/golden/render/`, compares native captures against software with tolerance,
-and writes mismatch artifacts to the temp directory.
+`tests/golden/render/`, including the engine-owned `cave_conformance` proof
+frame. Native support for shadow, fog, and probe resources requires matching
+resource-capability bits, non-empty debug captures, and final-frame sampling;
+declared graph passes alone are reported as `CapabilityMismatch`.
 
 Run smoke and frame-report checks after platform, renderer, UI, or sample-loop
 changes:
@@ -209,6 +213,7 @@ mkdir -p assets/screenshots /tmp/aster_learning_shots
 ./build/aster_preview --scene mesh-lab --output /tmp/aster_learning_shots/mesh_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene lighting-lab --output /tmp/aster_learning_shots/lighting_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene scene-lab --output /tmp/aster_learning_shots/scene_lab.ppm --width 1280 --height 720 --samples 2
+./build/aster_preview --scene cave-conformance --output /tmp/aster_learning_shots/cave_conformance.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene industrial-pipe --output /tmp/aster_learning_shots/industrial_pipe.ppm --width 1280 --height 720 --samples 2
 ./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_run.ppm --screenshot-frame 8 --capture-hud --msaa 0 --window-width 1280 --window-height 720
 
@@ -216,6 +221,7 @@ sips -s format png /tmp/aster_learning_shots/material_lab.ppm --out assets/scree
 sips -s format png /tmp/aster_learning_shots/mesh_lab.ppm --out assets/screenshots/mesh_lab.png
 sips -s format png /tmp/aster_learning_shots/lighting_lab.ppm --out assets/screenshots/lighting_lab.png
 sips -s format png /tmp/aster_learning_shots/scene_lab.ppm --out assets/screenshots/scene_lab.png
+sips -s format png /tmp/aster_learning_shots/cave_conformance.ppm --out assets/screenshots/cave_conformance.png
 sips -s format png /tmp/aster_learning_shots/industrial_pipe.ppm --out assets/screenshots/industrial_pipe.png
 sips -s format png /tmp/aster_learning_shots/lumen_run.ppm --out assets/screenshots/lumen_run.png
 ```

@@ -7,8 +7,9 @@
 #include "aster/core/profiler.hpp"
 #include "aster/math/color.hpp"
 #include "aster/render/material_compiler.hpp"
-#include "aster/render/software_framebuffer.hpp"
+#include "aster/render/render_conformance.hpp"
 #include "aster/render/render_graph_executor.hpp"
+#include "aster/render/software_framebuffer.hpp"
 #include "aster/scene/scene.hpp"
 #include "native_render_backend.hpp"
 #include "render_backend_common.hpp"
@@ -1438,48 +1439,29 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
 void buildSoftwareShadowAtlas(const aster::Scene &scene, const aster::OrbitCamera &camera,
                               const aster::RendererSettings &settings,
                               SoftwareFrameResources &resources) {
-  if (!settings.shadows.enabled || !settings.sun_light.enabled ||
-      settings.sun_light.intensity <= 0.0f) {
+  const aster::ShadowAtlasContract contract = aster::makeShadowAtlasContract(camera, settings);
+  if (contract.atlas_size == 0u || contract.cascade_count == 0u) {
     return;
   }
-  const aster::Vec3 sun_dir =
-      aster::normalizeOr(settings.sun_light.direction_to_light, {0.0f, 1.0f, 0.0f});
-  const aster::Vec3 forward = -sun_dir;
-  const aster::Vec3 basis_seed = std::abs(forward.y) < 0.92f ? aster::Vec3{0.0f, 1.0f, 0.0f}
-                                                              : aster::Vec3{1.0f, 0.0f, 0.0f};
-  const aster::Vec3 right = aster::normalizeOr(aster::cross(basis_seed, forward),
-                                               {1.0f, 0.0f, 0.0f});
-  const aster::Vec3 up = aster::normalizeOr(aster::cross(forward, right), {0.0f, 1.0f, 0.0f});
-
-  const std::uint32_t cascade_count =
-      settings.shadows.cascaded_directional
-          ? std::clamp(settings.shadows.directional_cascades, 1u, 4u)
-          : 1u;
-  const std::uint32_t atlas_size = std::clamp(settings.shadows.atlas_size, 32u, 2048u);
-  const std::uint32_t base_tile_width = std::max(atlas_size / cascade_count, 1u);
-  resources.shadow_atlas_size = atlas_size;
-  resources.shadow_depths.assign(static_cast<std::size_t>(atlas_size) * atlas_size,
+  resources.shadow_atlas_size = contract.atlas_size;
+  resources.shadow_depths.assign(static_cast<std::size_t>(contract.atlas_size) * contract.atlas_size,
                                  std::numeric_limits<float>::infinity());
-  resources.shadow_rgba8.assign(static_cast<std::size_t>(atlas_size) * atlas_size * 4u, 255u);
+  resources.shadow_rgba8.assign(
+      static_cast<std::size_t>(contract.atlas_size) * contract.atlas_size * 4u, 255u);
   resources.cascades.clear();
-  resources.cascades.reserve(cascade_count);
+  resources.cascades.reserve(contract.cascade_count);
 
-  const float max_distance = std::max(settings.shadows.max_distance, 1.0f);
-  for (std::uint32_t cascade = 0u; cascade < cascade_count; ++cascade) {
-    const std::uint32_t tile_x = cascade * base_tile_width;
-    const std::uint32_t tile_width =
-        cascade + 1u == cascade_count ? atlas_size - tile_x : base_tile_width;
-    const float radius =
-        max_distance * (static_cast<float>(cascade + 1u) / static_cast<float>(cascade_count));
-    resources.cascades.push_back({.center = camera.target,
-                                  .right = right,
-                                  .up = up,
-                                  .forward = forward,
-                                  .radius = std::max(radius, 0.001f),
-                                  .tile_x = tile_x,
-                                  .tile_y = 0u,
-                                  .tile_width = tile_width,
-                                  .tile_height = atlas_size});
+  for (std::uint32_t cascade = 0u; cascade < contract.cascade_count; ++cascade) {
+    const aster::ShadowCascadeContract &source = contract.cascades[cascade];
+    resources.cascades.push_back({.center = source.center,
+                                  .right = source.right,
+                                  .up = source.up,
+                                  .forward = source.forward,
+                                  .radius = source.radius,
+                                  .tile_x = source.tile_x,
+                                  .tile_y = source.tile_y,
+                                  .tile_width = source.tile_width,
+                                  .tile_height = source.tile_height});
   }
 
   for (const aster::RenderObject &object : scene.objects()) {
@@ -1534,16 +1516,17 @@ void buildSoftwareShadowAtlas(const aster::Scene &scene, const aster::OrbitCamer
           const std::uint32_t atlas_x = cascade.tile_x + static_cast<std::uint32_t>(x);
           const std::uint32_t atlas_y = cascade.tile_y + static_cast<std::uint32_t>(y);
           const std::size_t index =
-              static_cast<std::size_t>(atlas_y) * atlas_size + static_cast<std::size_t>(atlas_x);
+              static_cast<std::size_t>(atlas_y) * contract.atlas_size +
+              static_cast<std::size_t>(atlas_x);
           resources.shadow_depths[index] = std::min(resources.shadow_depths[index], caster_depth);
         }
       }
     }
   }
 
-  for (std::uint32_t y = 0u; y < atlas_size; ++y) {
-    for (std::uint32_t x = 0u; x < atlas_size; ++x) {
-      const std::size_t pixel = static_cast<std::size_t>(y) * atlas_size + x;
+  for (std::uint32_t y = 0u; y < contract.atlas_size; ++y) {
+    for (std::uint32_t x = 0u; x < contract.atlas_size; ++x) {
+      const std::size_t pixel = static_cast<std::size_t>(y) * contract.atlas_size + x;
       const bool occupied = std::isfinite(resources.shadow_depths[pixel]);
       const float checker = ((x / 8u + y / 8u) & 1u) == 0u ? 0.04f : 0.0f;
       const float value = occupied ? 0.18f + checker : 0.86f + checker;
@@ -1560,12 +1543,13 @@ void buildSoftwareShadowAtlas(const aster::Scene &scene, const aster::OrbitCamer
 void buildSoftwareVolumetricFog(const aster::OrbitCamera &camera,
                                 const aster::RendererSettings &settings,
                                 SoftwareFrameResources &resources) {
-  if (!settings.atmosphere.enabled || settings.atmosphere.fog_strength <= 0.0f ||
-      resources.frame_width == 0u || resources.frame_height == 0u) {
+  const aster::FogVolumeContract contract =
+      aster::makeFogVolumeContract(settings, resources.frame_width, resources.frame_height);
+  if (contract.width == 0u || contract.height == 0u) {
     return;
   }
-  resources.fog_width = std::max(resources.frame_width / 4u, 1u);
-  resources.fog_height = std::max(resources.frame_height / 4u, 1u);
+  resources.fog_width = contract.width;
+  resources.fog_height = contract.height;
   resources.fog_factors.assign(static_cast<std::size_t>(resources.fog_width) *
                                    resources.fog_height,
                                0.0f);
@@ -1599,26 +1583,20 @@ void buildSoftwareVolumetricFog(const aster::OrbitCamera &camera,
 void buildSoftwareReflectionProbeAtlas(const aster::Scene &scene,
                                        const aster::RendererSettings &settings,
                                        SoftwareFrameResources &resources) {
-  if (!settings.reflections.enabled || !settings.reflections.static_local_probes ||
-      scene.reflectionProbes().empty()) {
+  const aster::ReflectionProbeAtlasContract contract =
+      aster::makeReflectionProbeAtlasContract(scene, settings);
+  if (contract.width == 0u || contract.height == 0u || contract.probe_count == 0u) {
     return;
   }
-  const std::uint32_t max_probes =
-      settings.reflections.max_active_probes == 0u
-          ? static_cast<std::uint32_t>(scene.reflectionProbes().size())
-          : settings.reflections.max_active_probes;
-  const std::uint32_t probe_count = std::min<std::uint32_t>(
-      static_cast<std::uint32_t>(scene.reflectionProbes().size()), std::max(max_probes, 1u));
-  const std::uint32_t face_size = std::clamp(settings.reflections.probe_resolution, 8u, 256u);
-  resources.reflection_width = face_size * 6u * probe_count;
-  resources.reflection_height = face_size;
+  resources.reflection_width = contract.width;
+  resources.reflection_height = contract.height;
   resources.probes.clear();
-  resources.probes.reserve(probe_count);
+  resources.probes.reserve(contract.probe_count);
   resources.reflection_rgba8.assign(static_cast<std::size_t>(resources.reflection_width) *
                                         resources.reflection_height * 4u,
                                     0u);
 
-  for (std::uint32_t probe_index = 0u; probe_index < probe_count; ++probe_index) {
+  for (std::uint32_t probe_index = 0u; probe_index < contract.probe_count; ++probe_index) {
     const aster::ReflectionProbe &probe = scene.reflectionProbes()[probe_index];
     resources.probes.push_back({.position = probe.position,
                                 .influence_radius = std::max(probe.influence_radius, 0.001f),
@@ -1631,15 +1609,17 @@ void buildSoftwareReflectionProbeAtlas(const aster::Scene &scene,
       const aster::Vec3 face_color =
           mixVec(probe.ground_irradiance, probe.sky_irradiance, face_sky) *
           probe.specular_tint * std::clamp(probe.intensity, 0.0f, 4.0f);
-      for (std::uint32_t y = 0u; y < face_size; ++y) {
-        const float vertical = (static_cast<float>(y) + 0.5f) / static_cast<float>(face_size);
-        for (std::uint32_t x = 0u; x < face_size; ++x) {
-          const float horizontal = (static_cast<float>(x) + 0.5f) / static_cast<float>(face_size);
+      for (std::uint32_t y = 0u; y < contract.face_size; ++y) {
+        const float vertical =
+            (static_cast<float>(y) + 0.5f) / static_cast<float>(contract.face_size);
+        for (std::uint32_t x = 0u; x < contract.face_size; ++x) {
+          const float horizontal =
+              (static_cast<float>(x) + 0.5f) / static_cast<float>(contract.face_size);
           const float edge = 1.0f - smoothstep(0.42f, 0.72f,
                                                std::abs(horizontal - 0.5f) +
                                                    std::abs(vertical - 0.5f));
           const aster::Vec3 color = face_color * (0.72f + edge * 0.28f);
-          const std::uint32_t atlas_x = (probe_index * 6u + face) * face_size + x;
+          const std::uint32_t atlas_x = (probe_index * 6u + face) * contract.face_size + x;
           const std::uint32_t atlas_y = y;
           const std::size_t base =
               (static_cast<std::size_t>(atlas_y) * resources.reflection_width + atlas_x) * 4u;
@@ -2219,6 +2199,81 @@ std::uint64_t textureDescriptorLayoutHash() {
   return aster::rhi::descriptorLayoutHash(layout);
 }
 
+bool authoredTextureRole(const aster::MaterialRuntimeResource *resource,
+                         const std::string_view role) {
+  if (resource == nullptr) {
+    return false;
+  }
+  const aster::RuntimeTexture *texture = resource->texture_set.find(role);
+  return texture != nullptr && texture->valid && !texture->fallback;
+}
+
+std::uint64_t materialNativePipelineKey(const aster::RenderObject &object,
+                                        const aster::MaterialRuntimeResource *resource,
+                                        const aster::RendererSettings &settings,
+                                        const aster::RenderBackendCapabilities &capabilities) {
+  std::uint64_t hash = 1469598103934665603ull;
+  const auto append = [&hash](const std::uint64_t value) {
+    hash ^= value;
+    hash *= 1099511628211ull;
+  };
+  append(static_cast<std::uint64_t>(capabilities.kind));
+  append(static_cast<std::uint64_t>(aster::classifyMaterialRenderQueue(object.material)));
+  append(static_cast<std::uint64_t>(object.material.alpha_mode));
+  append(static_cast<std::uint64_t>(object.material.depth_write));
+  append(static_cast<std::uint64_t>(object.material.depth_policy.layer));
+  append(static_cast<std::uint64_t>(object.material.cull_mode));
+  append(object.material.receives_shadows ? 1u : 0u);
+  append(settings.shadows.enabled && object.material.receives_shadows ? 1u : 0u);
+  append(settings.atmosphere.enabled && settings.atmosphere.fog_strength > 0.0f ? 1u : 0u);
+  append(settings.reflections.enabled ? 1u : 0u);
+  append(authoredTextureRole(resource, "normal") ? 1u : 0u);
+  append(authoredTextureRole(resource, "height") ? 1u : 0u);
+  append(authoredTextureRole(resource, "wetness") ? 1u : 0u);
+  append(authoredTextureRole(resource, "emissive") ? 1u : 0u);
+  append(authoredTextureRole(resource, "opacity") ? 1u : 0u);
+  append(authoredTextureRole(resource, "orm") ? 1u : 0u);
+  append(authoredTextureRole(resource, "roughness") ? 1u : 0u);
+  append(authoredTextureRole(resource, "ao") ? 1u : 0u);
+  append(object.material.shader_variant_key);
+  append(aster::materialPermutationKey(object.material, resource != nullptr));
+  return hash;
+}
+
+void appendMaterialPipelineKeyTraces(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
+                                     const aster::RendererSettings &settings,
+                                     const aster::MaterialResourceLibrary *library,
+                                     const aster::RenderBackendCapabilities &capabilities,
+                                     std::vector<aster::rhi::PipelineStateTrace> &pipelines) {
+  const std::uint64_t layout_hash = textureDescriptorLayoutHash();
+  std::unordered_set<std::uint64_t> seen;
+  for (const aster::FrameRenderDrawGroup &group : plan.groups) {
+    for (std::size_t i = 0u; i < group.instance_count; ++i) {
+      const std::size_t plan_index = group.first_instance + i;
+      if (plan_index >= plan.instances.size()) {
+        break;
+      }
+      const aster::FrameRenderInstance &instance = plan.instances[plan_index];
+      if (instance.object_index >= scene.objects().size()) {
+        continue;
+      }
+      const aster::RenderObject &object = scene.objects()[instance.object_index];
+      const aster::MaterialRuntimeResource *resource =
+          library == nullptr
+              ? nullptr
+              : library->findForMaterialIds(object.material_asset_id, object.material.asset_id);
+      const std::uint64_t key = materialNativePipelineKey(object, resource, settings, capabilities);
+      if (!seen.insert(key).second) {
+        continue;
+      }
+      pipelines.push_back({.label = "material:" +
+                                    (object.name.empty() ? std::string("unnamed") : object.name),
+                           .cache_key = key,
+                           .descriptor_layout_hash = layout_hash});
+    }
+  }
+}
+
 std::uint64_t estimatedBytesFor(const aster::framegraph::ResourceDesc &desc) {
   std::uint64_t bytes_per_pixel = 4u;
   switch (desc.format) {
@@ -2258,25 +2313,22 @@ void appendFrameGraphForensics(const aster::FixedRenderGraph &graph,
     const aster::RenderGraphPass semantic = aster::renderGraphPassFromName(pass.name);
     const aster::RenderGraphPassDeclaration *declaration =
         aster::defaultRenderPassDeclaration(semantic);
-    bool backend_has_declared_outputs = false;
     if (declaration != nullptr) {
-      backend_has_declared_outputs =
-          std::all_of(declaration->outputs.begin(), declaration->outputs.end(),
-                      [&capabilities](const aster::RenderGraphResourceBindingDesc &output) {
-                        return (capabilities.graph_resource_mask &
-                                aster::renderGraphResourceBit(output.resource)) != 0u;
-                      });
-    }
-    if (declaration != nullptr && !declaration->produces_backend_work &&
-        !backend_has_declared_outputs) {
-      forensics.events.push_back(
-          {.kind = aster::FrameDiagnosticKind::CapabilityMismatch,
-           .severity = aster::FrameDiagnosticSeverity::Info,
-           .pass = pass.name,
-           .label = aster::renderGraphExecutorKeyName(declaration->executor).data(),
-           .message =
-               "Pass is declared as a resource producer/consumer, but its backend workload is not wired yet.",
-           .value = pass_index});
+      for (const aster::RenderGraphResourceBindingDesc &output : declaration->outputs) {
+        const bool backend_has_output =
+            (capabilities.graph_resource_mask & aster::renderGraphResourceBit(output.resource)) !=
+            0u;
+        if (!backend_has_output) {
+          forensics.events.push_back(
+              {.kind = aster::FrameDiagnosticKind::CapabilityMismatch,
+               .severity = aster::FrameDiagnosticSeverity::Info,
+               .pass = pass.name,
+               .label = std::string(aster::renderGraphResourceName(output.resource)),
+               .message =
+                   "Backend does not advertise the render graph output resource for this pass.",
+               .value = pass_index});
+        }
+      }
     }
     if (declaration != nullptr &&
         declaration->debug_capture != aster::RenderGraphDebugCapturePolicy::Disabled) {
@@ -2901,6 +2953,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                             framebuffer_height, last_forensics_);
   appendMaterialBindingTraces(scene, plan, material_library_.get(), active_capabilities,
                               last_forensics_.material_bindings);
+  appendMaterialPipelineKeyTraces(scene, plan, settings, material_library_.get(),
+                                  active_capabilities, last_forensics_.rhi_trace.pipelines);
   appendObjectDebuggerTraces(scene, plan, camera, settings, framebuffer_width, framebuffer_height,
                              last_forensics_);
   last_forensics_.events.insert(last_forensics_.events.end(),

@@ -13,5 +13,6 @@ namespace aster {
 [[nodiscard]] Scene makeMeshLabShowcaseScene();
 [[nodiscard]] Scene makeLightingLabShowcaseScene();
 [[nodiscard]] Scene makeSceneLabShowcaseScene();
+[[nodiscard]] Scene makeCaveConformanceShowcaseScene();
 
 } // namespace aster

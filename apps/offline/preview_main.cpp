@@ -43,6 +43,9 @@ aster::Scene makeScene(const std::string &scene_name) {
   if (scene_name == "scene-lab") {
     return aster::makeSceneLabShowcaseScene();
   }
+  if (scene_name == "cave-conformance") {
+    return aster::makeCaveConformanceShowcaseScene();
+  }
   if (scene_name == "architecture") {
     return aster::makeArchitectureShowcaseScene();
   }
@@ -89,6 +92,14 @@ aster::OrbitCamera makeCamera(const std::string &scene_name) {
     camera.pitch = aster::radians(24.0f);
     camera.radius = 6.8f;
     camera.vertical_fov = aster::radians(44.0f);
+    return camera;
+  }
+  if (scene_name == "cave-conformance") {
+    camera.target = {0.0f, 0.92f, -0.92f};
+    camera.yaw = aster::radians(28.0f);
+    camera.pitch = aster::radians(13.0f);
+    camera.radius = 4.9f;
+    camera.vertical_fov = aster::radians(43.0f);
     return camera;
   }
   camera.target = {0.0f, 1.18f, -0.35f};
@@ -173,6 +184,37 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
     settings.grounding.enabled = true;
     settings.grounding.contact_shadows = true;
     settings.grounding.auto_contact_shadows = true;
+  }
+  if (scene_name == "cave-conformance") {
+    settings.exposure = 0.88f;
+    settings.ambient_strength = 0.15f;
+    settings.ambient_floor = 0.020f;
+    settings.sun_light.enabled = true;
+    settings.sun_light.direction_to_light = {-0.42f, 0.84f, 0.28f};
+    settings.sun_light.color = {1.0f, 0.82f, 0.58f};
+    settings.sun_light.intensity = 1.35f;
+    settings.pipeline.clear_color = {0.014f, 0.014f, 0.016f};
+    settings.atmosphere.fog_color = {0.048f, 0.044f, 0.040f};
+    settings.atmosphere.fog_start = 2.0f;
+    settings.atmosphere.fog_end = 7.4f;
+    settings.atmosphere.fog_strength = 0.30f;
+    settings.grounding.enabled = true;
+    settings.grounding.contact_shadows = true;
+    settings.grounding.auto_contact_shadows = true;
+    settings.shadows.enabled = true;
+    settings.shadows.cascaded_directional = true;
+    settings.shadows.directional_cascades = 2u;
+    settings.shadows.atlas_size = 128u;
+    settings.reflections.enabled = true;
+    settings.reflections.static_local_probes = true;
+    settings.reflections.probe_resolution = 16u;
+    settings.reflections.max_active_probes = 1u;
+    settings.reflections.fallback_intensity = 0.86f;
+    settings.light_rig = {
+        aster::Light{{-1.58f, 1.20f, -1.52f}, {5.2f, 2.0f, 0.62f}, 1.0f, 0.52f},
+        aster::Light{{1.35f, 1.08f, -1.82f}, {4.4f, 1.7f, 0.54f}, 1.0f, 0.48f},
+        aster::Light{{0.0f, 0.82f, 0.72f}, {0.62f, 1.05f, 1.45f}, 1.0f, 0.86f},
+    };
   }
 
   return settings;

@@ -515,4 +515,122 @@ Scene makeSceneLabShowcaseScene() {
   return scene;
 }
 
+Scene makeCaveConformanceShowcaseScene() {
+  Scene scene;
+
+  Material wet_rock =
+      material({0.19f, 0.17f, 0.145f}, {}, 0.86f, 0.02f, 0.0f, 0.92f, 7.4f, 0.28f, 0.74f,
+               SurfacePattern::CaveRock, {3.2f, 4.8f}, 0.32f, 0.74f, 0.052f,
+               {.macro_variation = 0.68f,
+                .micro_normal_strength = 0.56f,
+                .roughness_variation = 0.38f,
+                .wetness = 0.64f,
+                .height_shading = 0.34f});
+  wet_rock.asset_id = "CaveConformanceWetRock";
+
+  Material floor_material = makeSupportSurfaceMaterial(wet_rock);
+  floor_material.asset_id = "CaveConformanceWetRock";
+
+  Material emissive_lamp =
+      material({0.74f, 0.34f, 0.12f}, {1.0f, 0.38f, 0.08f}, 0.30f, 0.0f, 0.92f, 0.30f, 4.0f,
+               0.04f, 1.0f, SurfacePattern::AmberResin, {2.0f, 2.0f}, 0.10f, 0.42f);
+  emissive_lamp.asset_id = "CaveConformanceEmissive";
+
+  Material wet_metal =
+      material({0.20f, 0.18f, 0.16f}, {0.02f, 0.012f, 0.004f}, 0.58f, 0.76f, 0.0f, 0.64f,
+               9.5f, 0.26f, 0.82f, SurfacePattern::WeatheredMetal, {4.2f, 8.0f}, 0.32f,
+               0.78f, 0.040f, {.macro_variation = 0.44f,
+                                .micro_normal_strength = 0.34f,
+                                .roughness_variation = 0.46f,
+                                .wetness = 0.24f,
+                                .height_shading = 0.18f});
+  wet_metal.asset_id = "CaveConformanceWetMetal";
+
+  RenderObject floor;
+  floor.name = "cave conformance wet floor";
+  floor.primitive = MeshPrimitive::Plane;
+  floor.transform.scale = {1.15f, 1.0f, 1.10f};
+  floor.material_asset_id = wet_rock.asset_id;
+  floor.material = floor_material;
+  floor.auto_contact_shadow = false;
+  floor.casts_shadows = false;
+  scene.objects().push_back(floor);
+
+  struct WallSpec {
+    const char *name;
+    Vec3 position;
+    Vec3 scale;
+    Vec3 rotation;
+  };
+  const WallSpec walls[] = {
+      {"cave conformance back wall", {0.0f, 1.08f, -2.20f}, {2.85f, 1.55f, 0.18f}, {}},
+      {"cave conformance left wall", {-2.50f, 1.02f, -0.18f}, {0.18f, 1.45f, 2.05f},
+       {0.0f, radians(8.0f), 0.0f}},
+      {"cave conformance right wall", {2.34f, 1.08f, -0.08f}, {0.18f, 1.55f, 2.25f},
+       {0.0f, radians(-10.0f), 0.0f}},
+      {"cave conformance low ceiling", {0.0f, 2.18f, -0.68f}, {2.65f, 0.16f, 2.10f},
+       {radians(3.0f), 0.0f, radians(-2.0f)}},
+  };
+  for (const WallSpec &spec : walls) {
+    RenderObject wall;
+    wall.name = spec.name;
+    wall.primitive = MeshPrimitive::Box;
+    wall.transform.position = spec.position;
+    wall.transform.scale = spec.scale;
+    wall.transform.rotation = quatFromEulerXyz(spec.rotation);
+    wall.material_asset_id = wet_rock.asset_id;
+    wall.material = wet_rock;
+    wall.casts_contact_shadow = false;
+    wall.casts_shadows = true;
+    scene.objects().push_back(wall);
+  }
+
+  for (std::size_t i = 0; i < 3u; ++i) {
+    RenderObject rock;
+    rock.name = "cave conformance caster rock";
+    rock.primitive = MeshPrimitive::Rock;
+    rock.transform.position = {-0.95f + static_cast<float>(i) * 0.88f, 0.42f,
+                               -0.92f + static_cast<float>(i % 2u) * 0.58f};
+    rock.transform.scale = {0.36f, 0.34f + static_cast<float>(i) * 0.07f, 0.34f};
+    rock.transform.rotation = quatFromEulerXyz({0.0f, radians(20.0f * static_cast<float>(i)),
+                                                radians(5.0f)});
+    rock.material_asset_id = wet_rock.asset_id;
+    rock.material = wet_rock;
+    rock.casts_contact_shadow = true;
+    rock.contact_shadow_strength = 0.62f;
+    scene.objects().push_back(rock);
+  }
+
+  RenderObject metal_fixture;
+  metal_fixture.name = "cave conformance wet metal fixture";
+  metal_fixture.primitive = MeshPrimitive::Box;
+  metal_fixture.transform.position = {-1.62f, 1.06f, -1.66f};
+  metal_fixture.transform.scale = {0.16f, 0.48f, 0.08f};
+  metal_fixture.material_asset_id = wet_metal.asset_id;
+  metal_fixture.material = wet_metal;
+  metal_fixture.casts_shadows = true;
+  scene.objects().push_back(metal_fixture);
+
+  for (const Vec3 position : {Vec3{-1.58f, 1.20f, -1.52f}, Vec3{1.35f, 1.08f, -1.82f}}) {
+    RenderObject lamp;
+    lamp.name = "cave conformance emissive lamp";
+    lamp.primitive = MeshPrimitive::Crystal;
+    lamp.transform.position = position;
+    lamp.transform.scale = {0.16f, 0.30f, 0.16f};
+    lamp.material_asset_id = emissive_lamp.asset_id;
+    lamp.material = emissive_lamp;
+    lamp.casts_contact_shadow = true;
+    scene.objects().push_back(lamp);
+  }
+
+  scene.reflectionProbes().push_back({.name = "cave conformance local reflection probe",
+                                      .position = {0.0f, 0.86f, -0.85f},
+                                      .influence_radius = 4.8f,
+                                      .sky_irradiance = {0.20f, 0.24f, 0.30f},
+                                      .ground_irradiance = {0.10f, 0.075f, 0.052f},
+                                      .specular_tint = {1.0f, 0.88f, 0.76f},
+                                      .intensity = 1.35f});
+  return scene;
+}
+
 } // namespace aster
