@@ -170,10 +170,11 @@ argument parsing and app behavior stay outside it.
 
 `crates/aster_assetc`
 
-Rust asset compiler CLI. It delegates content import/cache writing to
-`aster_content`, keeps `--self-check` for the shared Rust render planner, and
-provides `compile`/`inspect` commands instead of duplicating compiler logic in
-product executables.
+Rust asset compiler package. `aster_materialc` owns single-material packages,
+`aster_texturec` owns single-texture packages, and `aster_assetc` orchestrates
+project/scene bundles through `aster_content`. The shared package keeps
+`--self-check` for the Rust render planner and avoids duplicating compiler logic
+in product executables.
 
 `include/aster/scene`
 

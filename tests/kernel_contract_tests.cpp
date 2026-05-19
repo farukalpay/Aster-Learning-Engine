@@ -122,6 +122,23 @@ void testAbiHeaderStaysPlainC() {
   }
 }
 
+void testPublicApiBoundaryIsFrozen() {
+  const std::string cmake = readFile(std::string(ASTER_SOURCE_DIR) + "/CMakeLists.txt");
+  assert(cmake.find("add_library(aster_kernel SHARED src/kernel/kernel.cpp)") !=
+         std::string::npos);
+  assert(cmake.find("add_library(aster_game_sdk STATIC") != std::string::npos);
+  assert(cmake.find("install(DIRECTORY include/aster/kernel DESTINATION") !=
+         std::string::npos);
+  assert(cmake.find("install(DIRECTORY include/aster/game_sdk DESTINATION") !=
+         std::string::npos);
+  assert(cmake.find("install(DIRECTORY include/aster DESTINATION") == std::string::npos);
+  assert(cmake.find("install(DIRECTORY include/aster/render") == std::string::npos);
+  assert(cmake.find("install(DIRECTORY include/aster/rhi") == std::string::npos);
+  assert(cmake.find("install(DIRECTORY include/aster/framegraph") == std::string::npos);
+  assert(cmake.find("install(DIRECTORY include/aster/scene") == std::string::npos);
+  assert(cmake.find("install(DIRECTORY include/aster/material") == std::string::npos);
+}
+
 void testStatusAndEngineLifecycle() {
   const AsterAbiVersion version = aster_kernel_abi_version();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
@@ -629,6 +646,7 @@ void testManifestNamesMatchLinkedApi() {
 
 int main() {
   testAbiHeaderStaysPlainC();
+  testPublicApiBoundaryIsFrozen();
   testStatusAndEngineLifecycle();
   testMathAbi3Contracts();
   testRendererAbi3Lifecycle();

@@ -1,6 +1,6 @@
 # Aster Engine Kernel
 
-Aster's stable public surface is `include/aster/kernel`. The rest of
+Aster's stable public surface is frozen at `include/aster/kernel`. The rest of
 `include/aster` is implementation-facing engine source used by the repository's
 apps, samples, and tests; it is not the binary-stable engine API.
 

@@ -1,11 +1,12 @@
 # Materials And Shaders
 
-Materials enter through `.astermat` authoring files or C++ `Material` values.
-Asset Pipeline v1 treats Aster-native `.astermat` plus source textures as the
-production material source. `aster_assetc cook` parses the material grammar,
-validates texture roles and color spaces, hashes dependencies, cooks runtime
-KTX2 texture outputs, writes `.materialbin` records, emits reports, and creates
-tiny preview frames only for materials that pass validation.
+Materials enter through `.astermat` authoring files, future material graph
+packages, or C++ `Material` values. `aster_materialc` owns the single-material
+contract: parse the material grammar, validate texture roles and color spaces,
+cook runtime KTX2 texture outputs through `aster_texturec` behavior, write
+`.materialbin` records, emit reports, and create tiny preview frames only for
+materials that pass validation. `aster_assetc cook` orchestrates those contracts
+for full projects and asset databases.
 
 Strict material cook is the default. The cook still writes the project asset
 database and per-asset reports when diagnostics are present, but the process
@@ -16,7 +17,16 @@ renderer-visible `.materialbin`, cooked texture outputs, or previews.
 Single-material validation is available through:
 
 ```bash
+cargo run -p aster_assetc --bin aster_materialc -- inspect --input path/to/material.astermat --asset-root path/to/assets
+cargo run -p aster_assetc --bin aster_materialc -- package --input path/to/material.astermat --asset-root path/to/assets --output /tmp/material_package
 cargo run -p aster_assetc -- material-inspect --input path/to/material.astermat --asset-root path/to/assets
+```
+
+Single-texture validation and package output is available through:
+
+```bash
+cargo run -p aster_assetc --bin aster_texturec -- inspect --input path/to/albedo.ktx2 --role albedo
+cargo run -p aster_assetc --bin aster_texturec -- package --input path/to/albedo.ktx2 --role albedo --output /tmp/texture_package
 ```
 
 Current material contracts:

@@ -1300,6 +1300,22 @@ void testFrameGraphContract() {
   assert(graph.passes[1].debug_marker_name == "light-cull");
   assert(graph.passes[1].timestamp_zone_index == 1u);
   assert(graph.resources[2].physical_allocation_id != 0u);
+  const aster::framegraph::RenderGraphCompilerReport report =
+      aster::framegraph::renderGraphCompilerReport(graph);
+  assert(report.resource_count == graph.resources.size());
+  assert(report.pass_count == graph.passes.size());
+  assert(report.transient_resource_count == graph.transient_resource_count);
+  assert(report.barrier_count == graph.barriers.size());
+  assert(report.expanded_barrier_count == graph.resource_barriers.size());
+  assert(report.descriptor_requirement_count == graph.descriptor_requirements.size());
+  assert(report.alias_group_count == graph.alias_groups.size());
+  assert(report.pipeline_compatibility_count > 0u);
+  assert(report.validation_error_count == 0u);
+  assert(report.has_resource_lifetimes);
+  assert(report.has_expanded_barriers);
+  assert(report.has_descriptor_requirements);
+  assert(report.has_pipeline_cache_inputs);
+  assert(report.has_transient_aliasing);
   const aster::framegraph::TransientResourceAllocationPlan allocation_plan =
       aster::framegraph::TransientResourceAllocator{}.allocate(graph);
   assert(!allocation_plan.physical_allocations.empty());
@@ -1309,6 +1325,7 @@ void testFrameGraphContract() {
   assert(dump.find("scene-color-depth") != std::string::npos);
   assert(dump.find("expanded-barriers") != std::string::npos);
   assert(dump.find("descriptor-requirements") != std::string::npos);
+  assert(dump.find("compiler-report") != std::string::npos);
   std::vector<aster::RenderGraphPass> executed_passes;
   const std::size_t executed = aster::executeFixedRenderGraph(
       graph, [&executed_passes](const aster::RenderGraphPassInvocation &invocation) {
@@ -1350,6 +1367,10 @@ void testFrameGraphContract() {
                      [](const aster::rhi::ResourceBarrier &barrier) {
                        return aster::rhi::transfersQueueOwnership(barrier);
                      }));
+  const aster::framegraph::RenderGraphCompilerReport queued_report =
+      aster::framegraph::renderGraphCompilerReport(queued);
+  assert(queued_report.queue_ownership_transfer_count > 0u);
+  assert(queued_report.has_queue_ownership_transfers);
 
   aster::framegraph::FrameGraphCompileOptions backend_options;
   backend_options.backend_resource_mask =
@@ -1364,6 +1385,22 @@ void testFrameGraphContract() {
                      [](const aster::framegraph::CompiledPass &pass) {
                        return pass.culled;
                      }));
+  const aster::FrameIntent offscreen_intent{
+      .frame_extent = {.width = 1920u, .height = 1080u, .depth = 1u},
+      .backend_resource_mask = aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor) |
+                               aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth),
+      .required_resource_mask = aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor),
+      .ui_overlay_enabled = false,
+      .capture_enabled = true,
+      .cull_unsupported_passes = true};
+  const aster::FrameIntentCompileResult intent_result =
+      aster::compileFrameIntentWithReport(offscreen_intent);
+  assert(intent_result.intent.frame_extent.width == 1920u);
+  assert(intent_result.graph.resources[0].desc.extent.width == 1920u);
+  assert(intent_result.graph.resources[0].desc.extent.height == 1080u);
+  assert(intent_result.report.resource_count == intent_result.graph.resources.size());
+  assert(intent_result.report.culled_pass_count > 0u);
+  assert(intent_result.report.has_resource_lifetimes);
 
   assert(aster::renderGraphResourceName(aster::RenderGraphResource::UiOverlay) == "ui-overlay");
   assert(aster::renderGraphResourceLifetimeName(aster::RenderGraphResourceLifetime::Readback) ==

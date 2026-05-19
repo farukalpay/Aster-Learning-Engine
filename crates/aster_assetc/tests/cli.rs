@@ -5,7 +5,10 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn append_f32(bytes: &mut Vec<u8>, value: f32) {
     bytes.extend_from_slice(&value.to_le_bytes());
@@ -20,7 +23,13 @@ fn fixture_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    std::env::temp_dir().join(format!("aster_assetc_cli_{}_{}", std::process::id(), stamp))
+    let counter = FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "aster_assetc_cli_{}_{}_{}",
+        std::process::id(),
+        stamp,
+        counter
+    ))
 }
 
 fn write_fixture() -> PathBuf {
@@ -356,4 +365,71 @@ fn material_inspect_reports_strict_validation() {
     assert!(stdout.contains("\"production_ready\": false"));
     assert!(stdout.contains("requires 'orm' texture"));
     fs::remove_dir_all(project.parent().unwrap()).ok();
+}
+
+#[test]
+fn materialc_packages_single_material_contract() {
+    let project = write_material_project();
+    let project_root = project.parent().unwrap();
+    let material = project_root.join("materials/test.astermat");
+    let output_dir = project_root.join("materialc/desktop");
+    let binary = env!("CARGO_BIN_EXE_aster_materialc");
+    let package = Command::new(binary)
+        .arg("package")
+        .arg("--input")
+        .arg(&material)
+        .arg("--asset-root")
+        .arg(project_root)
+        .arg("--platform")
+        .arg("desktop")
+        .arg("--output")
+        .arg(&output_dir)
+        .output()
+        .expect("run materialc package");
+    assert!(
+        package.status.success(),
+        "{}",
+        String::from_utf8_lossy(&package.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&package.stdout);
+    assert!(stdout.contains("material package"));
+    assert!(stdout.contains("runtime_outputs=true"));
+    assert!(stdout.contains("bindings="));
+    assert!(output_dir.join("materials/cliwetrock.materialbin").exists());
+    assert!(output_dir.join("previews/cliwetrock.preview.ppm").exists());
+    fs::remove_dir_all(project_root).ok();
+}
+
+#[test]
+fn texturec_packages_single_texture_contract() {
+    let dir = fixture_dir();
+    fs::create_dir_all(&dir).expect("texture fixture dir");
+    let texture = dir.join("albedo.ktx2");
+    write_ktx2_header(&texture, 16, 16, 5, 43);
+    let output_dir = dir.join("texturec/desktop");
+    let binary = env!("CARGO_BIN_EXE_aster_texturec");
+    let package = Command::new(binary)
+        .arg("package")
+        .arg("--input")
+        .arg(&texture)
+        .arg("--role")
+        .arg("albedo")
+        .arg("--output")
+        .arg(&output_dir)
+        .output()
+        .expect("run texturec package");
+    assert!(
+        package.status.success(),
+        "{}",
+        String::from_utf8_lossy(&package.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&package.stdout);
+    assert!(stdout.contains("texture package"));
+    assert!(stdout.contains("runtime_format=ktx2"));
+    assert!(stdout.contains("colorspace=srgb"));
+    assert!(output_dir.join("textures/albedo.ktx2").exists());
+    assert!(output_dir
+        .join("reports/albedo.albedo.report.json")
+        .exists());
+    fs::remove_dir_all(&dir).ok();
 }

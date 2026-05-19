@@ -445,6 +445,14 @@ framegraph::FrameGraph makeDefaultFrameGraph(const bool ui_overlay_enabled,
   return graph;
 }
 
+framegraph::FrameGraphCompileOptions frameGraphCompileOptionsForIntent(const FrameIntent &intent) {
+  return {.frame_extent = intent.frame_extent,
+          .backend_resource_mask = intent.backend_resource_mask,
+          .required_resource_mask = intent.required_resource_mask,
+          .cull_unsupported_passes = intent.cull_unsupported_passes,
+          .assign_physical_allocations = true};
+}
+
 FixedRenderGraph makeFixedRenderGraph(const bool ui_overlay_enabled, const bool capture_enabled) {
   return framegraph::compileFrameGraph(makeDefaultFrameGraph(ui_overlay_enabled, capture_enabled));
 }
@@ -454,6 +462,19 @@ FixedRenderGraph makeFixedRenderGraph(const framegraph::FrameGraphCompileOptions
                                       const bool capture_enabled) {
   return framegraph::compileFrameGraph(makeDefaultFrameGraph(ui_overlay_enabled, capture_enabled),
                                        options);
+}
+
+FixedRenderGraph compileFrameIntent(const FrameIntent &intent) {
+  return makeFixedRenderGraph(frameGraphCompileOptionsForIntent(intent),
+                              intent.ui_overlay_enabled, intent.capture_enabled);
+}
+
+FrameIntentCompileResult compileFrameIntentWithReport(const FrameIntent &intent) {
+  FrameIntentCompileResult result;
+  result.intent = intent;
+  result.graph = compileFrameIntent(intent);
+  result.report = framegraph::renderGraphCompilerReport(result.graph);
+  return result;
 }
 
 } // namespace aster

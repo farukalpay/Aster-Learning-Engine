@@ -1,9 +1,10 @@
 # Aster Learning Engine
 
-Aster is a renderer-first educational C++20 engine laboratory by Faruk Alpay.
-It is built to make graphics, scenes, materials, meshes, platform adapters, and
-authoring pipelines inspectable. Lumen Run is a sample game built on top of
-Aster; it is not the engine itself.
+Aster is a renderer contract engine by Faruk Alpay. Its product promise is not
+"a game engine with everything"; it is a small, inspectable kernel that proves
+what scene, mesh, material, render graph, backend output, and frame-forensics
+contracts mean on each supported platform. Lumen Run is a sample game built on
+top of Aster; it is not the engine itself.
 
 The current renderer/RHI v1 spine is deliberately measured by contracts rather
 than by folder names: the same `Scene`, materials, meshes, render graph, frame
@@ -13,6 +14,20 @@ attachment, pipeline-state, render-pass compatibility, and cache-key details so
 backends share more than matching type names.
 
 Start here: [docs/START_HERE.md](docs/START_HERE.md)
+
+## 30-Second Contract
+
+- Scene input: submit `Scene` objects through the kernel ABI or repository
+  source contracts; runtime rendering consumes canonical render packets.
+- Material input: use `.astermat`/material packages or C++ material values with
+  explicit texture roles, color spaces, shader variants, reflection, and binding
+  diagnostics.
+- Mesh input: use primitive/custom mesh descriptors or cooked scene assets with
+  mesh validation and dependency metadata.
+- Frame guarantee: each frame emits backend capabilities, pass stats, resource
+  transitions, descriptor/pipeline traces, material bindings, capture metadata,
+  validation events, feature proofs, and timestamp samples when the backend can
+  prove them.
 
 ## 30-Second Gallery
 
@@ -108,6 +123,9 @@ Run built-in lab scenes:
 - Material/shader contracts for strict `.astermat` cooking, required
   albedo/normal/ORM LitPBR roles, source texture validation, typed material
   graph nodes, shader variants, render quality profiles, and hot reload.
+- Separate compiler entrypoints: `aster_materialc` for material packages,
+  `aster_texturec` for texture packages, and `aster_assetc` for project/scene
+  bundle orchestration.
 - A Rust runtime planner for frustum culling, draw-key grouping, translucent
   ordering, diagnostics, and offline asset-tool validation.
 - A semantic math path where cameras and render helpers use typed
@@ -125,6 +143,7 @@ Run built-in lab scenes:
 | --- | --- |
 | [docs/START_HERE.md](docs/START_HERE.md) | First reading path |
 | [docs/WHAT_ASTER_IS.md](docs/WHAT_ASTER_IS.md) | Engine identity and non-goals |
+| [docs/PRODUCT_PATH.md](docs/PRODUCT_PATH.md) | Renderer, asset compiler, Studio, and Lumen Run product path |
 | [docs/RENDERING_PIPELINE.md](docs/RENDERING_PIPELINE.md) | Scene-to-render-graph-to-backend flow |
 | [docs/MATERIALS_AND_SHADERS.md](docs/MATERIALS_AND_SHADERS.md) | Material authoring, shader library, typed graph |
 | [docs/SCENE_AND_MESH_PIPELINE.md](docs/SCENE_AND_MESH_PIPELINE.md) | Scene objects and procedural/custom mesh path |
@@ -161,6 +180,8 @@ Run the sample game and tools:
 ./build/aster_lumen_run
 ./build/aster_studio
 ./build/aster_material_lab --material showcases/material_lab/wet_rock.astermat --output /tmp/wet_rock.ppm
+cargo run -p aster_assetc --bin aster_materialc -- package --input showcases/material_lab/wet_rock.astermat --asset-root showcases/material_lab --output /tmp/aster_material_package
+cargo run -p aster_assetc --bin aster_texturec -- package --input showcases/material_lab/wet_rock_albedo.ktx2 --role albedo --output /tmp/aster_texture_package
 cargo run -p aster_assetc -- material-inspect --input showcases/material_lab/wet_rock.astermat --asset-root showcases/material_lab
 cargo run -p aster_assetc -- cook --project showcases/material_lab/material_lab.asterproj --platform desktop --output showcases/material_lab/cooked/desktop
 cargo run -p aster_assetc -- report --db showcases/material_lab/cooked/desktop/assetdb.asterdb.json

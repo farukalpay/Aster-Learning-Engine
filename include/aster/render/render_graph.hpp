@@ -109,6 +109,15 @@ struct RenderGraphPassDeclaration {
   bool produces_backend_work = false;
 };
 
+struct FrameIntent {
+  rhi::ImageExtent frame_extent{};
+  std::uint32_t backend_resource_mask = 0xffffffffu;
+  std::uint32_t required_resource_mask = 0u;
+  bool ui_overlay_enabled = true;
+  bool capture_enabled = true;
+  bool cull_unsupported_passes = false;
+};
+
 class RenderPassRegistry {
 public:
   RenderPassRegistry &add(RenderGraphPassDeclaration declaration);
@@ -125,6 +134,12 @@ private:
 };
 
 using FixedRenderGraph = framegraph::CompiledFrameGraph;
+
+struct FrameIntentCompileResult {
+  FrameIntent intent{};
+  FixedRenderGraph graph{};
+  framegraph::RenderGraphCompilerReport report{};
+};
 
 [[nodiscard]] constexpr std::uint32_t renderGraphResourceBit(const RenderGraphResource resource) {
   return 1u << static_cast<std::uint32_t>(resource);
@@ -143,10 +158,14 @@ using FixedRenderGraph = framegraph::CompiledFrameGraph;
 [[nodiscard]] const RenderGraphPassDeclaration *defaultRenderPassDeclaration(RenderGraphPass pass);
 [[nodiscard]] framegraph::FrameGraph makeDefaultFrameGraph(bool ui_overlay_enabled = true,
                                                           bool capture_enabled = true);
+[[nodiscard]] framegraph::FrameGraphCompileOptions
+frameGraphCompileOptionsForIntent(const FrameIntent &intent);
 [[nodiscard]] FixedRenderGraph makeFixedRenderGraph(bool ui_overlay_enabled = true,
                                                     bool capture_enabled = true);
 [[nodiscard]] FixedRenderGraph
 makeFixedRenderGraph(const framegraph::FrameGraphCompileOptions &options,
                      bool ui_overlay_enabled = true, bool capture_enabled = true);
+[[nodiscard]] FixedRenderGraph compileFrameIntent(const FrameIntent &intent);
+[[nodiscard]] FrameIntentCompileResult compileFrameIntentWithReport(const FrameIntent &intent);
 
 } // namespace aster

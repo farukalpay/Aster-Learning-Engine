@@ -8,3 +8,15 @@ authors.workspace = true
 [dependencies]
 aster_content = { path = "../aster_content" }
 aster_runtime = { path = "../aster_runtime" }
+
+[[bin]]
+name = "aster_assetc"
+path = "src/main.rs"
+
+[[bin]]
+name = "aster_materialc"
+path = "src/bin/aster_materialc.rs"
+
+[[bin]]
+name = "aster_texturec"
+path = "src/bin/aster_texturec.rs"

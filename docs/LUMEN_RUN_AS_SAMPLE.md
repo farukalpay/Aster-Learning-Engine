@@ -14,6 +14,11 @@ It is not the engine kernel and should not define reusable engine contracts by
 itself. Reusable behavior belongs in `include/aster`, `src`, `crates`, or docs
 only when it has a general API or conformance story.
 
+Lumen Run should grow by consuming renderer and asset contracts, not by forcing
+new gameplay assumptions into the engine. Before new sample-game features become
+engine work, backend presentation, GPU timings, feature parity, asset compiler
+diagnostics, and cooked-content workflows must stay visible and testable.
+
 Useful commands:
 
 ```bash

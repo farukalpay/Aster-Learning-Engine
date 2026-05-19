@@ -66,6 +66,8 @@ add_custom_command(
     "${PROJECT_SOURCE_DIR}/crates/aster_runtime/src/lib.rs"
     "${PROJECT_SOURCE_DIR}/crates/aster_assetc/Cargo.toml"
     "${PROJECT_SOURCE_DIR}/crates/aster_assetc/src/main.rs"
+    "${PROJECT_SOURCE_DIR}/crates/aster_assetc/src/bin/aster_materialc.rs"
+    "${PROJECT_SOURCE_DIR}/crates/aster_assetc/src/bin/aster_texturec.rs"
   VERBATIM
 )
 add_custom_target(aster_rust_runtime DEPENDS "${ASTER_RUST_LIBRARY}")

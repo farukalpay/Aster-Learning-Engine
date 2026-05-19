@@ -87,6 +87,26 @@ struct CompiledFrameGraph {
   }
 };
 
+struct RenderGraphCompilerReport {
+  std::size_t resource_count = 0u;
+  std::size_t pass_count = 0u;
+  std::size_t transient_resource_count = 0u;
+  std::size_t barrier_count = 0u;
+  std::size_t expanded_barrier_count = 0u;
+  std::size_t descriptor_requirement_count = 0u;
+  std::size_t alias_group_count = 0u;
+  std::size_t pipeline_compatibility_count = 0u;
+  std::size_t queue_ownership_transfer_count = 0u;
+  std::size_t culled_pass_count = 0u;
+  std::size_t validation_error_count = 0u;
+  bool has_resource_lifetimes = false;
+  bool has_expanded_barriers = false;
+  bool has_descriptor_requirements = false;
+  bool has_pipeline_cache_inputs = false;
+  bool has_transient_aliasing = false;
+  bool has_queue_ownership_transfers = false;
+};
+
 struct FrameGraphCompileOptions {
   rhi::ImageExtent frame_extent{};
   std::uint32_t backend_resource_mask = 0xffffffffu;
@@ -98,6 +118,8 @@ struct FrameGraphCompileOptions {
 [[nodiscard]] CompiledFrameGraph compileFrameGraph(const FrameGraph &graph);
 [[nodiscard]] CompiledFrameGraph compileFrameGraph(const FrameGraph &graph,
                                                    const FrameGraphCompileOptions &options);
+[[nodiscard]] RenderGraphCompilerReport
+renderGraphCompilerReport(const CompiledFrameGraph &graph);
 [[nodiscard]] std::string dumpFrameGraph(const CompiledFrameGraph &graph);
 
 } // namespace aster::framegraph

@@ -6,15 +6,19 @@ Aster builds a frame from engine data, not sample-specific code:
    optional custom meshes.
 2. `RenderScene` and the Rust planner produce visible instances, draw groups,
    translucent ordering, and diagnostics.
-3. `RenderPassRegistry` declares semantic passes, resource inputs/outputs,
+3. `FrameIntent` records the frame extent, backend resource mask, required
+   resources, UI/capture intent, and unsupported-pass policy.
+4. `RenderPassRegistry` declares semantic passes, resource inputs/outputs,
    load/store/clear policy, viewport/scissor policy, queue, debug capture policy,
    and backend executor key.
-4. `FixedRenderGraph` is the compiled scheduler artifact used by the legacy
-   executor wrapper. It carries resource lifetimes, alias groups, expanded RHI
-   barriers, descriptor requirements, and render-pass compatibility metadata.
-5. Backends consume the same plan and publish `FrameStats` plus
+5. `RenderGraphCompiler` turns the intent and pass registry into a
+   `FixedRenderGraph` compiled artifact. The compiler report summarizes resource
+   lifetimes, alias groups, expanded RHI barriers, descriptor requirements,
+   queue ownership transfers, culled passes, and render-pass compatibility
+   metadata used by pipeline cache keys.
+6. Backends consume the same plan and publish `FrameStats` plus
    `FrameForensics`.
-6. The certification layer validates the compiled RHI contract and records
+7. The certification layer validates the compiled RHI contract and records
    backend feature proofs before the frame is considered conformant.
 
 The frame debugger is contract-first: every frame records pass stats, resource

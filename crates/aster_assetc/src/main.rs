@@ -71,6 +71,7 @@ fn self_check() {
 
 fn usage() -> &'static str {
     "usage:
+  aster_assetc orchestrates project/scene bundles; use aster_materialc and aster_texturec for single-domain packages.
   aster_assetc --self-check
   aster_assetc compile --input <file.scene> --output <file.astercache> [--origin keep|center|center-on-ground] [--unit-scale <float>]
   aster_assetc inspect --input <file.astercache>
