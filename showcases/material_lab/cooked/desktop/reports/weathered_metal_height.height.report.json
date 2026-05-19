@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "role": "height",
+  "kind": "height",
+  "color_space": "linear",
+  "format": "ktx2",
+  "width": 16,
+  "height": 16,
+  "mip_count": 5,
+  "source_hash": "e72659a782987071c07f368b976d9a27a52d4a849994d657e78c628b6b36aed9",
+  "cooked_hash": "684f7090bd229b5043e43919c409ad2881f540dc475a7d3b50445f6265cf1321",
+  "cooked_path": "textures/showcaseweatheredmetal_height.ktx2",
+  "diagnostics": []
+}

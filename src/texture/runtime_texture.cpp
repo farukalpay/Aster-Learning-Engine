@@ -3,6 +3,7 @@
 
 #include "aster/texture/runtime_texture.hpp"
 
+#include "aster/asset/asset_database.hpp"
 #include "aster/math/color.hpp"
 
 #include <algorithm>
@@ -177,6 +178,19 @@ bool MaterialResourceLibrary::addMaterialAsset(const MaterialAsset &asset,
   const std::string key = resource->asset_id;
   resources_[key] = std::move(resource);
   return true;
+}
+
+bool MaterialResourceLibrary::addCookedMaterialAsset(const CookedMaterialAsset &asset,
+                                                     const TextureImportOptions options) {
+  if (asset.asset.id.empty()) {
+    return false;
+  }
+  return addMaterialAsset(asset.asset, {}, options);
+}
+
+bool MaterialResourceLibrary::addCookedMaterialAssetFile(
+    const std::filesystem::path &material_bin_path, const TextureImportOptions options) {
+  return addCookedMaterialAsset(loadCookedMaterialAsset(material_bin_path), options);
 }
 
 const MaterialRuntimeResource *MaterialResourceLibrary::find(const std::string_view asset_id) const {

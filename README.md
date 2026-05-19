@@ -161,6 +161,8 @@ Run the sample game and tools:
 ./build/aster_lumen_run
 ./build/aster_studio
 ./build/aster_material_lab --material showcases/material_lab/wet_rock.astermat --output /tmp/wet_rock.ppm
+cargo run -p aster_assetc -- cook --project showcases/material_lab/material_lab.asterproj --platform desktop --output showcases/material_lab/cooked/desktop
+cargo run -p aster_assetc -- report --db showcases/material_lab/cooked/desktop/assetdb.asterdb.json
 ```
 
 Set `ASTER_FORCE_SOFTWARE_RENDERER=1` on macOS to use the deterministic

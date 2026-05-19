@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -400,6 +400,147 @@ pub struct TextureImportSummary {
     pub diagnostics: Vec<String>,
 }
 
+pub const ASSET_DATABASE_SCHEMA_VERSION: u32 = 1;
+pub const ASSET_IMPORT_SETTINGS_VERSION: u32 = 1;
+pub const MATERIAL_BIN_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetDependencyRecord {
+    pub role: String,
+    pub path: String,
+    pub present: bool,
+    pub hash: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetCookedOutput {
+    pub role: String,
+    pub kind: String,
+    pub path: String,
+    pub hash: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetCookDiagnostic {
+    pub severity: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetDatabaseRecord {
+    pub guid: String,
+    pub id: String,
+    pub kind: String,
+    pub source_path: String,
+    pub import_settings_version: u32,
+    pub source_hash: String,
+    pub options_hash: String,
+    pub dependencies: Vec<AssetDependencyRecord>,
+    pub outputs: Vec<AssetCookedOutput>,
+    pub diagnostics: Vec<AssetCookDiagnostic>,
+    pub platform: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetDatabase {
+    pub schema_version: u32,
+    pub platform: String,
+    pub records: Vec<AssetDatabaseRecord>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MaterialBinTextureRecord {
+    pub role: String,
+    pub source_path: String,
+    pub cooked_path: String,
+    pub kind: String,
+    pub color_space: String,
+    pub width: u32,
+    pub height: u32,
+    pub mip_count: u32,
+    pub source_hash: String,
+    pub cooked_hash: String,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct MaterialBinFallback {
+    pub base_color: [f32; 3],
+    pub emission_color: [f32; 3],
+    pub roughness: f32,
+    pub metallic: f32,
+    pub emission_strength: f32,
+    pub opacity: f32,
+    pub double_sided: bool,
+    pub alpha_mode: String,
+    pub receives_shadows: bool,
+    pub surface_profile: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MaterialBinBinding {
+    pub name: String,
+    pub kind: String,
+    pub binding: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct MaterialBin {
+    pub schema_version: u32,
+    pub asset_guid: String,
+    pub id: String,
+    pub name: String,
+    pub source_path: String,
+    pub feature_mask: u64,
+    pub shader_variant_key: u64,
+    pub shader_variant_tag: String,
+    pub pipeline_tag: String,
+    pub fallback: MaterialBinFallback,
+    pub params: BTreeMap<String, f32>,
+    pub features: BTreeMap<String, bool>,
+    pub textures: Vec<MaterialBinTextureRecord>,
+    pub binding_layout: Vec<MaterialBinBinding>,
+    pub dependency_hashes: Vec<AssetDependencyRecord>,
+    pub diagnostics: Vec<AssetCookDiagnostic>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TextureCookReport {
+    pub schema_version: u32,
+    pub role: String,
+    pub kind: String,
+    pub color_space: String,
+    pub format: String,
+    pub width: u32,
+    pub height: u32,
+    pub mip_count: u32,
+    pub source_hash: String,
+    pub cooked_hash: String,
+    pub cooked_path: String,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TextureCookResult {
+    pub output_path: PathBuf,
+    pub report_path: PathBuf,
+    pub report: TextureCookReport,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MaterialCookResult {
+    pub material_bin_path: PathBuf,
+    pub report_path: PathBuf,
+    pub preview_path: PathBuf,
+    pub material_bin: MaterialBin,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CookProjectResult {
+    pub database: AssetDatabase,
+    pub database_path: PathBuf,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Material {
     pub name: String,
@@ -540,6 +681,7 @@ pub struct CompiledSceneAsset {
 struct BufferView {
     buffer: usize,
     byte_offset: usize,
+    byte_length: usize,
     byte_stride: usize,
 }
 
@@ -638,6 +780,13 @@ pub fn compile_scene_asset_to_cache(
     let bytes = write_cache_bytes(&asset)?;
     fs::write(output, bytes)?;
     Ok(asset)
+}
+
+pub fn import_glb_scene(
+    input: impl AsRef<Path>,
+    options: CompileOptions,
+) -> Result<CompiledSceneAsset> {
+    compile_scene_asset(input, options)
 }
 
 pub fn load_cache(path: impl AsRef<Path>) -> Result<CompiledSceneAsset> {
@@ -913,6 +1062,806 @@ pub fn bake_texture_to_ktx2(
     }
     fs::write(output, bytes)?;
     Ok(summary)
+}
+
+pub fn read_asset_database(path: impl AsRef<Path>) -> Result<AssetDatabase> {
+    Ok(serde_json::from_slice(&fs::read(path)?)?)
+}
+
+pub fn cook_project(
+    project: impl AsRef<Path>,
+    platform: &str,
+    output: impl AsRef<Path>,
+) -> Result<CookProjectResult> {
+    let project = project.as_ref();
+    let output = output.as_ref();
+    if platform != "desktop" {
+        return Err(ContentError::new(format!(
+            "unsupported Asset v1 platform '{platform}', expected desktop"
+        )));
+    }
+    fs::create_dir_all(output)?;
+    let project_bytes = fs::read(project)?;
+    let root: Value = serde_json::from_slice(&project_bytes)?;
+    let project_root = project.parent().unwrap_or_else(|| Path::new(""));
+    let mut records = Vec::new();
+    if let Some(assets) = root.get("assets").and_then(Value::as_array) {
+        for asset in assets {
+            let id = asset.get("id").and_then(Value::as_str).unwrap_or("");
+            let declared_kind = asset.get("kind").and_then(Value::as_str).unwrap_or("");
+            let Some(source) = asset.get("path").and_then(Value::as_str) else {
+                continue;
+            };
+            let source_path = project_root.join(source);
+            records.push(cook_asset(
+                &source_path,
+                id,
+                declared_kind,
+                project_root,
+                output,
+                platform,
+            )?);
+        }
+    }
+    records.sort_by(|lhs, rhs| lhs.guid.cmp(&rhs.guid));
+    let database = AssetDatabase {
+        schema_version: ASSET_DATABASE_SCHEMA_VERSION,
+        platform: platform.to_string(),
+        records,
+    };
+    let database_path = output.join("assetdb.asterdb.json");
+    write_json(&database_path, &database)?;
+    Ok(CookProjectResult {
+        database,
+        database_path,
+    })
+}
+
+pub fn cook_asset(
+    source: impl AsRef<Path>,
+    id: &str,
+    declared_kind: &str,
+    project_root: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+    platform: &str,
+) -> Result<AssetDatabaseRecord> {
+    let source = source.as_ref();
+    let project_root = project_root.as_ref();
+    let output_root = output_root.as_ref();
+    let source_rel = relative_path_string(source, project_root);
+    let kind = canonical_asset_kind(source, declared_kind);
+    let mut record = base_asset_record(id, &kind, &source_rel, platform);
+    if !source.exists() {
+        record.diagnostics.push(AssetCookDiagnostic {
+            severity: "error".to_string(),
+            message: format!("asset source is missing: {}", source.display()),
+        });
+        return Ok(record);
+    }
+    let source_bytes = fs::read(source)?;
+    record.source_hash = hash_hex_bytes(&source_bytes);
+    record.guid = asset_guid(&kind, id, &source_rel);
+
+    match kind.as_str() {
+        "scene" => {
+            let cache_name = format!("{}.astercache", safe_stem(id, source));
+            let cache_path = output_root.join("scenes").join(cache_name);
+            if let Some(parent) = cache_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            match compile_scene_asset_to_cache(
+                source,
+                &cache_path,
+                CompileOptions {
+                    origin_policy: OriginPolicy::Keep,
+                    unit_scale: 1.0,
+                },
+            ) {
+                Ok(asset) => {
+                    record.source_hash = hex_hash(&asset.metadata.source_hash);
+                    record.options_hash = hex_hash(&asset.metadata.options_hash);
+                    for material in &asset.materials {
+                        for dependency in &material.texture_dependencies {
+                            record.dependencies.push(AssetDependencyRecord {
+                                role: dependency.role.clone(),
+                                path: dependency.uri.clone(),
+                                present: dependency.present,
+                                hash: hex_hash(&dependency.hash),
+                            });
+                            if !dependency.present {
+                                record.diagnostics.push(AssetCookDiagnostic {
+                                    severity: "warning".to_string(),
+                                    message: format!(
+                                        "scene material '{}' references missing texture '{}'",
+                                        material.name, dependency.uri
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                    record.outputs.push(AssetCookedOutput {
+                        role: "runtime-cache".to_string(),
+                        kind: "astercache".to_string(),
+                        path: relative_path_string(&cache_path, output_root),
+                        hash: hash_file_hex(&cache_path)?,
+                    });
+                    let report_path = output_root
+                        .join("reports")
+                        .join(format!("{}.report.json", safe_stem(id, source)));
+                    let report = serde_json::json!({
+                        "schema_version": 1,
+                        "kind": "scene",
+                        "id": id,
+                        "source_path": source_rel,
+                        "source_hash": record.source_hash,
+                        "options_hash": record.options_hash,
+                        "materials": asset.metadata.material_count,
+                        "meshes": asset.metadata.mesh_count,
+                        "collision_meshes": asset.metadata.collision_mesh_count,
+                        "vertices": asset.metadata.total_vertices,
+                        "indices": asset.metadata.total_indices,
+                        "diagnostics": record.diagnostics,
+                    });
+                    write_json(&report_path, &report)?;
+                    record.outputs.push(AssetCookedOutput {
+                        role: "report".to_string(),
+                        kind: "json".to_string(),
+                        path: relative_path_string(&report_path, output_root),
+                        hash: hash_file_hex(&report_path)?,
+                    });
+                }
+                Err(error) => record.diagnostics.push(AssetCookDiagnostic {
+                    severity: "error".to_string(),
+                    message: error.to_string(),
+                }),
+            }
+        }
+        "material" if source.extension().and_then(|v| v.to_str()) == Some("astermat") => {
+            let cooked = cook_material_asset(source, project_root, output_root, id, platform)?;
+            record.dependencies = cooked.material_bin.dependency_hashes.clone();
+            record.diagnostics = cooked.material_bin.diagnostics.clone();
+            record.options_hash = hash_hex_text(&format!(
+                "materialbin:{}:{}",
+                MATERIAL_BIN_SCHEMA_VERSION, platform
+            ));
+            record.outputs.push(AssetCookedOutput {
+                role: "materialbin".to_string(),
+                kind: "materialbin".to_string(),
+                path: relative_path_string(&cooked.material_bin_path, output_root),
+                hash: hash_file_hex(&cooked.material_bin_path)?,
+            });
+            record.outputs.push(AssetCookedOutput {
+                role: "report".to_string(),
+                kind: "json".to_string(),
+                path: relative_path_string(&cooked.report_path, output_root),
+                hash: hash_file_hex(&cooked.report_path)?,
+            });
+            record.outputs.push(AssetCookedOutput {
+                role: "preview".to_string(),
+                kind: "ppm".to_string(),
+                path: relative_path_string(&cooked.preview_path, output_root),
+                hash: hash_file_hex(&cooked.preview_path)?,
+            });
+            for texture in &cooked.material_bin.textures {
+                record.outputs.push(AssetCookedOutput {
+                    role: format!("texture:{}", texture.role),
+                    kind: "ktx2".to_string(),
+                    path: texture.cooked_path.clone(),
+                    hash: texture.cooked_hash.clone(),
+                });
+            }
+        }
+        "texture" => {
+            let role = source
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .and_then(|stem| stem.rsplit_once('_').map(|(_, role)| role))
+                .unwrap_or("unknown");
+            let cooked = cook_texture_asset(source, output_root, role)?;
+            record.options_hash = hash_hex_text("texture:ktx2-basis:v1");
+            record.outputs.push(AssetCookedOutput {
+                role: "texture".to_string(),
+                kind: "ktx2".to_string(),
+                path: relative_path_string(&cooked.output_path, output_root),
+                hash: cooked.report.cooked_hash.clone(),
+            });
+            record.outputs.push(AssetCookedOutput {
+                role: "report".to_string(),
+                kind: "json".to_string(),
+                path: relative_path_string(&cooked.report_path, output_root),
+                hash: hash_file_hex(&cooked.report_path)?,
+            });
+            record.dependencies.push(AssetDependencyRecord {
+                role: role.to_string(),
+                path: source_rel,
+                present: true,
+                hash: cooked.report.source_hash,
+            });
+        }
+        _ => record.diagnostics.push(AssetCookDiagnostic {
+            severity: "warning".to_string(),
+            message: format!(
+                "Asset v1 cook does not transform kind '{}' from '{}'",
+                declared_kind,
+                source.display()
+            ),
+        }),
+    }
+    Ok(record)
+}
+
+pub fn cook_texture_asset(
+    input: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+    role: &str,
+) -> Result<TextureCookResult> {
+    let input = input.as_ref();
+    let output_root = output_root.as_ref();
+    let output_path = output_root.join("textures").join(format!(
+        "{}.ktx2",
+        input
+            .file_stem()
+            .and_then(|v| v.to_str())
+            .unwrap_or("texture")
+    ));
+    cook_texture_asset_as(input, output_root, role, &output_path)
+}
+
+pub fn cook_material_asset(
+    input: impl AsRef<Path>,
+    project_root: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+    fallback_id: &str,
+    platform: &str,
+) -> Result<MaterialCookResult> {
+    let input = input.as_ref();
+    let project_root = project_root.as_ref();
+    let output_root = output_root.as_ref();
+    let source = fs::read_to_string(input)?;
+    let parsed = parse_astermat_source(&source, fallback_id);
+    let id = if parsed.id.is_empty() {
+        fallback_id.to_string()
+    } else {
+        parsed.id.clone()
+    };
+    let asset_guid = asset_guid("material", &id, &relative_path_string(input, project_root));
+    let material_stem = safe_identifier(&id);
+    let mut texture_records = Vec::new();
+    let mut dependencies = Vec::new();
+    let mut diagnostics = parsed.diagnostics.clone();
+
+    for (role, uri) in &parsed.textures {
+        let source_path = if Path::new(uri).is_absolute() {
+            PathBuf::from(uri)
+        } else {
+            input.parent().unwrap_or_else(|| Path::new("")).join(uri)
+        };
+        if !source_path.exists() {
+            diagnostics.push(AssetCookDiagnostic {
+                severity: "error".to_string(),
+                message: format!(
+                    "material texture '{}' is missing: {}",
+                    role,
+                    source_path.display()
+                ),
+            });
+            dependencies.push(AssetDependencyRecord {
+                role: role.clone(),
+                path: relative_path_string(&source_path, project_root),
+                present: false,
+                hash: String::new(),
+            });
+            continue;
+        }
+        let cooked_name = format!("{}_{}.ktx2", material_stem, safe_identifier(role));
+        let cooked_path = output_root.join("textures").join(cooked_name);
+        let cooked = cook_texture_asset_as(&source_path, output_root, role, &cooked_path)?;
+        dependencies.push(AssetDependencyRecord {
+            role: role.clone(),
+            path: relative_path_string(&source_path, project_root),
+            present: true,
+            hash: cooked.report.source_hash.clone(),
+        });
+        texture_records.push(MaterialBinTextureRecord {
+            role: role.clone(),
+            source_path: relative_path_string(&source_path, project_root),
+            cooked_path: relative_path_string(&cooked.output_path, output_root),
+            kind: cooked.report.kind.clone(),
+            color_space: cooked.report.color_space.clone(),
+            width: cooked.report.width,
+            height: cooked.report.height,
+            mip_count: cooked.report.mip_count,
+            source_hash: cooked.report.source_hash.clone(),
+            cooked_hash: cooked.report.cooked_hash.clone(),
+            diagnostics: cooked.report.diagnostics.clone(),
+        });
+    }
+
+    let mut binding_layout = vec![MaterialBinBinding {
+        name: "MaterialParameters".to_string(),
+        kind: "uniform-buffer".to_string(),
+        binding: 0,
+    }];
+    for (index, texture) in texture_records.iter().enumerate() {
+        binding_layout.push(MaterialBinBinding {
+            name: texture.role.clone(),
+            kind: "texture".to_string(),
+            binding: (index + 1) as u32,
+        });
+    }
+    if !texture_records.is_empty() {
+        binding_layout.push(MaterialBinBinding {
+            name: "MaterialSampler".to_string(),
+            kind: "sampler".to_string(),
+            binding: binding_layout.len() as u32,
+        });
+    }
+
+    let feature_mask = material_feature_mask(&parsed);
+    let shader_variant_key = material_variant_key(&source, &texture_records);
+    let shader_variant_tag = material_variant_tag(&parsed, !texture_records.is_empty());
+    let material_bin = MaterialBin {
+        schema_version: MATERIAL_BIN_SCHEMA_VERSION,
+        asset_guid,
+        id: id.clone(),
+        name: parsed.name.clone(),
+        source_path: relative_path_string(input, project_root),
+        feature_mask,
+        shader_variant_key,
+        shader_variant_tag: shader_variant_tag.clone(),
+        pipeline_tag: material_bin_pipeline_tag(&parsed, !texture_records.is_empty()),
+        fallback: MaterialBinFallback {
+            base_color: [
+                param_or(&parsed, "base_color_r", 1.0),
+                param_or(&parsed, "base_color_g", 1.0),
+                param_or(&parsed, "base_color_b", 1.0),
+            ],
+            emission_color: [
+                param_or(&parsed, "emission_color_r", 0.0),
+                param_or(&parsed, "emission_color_g", 0.0),
+                param_or(&parsed, "emission_color_b", 0.0),
+            ],
+            roughness: param_or(&parsed, "roughness", 0.55),
+            metallic: param_or(&parsed, "metallic", 0.0),
+            emission_strength: param_or(&parsed, "emission_strength", 0.0),
+            opacity: param_or(&parsed, "opacity", 1.0),
+            double_sided: parsed
+                .features
+                .get("double_sided")
+                .copied()
+                .unwrap_or(parsed.cull_mode.eq_ignore_ascii_case("None")),
+            alpha_mode: parsed.blend_mode.clone(),
+            receives_shadows: parsed.receives_shadows,
+            surface_profile: parsed.surface_profile.clone(),
+        },
+        params: parsed.params.clone(),
+        features: parsed.features.clone(),
+        textures: texture_records,
+        binding_layout,
+        dependency_hashes: dependencies,
+        diagnostics,
+    };
+
+    let material_bin_path = output_root
+        .join("materials")
+        .join(format!("{}.materialbin", material_stem));
+    write_json(&material_bin_path, &material_bin)?;
+    let report_path = output_root
+        .join("reports")
+        .join(format!("{}.report.json", material_stem));
+    write_json(&report_path, &material_bin)?;
+    let preview_path = output_root
+        .join("previews")
+        .join(format!("{}.preview.ppm", material_stem));
+    write_material_preview(&preview_path, &material_bin)?;
+    let _ = platform;
+    Ok(MaterialCookResult {
+        material_bin_path,
+        report_path,
+        preview_path,
+        material_bin,
+    })
+}
+
+pub fn report_asset_database(database: &AssetDatabase) -> String {
+    let error_count = database
+        .records
+        .iter()
+        .flat_map(|record| record.diagnostics.iter())
+        .filter(|diagnostic| diagnostic.severity == "error")
+        .count();
+    let warning_count = database
+        .records
+        .iter()
+        .flat_map(|record| record.diagnostics.iter())
+        .filter(|diagnostic| diagnostic.severity == "warning")
+        .count();
+    let output_count: usize = database
+        .records
+        .iter()
+        .map(|record| record.outputs.len())
+        .sum();
+    format!(
+        "Aster asset database v{} platform={} assets={} outputs={} errors={} warnings={}",
+        database.schema_version,
+        database.platform,
+        database.records.len(),
+        output_count,
+        error_count,
+        warning_count
+    )
+}
+
+fn cook_texture_asset_as(
+    input: &Path,
+    output_root: &Path,
+    role: &str,
+    output_path: &Path,
+) -> Result<TextureCookResult> {
+    let summary = bake_texture_to_ktx2(input, output_path, role)?;
+    let cooked_hash = hash_file_hex(output_path)?;
+    let report_path = output_root.join("reports").join(format!(
+        "{}.{}.report.json",
+        input
+            .file_stem()
+            .and_then(|v| v.to_str())
+            .unwrap_or("texture"),
+        safe_identifier(role)
+    ));
+    let report = TextureCookReport {
+        schema_version: 1,
+        role: role.to_string(),
+        kind: summary.kind.as_str().to_string(),
+        color_space: summary.color_space,
+        format: summary.format,
+        width: summary.width,
+        height: summary.height,
+        mip_count: summary.mip_count,
+        source_hash: hex_hash(&summary.source_hash),
+        cooked_hash,
+        cooked_path: relative_path_string(output_path, output_root),
+        diagnostics: summary.diagnostics,
+    };
+    write_json(&report_path, &report)?;
+    Ok(TextureCookResult {
+        output_path: output_path.to_path_buf(),
+        report_path,
+        report,
+    })
+}
+
+#[derive(Clone, Debug, Default)]
+struct ParsedMaterialSource {
+    id: String,
+    name: String,
+    shading_model: String,
+    blend_mode: String,
+    cull_mode: String,
+    surface_profile: String,
+    receives_shadows: bool,
+    textures: BTreeMap<String, String>,
+    params: BTreeMap<String, f32>,
+    features: BTreeMap<String, bool>,
+    diagnostics: Vec<AssetCookDiagnostic>,
+}
+
+fn parse_astermat_source(source: &str, fallback_id: &str) -> ParsedMaterialSource {
+    let mut parsed = ParsedMaterialSource {
+        id: fallback_id.to_string(),
+        name: fallback_id.to_string(),
+        shading_model: "LitPBR".to_string(),
+        blend_mode: "Opaque".to_string(),
+        cull_mode: "Back".to_string(),
+        surface_profile: "Auto".to_string(),
+        receives_shadows: true,
+        ..ParsedMaterialSource::default()
+    };
+    let mut block = "";
+    for raw_line in source.lines() {
+        let line = raw_line.split("//").next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("material ") {
+            parsed.id = rest
+                .split_whitespace()
+                .next()
+                .unwrap_or(fallback_id)
+                .trim_matches('{')
+                .to_string();
+            parsed.name = parsed.id.clone();
+            continue;
+        }
+        match line {
+            "textures {" => {
+                block = "textures";
+                continue;
+            }
+            "params {" => {
+                block = "params";
+                continue;
+            }
+            "features {" => {
+                block = "features";
+                continue;
+            }
+            "layers {" => {
+                block = "layers";
+                continue;
+            }
+            "}" => {
+                block = "";
+                continue;
+            }
+            _ => {}
+        }
+        if block == "textures" {
+            if let Some((role, value)) = split_key_value(line) {
+                parsed
+                    .textures
+                    .insert(role.to_string(), unquote(value).to_string());
+            }
+            continue;
+        }
+        if block == "params" {
+            if let Some((key, value)) = split_key_value(line) {
+                if let Ok(value) = value.parse::<f32>() {
+                    parsed.params.insert(key.to_string(), value);
+                } else {
+                    parsed.diagnostics.push(AssetCookDiagnostic {
+                        severity: "warning".to_string(),
+                        message: format!("ignored non-numeric material parameter '{key}'"),
+                    });
+                }
+            }
+            continue;
+        }
+        if block == "features" {
+            if let Some((key, value)) = split_key_value(line) {
+                parsed.features.insert(key.to_string(), value == "true");
+            }
+            continue;
+        }
+        if block.is_empty() {
+            if let Some((key, value)) = split_key_value(line) {
+                let value = unquote(value);
+                match key {
+                    "name" => parsed.name = value.to_string(),
+                    "shading_model" => parsed.shading_model = value.to_string(),
+                    "blend_mode" => parsed.blend_mode = value.to_string(),
+                    "cull_mode" => parsed.cull_mode = value.to_string(),
+                    "surface_profile" => parsed.surface_profile = value.to_string(),
+                    "receives_shadows" => parsed.receives_shadows = value != "false",
+                    _ => {}
+                }
+            }
+        }
+    }
+    parsed
+}
+
+fn split_key_value(line: &str) -> Option<(&str, &str)> {
+    let (key, value) = line.split_once(':')?;
+    Some((key.trim(), value.trim().trim_end_matches(',')))
+}
+
+fn unquote(value: &str) -> &str {
+    value.trim().trim_matches('"')
+}
+
+fn param_or(parsed: &ParsedMaterialSource, name: &str, fallback: f32) -> f32 {
+    parsed.params.get(name).copied().unwrap_or(fallback)
+}
+
+fn material_feature_mask(parsed: &ParsedMaterialSource) -> u64 {
+    let mut mask = 0u64;
+    if !parsed.textures.is_empty() {
+        mask |= 1 << 0;
+    }
+    if parsed.textures.contains_key("normal") || parsed.features.get("normal_map") == Some(&true) {
+        mask |= 1 << 1;
+    }
+    if parsed.textures.contains_key("orm") {
+        mask |= 1 << 2;
+    }
+    if parsed.textures.contains_key("height") {
+        mask |= 1 << 3;
+    }
+    if parsed.features.get("parallax") == Some(&true) {
+        mask |= 1 << 4;
+    }
+    if parsed.features.get("triplanar") == Some(&true) {
+        mask |= 1 << 5;
+    }
+    if parsed.blend_mode != "Opaque" {
+        mask |= 1 << 6;
+    }
+    mask
+}
+
+fn material_variant_key(source: &str, textures: &[MaterialBinTextureRecord]) -> u64 {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"aster.materialbin.variant.v1\0");
+    hasher.update(source.as_bytes());
+    for texture in textures {
+        hasher.update(texture.role.as_bytes());
+        hasher.update(texture.source_hash.as_bytes());
+        hasher.update(texture.cooked_hash.as_bytes());
+    }
+    let hash = hasher.finalize();
+    let bytes = hash.as_bytes();
+    u64::from_le_bytes([
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+    ])
+}
+
+fn material_variant_tag(parsed: &ParsedMaterialSource, textured: bool) -> String {
+    let mut tag = format!("{}.{}", parsed.shading_model, parsed.blend_mode);
+    if textured {
+        tag.push_str(".textured");
+    }
+    for (feature, enabled) in &parsed.features {
+        if *enabled {
+            tag.push('.');
+            tag.push_str(&feature.replace('_', "-"));
+        }
+    }
+    tag
+}
+
+fn material_bin_pipeline_tag(parsed: &ParsedMaterialSource, textured: bool) -> String {
+    let mut tag = if parsed.blend_mode == "Blend" {
+        "transparent.depth-read".to_string()
+    } else {
+        "opaque.depth-write".to_string()
+    };
+    if parsed.cull_mode == "None" {
+        tag.push_str(".double-sided");
+    } else {
+        tag.push_str(".culled");
+    }
+    if textured {
+        tag.push_str(".textured");
+    }
+    tag.push_str(".shader-variant");
+    tag
+}
+
+fn base_asset_record(
+    id: &str,
+    kind: &str,
+    source_path: &str,
+    platform: &str,
+) -> AssetDatabaseRecord {
+    AssetDatabaseRecord {
+        guid: asset_guid(kind, id, source_path),
+        id: id.to_string(),
+        kind: kind.to_string(),
+        source_path: source_path.to_string(),
+        import_settings_version: ASSET_IMPORT_SETTINGS_VERSION,
+        source_hash: String::new(),
+        options_hash: hash_hex_text(&format!("{kind}:{}", ASSET_IMPORT_SETTINGS_VERSION)),
+        dependencies: Vec::new(),
+        outputs: Vec::new(),
+        diagnostics: Vec::new(),
+        platform: platform.to_string(),
+    }
+}
+
+fn canonical_asset_kind(path: &Path, declared_kind: &str) -> String {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match extension.as_str() {
+        "scene" | "gltf" | "glb" => "scene".to_string(),
+        "astermat" => "material".to_string(),
+        "png" | "ktx2" | "tga" | "jpg" | "jpeg" => "texture".to_string(),
+        _ if !declared_kind.is_empty() => declared_kind.to_string(),
+        _ => "unknown".to_string(),
+    }
+}
+
+fn asset_guid(kind: &str, id: &str, source_path: &str) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"aster.asset.guid.v1\0");
+    hasher.update(kind.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(id.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(source_path.replace('\\', "/").as_bytes());
+    hex_hash(hasher.finalize().as_bytes())
+}
+
+fn hash_file_hex(path: &Path) -> Result<String> {
+    Ok(hash_hex_bytes(&fs::read(path)?))
+}
+
+fn hash_hex_bytes(bytes: &[u8]) -> String {
+    hex_hash(blake3::hash(bytes).as_bytes())
+}
+
+fn hash_hex_text(text: &str) -> String {
+    hash_hex_bytes(text.as_bytes())
+}
+
+fn relative_path_string(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn safe_stem(id: &str, source: &Path) -> String {
+    if !id.is_empty() {
+        safe_identifier(id)
+    } else {
+        safe_identifier(
+            source
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("asset"),
+        )
+    }
+}
+
+fn safe_identifier(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if c == '_' || c == '-' || c == '.' {
+            out.push(c);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        "asset".to_string()
+    } else {
+        out
+    }
+}
+
+fn write_json<T: Serialize + ?Sized>(path: &Path, value: &T) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    let bytes = serde_json::to_vec_pretty(value)?;
+    fs::write(path, bytes)?;
+    Ok(())
+}
+
+fn write_material_preview(path: &Path, material: &MaterialBin) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    let hash = blake3::hash(material.id.as_bytes());
+    let bytes = hash.as_bytes();
+    let r = (material.fallback.base_color[0].clamp(0.0, 1.0) * 255.0) as u32;
+    let g = (material.fallback.base_color[1].clamp(0.0, 1.0) * 255.0) as u32;
+    let b = (material.fallback.base_color[2].clamp(0.0, 1.0) * 255.0) as u32;
+    let mut ppm = String::from("P3\n8 8\n255\n");
+    for y in 0..8u32 {
+        for x in 0..8u32 {
+            let checker = if ((x / 2) + (y / 2)) % 2 == 0 { 18 } else { 0 };
+            let noise = bytes[((x + y * 8) as usize) % bytes.len()] as u32 / 16;
+            ppm.push_str(&format!(
+                "{} {} {} ",
+                (r + checker + noise).min(255),
+                (g + checker + noise / 2).min(255),
+                (b + checker).min(255)
+            ));
+        }
+        ppm.push('\n');
+    }
+    fs::write(path, ppm)?;
+    Ok(())
 }
 
 fn inspect_texture_header(bytes: &[u8]) -> (String, u32, u32, u32, Vec<String>) {
@@ -1215,34 +2164,129 @@ fn source_hash(data: &AssetData) -> Result<[u8; 32]> {
                     hasher.update(&(bytes.len() as u64).to_le_bytes());
                     hasher.update(&bytes);
                 }
+            } else if let Some(view_index) = image.get("bufferView").and_then(Value::as_u64) {
+                let bytes = buffer_view_payload(data, view_index as usize)?;
+                hasher.update(b"texture-buffer-view\0");
+                hasher.update(&view_index.to_le_bytes());
+                hasher.update(&(bytes.len() as u64).to_le_bytes());
+                hasher.update(bytes);
             }
         }
     }
     Ok(*hasher.finalize().as_bytes())
 }
 
+fn read_le_u32(bytes: &[u8], offset: usize) -> Result<u32> {
+    if offset.checked_add(4).map_or(true, |end| end > bytes.len()) {
+        return Err(ContentError::new("GLB header is truncated"));
+    }
+    Ok(u32::from_le_bytes([
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+    ]))
+}
+
+fn parse_glb(path: &Path, bytes: &[u8]) -> Result<(Value, Option<Vec<u8>>, Vec<u8>)> {
+    if bytes.len() < 12 {
+        return Err(ContentError::new("GLB file is shorter than its header"));
+    }
+    if &bytes[0..4] != b"glTF" {
+        return Err(ContentError::new("GLB file has an invalid magic"));
+    }
+    let version = read_le_u32(bytes, 4)?;
+    if version != 2 {
+        return Err(ContentError::new(format!(
+            "unsupported GLB version {version}; expected 2"
+        )));
+    }
+    let declared_len = read_le_u32(bytes, 8)? as usize;
+    if declared_len != bytes.len() {
+        return Err(ContentError::new(format!(
+            "GLB length for '{}' does not match the file",
+            path.display()
+        )));
+    }
+
+    let mut cursor = 12usize;
+    let mut json_chunk = None;
+    let mut bin_chunk = None;
+    while cursor < bytes.len() {
+        let chunk_len = read_le_u32(bytes, cursor)? as usize;
+        let chunk_ty = read_le_u32(bytes, cursor + 4)?;
+        cursor += 8;
+        let end = cursor
+            .checked_add(chunk_len)
+            .ok_or_else(|| ContentError::new("GLB chunk range overflows"))?;
+        if end > bytes.len() {
+            return Err(ContentError::new("GLB chunk range is outside the file"));
+        }
+        match chunk_ty {
+            0x4E4F534A => json_chunk = Some(bytes[cursor..end].to_vec()),
+            0x004E4942 => bin_chunk = Some(bytes[cursor..end].to_vec()),
+            _ => {}
+        }
+        cursor = end;
+    }
+    let json_bytes =
+        json_chunk.ok_or_else(|| ContentError::new("GLB is missing its JSON chunk"))?;
+    let root: Value = serde_json::from_slice(&json_bytes)?;
+    Ok((root, bin_chunk, json_bytes))
+}
+
 fn load_asset_data(path: &Path) -> Result<AssetData> {
     let source_bytes = fs::read(path)
         .map_err(|error| ContentError::new(format!("could not open scene asset file: {error}")))?;
-    let root: Value = serde_json::from_slice(&source_bytes)?;
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let (root, glb_bin) = if extension == "glb" {
+        let (root, bin, _json_bytes) = parse_glb(path, &source_bytes)?;
+        (root, bin)
+    } else {
+        (serde_json::from_slice(&source_bytes)?, None)
+    };
     let base = path.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
     let mut buffers = Vec::new();
     let mut buffer_uris = Vec::new();
-    for buffer in required_array(&root, "buffers")? {
-        let uri = required_str(buffer, "uri")?.to_string();
-        let bytes = fs::read(base.join(&uri)).map_err(|error| {
-            ContentError::new(format!(
-                "could not open scene asset buffer '{uri}': {error}"
-            ))
-        })?;
+    for (buffer_index, buffer) in required_array(&root, "buffers")?.iter().enumerate() {
+        let uri = buffer
+            .get("uri")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_default();
+        let bytes = if uri.is_empty() {
+            if buffer_index == 0 {
+                glb_bin.clone().ok_or_else(|| {
+                    ContentError::new("GLB buffer has no uri and the file has no BIN chunk")
+                })?
+            } else {
+                return Err(ContentError::new(
+                    "only the first GLB buffer may omit uri in Asset v1",
+                ));
+            }
+        } else {
+            fs::read(base.join(&uri)).map_err(|error| {
+                ContentError::new(format!(
+                    "could not open scene asset buffer '{uri}': {error}"
+                ))
+            })?
+        };
         if let Some(byte_length) = buffer.get("byteLength").and_then(Value::as_u64) {
-            if byte_length as usize != bytes.len() {
+            if byte_length as usize > bytes.len() {
                 return Err(ContentError::new(format!(
-                    "scene asset buffer '{uri}' byteLength does not match the file"
+                    "scene asset buffer '{uri}' byteLength exceeds the file"
                 )));
             }
         }
-        buffer_uris.push(uri);
+        buffer_uris.push(if uri.is_empty() {
+            format!("__glb_bin_{buffer_index}__")
+        } else {
+            uri
+        });
         buffers.push(bytes);
     }
 
@@ -1251,6 +2295,7 @@ fn load_asset_data(path: &Path) -> Result<AssetData> {
         views.push(BufferView {
             buffer: integer(entry, "buffer", 0),
             byte_offset: integer(entry, "byteOffset", 0),
+            byte_length: integer(entry, "byteLength", 0),
             byte_stride: integer(entry, "byteStride", 0),
         });
     }
@@ -1438,16 +2483,29 @@ fn texture_dependency(
     let texture_index = integer(texture, "index", usize::MAX);
     let textures = data.root.get("textures").and_then(Value::as_array);
     let images = data.root.get("images").and_then(Value::as_array);
-    let uri = textures
+    let image = textures
         .and_then(|entries| entries.get(texture_index))
         .and_then(|entry| entry.get("source"))
         .and_then(Value::as_u64)
-        .and_then(|source| images.and_then(|entries| entries.get(source as usize)))
+        .and_then(|source| images.and_then(|entries| entries.get(source as usize)));
+    let uri = image
         .and_then(|image| image.get("uri"))
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
     if uri.is_empty() {
+        if let Some(view_index) = image
+            .and_then(|image| image.get("bufferView"))
+            .and_then(Value::as_u64)
+        {
+            let bytes = buffer_view_payload(data, view_index as usize)?;
+            return Ok(Some(TextureDependency {
+                role: role.to_string(),
+                uri: format!("embedded:{view_index}"),
+                present: true,
+                hash: *blake3::hash(bytes).as_bytes(),
+            }));
+        }
         return Ok(Some(TextureDependency {
             role: role.to_string(),
             uri,
@@ -1472,6 +2530,25 @@ fn texture_dependency(
             hash: [0u8; 32],
         }))
     }
+}
+
+fn buffer_view_payload(data: &AssetData, view_index: usize) -> Result<&[u8]> {
+    let buffer_view = view(data, view_index)?;
+    let buffer = data
+        .buffers
+        .get(buffer_view.buffer)
+        .ok_or_else(|| ContentError::new("scene asset references an invalid buffer"))?;
+    let start = buffer_view.byte_offset;
+    let len = buffer_view.byte_length;
+    let end = start
+        .checked_add(len)
+        .ok_or_else(|| ContentError::new("scene asset buffer view range overflows"))?;
+    if end > buffer.len() {
+        return Err(ContentError::new(
+            "scene asset buffer view range is outside the buffer",
+        ));
+    }
+    Ok(&buffer[start..end])
 }
 
 fn mesh_from_primitive(
@@ -3146,5 +4223,217 @@ mod tests {
         assert_eq!(baked_read.width, 32);
         assert_eq!(baked_read.height, 16);
         fs::remove_dir_all(dir).ok();
+    }
+
+    fn write_png_header(path: &Path, width: u32, height: u32) {
+        let mut png = Vec::new();
+        png.extend_from_slice(&[0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n']);
+        png.extend_from_slice(&13u32.to_be_bytes());
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(&width.to_be_bytes());
+        png.extend_from_slice(&height.to_be_bytes());
+        png.extend_from_slice(&[8, 6, 0, 0, 0]);
+        fs::write(path, png).expect("png");
+    }
+
+    fn write_material_project(name: &str, missing_texture: bool) -> PathBuf {
+        let dir = fixture_dir(name);
+        fs::create_dir_all(dir.join("materials")).expect("materials dir");
+        fs::create_dir_all(dir.join("textures")).expect("textures dir");
+        if !missing_texture {
+            write_png_header(&dir.join("textures/wet_albedo.png"), 16, 8);
+            write_png_header(&dir.join("textures/wet_normal.png"), 16, 8);
+        }
+        fs::write(
+            dir.join("materials/wet_rock.astermat"),
+            r#"material WetRock {
+  schema_version: 1
+  name: "Wet Rock"
+  shading_model: LitPBR
+  surface_profile: StratifiedRock
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_shadows: true
+
+  textures {
+    albedo: "../textures/wet_albedo.png"
+    normal: "../textures/wet_normal.png"
+  }
+
+  params {
+    base_color_r: 0.32
+    base_color_g: 0.28
+    base_color_b: 0.24
+    roughness: 0.76
+    metallic: 0.0
+  }
+
+  features {
+    triplanar: true
+    normal_map: true
+  }
+}
+"#,
+        )
+        .expect("material");
+        fs::write(
+            dir.join("project.asterproj"),
+            r#"{
+  "schema_version": 1,
+  "name": "Material Cook Test",
+  "assets": [
+    { "id": "material.wet_rock", "kind": "material", "path": "materials/wet_rock.astermat" }
+  ]
+}
+"#,
+        )
+        .expect("project");
+        dir.join("project.asterproj")
+    }
+
+    #[test]
+    fn cooks_project_database_and_materialbin() {
+        let project = write_material_project("cook_project", false);
+        let output = project.parent().unwrap().join("cooked/desktop");
+        let result = cook_project(&project, "desktop", &output).expect("cook");
+        assert_eq!(result.database.records.len(), 1);
+        assert!(result.database_path.exists());
+        let db = read_asset_database(&result.database_path).expect("read db");
+        assert_eq!(db.records[0].kind, "material");
+        assert!(db.records[0]
+            .outputs
+            .iter()
+            .any(|output| output.kind == "materialbin"));
+        assert!(db.records[0]
+            .outputs
+            .iter()
+            .any(|output| output.role == "preview"));
+        let material_output = db.records[0]
+            .outputs
+            .iter()
+            .find(|output| output.kind == "materialbin")
+            .unwrap();
+        let material_bin: MaterialBin = serde_json::from_slice(
+            &fs::read(output.join(&material_output.path)).expect("materialbin bytes"),
+        )
+        .expect("materialbin json");
+        assert_eq!(material_bin.id, "WetRock");
+        assert_eq!(material_bin.textures.len(), 2);
+        assert!(material_bin.feature_mask & (1 << 0) != 0);
+        assert!(material_bin.shader_variant_key != 0);
+        assert!(report_asset_database(&db).contains("assets=1"));
+        fs::remove_dir_all(project.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn cook_reports_missing_material_texture() {
+        let project = write_material_project("cook_missing", true);
+        let output = project.parent().unwrap().join("cooked/desktop");
+        let result = cook_project(&project, "desktop", &output).expect("cook");
+        assert!(result.database.records[0]
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == "error"));
+        assert!(result.database.records[0]
+            .dependencies
+            .iter()
+            .any(|dependency| !dependency.present));
+        fs::remove_dir_all(project.parent().unwrap()).ok();
+    }
+
+    fn write_glb_fixture() -> PathBuf {
+        let dir = fixture_dir("glb");
+        fs::create_dir_all(&dir).expect("glb dir");
+        let mut bin = Vec::new();
+        for value in [
+            -0.5, 0.0, -0.5, 0.5, 0.0, -0.5, 0.5, 0.0, 0.5, -0.5, 0.0, 0.5,
+        ] {
+            append_f32(&mut bin, value);
+        }
+        for value in [0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0] {
+            append_f32(&mut bin, value);
+        }
+        for value in [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0] {
+            append_f32(&mut bin, value);
+        }
+        for value in [0u16, 1, 2, 0, 2, 3] {
+            append_u16(&mut bin, value);
+        }
+        let image_offset = bin.len();
+        let mut image = Vec::new();
+        image.extend_from_slice(&[0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n']);
+        image.extend_from_slice(&13u32.to_be_bytes());
+        image.extend_from_slice(b"IHDR");
+        image.extend_from_slice(&4u32.to_be_bytes());
+        image.extend_from_slice(&4u32.to_be_bytes());
+        image.extend_from_slice(&[8, 6, 0, 0, 0]);
+        bin.extend_from_slice(&image);
+        while bin.len() % 4 != 0 {
+            bin.push(0);
+        }
+        let json = format!(
+            r#"{{
+  "asset": {{ "version": "2.0" }},
+  "scene": 0,
+  "scenes": [{{ "nodes": [0] }}],
+  "nodes": [{{ "name": "Root", "mesh": 0 }}],
+  "meshes": [{{ "name": "Quad", "primitives": [{{
+    "attributes": {{ "POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2 }},
+    "indices": 3,
+    "material": 0
+  }}] }}],
+  "materials": [{{ "name": "mat", "pbrMetallicRoughness": {{ "baseColorTexture": {{ "index": 0 }} }} }}],
+  "textures": [{{ "source": 0 }}],
+  "images": [{{ "bufferView": 4, "mimeType": "image/png" }}],
+  "buffers": [{{ "byteLength": {} }}],
+  "bufferViews": [
+    {{ "buffer": 0, "byteOffset": 0, "byteLength": 48 }},
+    {{ "buffer": 0, "byteOffset": 48, "byteLength": 48 }},
+    {{ "buffer": 0, "byteOffset": 96, "byteLength": 32 }},
+    {{ "buffer": 0, "byteOffset": 128, "byteLength": 12 }},
+    {{ "buffer": 0, "byteOffset": {}, "byteLength": {} }}
+  ],
+  "accessors": [
+    {{ "bufferView": 0, "componentType": 5126, "count": 4, "type": "VEC3" }},
+    {{ "bufferView": 1, "componentType": 5126, "count": 4, "type": "VEC3" }},
+    {{ "bufferView": 2, "componentType": 5126, "count": 4, "type": "VEC2" }},
+    {{ "bufferView": 3, "componentType": 5123, "count": 6, "type": "SCALAR" }}
+  ]
+}}"#,
+            bin.len(),
+            image_offset,
+            image.len()
+        );
+        let mut json_bytes = json.into_bytes();
+        while json_bytes.len() % 4 != 0 {
+            json_bytes.push(b' ');
+        }
+        let total_len = 12 + 8 + json_bytes.len() + 8 + bin.len();
+        let mut glb = Vec::with_capacity(total_len);
+        glb.extend_from_slice(b"glTF");
+        glb.extend_from_slice(&2u32.to_le_bytes());
+        glb.extend_from_slice(&(total_len as u32).to_le_bytes());
+        glb.extend_from_slice(&(json_bytes.len() as u32).to_le_bytes());
+        glb.extend_from_slice(&0x4E4F534Au32.to_le_bytes());
+        glb.extend_from_slice(&json_bytes);
+        glb.extend_from_slice(&(bin.len() as u32).to_le_bytes());
+        glb.extend_from_slice(&0x004E4942u32.to_le_bytes());
+        glb.extend_from_slice(&bin);
+        let path = dir.join("asset.glb");
+        fs::write(&path, glb).expect("glb");
+        path
+    }
+
+    #[test]
+    fn imports_glb_with_embedded_buffer_and_texture_dependency() {
+        let glb = write_glb_fixture();
+        let asset = import_glb_scene(&glb, CompileOptions::default()).expect("import glb");
+        assert_eq!(asset.meshes.len(), 1);
+        assert_eq!(asset.materials.len(), 2);
+        let dependency = &asset.materials[1].texture_dependencies[0];
+        assert_eq!(dependency.uri, "embedded:4");
+        assert!(dependency.present);
+        assert_ne!(dependency.hash, [0u8; 32]);
+        fs::remove_dir_all(glb.parent().unwrap()).ok();
     }
 }

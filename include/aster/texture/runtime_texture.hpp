@@ -20,6 +20,8 @@
 
 namespace aster {
 
+struct CookedMaterialAsset;
+
 enum class TextureNormalConvention {
   OpenGlYUp,
   DirectXInvertedY,
@@ -74,6 +76,9 @@ public:
   void clear();
   bool addMaterialAsset(const MaterialAsset &asset, const std::filesystem::path &asset_root = {},
                         TextureImportOptions options = {});
+  bool addCookedMaterialAsset(const CookedMaterialAsset &asset, TextureImportOptions options = {});
+  bool addCookedMaterialAssetFile(const std::filesystem::path &material_bin_path,
+                                  TextureImportOptions options = {});
 
   [[nodiscard]] const MaterialRuntimeResource *find(std::string_view asset_id) const;
   [[nodiscard]] const MaterialRuntimeResource *findForMaterialIds(

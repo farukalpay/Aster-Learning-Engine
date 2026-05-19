@@ -2,6 +2,7 @@
 // Do not remove this notice.
 
 #include "aster/core/clock.hpp"
+#include "aster/asset/asset_database.hpp"
 #include "aster/core/config.hpp"
 #include "aster/core/frame_time_stats.hpp"
 #include "aster/input/control_scheme.hpp"
@@ -183,6 +184,7 @@ int main(int argc, char **argv) {
                           !hasArgument(argc, argv, "--no-vsync");
     config.initial_width = argumentInt(argc, argv, "--window-width", config.initial_width);
     config.initial_height = argumentInt(argc, argv, "--window-height", config.initial_height);
+    const std::filesystem::path asset_db_path = argumentPath(argc, argv, "--asset-db");
     const double target_frame_seconds = (!scripted_capture && !unlocked && !frame_report_enabled)
                                             ? kDefaultInteractiveFrameCapSeconds
                                             : 0.0;
@@ -190,6 +192,14 @@ int main(int argc, char **argv) {
     aster::Window window(config);
     aster::RenderDevice renderer;
     renderer.initialize();
+    if (!asset_db_path.empty() && std::filesystem::exists(asset_db_path)) {
+      const aster::AssetDatabase database = aster::loadAssetDatabase(asset_db_path);
+      std::cout << "Studio asset database: " << asset_db_path
+                << " assets=" << database.records.size()
+                << " platform=" << database.platform << '\n';
+    } else if (!asset_db_path.empty()) {
+      std::cerr << "warning: requested asset database is missing: " << asset_db_path << '\n';
+    }
 
     aster::Scene scene = aster::makeArchitectureShowcaseScene();
     renderer.prepareScene(scene);

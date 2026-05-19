@@ -2,8 +2,8 @@
 // Do not remove this notice.
 
 use aster_content::{
-    bake_texture_to_ktx2, compile_scene_asset_to_cache, hex_hash, inspect_cache, inspect_texture,
-    CompileOptions, OriginPolicy,
+    bake_texture_to_ktx2, compile_scene_asset_to_cache, cook_project, hex_hash, inspect_cache,
+    inspect_texture, read_asset_database, report_asset_database, CompileOptions, OriginPolicy,
 };
 use aster_runtime::{
     build_frame_plan, AsterRuntimeCamera, AsterRuntimeRenderObject, AsterRuntimeRenderPlanOptions,
@@ -74,7 +74,9 @@ fn usage() -> &'static str {
   aster_assetc compile --input <file.scene> --output <file.astercache> [--origin keep|center|center-on-ground] [--unit-scale <float>]
   aster_assetc inspect --input <file.astercache>
   aster_assetc texture-inspect --input <texture> [--role albedo|normal|orm|height|emissive]
-  aster_assetc texture-bake --input <texture> --output <file.ktx2> [--role albedo|normal|orm|height|emissive]"
+  aster_assetc texture-bake --input <texture> --output <file.ktx2> [--role albedo|normal|orm|height|emissive]
+  aster_assetc cook --project <file.asterproj> --platform desktop --output <dir>
+  aster_assetc report --db <assetdb.asterdb.json>"
 }
 
 fn value_after(args: &[String], name: &str) -> Option<String> {
@@ -182,6 +184,47 @@ fn texture_bake_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn cook_command(args: &[String]) -> Result<(), String> {
+    let project = value_after(args, "--project")
+        .map(PathBuf::from)
+        .ok_or_else(|| "cook requires --project <file.asterproj>".to_string())?;
+    let output = value_after(args, "--output")
+        .map(PathBuf::from)
+        .ok_or_else(|| "cook requires --output <dir>".to_string())?;
+    let platform = value_after(args, "--platform").unwrap_or_else(|| "desktop".to_string());
+    let result = cook_project(&project, &platform, &output).map_err(|error| error.to_string())?;
+    println!(
+        "cooked {} -> {} assets={}",
+        project.display(),
+        result.database_path.display(),
+        result.database.records.len()
+    );
+    println!("{}", report_asset_database(&result.database));
+    Ok(())
+}
+
+fn report_command(args: &[String]) -> Result<(), String> {
+    let db = value_after(args, "--db")
+        .map(PathBuf::from)
+        .ok_or_else(|| "report requires --db <assetdb.asterdb.json>".to_string())?;
+    let database = read_asset_database(&db).map_err(|error| error.to_string())?;
+    println!("{}", report_asset_database(&database));
+    for record in database.records {
+        println!(
+            "{} kind={} source={} outputs={} diagnostics={}",
+            record.id,
+            record.kind,
+            record.source_path,
+            record.outputs.len(),
+            record.diagnostics.len()
+        );
+        for diagnostic in record.diagnostics {
+            println!("{}: {}", diagnostic.severity, diagnostic.message);
+        }
+    }
+    Ok(())
+}
+
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|arg| arg == "--self-check") {
@@ -193,6 +236,8 @@ fn run() -> Result<(), String> {
         Some("inspect") => inspect_command(&args[2..]),
         Some("texture-inspect") => texture_inspect_command(&args[2..]),
         Some("texture-bake") => texture_bake_command(&args[2..]),
+        Some("cook") => cook_command(&args[2..]),
+        Some("report") => report_command(&args[2..]),
         Some("--help") | Some("-h") | None => {
             println!("{}", usage());
             Ok(())

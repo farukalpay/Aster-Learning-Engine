@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "Aster Material Lab",
+  "assets": [
+    { "id": "material.showcase_wet_rock", "kind": "material", "path": "wet_rock.astermat" },
+    { "id": "material.showcase_weathered_metal", "kind": "material", "path": "weathered_metal.astermat" }
+  ]
+}

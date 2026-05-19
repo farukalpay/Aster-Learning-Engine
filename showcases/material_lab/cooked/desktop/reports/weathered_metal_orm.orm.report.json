@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "role": "orm",
+  "kind": "orm",
+  "color_space": "linear",
+  "format": "ktx2",
+  "width": 16,
+  "height": 16,
+  "mip_count": 5,
+  "source_hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e",
+  "cooked_hash": "e78f9af1e9a375f2cddf8b10694ba009433924bc6d4d31d0c0c704dc5fd8c5e3",
+  "cooked_path": "textures/showcaseweatheredmetal_orm.ktx2",
+  "diagnostics": []
+}

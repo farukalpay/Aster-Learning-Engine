@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "role": "albedo",
+  "kind": "albedo",
+  "color_space": "srgb",
+  "format": "ktx2",
+  "width": 16,
+  "height": 16,
+  "mip_count": 5,
+  "source_hash": "dad0bf0ee88ae31e53b3edf51406ed9a315a01b221f86b3af06b1da52bad4c9a",
+  "cooked_hash": "64d990f3dd0b18b946dd26c069e335a713e016f45b8886f0099e45fd06a160ee",
+  "cooked_path": "textures/showcaseweatheredmetal_albedo.ktx2",
+  "diagnostics": []
+}

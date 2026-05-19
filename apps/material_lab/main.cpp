@@ -2,6 +2,7 @@
 // Do not remove this notice.
 
 #include "aster/material/material_compiler.hpp"
+#include "aster/asset/asset_database.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/software_framebuffer.hpp"
 #include "aster/render/software_preview_renderer.hpp"
@@ -13,6 +14,7 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -102,8 +104,37 @@ aster::RendererSettings previewSettings(const std::string &debug_mode) {
 
 void printUsage() {
   std::cout << "usage: aster_material_lab --material <file.astermat> "
+               "[--asset-db assetdb.asterdb.json] "
                "[--output preview.ppm] [--mesh sphere|cube|rock|cave-wall] "
                "[--debug beauty|base-color|normal|roughness|ao|fog]\n";
+}
+
+std::optional<aster::CookedMaterialAsset>
+loadCookedMaterialForSource(const std::filesystem::path &material_path,
+                            const std::filesystem::path &asset_db_path) {
+  if (asset_db_path.empty() || !std::filesystem::exists(asset_db_path)) {
+    return std::nullopt;
+  }
+  const aster::AssetDatabase database = aster::loadAssetDatabase(asset_db_path);
+  const std::filesystem::path database_root = asset_db_path.parent_path();
+  const std::string material_filename = material_path.filename().generic_string();
+  const auto matches_source = [&](const aster::AssetDatabaseRecord &record) {
+    return record.kind == "material" &&
+           (record.source_path == material_path.generic_string() ||
+            std::filesystem::path(record.source_path).filename().generic_string() ==
+                material_filename);
+  };
+  const auto found =
+      std::find_if(database.records.begin(), database.records.end(), matches_source);
+  if (found == database.records.end()) {
+    return std::nullopt;
+  }
+  const std::optional<std::filesystem::path> material_bin =
+      aster::findAssetOutputPath(*found, database_root, "materialbin", "materialbin");
+  if (!material_bin.has_value() || !std::filesystem::exists(*material_bin)) {
+    return std::nullopt;
+  }
+  return aster::loadCookedMaterialAsset(*material_bin);
 }
 
 } // namespace
@@ -121,12 +152,30 @@ int main(int argc, char **argv) {
     }
     const std::filesystem::path output =
         argumentValue(argc, argv, "--output", "material_lab_preview.ppm");
+    std::filesystem::path asset_db_path = argumentValue(argc, argv, "--asset-db", "");
+    if (asset_db_path.empty()) {
+      asset_db_path = material_path.parent_path() / "cooked" / "desktop" / "assetdb.asterdb.json";
+    }
     const std::string mesh = argumentValue(argc, argv, "--mesh", "sphere");
     const std::string debug_mode = argumentValue(argc, argv, "--debug", "beauty");
     const int width = std::stoi(argumentValue(argc, argv, "--width", "640"));
     const int height = std::stoi(argumentValue(argc, argv, "--height", "480"));
 
-    const aster::MaterialAssetLoadResult loaded = aster::loadMaterialAsset(material_path);
+    const std::optional<aster::CookedMaterialAsset> cooked =
+        loadCookedMaterialForSource(material_path, asset_db_path);
+    aster::MaterialAssetLoadResult loaded;
+    if (cooked.has_value()) {
+      loaded.value = cooked->asset;
+      loaded.diagnostics.push_back({.severity = aster::MaterialDiagnosticSeverity::Warning,
+                                    .source_path = material_path,
+                                    .message = "loaded cooked materialbin from asset database"});
+      std::cout << "asset-db=" << asset_db_path << " materialbin=" << cooked->material_bin_path
+                << '\n';
+    } else {
+      loaded = aster::loadMaterialAsset(material_path);
+      std::cerr << "warning: no cooked asset database record found; using source .astermat "
+                   "compatibility path\n";
+    }
     for (const aster::MaterialDiagnostic &diagnostic : loaded.diagnostics) {
       std::cerr << (diagnostic.severity == aster::MaterialDiagnosticSeverity::Error ? "error" : "warning")
                 << ": " << diagnostic.message << '\n';

@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "platform": "desktop",
+  "records": [
+    {
+      "guid": "4cda38739fbbf9423e0b35bceb6c964ee055e4ca468d68dcd27c2d52466565ed",
+      "id": "material.showcase_wet_rock",
+      "kind": "material",
+      "source_path": "wet_rock.astermat",
+      "import_settings_version": 1,
+      "source_hash": "36ae5de1061571f128c14a17a02580ce65ab592c6ef1e595036bd09c131a444e",
+      "options_hash": "606c4285473b8487865ab2ab2660a6f78f343ea8dfd8c5eaaae2287da62fb313",
+      "dependencies": [
+        {
+          "role": "albedo",
+          "path": "wet_rock_albedo.ktx2",
+          "present": true,
+          "hash": "dad0bf0ee88ae31e53b3edf51406ed9a315a01b221f86b3af06b1da52bad4c9a"
+        },
+        {
+          "role": "height",
+          "path": "wet_rock_height.ktx2",
+          "present": true,
+          "hash": "e72659a782987071c07f368b976d9a27a52d4a849994d657e78c628b6b36aed9"
+        },
+        {
+          "role": "normal",
+          "path": "wet_rock_normal.ktx2",
+          "present": true,
+          "hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d"
+        },
+        {
+          "role": "orm",
+          "path": "wet_rock_orm.ktx2",
+          "present": true,
+          "hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e"
+        },
+        {
+          "role": "wetness",
+          "path": "wet_rock_wetness.ktx2",
+          "present": true,
+          "hash": "cbff6649f809606b43f56ff9eae9b809e40e37c5925ffb89127e0ce2eb5c3422"
+        }
+      ],
+      "outputs": [
+        {
+          "role": "materialbin",
+          "kind": "materialbin",
+          "path": "materials/showcasewetrock.materialbin",
+          "hash": "1e150b594545f4339c377bc2ac1491299c85e5a6bbd99090e71319ec58a0b847"
+        },
+        {
+          "role": "report",
+          "kind": "json",
+          "path": "reports/showcasewetrock.report.json",
+          "hash": "1e150b594545f4339c377bc2ac1491299c85e5a6bbd99090e71319ec58a0b847"
+        },
+        {
+          "role": "preview",
+          "kind": "ppm",
+          "path": "previews/showcasewetrock.preview.ppm",
+          "hash": "29a1b6736e0e9d357dff2bbdcca33c0e4f7c16c5eee55acd66fb23adb2c8933b"
+        },
+        {
+          "role": "texture:albedo",
+          "kind": "ktx2",
+          "path": "textures/showcasewetrock_albedo.ktx2",
+          "hash": "64d990f3dd0b18b946dd26c069e335a713e016f45b8886f0099e45fd06a160ee"
+        },
+        {
+          "role": "texture:height",
+          "kind": "ktx2",
+          "path": "textures/showcasewetrock_height.ktx2",
+          "hash": "684f7090bd229b5043e43919c409ad2881f540dc475a7d3b50445f6265cf1321"
+        },
+        {
+          "role": "texture:normal",
+          "kind": "ktx2",
+          "path": "textures/showcasewetrock_normal.ktx2",
+          "hash": "e3624b4d6f17c52610cece61bb08c2276835db93152873d8be61a392fcaf709f"
+        },
+        {
+          "role": "texture:orm",
+          "kind": "ktx2",
+          "path": "textures/showcasewetrock_orm.ktx2",
+          "hash": "e78f9af1e9a375f2cddf8b10694ba009433924bc6d4d31d0c0c704dc5fd8c5e3"
+        },
+        {
+          "role": "texture:wetness",
+          "kind": "ktx2",
+          "path": "textures/showcasewetrock_wetness.ktx2",
+          "hash": "24275c07487343d61cb79bd28078439b08f3a68311608b6461a51234aad685cb"
+        }
+      ],
+      "diagnostics": [],
+      "platform": "desktop"
+    },
+    {
+      "guid": "5cf3d1beee3b0c34a87c92e4325b0aef5f4e676df1b62f7aa780e36b5ae6dede",
+      "id": "material.showcase_weathered_metal",
+      "kind": "material",
+      "source_path": "weathered_metal.astermat",
+      "import_settings_version": 1,
+      "source_hash": "4043dc1a066a4c85c75d58512b98c22a749675c962303897b898f2b6f23f302c",
+      "options_hash": "606c4285473b8487865ab2ab2660a6f78f343ea8dfd8c5eaaae2287da62fb313",
+      "dependencies": [
+        {
+          "role": "albedo",
+          "path": "weathered_metal_albedo.ktx2",
+          "present": true,
+          "hash": "dad0bf0ee88ae31e53b3edf51406ed9a315a01b221f86b3af06b1da52bad4c9a"
+        },
+        {
+          "role": "height",
+          "path": "weathered_metal_height.ktx2",
+          "present": true,
+          "hash": "e72659a782987071c07f368b976d9a27a52d4a849994d657e78c628b6b36aed9"
+        },
+        {
+          "role": "normal",
+          "path": "weathered_metal_normal.ktx2",
+          "present": true,
+          "hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d"
+        },
+        {
+          "role": "orm",
+          "path": "weathered_metal_orm.ktx2",
+          "present": true,
+          "hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e"
+        }
+      ],
+      "outputs": [
+        {
+          "role": "materialbin",
+          "kind": "materialbin",
+          "path": "materials/showcaseweatheredmetal.materialbin",
+          "hash": "b6acea785fd0e51543ac9057de9c4abe6ccb20fbcd5d112c1acb89c13afb452c"
+        },
+        {
+          "role": "report",
+          "kind": "json",
+          "path": "reports/showcaseweatheredmetal.report.json",
+          "hash": "b6acea785fd0e51543ac9057de9c4abe6ccb20fbcd5d112c1acb89c13afb452c"
+        },
+        {
+          "role": "preview",
+          "kind": "ppm",
+          "path": "previews/showcaseweatheredmetal.preview.ppm",
+          "hash": "29a1b6736e0e9d357dff2bbdcca33c0e4f7c16c5eee55acd66fb23adb2c8933b"
+        },
+        {
+          "role": "texture:albedo",
+          "kind": "ktx2",
+          "path": "textures/showcaseweatheredmetal_albedo.ktx2",
+          "hash": "64d990f3dd0b18b946dd26c069e335a713e016f45b8886f0099e45fd06a160ee"
+        },
+        {
+          "role": "texture:height",
+          "kind": "ktx2",
+          "path": "textures/showcaseweatheredmetal_height.ktx2",
+          "hash": "684f7090bd229b5043e43919c409ad2881f540dc475a7d3b50445f6265cf1321"
+        },
+        {
+          "role": "texture:normal",
+          "kind": "ktx2",
+          "path": "textures/showcaseweatheredmetal_normal.ktx2",
+          "hash": "e3624b4d6f17c52610cece61bb08c2276835db93152873d8be61a392fcaf709f"
+        },
+        {
+          "role": "texture:orm",
+          "kind": "ktx2",
+          "path": "textures/showcaseweatheredmetal_orm.ktx2",
+          "hash": "e78f9af1e9a375f2cddf8b10694ba009433924bc6d4d31d0c0c704dc5fd8c5e3"
+        }
+      ],
+      "diagnostics": [],
+      "platform": "desktop"
+    }
+  ]
+}

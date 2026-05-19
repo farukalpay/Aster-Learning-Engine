@@ -3,6 +3,11 @@
 Materials enter through `.astermat` authoring files or C++ `Material` values.
 The parser validates texture roles, parameters, feature flags, and material
 layers, then produces a fallback runtime material and a shader variant key.
+Asset Pipeline v1 treats `.astermat` as source: `aster_assetc cook` writes a
+project asset database, cooked `.materialbin` files, KTX2 texture outputs,
+reports, and tiny preview frames. Material Lab prefers the cooked database when
+one is present and falls back to direct source loading with an explicit
+diagnostic.
 
 Current material contracts:
 

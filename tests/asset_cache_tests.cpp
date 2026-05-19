@@ -3,10 +3,14 @@
 
 #include "test_support.hpp"
 
+#include "aster/asset/asset_database.hpp"
 #include "aster/render/material_compiler.hpp"
+#include "aster/texture/runtime_texture.hpp"
 
 #include <cassert>
+#include <array>
 #include <cstdlib>
+#include <fstream>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -34,6 +38,80 @@ bool nonZeroHash(const aster::SceneAssetHash &hash) {
     }
   }
   return false;
+}
+
+void writeTinyPngHeader(const std::filesystem::path &path, const std::uint32_t width,
+                        const std::uint32_t height) {
+  std::filesystem::create_directories(path.parent_path());
+  std::ofstream out(path, std::ios::binary);
+  const std::array<unsigned char, 8> signature{0x89u, 'P', 'N', 'G', '\r', '\n', 0x1au, '\n'};
+  out.write(reinterpret_cast<const char *>(signature.data()),
+            static_cast<std::streamsize>(signature.size()));
+  const auto write_be32 = [&](const std::uint32_t value) {
+    const std::array<unsigned char, 4> bytes{
+        static_cast<unsigned char>((value >> 24u) & 0xffu),
+        static_cast<unsigned char>((value >> 16u) & 0xffu),
+        static_cast<unsigned char>((value >> 8u) & 0xffu),
+        static_cast<unsigned char>(value & 0xffu),
+    };
+    out.write(reinterpret_cast<const char *>(bytes.data()),
+              static_cast<std::streamsize>(bytes.size()));
+  };
+  write_be32(13u);
+  out.write("IHDR", 4);
+  write_be32(width);
+  write_be32(height);
+  const std::array<unsigned char, 5> tail{8u, 6u, 0u, 0u, 0u};
+  out.write(reinterpret_cast<const char *>(tail.data()), static_cast<std::streamsize>(tail.size()));
+  assert(out.good());
+}
+
+std::filesystem::path writeMaterialCookProject() {
+  const std::filesystem::path dir =
+      std::filesystem::temp_directory_path() / "aster_material_cook_fixture";
+  std::filesystem::remove_all(dir);
+  std::filesystem::create_directories(dir / "materials");
+  std::filesystem::create_directories(dir / "textures");
+  writeTinyPngHeader(dir / "textures" / "albedo.png", 16u, 8u);
+  writeTinyPngHeader(dir / "textures" / "normal.png", 16u, 8u);
+  {
+    std::ofstream material(dir / "materials" / "wet_rock.astermat");
+    material << R"mat(material CookedWetRock {
+  name: "Cooked Wet Rock"
+  shading_model: LitPBR
+  surface_profile: StratifiedRock
+  blend_mode: Opaque
+  cull_mode: Back
+  textures {
+    albedo: "../textures/albedo.png"
+    normal: "../textures/normal.png"
+  }
+  params {
+    base_color_r: 0.31
+    base_color_g: 0.28
+    base_color_b: 0.24
+    roughness: 0.79
+    metallic: 0.0
+  }
+  features {
+    triplanar: true
+    normal_map: true
+  }
+}
+)mat";
+  }
+  {
+    std::ofstream project(dir / "project.asterproj");
+    project << R"json({
+  "schema_version": 1,
+  "name": "Cook Fixture",
+  "assets": [
+    { "id": "material.cooked_wet_rock", "kind": "material", "path": "materials/wet_rock.astermat" }
+  ]
+}
+)json";
+  }
+  return dir / "project.asterproj";
 }
 
 void testCompiledSceneAssetCacheLoad() {
@@ -106,10 +184,48 @@ void testCompiledSceneAssetCacheLoad() {
   std::filesystem::remove_all(scene.parent_path());
 }
 
+void testAssetDatabaseAndMaterialBinLoad() {
+  const std::filesystem::path project = writeMaterialCookProject();
+  const std::filesystem::path output = project.parent_path() / "cooked" / "desktop";
+  const std::filesystem::path assetc = ASTER_ASSETC_EXECUTABLE;
+  const std::string command = shellQuote(assetc) + " cook --project " + shellQuote(project) +
+                              " --platform desktop --output " + shellQuote(output);
+  const int result = std::system(command.c_str());
+  assert(result == 0);
+
+  const aster::AssetDatabase database = aster::loadAssetDatabase(output / "assetdb.asterdb.json");
+  assert(database.schema_version == 1u);
+  assert(database.records.size() == 1u);
+  const aster::AssetDatabaseRecord *record =
+      aster::findAssetRecord(database, "material.cooked_wet_rock");
+  assert(record != nullptr);
+  assert(record->kind == "material");
+  assert(record->diagnostics.empty());
+  const std::optional<std::filesystem::path> material_bin =
+      aster::findAssetOutputPath(*record, output, "materialbin", "materialbin");
+  assert(material_bin.has_value());
+  assert(std::filesystem::exists(*material_bin));
+
+  const aster::CookedMaterialAsset cooked = aster::loadCookedMaterialAsset(*material_bin);
+  assert(cooked.asset.id == "CookedWetRock");
+  assert(cooked.textures.size() == 2u);
+  assert(cooked.shader_variant_key != 0u);
+  assert(cooked.asset.params.at("roughness") > 0.70f);
+
+  aster::MaterialResourceLibrary library;
+  assert(library.addCookedMaterialAsset(cooked, {.require_existing_files = true}));
+  const aster::MaterialRuntimeResource *resource = library.find("CookedWetRock");
+  assert(resource != nullptr);
+  assert(!resource->texture_set.find("albedo")->fallback);
+  assert(!resource->texture_set.find("normal")->fallback);
+  std::filesystem::remove_all(project.parent_path());
+}
+
 } // namespace
 
 int main() {
   testCompiledSceneAssetCacheLoad();
+  testAssetDatabaseAndMaterialBinLoad();
   std::cout << "asset_cache_tests passed.\n";
   return 0;
 }
