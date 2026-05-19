@@ -154,13 +154,19 @@ fn write_material_project() -> PathBuf {
     fs::write(
         dir.join("project.asterproj"),
         r#"{
-  "schema_version": 1,
-  "name": "CLI Project",
-  "assets": [
-    { "id": "material.cli_wet_rock", "kind": "material", "path": "materials/test.astermat" }
-  ]
-}
-"#,
+	  "schema_version": 2,
+	  "name": "CLI Project",
+	  "assets": [
+	    {
+	      "id": "material.cli_wet_rock",
+	      "guid": "asset-v2-cli-wet-rock-0000000000000001",
+	      "kind": "material",
+	      "path": "materials/test.astermat",
+	      "import_preset": "default"
+	    }
+	  ]
+	}
+	"#,
     )
     .expect("project");
     dir.join("project.asterproj")
@@ -190,13 +196,19 @@ fn write_broken_material_project() -> PathBuf {
     fs::write(
         dir.join("project.asterproj"),
         r#"{
-  "schema_version": 1,
-  "name": "Broken CLI Project",
-  "assets": [
-    { "id": "material.broken_cli_rock", "kind": "material", "path": "materials/test.astermat" }
-  ]
-}
-"#,
+	  "schema_version": 2,
+	  "name": "Broken CLI Project",
+	  "assets": [
+	    {
+	      "id": "material.broken_cli_rock",
+	      "guid": "asset-v2-broken-cli-rock-000000000001",
+	      "kind": "material",
+	      "path": "materials/test.astermat",
+	      "import_preset": "default"
+	    }
+	  ]
+	}
+	"#,
     )
     .expect("project");
     dir.join("project.asterproj")
@@ -236,7 +248,7 @@ fn compile_and_inspect_runtime_cache() {
         String::from_utf8_lossy(&inspect.stderr)
     );
     let stdout = String::from_utf8_lossy(&inspect.stdout);
-    assert!(stdout.contains("Aster cache v2"));
+    assert!(stdout.contains("Aster cache v3"));
     assert!(stdout.contains("materials=2"));
     assert!(stdout.contains("meshes=1"));
     assert!(stdout.contains("collision_meshes=1"));

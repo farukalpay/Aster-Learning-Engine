@@ -19,7 +19,7 @@ namespace aster {
 namespace {
 
 constexpr std::array<std::uint8_t, 8> kCacheMagic{'A', 'S', 'T', 'R', 'C', 'V', '1', '\0'};
-constexpr std::uint32_t kCacheVersion = 2u;
+constexpr std::uint32_t kCacheVersion = 3u;
 constexpr std::uint32_t kEndianMarker = 0x12345678u;
 constexpr std::size_t kHeaderSize = 88u;
 constexpr std::size_t kChunkEntrySize = 56u;

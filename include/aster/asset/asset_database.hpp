@@ -15,9 +15,49 @@
 
 namespace aster {
 
+struct AssetSourceLocation {
+  std::string source_path;
+  std::uint32_t line = 0u;
+  std::uint32_t column = 0u;
+};
+
+struct AssetSourceRecord {
+  std::string path;
+  std::string hash;
+};
+
+struct AssetImportPresetRecord {
+  std::string name;
+  std::string origin_policy;
+  std::string unit_scale;
+  std::string texture_role_policy;
+  std::string material_slot_policy;
+  std::string collision_policy;
+  std::string lod_policy;
+  std::string meshlet_policy;
+  std::string skeleton_policy;
+  std::string animation_policy;
+  std::string morph_policy;
+};
+
+struct AssetPlatformProfileRecord {
+  std::string name;
+  std::string runtime_texture_format;
+  std::string compression;
+  std::string target;
+};
+
 struct AssetDependencyRecord {
   std::string role;
   std::string path;
+  bool present = false;
+  std::string hash;
+};
+
+struct AssetDependencyEdge {
+  std::string from;
+  std::string to;
+  std::string role;
   bool present = false;
   std::string hash;
 };
@@ -29,31 +69,53 @@ struct AssetCookedOutput {
   std::string hash;
 };
 
+struct AssetArtifactRecord {
+  std::string role;
+  std::string kind;
+  std::string path;
+  std::string hash;
+  bool reused = false;
+};
+
 struct AssetCookDiagnostic {
   std::string severity;
   std::string message;
   std::string source_path;
   std::uint32_t line = 0u;
   std::uint32_t column = 0u;
+  std::vector<AssetSourceLocation> source_locations;
+};
+
+struct AssetToolVersionRecord {
+  std::string name;
+  std::string version;
 };
 
 struct AssetDatabaseRecord {
   std::string guid;
   std::string id;
   std::string kind;
+  AssetSourceRecord source;
   std::string source_path;
+  AssetImportPresetRecord import_preset;
+  AssetPlatformProfileRecord platform_profile;
   std::uint32_t import_settings_version = 0u;
   std::string source_hash;
   std::string options_hash;
+  std::vector<AssetDependencyEdge> dependency_edges;
   std::vector<AssetDependencyRecord> dependencies;
+  std::vector<AssetArtifactRecord> artifacts;
   std::vector<AssetCookedOutput> outputs;
   std::vector<AssetCookDiagnostic> diagnostics;
+  std::vector<AssetToolVersionRecord> tool_versions;
   std::string platform;
 };
 
 struct AssetDatabase {
   std::uint32_t schema_version = 0u;
   std::string platform;
+  std::string artifact_manifest;
+  std::vector<AssetToolVersionRecord> tool_versions;
   std::filesystem::path source_path;
   std::vector<AssetDatabaseRecord> records;
 };

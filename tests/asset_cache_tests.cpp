@@ -112,13 +112,19 @@ std::filesystem::path writeMaterialCookProject() {
   {
     std::ofstream project(dir / "project.asterproj");
     project << R"json({
-  "schema_version": 1,
-  "name": "Cook Fixture",
-  "assets": [
-    { "id": "material.cooked_wet_rock", "kind": "material", "path": "materials/wet_rock.astermat" }
-  ]
-}
-)json";
+	  "schema_version": 2,
+	  "name": "Cook Fixture",
+	  "assets": [
+	    {
+	      "id": "material.cooked_wet_rock",
+	      "guid": "asset-v2-cooked-wet-rock-0000000000000001",
+	      "kind": "material",
+	      "path": "materials/wet_rock.astermat",
+	      "import_preset": "default"
+	    }
+	  ]
+	}
+	)json";
   }
   return dir / "project.asterproj";
 }
@@ -135,7 +141,7 @@ void testCompiledSceneAssetCacheLoad() {
 
   const aster::SceneAsset asset = aster::loadCompiledSceneAsset(cache);
   assert(asset.cache_metadata.valid);
-  assert(asset.cache_metadata.cache_version == 2u);
+  assert(asset.cache_metadata.cache_version == 3u);
   assert(asset.cache_metadata.material_count == 2u);
   assert(asset.cache_metadata.mesh_count == 1u);
   assert(asset.cache_metadata.collision_mesh_count == 1u);
@@ -203,7 +209,8 @@ void testAssetDatabaseAndMaterialBinLoad() {
   assert(result == 0);
 
   const aster::AssetDatabase database = aster::loadAssetDatabase(output / "assetdb.asterdb.json");
-  assert(database.schema_version == 1u);
+  assert(database.schema_version == 2u);
+  assert(database.artifact_manifest == "asset-manifest.astermanifest.json");
   assert(database.records.size() == 1u);
   const aster::AssetDatabaseRecord *record =
       aster::findAssetRecord(database, "material.cooked_wet_rock");

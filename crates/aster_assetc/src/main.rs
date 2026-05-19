@@ -4,7 +4,7 @@
 use aster_content::{
     bake_texture_to_ktx2, compile_scene_asset_to_cache, cook_project, hex_hash, inspect_cache,
     inspect_texture, material_inspect_report_json, read_asset_database, report_asset_database,
-    CompileOptions, OriginPolicy,
+    write_missing_asset_meta, CompileOptions, OriginPolicy,
 };
 use aster_runtime::{
     build_frame_plan, AsterRuntimeCamera, AsterRuntimeRenderObject, AsterRuntimeRenderPlanOptions,
@@ -78,7 +78,8 @@ fn usage() -> &'static str {
   aster_assetc texture-bake --input <texture> --output <file.ktx2> [--role albedo|normal|orm|height|emissive]
   aster_assetc material-inspect --input <file.astermat> [--asset-root <dir>]
   aster_assetc cook --project <file.asterproj> --platform desktop --output <dir>
-  aster_assetc report --db <assetdb.asterdb.json>"
+  aster_assetc report --db <assetdb.asterdb.json>
+  aster_assetc guid-init --project <file.asterproj>"
 }
 
 fn value_after(args: &[String], name: &str) -> Option<String> {
@@ -209,9 +210,10 @@ fn cook_command(args: &[String]) -> Result<(), String> {
     let platform = value_after(args, "--platform").unwrap_or_else(|| "desktop".to_string());
     let result = cook_project(&project, &platform, &output).map_err(|error| error.to_string())?;
     println!(
-        "cooked {} -> {} assets={}",
+        "cooked {} -> {} manifest={} assets={}",
         project.display(),
         result.database_path.display(),
+        result.manifest_path.display(),
         result.database.records.len()
     );
     println!("{}", report_asset_database(&result.database));
@@ -246,6 +248,19 @@ fn report_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn guid_init_command(args: &[String]) -> Result<(), String> {
+    let project = value_after(args, "--project")
+        .map(PathBuf::from)
+        .ok_or_else(|| "guid-init requires --project <file.asterproj>".to_string())?;
+    let written = write_missing_asset_meta(&project).map_err(|error| error.to_string())?;
+    println!(
+        "guid-init {} wrote {} .astermeta file(s)",
+        project.display(),
+        written
+    );
+    Ok(())
+}
+
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|arg| arg == "--self-check") {
@@ -260,6 +275,7 @@ fn run() -> Result<(), String> {
         Some("material-inspect") => material_inspect_command(&args[2..]),
         Some("cook") => cook_command(&args[2..]),
         Some("report") => report_command(&args[2..]),
+        Some("guid-init") => guid_init_command(&args[2..]),
         Some("--help") | Some("-h") | None => {
             println!("{}", usage());
             Ok(())

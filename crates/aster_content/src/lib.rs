@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub const CACHE_MAGIC: [u8; 8] = *b"ASTRCV1\0";
-pub const CACHE_VERSION: u32 = 2;
+pub const CACHE_VERSION: u32 = 3;
 pub const COMPILER_VERSION: u32 = 1;
 pub const CACHE_ENDIAN_MARKER: u32 = 0x1234_5678;
 
@@ -19,6 +19,12 @@ const CHUNK_SCENE_GRAPH: u32 = 2;
 const CHUNK_MATERIALS: u32 = 3;
 const CHUNK_MESHES: u32 = 4;
 const CHUNK_COLLISION: u32 = 5;
+const CHUNK_GEOMETRY_AUDIT: u32 = 6;
+const CHUNK_MESHLETS: u32 = 7;
+const CHUNK_LODS: u32 = 8;
+const CHUNK_SKELETONS: u32 = 9;
+const CHUNK_ANIMATIONS: u32 = 10;
+const CHUNK_MORPHS: u32 = 11;
 const HEADER_SIZE: usize = 88;
 const CHUNK_ENTRY_SIZE: usize = 56;
 const RELATIVE_AREA_TOLERANCE: f32 = f32::EPSILON * f32::EPSILON * 64.0;
@@ -388,6 +394,96 @@ impl TextureImportKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TextureRoleContract {
+    pub role: &'static str,
+    pub color_space: &'static str,
+    pub required_for_lit_pbr: bool,
+    pub runtime_format: &'static str,
+    pub compression: &'static str,
+}
+
+pub const TEXTURE_ROLE_CONTRACTS: &[TextureRoleContract] = &[
+    TextureRoleContract {
+        role: "albedo",
+        color_space: "srgb",
+        required_for_lit_pbr: true,
+        runtime_format: "ktx2",
+        compression: "ktx2-basis",
+    },
+    TextureRoleContract {
+        role: "normal",
+        color_space: "linear",
+        required_for_lit_pbr: true,
+        runtime_format: "ktx2",
+        compression: "ktx2-basis",
+    },
+    TextureRoleContract {
+        role: "orm",
+        color_space: "linear",
+        required_for_lit_pbr: true,
+        runtime_format: "ktx2",
+        compression: "ktx2-basis",
+    },
+    TextureRoleContract {
+        role: "roughness",
+        color_space: "linear",
+        required_for_lit_pbr: false,
+        runtime_format: "ktx2",
+        compression: "ktx2-basis",
+    },
+    TextureRoleContract {
+        role: "metallic",
+        color_space: "linear",
+        required_for_lit_pbr: false,
+        runtime_format: "ktx2",
+        compression: "ktx2-basis",
+    },
+    TextureRoleContract {
+        role: "ao",
+        color_space: "linear",
+        required_for_lit_pbr: false,
+        runtime_format: "ktx2",
+        compression: "ktx2-basis",
+    },
+    TextureRoleContract {
+        role: "height",
+        color_space: "linear",
+        required_for_lit_pbr: false,
+        runtime_format: "ktx2",
+        compression: "ktx2-basis",
+    },
+    TextureRoleContract {
+        role: "emissive",
+        color_space: "srgb",
+        required_for_lit_pbr: false,
+        runtime_format: "ktx2",
+        compression: "ktx2-basis",
+    },
+    TextureRoleContract {
+        role: "wetness",
+        color_space: "linear",
+        required_for_lit_pbr: false,
+        runtime_format: "ktx2",
+        compression: "ktx2-basis",
+    },
+    TextureRoleContract {
+        role: "opacity",
+        color_space: "linear",
+        required_for_lit_pbr: false,
+        runtime_format: "ktx2",
+        compression: "ktx2-basis",
+    },
+];
+
+pub fn texture_role_contract(role: &str) -> Option<TextureRoleContract> {
+    let canonical = canonical_material_texture_role(role)?;
+    TEXTURE_ROLE_CONTRACTS
+        .iter()
+        .copied()
+        .find(|contract| contract.role == canonical)
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TextureImportSummary {
     pub role: String,
@@ -401,9 +497,105 @@ pub struct TextureImportSummary {
     pub diagnostics: Vec<String>,
 }
 
-pub const ASSET_DATABASE_SCHEMA_VERSION: u32 = 1;
-pub const ASSET_IMPORT_SETTINGS_VERSION: u32 = 1;
-pub const MATERIAL_BIN_SCHEMA_VERSION: u32 = 1;
+pub const ASSET_DATABASE_SCHEMA_VERSION: u32 = 2;
+pub const ASSET_IMPORT_SETTINGS_VERSION: u32 = 2;
+pub const ASSET_MANIFEST_SCHEMA_VERSION: u32 = 1;
+pub const MATERIAL_BIN_SCHEMA_VERSION: u32 = 2;
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetSourceLocation {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetSourceRecord {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hash: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetImportPresetRecord {
+    pub name: String,
+    pub origin_policy: String,
+    pub unit_scale: String,
+    pub texture_role_policy: String,
+    pub material_slot_policy: String,
+    pub collision_policy: String,
+    pub lod_policy: String,
+    pub meshlet_policy: String,
+    pub skeleton_policy: String,
+    pub animation_policy: String,
+    pub morph_policy: String,
+}
+
+impl Default for AssetImportPresetRecord {
+    fn default() -> Self {
+        Self {
+            name: "default".to_string(),
+            origin_policy: OriginPolicy::Keep.as_str().to_string(),
+            unit_scale: "1.000000000".to_string(),
+            texture_role_policy: "strict-litpbr-v2".to_string(),
+            material_slot_policy: "preserve".to_string(),
+            collision_policy: "static-triangle-mesh".to_string(),
+            lod_policy: "audit-only".to_string(),
+            meshlet_policy: "deterministic-64-126-audit".to_string(),
+            skeleton_policy: "import-and-validate".to_string(),
+            animation_policy: "import-clips".to_string(),
+            morph_policy: "preserve-and-validate".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetPlatformProfileRecord {
+    pub name: String,
+    pub runtime_texture_format: String,
+    pub compression: String,
+    pub target: String,
+}
+
+impl Default for AssetPlatformProfileRecord {
+    fn default() -> Self {
+        Self {
+            name: "desktop".to_string(),
+            runtime_texture_format: "ktx2".to_string(),
+            compression: "ktx2-basis".to_string(),
+            target: "desktop".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetDependencyEdge {
+    pub from: String,
+    pub to: String,
+    pub role: String,
+    pub present: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hash: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetArtifactRecord {
+    pub role: String,
+    pub kind: String,
+    pub path: String,
+    pub hash: String,
+    #[serde(default)]
+    pub reused: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetToolVersionRecord {
+    pub name: String,
+    pub version: String,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AssetDependencyRecord {
@@ -431,6 +623,8 @@ pub struct AssetCookDiagnostic {
     pub line: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub column: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_locations: Vec<AssetSourceLocation>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -438,13 +632,25 @@ pub struct AssetDatabaseRecord {
     pub guid: String,
     pub id: String,
     pub kind: String,
+    #[serde(default)]
+    pub source: AssetSourceRecord,
     pub source_path: String,
+    #[serde(default)]
+    pub import_preset: AssetImportPresetRecord,
+    #[serde(default)]
+    pub platform_profile: AssetPlatformProfileRecord,
     pub import_settings_version: u32,
     pub source_hash: String,
     pub options_hash: String,
+    #[serde(default)]
+    pub dependency_edges: Vec<AssetDependencyEdge>,
     pub dependencies: Vec<AssetDependencyRecord>,
+    #[serde(default)]
+    pub artifacts: Vec<AssetArtifactRecord>,
     pub outputs: Vec<AssetCookedOutput>,
     pub diagnostics: Vec<AssetCookDiagnostic>,
+    #[serde(default)]
+    pub tool_versions: Vec<AssetToolVersionRecord>,
     pub platform: String,
 }
 
@@ -452,6 +658,10 @@ pub struct AssetDatabaseRecord {
 pub struct AssetDatabase {
     pub schema_version: u32,
     pub platform: String,
+    #[serde(default)]
+    pub artifact_manifest: String,
+    #[serde(default)]
+    pub tool_versions: Vec<AssetToolVersionRecord>,
     pub records: Vec<AssetDatabaseRecord>,
 }
 
@@ -559,6 +769,7 @@ pub struct MaterialCookResult {
 pub struct CookProjectResult {
     pub database: AssetDatabase,
     pub database_path: PathBuf,
+    pub manifest_path: PathBuf,
     pub error_count: usize,
     pub warning_count: usize,
 }
@@ -761,12 +972,18 @@ pub fn compile_scene_asset(
     path: impl AsRef<Path>,
     options: CompileOptions,
 ) -> Result<CompiledSceneAsset> {
+    let path = path.as_ref();
     if !options.unit_scale.is_finite() || options.unit_scale <= 0.0 {
         return Err(ContentError::new(
             "unit scale must be finite and greater than zero",
         ));
     }
-    let data = load_asset_data(path.as_ref())?;
+    if let Some(kind) = dcc_source_kind(path) {
+        return Err(ContentError::new(format!(
+            "embedded DCC importer for {kind} is declared by Asset Pipeline v2 but not enabled in this build"
+        )));
+    }
+    let data = load_asset_data(path)?;
     let source_hash = source_hash(&data)?;
     let options_hash = *blake3::hash(&options.canonical_bytes()).as_bytes();
 
@@ -858,6 +1075,12 @@ pub fn write_cache_bytes(asset: &CompiledSceneAsset) -> Result<Vec<u8>> {
             CHUNK_COLLISION,
             write_collision_chunk(&asset.collision_meshes)?,
         ),
+        (CHUNK_GEOMETRY_AUDIT, write_geometry_audit_chunk(asset)?),
+        (CHUNK_MESHLETS, write_empty_named_chunk("meshlets:v2")?),
+        (CHUNK_LODS, write_empty_named_chunk("lod-chain:v2")?),
+        (CHUNK_SKELETONS, write_empty_named_chunk("skeletons:v2")?),
+        (CHUNK_ANIMATIONS, write_empty_named_chunk("animations:v2")?),
+        (CHUNK_MORPHS, write_empty_named_chunk("morph-targets:v2")?),
     ];
     chunks.sort_by_key(|(kind, _)| *kind);
 
@@ -1139,6 +1362,19 @@ pub fn read_asset_database(path: impl AsRef<Path>) -> Result<AssetDatabase> {
     Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
 
+fn default_tool_versions() -> Vec<AssetToolVersionRecord> {
+    vec![
+        AssetToolVersionRecord {
+            name: "aster_content".to_string(),
+            version: format!("compiler-v{}", COMPILER_VERSION),
+        },
+        AssetToolVersionRecord {
+            name: "asset-pipeline".to_string(),
+            version: format!("schema-v{}", ASSET_DATABASE_SCHEMA_VERSION),
+        },
+    ]
+}
+
 fn cook_error(message: impl Into<String>) -> AssetCookDiagnostic {
     AssetCookDiagnostic {
         severity: "error".to_string(),
@@ -1146,6 +1382,7 @@ fn cook_error(message: impl Into<String>) -> AssetCookDiagnostic {
         source_path: None,
         line: None,
         column: None,
+        source_locations: Vec::new(),
     }
 }
 
@@ -1156,6 +1393,7 @@ fn cook_warning(message: impl Into<String>) -> AssetCookDiagnostic {
         source_path: None,
         line: None,
         column: None,
+        source_locations: Vec::new(),
     }
 }
 
@@ -1171,6 +1409,7 @@ fn cook_error_at(
         source_path: Some(source_path.into()),
         line: Some(line),
         column: Some(column),
+        source_locations: Vec::new(),
     }
 }
 
@@ -1215,6 +1454,148 @@ pub fn asset_database_warning_count(database: &AssetDatabase) -> usize {
         .count()
 }
 
+fn value_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str)
+}
+
+fn value_f32(value: &Value, key: &str) -> Option<f32> {
+    value.get(key).and_then(Value::as_f64).map(|v| v as f32)
+}
+
+fn preset_value<'a>(root: &'a Value, name: &str) -> Option<&'a Value> {
+    root.get("import_presets")
+        .and_then(Value::as_object)
+        .and_then(|presets| presets.get(name))
+}
+
+fn import_preset_record(root: &Value, asset: &Value) -> AssetImportPresetRecord {
+    let name = value_str(asset, "import_preset").unwrap_or("default");
+    let preset = preset_value(root, name);
+    let field = |key: &str, fallback: &str| -> String {
+        value_str(asset, key)
+            .or_else(|| preset.and_then(|value| value_str(value, key)))
+            .unwrap_or(fallback)
+            .to_string()
+    };
+    let unit_scale = value_f32(asset, "unit_scale")
+        .or_else(|| value_f32(asset, "scale"))
+        .or_else(|| preset.and_then(|value| value_f32(value, "unit_scale")))
+        .or_else(|| preset.and_then(|value| value_f32(value, "scale")))
+        .unwrap_or(1.0);
+    let origin_policy = value_str(asset, "origin_policy")
+        .or_else(|| value_str(asset, "origin"))
+        .or_else(|| preset.and_then(|value| value_str(value, "origin_policy")))
+        .or_else(|| preset.and_then(|value| value_str(value, "origin")))
+        .unwrap_or("keep");
+    AssetImportPresetRecord {
+        name: name.to_string(),
+        origin_policy: origin_policy.to_string(),
+        unit_scale: format!("{unit_scale:.9}"),
+        texture_role_policy: field("texture_role_policy", "strict-litpbr-v2"),
+        material_slot_policy: field("material_slot_policy", "preserve"),
+        collision_policy: field("collision_policy", "static-triangle-mesh"),
+        lod_policy: field("lod_policy", "audit-only"),
+        meshlet_policy: field("meshlet_policy", "deterministic-64-126-audit"),
+        skeleton_policy: field("skeleton_policy", "import-and-validate"),
+        animation_policy: field("animation_policy", "import-clips"),
+        morph_policy: field("morph_policy", "preserve-and-validate"),
+    }
+}
+
+fn platform_profile_record(root: &Value, platform: &str) -> AssetPlatformProfileRecord {
+    let profile = root
+        .get("platform_profiles")
+        .and_then(Value::as_object)
+        .and_then(|profiles| profiles.get(platform));
+    let field = |key: &str, fallback: &str| -> String {
+        profile
+            .and_then(|value| value_str(value, key))
+            .unwrap_or(fallback)
+            .to_string()
+    };
+    AssetPlatformProfileRecord {
+        name: platform.to_string(),
+        runtime_texture_format: field("runtime_texture_format", "ktx2"),
+        compression: field("compression", "ktx2-basis"),
+        target: field("target", platform),
+    }
+}
+
+fn compile_options_from_preset(preset: &AssetImportPresetRecord) -> CompileOptions {
+    CompileOptions {
+        origin_policy: OriginPolicy::parse(&preset.origin_policy).unwrap_or(OriginPolicy::Keep),
+        unit_scale: preset.unit_scale.parse::<f32>().unwrap_or(1.0),
+    }
+}
+
+fn read_asset_meta_guid(source: &Path) -> Result<Option<String>> {
+    let mut meta_path = source.to_path_buf();
+    meta_path.set_extension("astermeta");
+    if !meta_path.exists() {
+        return Ok(None);
+    }
+    let value: Value = serde_json::from_slice(&fs::read(&meta_path)?)?;
+    Ok(value_str(&value, "guid").map(str::to_string))
+}
+
+fn push_output(record: &mut AssetDatabaseRecord, output: AssetCookedOutput, reused: bool) {
+    record.artifacts.push(AssetArtifactRecord {
+        role: output.role.clone(),
+        kind: output.kind.clone(),
+        path: output.path.clone(),
+        hash: output.hash.clone(),
+        reused,
+    });
+    record.outputs.push(output);
+}
+
+fn refresh_dependency_edges(record: &mut AssetDatabaseRecord) {
+    record.dependency_edges = record
+        .dependencies
+        .iter()
+        .map(|dependency| AssetDependencyEdge {
+            from: record.guid.clone(),
+            to: dependency.path.clone(),
+            role: dependency.role.clone(),
+            present: dependency.present,
+            hash: dependency.hash.clone(),
+        })
+        .collect();
+}
+
+fn sync_record_source(record: &mut AssetDatabaseRecord) {
+    record.source.path = record.source_path.clone();
+    record.source.hash = record.source_hash.clone();
+}
+
+fn write_artifact_manifest(path: &Path, database: &AssetDatabase) -> Result<()> {
+    let assets = database
+        .records
+        .iter()
+        .map(|record| {
+            serde_json::json!({
+                "guid": record.guid.clone(),
+                "id": record.id.clone(),
+                "kind": record.kind.clone(),
+                "source": record.source.clone(),
+                "import_preset": record.import_preset.clone(),
+                "platform_profile": record.platform_profile.clone(),
+                "dependency_edges": record.dependency_edges.clone(),
+                "artifacts": record.artifacts.clone(),
+                "diagnostics": record.diagnostics.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let manifest = serde_json::json!({
+        "schema_version": ASSET_MANIFEST_SCHEMA_VERSION,
+        "asset_database_schema_version": database.schema_version,
+        "platform": database.platform.clone(),
+        "tool_versions": database.tool_versions.clone(),
+        "assets": assets,
+    });
+    write_json(path, &manifest)
+}
+
 pub fn cook_project(
     project: impl AsRef<Path>,
     platform: &str,
@@ -1224,13 +1605,14 @@ pub fn cook_project(
     let output = output.as_ref();
     if platform != "desktop" {
         return Err(ContentError::new(format!(
-            "unsupported Asset v1 platform '{platform}', expected desktop"
+            "unsupported Asset v2 platform '{platform}', expected desktop"
         )));
     }
     fs::create_dir_all(output)?;
     let project_bytes = fs::read(project)?;
     let root: Value = serde_json::from_slice(&project_bytes)?;
     let project_root = project.parent().unwrap_or_else(|| Path::new(""));
+    let platform_profile = platform_profile_record(&root, platform);
     let mut records = Vec::new();
     if let Some(assets) = root.get("assets").and_then(Value::as_array) {
         for asset in assets {
@@ -1240,29 +1622,42 @@ pub fn cook_project(
                 continue;
             };
             let source_path = project_root.join(source);
+            let import_preset = import_preset_record(&root, asset);
+            let stable_guid = value_str(asset, "guid")
+                .map(str::to_string)
+                .or(read_asset_meta_guid(&source_path)?);
             records.push(cook_asset(
                 &source_path,
                 id,
+                stable_guid.as_deref(),
                 declared_kind,
                 project_root,
                 output,
                 platform,
+                import_preset,
+                platform_profile.clone(),
             )?);
         }
     }
     records.sort_by(|lhs, rhs| lhs.guid.cmp(&rhs.guid));
+    let manifest_name = "asset-manifest.astermanifest.json".to_string();
     let database = AssetDatabase {
         schema_version: ASSET_DATABASE_SCHEMA_VERSION,
         platform: platform.to_string(),
+        artifact_manifest: manifest_name.clone(),
+        tool_versions: default_tool_versions(),
         records,
     };
     let database_path = output.join("assetdb.asterdb.json");
     write_json(&database_path, &database)?;
+    let manifest_path = output.join(&manifest_name);
+    write_artifact_manifest(&manifest_path, &database)?;
     let error_count = asset_database_error_count(&database);
     let warning_count = asset_database_warning_count(&database);
     Ok(CookProjectResult {
         database,
         database_path,
+        manifest_path,
         error_count,
         warning_count,
     })
@@ -1271,17 +1666,37 @@ pub fn cook_project(
 pub fn cook_asset(
     source: impl AsRef<Path>,
     id: &str,
+    guid: Option<&str>,
     declared_kind: &str,
     project_root: impl AsRef<Path>,
     output_root: impl AsRef<Path>,
     platform: &str,
+    import_preset: AssetImportPresetRecord,
+    platform_profile: AssetPlatformProfileRecord,
 ) -> Result<AssetDatabaseRecord> {
     let source = source.as_ref();
     let project_root = project_root.as_ref();
     let output_root = output_root.as_ref();
     let source_rel = relative_path_string(source, project_root);
     let kind = canonical_asset_kind(source, declared_kind);
-    let mut record = base_asset_record(id, &kind, &source_rel, platform);
+    let fallback_guid = generate_stable_asset_guid(&kind, id);
+    let mut record = base_asset_record(
+        id,
+        guid.unwrap_or(&fallback_guid),
+        &kind,
+        &source_rel,
+        platform,
+        import_preset.clone(),
+        platform_profile,
+    );
+    if guid.is_none() {
+        record.diagnostics.push(cook_error(format!(
+            "asset '{}' is missing a stable V2 guid; add a project asset guid, create '{}', or run `aster_assetc guid-init --project <file.asterproj>`",
+            id,
+            source.with_extension("astermeta").display()
+        )));
+        return Ok(record);
+    }
     if !source.exists() {
         record.diagnostics.push(cook_error(format!(
             "asset source is missing: {}",
@@ -1291,7 +1706,7 @@ pub fn cook_asset(
     }
     let source_bytes = fs::read(source)?;
     record.source_hash = hash_hex_bytes(&source_bytes);
-    record.guid = asset_guid(&kind, id, &source_rel);
+    sync_record_source(&mut record);
 
     match kind.as_str() {
         "scene" => {
@@ -1303,14 +1718,12 @@ pub fn cook_asset(
             match compile_scene_asset_to_cache(
                 source,
                 &cache_path,
-                CompileOptions {
-                    origin_policy: OriginPolicy::Keep,
-                    unit_scale: 1.0,
-                },
+                compile_options_from_preset(&import_preset),
             ) {
                 Ok(asset) => {
                     record.source_hash = hex_hash(&asset.metadata.source_hash);
                     record.options_hash = hex_hash(&asset.metadata.options_hash);
+                    sync_record_source(&mut record);
                     for material in &asset.materials {
                         for dependency in &material.texture_dependencies {
                             record.dependencies.push(AssetDependencyRecord {
@@ -1327,22 +1740,28 @@ pub fn cook_asset(
                             }
                         }
                     }
-                    record.outputs.push(AssetCookedOutput {
-                        role: "runtime-cache".to_string(),
-                        kind: "astercache".to_string(),
-                        path: relative_path_string(&cache_path, output_root),
-                        hash: hash_file_hex(&cache_path)?,
-                    });
+                    push_output(
+                        &mut record,
+                        AssetCookedOutput {
+                            role: "runtime-cache".to_string(),
+                            kind: "astercache".to_string(),
+                            path: relative_path_string(&cache_path, output_root),
+                            hash: hash_file_hex(&cache_path)?,
+                        },
+                        false,
+                    );
                     let report_path = output_root
                         .join("reports")
                         .join(format!("{}.report.json", safe_stem(id, source)));
                     let report = serde_json::json!({
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "kind": "scene",
                         "id": id,
+                        "guid": record.guid.clone(),
                         "source_path": source_rel,
                         "source_hash": record.source_hash,
                         "options_hash": record.options_hash,
+                        "import_preset": record.import_preset.clone(),
                         "materials": asset.metadata.material_count,
                         "meshes": asset.metadata.mesh_count,
                         "collision_meshes": asset.metadata.collision_mesh_count,
@@ -1351,18 +1770,29 @@ pub fn cook_asset(
                         "diagnostics": record.diagnostics,
                     });
                     write_json(&report_path, &report)?;
-                    record.outputs.push(AssetCookedOutput {
-                        role: "report".to_string(),
-                        kind: "json".to_string(),
-                        path: relative_path_string(&report_path, output_root),
-                        hash: hash_file_hex(&report_path)?,
-                    });
+                    push_output(
+                        &mut record,
+                        AssetCookedOutput {
+                            role: "report".to_string(),
+                            kind: "json".to_string(),
+                            path: relative_path_string(&report_path, output_root),
+                            hash: hash_file_hex(&report_path)?,
+                        },
+                        false,
+                    );
                 }
                 Err(error) => record.diagnostics.push(cook_error(error.to_string())),
             }
         }
         "material" if source.extension().and_then(|v| v.to_str()) == Some("astermat") => {
-            let cooked = cook_material_asset(source, project_root, output_root, id, platform)?;
+            let cooked = cook_material_asset(
+                source,
+                project_root,
+                output_root,
+                id,
+                platform,
+                Some(record.guid.as_str()),
+            )?;
             record.dependencies = cooked.material_bin.dependency_hashes.clone();
             record.diagnostics = cooked.material_bin.diagnostics.clone();
             record.options_hash = hash_hex_text(&format!(
@@ -1371,34 +1801,50 @@ pub fn cook_asset(
             ));
             if cooked.emitted_runtime_outputs {
                 if let Some(material_bin_path) = &cooked.material_bin_path {
-                    record.outputs.push(AssetCookedOutput {
-                        role: "materialbin".to_string(),
-                        kind: "materialbin".to_string(),
-                        path: relative_path_string(material_bin_path, output_root),
-                        hash: hash_file_hex(material_bin_path)?,
-                    });
+                    push_output(
+                        &mut record,
+                        AssetCookedOutput {
+                            role: "materialbin".to_string(),
+                            kind: "materialbin".to_string(),
+                            path: relative_path_string(material_bin_path, output_root),
+                            hash: hash_file_hex(material_bin_path)?,
+                        },
+                        false,
+                    );
                 }
-                record.outputs.push(AssetCookedOutput {
-                    role: "report".to_string(),
-                    kind: "json".to_string(),
-                    path: relative_path_string(&cooked.report_path, output_root),
-                    hash: hash_file_hex(&cooked.report_path)?,
-                });
+                push_output(
+                    &mut record,
+                    AssetCookedOutput {
+                        role: "report".to_string(),
+                        kind: "json".to_string(),
+                        path: relative_path_string(&cooked.report_path, output_root),
+                        hash: hash_file_hex(&cooked.report_path)?,
+                    },
+                    false,
+                );
                 if let Some(preview_path) = &cooked.preview_path {
-                    record.outputs.push(AssetCookedOutput {
-                        role: "preview".to_string(),
-                        kind: "ppm".to_string(),
-                        path: relative_path_string(preview_path, output_root),
-                        hash: hash_file_hex(preview_path)?,
-                    });
+                    push_output(
+                        &mut record,
+                        AssetCookedOutput {
+                            role: "preview".to_string(),
+                            kind: "ppm".to_string(),
+                            path: relative_path_string(preview_path, output_root),
+                            hash: hash_file_hex(preview_path)?,
+                        },
+                        false,
+                    );
                 }
                 for texture in &cooked.material_bin.textures {
-                    record.outputs.push(AssetCookedOutput {
-                        role: format!("texture:{}", texture.role),
-                        kind: "ktx2".to_string(),
-                        path: texture.cooked_path.clone(),
-                        hash: texture.cooked_hash.clone(),
-                    });
+                    push_output(
+                        &mut record,
+                        AssetCookedOutput {
+                            role: format!("texture:{}", texture.role),
+                            kind: "ktx2".to_string(),
+                            path: texture.cooked_path.clone(),
+                            hash: texture.cooked_hash.clone(),
+                        },
+                        false,
+                    );
                 }
             }
         }
@@ -1411,18 +1857,26 @@ pub fn cook_asset(
             match cook_texture_asset(source, output_root, role) {
                 Ok(cooked) => {
                     record.options_hash = hash_hex_text("texture:ktx2-basis:v1");
-                    record.outputs.push(AssetCookedOutput {
-                        role: "texture".to_string(),
-                        kind: "ktx2".to_string(),
-                        path: relative_path_string(&cooked.output_path, output_root),
-                        hash: cooked.report.cooked_hash.clone(),
-                    });
-                    record.outputs.push(AssetCookedOutput {
-                        role: "report".to_string(),
-                        kind: "json".to_string(),
-                        path: relative_path_string(&cooked.report_path, output_root),
-                        hash: hash_file_hex(&cooked.report_path)?,
-                    });
+                    push_output(
+                        &mut record,
+                        AssetCookedOutput {
+                            role: "texture".to_string(),
+                            kind: "ktx2".to_string(),
+                            path: relative_path_string(&cooked.output_path, output_root),
+                            hash: cooked.report.cooked_hash.clone(),
+                        },
+                        false,
+                    );
+                    push_output(
+                        &mut record,
+                        AssetCookedOutput {
+                            role: "report".to_string(),
+                            kind: "json".to_string(),
+                            path: relative_path_string(&cooked.report_path, output_root),
+                            hash: hash_file_hex(&cooked.report_path)?,
+                        },
+                        false,
+                    );
                     record.dependencies.push(AssetDependencyRecord {
                         role: role.to_string(),
                         path: source_rel,
@@ -1434,11 +1888,12 @@ pub fn cook_asset(
             }
         }
         _ => record.diagnostics.push(cook_warning(format!(
-            "Asset v1 cook does not transform kind '{}' from '{}'",
+            "Asset v2 cook does not transform kind '{}' from '{}'",
             declared_kind,
             source.display()
         ))),
     }
+    refresh_dependency_edges(&mut record);
     Ok(record)
 }
 
@@ -1465,6 +1920,7 @@ pub fn cook_material_asset(
     output_root: impl AsRef<Path>,
     fallback_id: &str,
     platform: &str,
+    asset_guid_override: Option<&str>,
 ) -> Result<MaterialCookResult> {
     let input = input.as_ref();
     let project_root = project_root.as_ref();
@@ -1476,7 +1932,9 @@ pub fn cook_material_asset(
     } else {
         parsed.id.clone()
     };
-    let asset_guid = asset_guid("material", &id, &relative_path_string(input, project_root));
+    let asset_guid = asset_guid_override
+        .map(str::to_string)
+        .unwrap_or_else(|| asset_guid("material", &id, &relative_path_string(input, project_root)));
     let material_stem = safe_identifier(&id);
     let mut texture_records = Vec::new();
     let mut emitted_texture_artifacts = Vec::new();
@@ -2846,21 +3304,33 @@ fn material_bin_pipeline_tag(parsed: &ParsedMaterialSource, textured: bool) -> S
 
 fn base_asset_record(
     id: &str,
+    guid: &str,
     kind: &str,
     source_path: &str,
     platform: &str,
+    import_preset: AssetImportPresetRecord,
+    platform_profile: AssetPlatformProfileRecord,
 ) -> AssetDatabaseRecord {
     AssetDatabaseRecord {
-        guid: asset_guid(kind, id, source_path),
+        guid: guid.to_string(),
         id: id.to_string(),
         kind: kind.to_string(),
+        source: AssetSourceRecord {
+            path: source_path.to_string(),
+            hash: String::new(),
+        },
         source_path: source_path.to_string(),
+        import_preset,
+        platform_profile,
         import_settings_version: ASSET_IMPORT_SETTINGS_VERSION,
         source_hash: String::new(),
         options_hash: hash_hex_text(&format!("{kind}:{}", ASSET_IMPORT_SETTINGS_VERSION)),
+        dependency_edges: Vec::new(),
         dependencies: Vec::new(),
+        artifacts: Vec::new(),
         outputs: Vec::new(),
         diagnostics: Vec::new(),
+        tool_versions: default_tool_versions(),
         platform: platform.to_string(),
     }
 }
@@ -2873,10 +3343,26 @@ fn canonical_asset_kind(path: &Path, declared_kind: &str) -> String {
         .to_ascii_lowercase();
     match extension.as_str() {
         "scene" | "gltf" | "glb" => "scene".to_string(),
+        "fbx" | "usd" | "usda" | "usdc" | "usdz" | "blend" => "scene".to_string(),
         "astermat" => "material".to_string(),
         "png" | "ktx2" | "tga" | "jpg" | "jpeg" => "texture".to_string(),
         _ if !declared_kind.is_empty() => declared_kind.to_string(),
         _ => "unknown".to_string(),
+    }
+}
+
+fn dcc_source_kind(path: &Path) -> Option<&'static str> {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "fbx" => Some("fbx"),
+        "usd" | "usda" | "usdc" | "usdz" => Some("usd"),
+        "blend" => Some("blend"),
+        _ => None,
     }
 }
 
@@ -2889,6 +3375,54 @@ fn asset_guid(kind: &str, id: &str, source_path: &str) -> String {
     hasher.update(b"\0");
     hasher.update(source_path.replace('\\', "/").as_bytes());
     hex_hash(hasher.finalize().as_bytes())
+}
+
+pub fn generate_stable_asset_guid(kind: &str, id: &str) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"aster.asset.guid.v2\0");
+    hasher.update(kind.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(id.as_bytes());
+    hex_hash(hasher.finalize().as_bytes())
+}
+
+pub fn write_missing_asset_meta(project: impl AsRef<Path>) -> Result<usize> {
+    let project = project.as_ref();
+    let root: Value = serde_json::from_slice(&fs::read(project)?)?;
+    let project_root = project.parent().unwrap_or_else(|| Path::new(""));
+    let mut written = 0usize;
+    let Some(assets) = root.get("assets").and_then(Value::as_array) else {
+        return Ok(0);
+    };
+    for asset in assets {
+        if value_str(asset, "guid").is_some() {
+            continue;
+        }
+        let id = value_str(asset, "id").unwrap_or("");
+        let declared_kind = value_str(asset, "kind").unwrap_or("");
+        let Some(source) = value_str(asset, "path") else {
+            continue;
+        };
+        let source_path = project_root.join(source);
+        if read_asset_meta_guid(&source_path)?.is_some() {
+            continue;
+        }
+        let kind = canonical_asset_kind(&source_path, declared_kind);
+        let mut meta_path = source_path.clone();
+        meta_path.set_extension("astermeta");
+        if let Some(parent) = meta_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let meta = serde_json::json!({
+            "schema_version": 1,
+            "guid": generate_stable_asset_guid(&kind, id),
+            "id": id,
+            "kind": kind,
+        });
+        write_json(&meta_path, &meta)?;
+        written += 1;
+    }
+    Ok(written)
 }
 
 fn hash_file_hex(path: &Path) -> Result<String> {
@@ -4899,6 +5433,45 @@ fn write_collision_chunk(meshes: &[CollisionMesh]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+fn write_geometry_audit_chunk(asset: &CompiledSceneAsset) -> Result<Vec<u8>> {
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "kind": "geometry-audit",
+        "mesh_count": asset.metadata.mesh_count,
+        "collision_mesh_count": asset.metadata.collision_mesh_count,
+        "total_vertices": asset.metadata.total_vertices,
+        "total_indices": asset.metadata.total_indices,
+        "total_collision_triangles": asset.metadata.total_collision_triangles,
+        "diagnostics": {
+            "input_vertices": asset.metadata.diagnostics.input_vertices,
+            "input_indices": asset.metadata.diagnostics.input_indices,
+            "output_vertices": asset.metadata.diagnostics.output_vertices,
+            "output_indices": asset.metadata.diagnostics.output_indices,
+            "degenerate_triangles": asset.metadata.diagnostics.degenerate_triangles,
+            "invalid_normals": asset.metadata.diagnostics.invalid_normals,
+            "generated_tangents": asset.metadata.diagnostics.generated_tangents,
+            "remapped_vertices": asset.metadata.diagnostics.remapped_vertices,
+        },
+        "meshlet_policy": "deterministic-64-126-audit",
+        "lod_policy": "audit-only",
+        "tangent_space": "mikk-compatible-contract",
+        "lightmap_uv_policy": "audit-only",
+        "skeleton_policy": "import-and-validate",
+        "animation_policy": "import-clips",
+        "morph_policy": "preserve-and-validate"
+    });
+    Ok(serde_json::to_vec(&report)?)
+}
+
+fn write_empty_named_chunk(label: &str) -> Result<Vec<u8>> {
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "label": label,
+        "items": []
+    });
+    Ok(serde_json::to_vec(&report)?)
+}
+
 fn read_collision_chunk(bytes: &[u8]) -> Result<Vec<CollisionMesh>> {
     let mut cursor = 0usize;
     let count = read_u32(bytes, &mut cursor)? as usize;
@@ -5405,10 +5978,16 @@ mod tests {
         fs::write(
             dir.join("project.asterproj"),
             r#"{
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "Material Cook Test",
   "assets": [
-    { "id": "material.wet_rock", "kind": "material", "path": "materials/wet_rock.astermat" }
+    {
+      "id": "material.wet_rock",
+      "guid": "asset-v2-wet-rock-00000000000000000001",
+      "kind": "material",
+      "path": "materials/wet_rock.astermat",
+      "import_preset": "default"
+    }
   ]
 }
 "#,
@@ -5518,10 +6097,16 @@ mod tests {
         fs::write(
             dir.join("project.asterproj"),
             r#"{
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "Bad Roles",
   "assets": [
-    { "id": "material.bad_roles", "kind": "material", "path": "materials/bad.astermat" }
+    {
+      "id": "material.bad_roles",
+      "guid": "asset-v2-bad-roles-0000000000000000001",
+      "kind": "material",
+      "path": "materials/bad.astermat",
+      "import_preset": "default"
+    }
   ]
 }
 "#,

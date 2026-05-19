@@ -1,8 +1,20 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "Aster Material Lab",
   "assets": [
-    { "id": "material.showcase_wet_rock", "kind": "material", "path": "wet_rock.astermat" },
-    { "id": "material.showcase_weathered_metal", "kind": "material", "path": "weathered_metal.astermat" }
+    {
+      "id": "material.showcase_wet_rock",
+      "guid": "asset-v2-showcase-wet-rock-0000000001",
+      "kind": "material",
+      "path": "wet_rock.astermat",
+      "import_preset": "default"
+    },
+    {
+      "id": "material.showcase_weathered_metal",
+      "guid": "asset-v2-showcase-weathered-metal-0001",
+      "kind": "material",
+      "path": "weathered_metal.astermat",
+      "import_preset": "default"
+    }
   ]
 }
