@@ -786,7 +786,7 @@ int main(int argc, char **argv) {
     if (debug_cave_overlay) {
       game.setCaveDebugOverlayLayerMask(caveOverlayAllLayerMask());
     }
-    if (deep_cave_capture || deep_cave_stress_capture) {
+    if (deep_cave_capture || deep_cave_stress_capture || classic_gauntlet_capture) {
       game.setPlayerAvatarVisible(false);
     }
     mark_startup("game_reset");

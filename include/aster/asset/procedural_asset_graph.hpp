@@ -5,6 +5,7 @@
 
 #include "aster/material/material_asset.hpp"
 #include "aster/material/material_graph.hpp"
+#include "aster/render/mesh.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -74,6 +75,7 @@ struct ProceduralAssetGraphPackage {
 loadProceduralAssetGraphPackage(const std::filesystem::path &path);
 
 [[nodiscard]] Material proceduralAssetGraphMaterial(const ProceduralAssetGraphPackage &package);
+[[nodiscard]] CpuMesh proceduralAssetGraphMesh(const ProceduralAssetGraphPackage &package);
 [[nodiscard]] MaterialAuthoringGraph
 materialAuthoringGraphForPackage(const ProceduralAssetGraphPackage &package);
 

@@ -1,0 +1,50 @@
+astergraph asset_graph.primate_lab.cercopithecidae
+schema_version 1
+name "Cercopithecidae Procedural Anatomy"
+material_id material.graph_cercopithecidae_anatomy
+surface_profile plain
+primitive cercopithecidae
+uv_policy anatomical-triplanar
+tangent_policy validate-or-generate
+collision_proxy anatomical-bounds
+lod_policy inspection-single-lod
+base_color 0.62 0.53 0.42
+roughness 0.74
+metallic 0.0
+param wetness 0.0
+param macro_variation 0.30
+param micro_normal_strength 0.24
+param roughness_variation 0.18
+param height_shading 0.10
+feature triplanar true
+feature normal_map true
+preview environment anatomy-neutral
+preview rig primate-lab-three-point
+node mesh.cercopithecidae mesh_primitive role=mesh primitive=cercopithecidae
+node uv.anatomical uv_policy role=uv mapping=anatomical-triplanar texel_density=3.1
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=plain
+node anatomy.cranium ellipsoid_section role=anatomy label="expanded neurocranium" radius=0.34,0.31,0.39
+node anatomy.brow anatomy_landmark role=landmark label="supraorbital ridge" projection=0.082
+node anatomy.maxilla anatomy_landmark role=landmark label="prognathic maxilla" prognathism=0.29
+node anatomy.mandible sweep_limb role=bone label="mandibular ramus" height=0.20
+node anatomy.dentition bilophodont_tooth_row role=dentition molars=8 loph_pairs=16
+node anatomy.orbit surface_pad role=soft_tissue label="periocular organization"
+node anatomy.temporalis muscle_volume role=muscle label="temporalis insertio"
+node anatomy.zygoma tendon_band role=tendon label="zygomaticus major minor"
+node anatomy.axial sweep_limb role=skeleton cervical=7 thoracic=12 lumbar=7
+node anatomy.forelimb sweep_limb role=appendicular label="radius ulna pronation supination"
+node anatomy.manus joint_range role=manus opposable_pollex=54 distal_phalanx_curve=0.18
+node anatomy.pelvis joint_range role=pelvis iliac_crest=0.60 femoroacetabular_angle=132
+node anatomy.crus muscle_volume role=hindlimb gastrocnemius=0.13 digitigrade=true
+node anatomy.pes surface_pad role=pes plantar_pad=0.052 phalanx_elongation=1.22
+node anatomy.measure measurement_probe role=quality profile=craniofacial_biomechanics
+node collision.proxy collision_proxy role=collision shape=anatomical-bounds
+node lod.single lod_generator role=lod policy=inspection-single-lod
+node probe.preview probe_helper role=lighting environment=anatomy-neutral
+node prefab.variant prefab_variant role=prefab variant=primate-lab
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge anatomy.cranium material.assign anatomy_surface
+edge anatomy.dentition material.assign enamel_surface
+edge anatomy.measure diagnostic.quality measurements

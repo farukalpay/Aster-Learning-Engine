@@ -191,6 +191,8 @@ set(ASTER_GEOMETRY_SOURCES
   "${PROJECT_SOURCE_DIR}/src/geometry/mesh_modeling.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/mesh_projection.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/nature_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/primate_anatomy.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/procedural_modeling.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/stroke_mesh.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/terrain_mesh.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/terrain_sculpt.cpp"
@@ -525,6 +527,18 @@ if(ASTER_BUILD_TESTS)
   aster_add_test(aster_math_tests tests/math_tests.cpp)
   aster_add_test(aster_math_property_tests tests/math_property_tests.cpp)
   aster_add_test(aster_geometry_tests tests/geometry_tests.cpp)
+  add_executable(aster_cercopithecidae_modeling_tests
+    tests/cercopithecidae_modeling_tests.cpp)
+  target_link_libraries(aster_cercopithecidae_modeling_tests PRIVATE aster_engine_internal)
+  target_include_directories(aster_cercopithecidae_modeling_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/tests)
+  target_compile_definitions(aster_cercopithecidae_modeling_tests PRIVATE
+    ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    ASTER_ASSETC_EXECUTABLE="${ASTER_ASSETC_EXECUTABLE}"
+  )
+  add_dependencies(aster_cercopithecidae_modeling_tests aster_rust_runtime)
+  add_test(NAME aster_cercopithecidae_modeling_tests
+           COMMAND aster_cercopithecidae_modeling_tests)
   add_executable(aster_asset_cache_tests tests/asset_cache_tests.cpp)
   target_link_libraries(aster_asset_cache_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_asset_cache_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
@@ -664,6 +678,7 @@ if(ASTER_BUILD_TESTS)
       native_render_style_shaders
       hot_reload_snapshot
       invalid_material_diagnostics
+      procedural_asset_graph_package
   )
     add_test(NAME aster_material_shader_system_tests.${material_shader_case}
              COMMAND aster_material_shader_system_tests ${material_shader_case})

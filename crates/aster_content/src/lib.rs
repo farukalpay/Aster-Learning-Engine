@@ -1889,6 +1889,15 @@ fn graph_node_capability_status(kind: &str) -> &'static str {
         | "height_baker"
         | "collision_proxy"
         | "lod_generator"
+        | "anatomy_landmark"
+        | "ellipsoid_section"
+        | "sweep_limb"
+        | "bilophodont_tooth_row"
+        | "joint_range"
+        | "muscle_volume"
+        | "tendon_band"
+        | "surface_pad"
+        | "measurement_probe"
         | "probe_helper"
         | "prefab_variant"
         | "cook_export"
@@ -2138,6 +2147,12 @@ fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
             "collision_proxy" => set(13),
             "lod_generator" => set(14),
             "probe_helper" | "prefab_variant" | "cook_export" | "diagnostic" => set(15),
+            "anatomy_landmark" | "measurement_probe" => set(20),
+            "ellipsoid_section" | "sweep_limb" => set(21),
+            "bilophodont_tooth_row" => set(22),
+            "joint_range" => set(23),
+            "muscle_volume" | "tendon_band" => set(24),
+            "surface_pad" => set(25),
             _ => {}
         }
     }

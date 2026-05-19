@@ -14,5 +14,6 @@ namespace aster {
 [[nodiscard]] Scene makeLightingLabShowcaseScene();
 [[nodiscard]] Scene makeSceneLabShowcaseScene();
 [[nodiscard]] Scene makeCaveConformanceShowcaseScene();
+[[nodiscard]] Scene makeCercopithecidaeShowcaseScene();
 
 } // namespace aster

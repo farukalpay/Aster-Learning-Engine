@@ -46,6 +46,9 @@ aster::Scene makeScene(const std::string &scene_name) {
   if (scene_name == "cave-conformance") {
     return aster::makeCaveConformanceShowcaseScene();
   }
+  if (scene_name == "cercopithecidae") {
+    return aster::makeCercopithecidaeShowcaseScene();
+  }
   if (scene_name == "architecture") {
     return aster::makeArchitectureShowcaseScene();
   }
@@ -100,6 +103,14 @@ aster::OrbitCamera makeCamera(const std::string &scene_name) {
     camera.pitch = aster::radians(13.0f);
     camera.radius = 4.9f;
     camera.vertical_fov = aster::radians(43.0f);
+    return camera;
+  }
+  if (scene_name == "cercopithecidae") {
+    camera.target = {0.0f, 0.92f, -0.48f};
+    camera.yaw = aster::radians(35.0f);
+    camera.pitch = aster::radians(18.0f);
+    camera.radius = 4.7f;
+    camera.vertical_fov = aster::radians(38.0f);
     return camera;
   }
   camera.target = {0.0f, 1.18f, -0.35f};
@@ -214,6 +225,23 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
         aster::Light{{-1.58f, 1.20f, -1.52f}, {5.2f, 2.0f, 0.62f}, 1.0f, 0.52f},
         aster::Light{{1.35f, 1.08f, -1.82f}, {4.4f, 1.7f, 0.54f}, 1.0f, 0.48f},
         aster::Light{{0.0f, 0.82f, 0.72f}, {0.62f, 1.05f, 1.45f}, 1.0f, 0.86f},
+    };
+  }
+  if (scene_name == "cercopithecidae") {
+    settings.exposure = 1.08f;
+    settings.ambient_strength = 0.28f;
+    settings.sun_light.intensity = 2.20f;
+    settings.sun_light.direction_to_light = {-0.40f, 0.82f, 0.26f};
+    settings.pipeline.clear_color = {0.020f, 0.024f, 0.026f};
+    settings.atmosphere.fog_strength = 0.06f;
+    settings.grounding.enabled = true;
+    settings.grounding.contact_shadows = true;
+    settings.grounding.auto_contact_shadows = true;
+    settings.grounding.contact_shadow_strength = 0.36f;
+    settings.light_rig = {
+        aster::Light{{-2.8f, 3.2f, 1.4f}, {10.0f, 8.0f, 6.0f}, 1.0f, 0.76f},
+        aster::Light{{2.4f, 1.8f, -1.8f}, {3.5f, 4.2f, 5.5f}, 1.0f, 0.90f},
+        aster::Light{{0.0f, 2.4f, 1.9f}, {4.0f, 3.2f, 2.6f}, 1.0f, 0.94f},
     };
   }
 

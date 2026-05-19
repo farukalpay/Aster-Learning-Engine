@@ -2098,6 +2098,40 @@ void LumenRun::rebuildScene() {
                0.18f, 9.0f, 0.02f, 0.94f, SurfacePattern::CourseCells, {8.0f, 6.0f}, 0.014f,
                0.64f, 0.03f);
   gauntlet_map_material.emission_strength = 0.24f;
+  Material gauntlet_hunter_chitin =
+      material({0.18f, 0.055f, 0.045f}, {0.76f, 0.070f, 0.030f}, 0.34f, 0.08f, 0.16f, 0.80f,
+               30.0f, 0.18f, 0.90f, SurfacePattern::CaveSkitterChitin, {34.0f, 42.0f}, 0.082f,
+               0.96f, 0.040f,
+               {.macro_variation = 0.30f,
+                .micro_normal_strength = 0.44f,
+                .roughness_variation = 0.18f,
+                .height_shading = 0.18f});
+  gauntlet_hunter_chitin.camera_occlusion = CameraOcclusionPolicy::Solid;
+  gauntlet_hunter_chitin.opacity = 1.0f;
+  gauntlet_hunter_chitin.emission_strength = 0.22f;
+  gauntlet_hunter_chitin.alpha_mode = MaterialAlphaMode::Opaque;
+  gauntlet_hunter_chitin.depth_write = MaterialDepthWrite::Enabled;
+  Material gauntlet_hunter_eye =
+      material({0.95f, 0.18f, 0.10f}, {1.0f, 0.08f, 0.025f}, 0.22f, 0.0f, 0.44f, 0.20f,
+               5.0f, 0.01f, 0.92f, SurfacePattern::AmberResin, {6.0f, 8.0f}, 0.012f, 0.42f,
+               0.04f);
+  gauntlet_hunter_eye.emission_strength = 0.34f;
+  gauntlet_hunter_eye.alpha_mode = MaterialAlphaMode::Blend;
+  gauntlet_hunter_eye.depth_write = MaterialDepthWrite::Disabled;
+  const std::shared_ptr<const CpuMesh> gauntlet_hunter_mesh =
+      makeSharedMesh(makeCaveSkitterMesh({.body_segments = 42,
+                                          .body_rings = 13,
+                                          .leg_segments = 12,
+                                          .body_length = 0.48f,
+                                          .body_width = 0.28f,
+                                          .body_height = 0.16f,
+                                          .abdomen_length = 0.54f,
+                                          .abdomen_width = 0.34f,
+                                          .abdomen_height = 0.22f,
+                                          .leg_span = 0.70f,
+                                          .leg_lift = 0.085f,
+                                          .fang_length = 0.13f,
+                                          .eye_radius = 0.030f}));
 
   appendScenery("Classic gauntlet pressure glyph", MeshPrimitive::Box,
                 classic_gauntlet_plate_, {0.72f, 0.035f, 0.72f}, {0.0f, gauntlet_yaw, 0.0f},
@@ -2149,24 +2183,35 @@ void LumenRun::rebuildScene() {
   for (int i = 0; i < 3; ++i) {
     const float offset = static_cast<float>(i - 1) * 0.62f;
     const Vec3 actor_position = gauntlet_lift_frame.floor_center + gauntlet_lift_frame.side * offset +
-                                gauntlet_lift_frame.tangent * (0.52f + 0.35f * i) +
-                                gauntlet_lift_frame.up * 0.24f;
+                                gauntlet_lift_frame.tangent * (0.34f + 0.34f * i) +
+                                gauntlet_lift_frame.up * 0.32f;
     const std::string actor_id = "classic.gauntlet.sentinel." + std::to_string(i);
     classic_gauntlet_actors_.spawn({.id = actor_id,
                                     .kind = ClassicActorKind::Scout,
                                     .position = actor_position,
                                     .home = actor_position,
                                     .radius = 0.28f,
-                                    .speed = 0.92f + static_cast<float>(i) * 0.08f,
+                                    .speed = 0.48f + static_cast<float>(i) * 0.05f,
                                     .notice_radius = 5.2f,
                                     .strike_radius = 0.56f,
                                     .strike_cooldown = 1.25f,
                                     .health = 2,
                                     .seed = 0xA57E9000u + static_cast<std::uint32_t>(i)});
-    const std::size_t actor_object = appendScenery(
-        "Classic gauntlet encounter sentinel", MeshPrimitive::Crystal, actor_position,
-        {0.34f, 0.26f, 0.34f}, {0.0f, gauntlet_yaw, 0.0f}, cave_skitter_material);
-    classic_gauntlet_actor_visuals_.push_back({actor_id, actor_object});
+    const std::size_t actor_object =
+        appendGeneratedScenery("Classic gauntlet encounter sentinel", gauntlet_hunter_mesh,
+                               actor_position, {1.18f, 1.18f, 1.18f},
+                               {0.0f, gauntlet_yaw, 0.0f}, gauntlet_hunter_chitin);
+    enableContactShadow(actor_object, 0.54f, 0.88f);
+    const std::size_t eye_object =
+        appendScenery("Classic gauntlet sentinel red eye", MeshPrimitive::Sphere,
+                      actor_position + gauntlet_lift_frame.tangent * 0.38f + Vec3{0.0f, 0.30f, 0.0f},
+                      {0.11f, 0.070f, 0.11f}, {0.0f, gauntlet_yaw, 0.0f},
+                      gauntlet_hunter_eye);
+    const std::size_t beacon_object = appendScenery(
+        "Classic gauntlet sentinel alert beacon", MeshPrimitive::Crystal,
+        actor_position + Vec3{0.0f, 0.56f, 0.0f}, {0.095f, 0.15f, 0.095f},
+        {0.0f, gauntlet_yaw, 0.0f}, gauntlet_hunter_eye);
+    classic_gauntlet_actor_visuals_.push_back({actor_id, actor_object, eye_object, beacon_object});
   }
   refreshClassicGauntletAutomap();
 

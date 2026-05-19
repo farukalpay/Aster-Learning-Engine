@@ -395,6 +395,12 @@ void LumenRun::updateClassicGauntletVisuals(const float dt) {
     const ClassicActorState *actor = classic_gauntlet_actors_.find(visual.id);
     if (actor == nullptr || actor->mode == ClassicActorMode::Dead) {
       hideRenderObject(objects[visual.object_index]);
+      if (visual.eye_object_index < objects.size()) {
+        hideRenderObject(objects[visual.eye_object_index]);
+      }
+      if (visual.beacon_object_index < objects.size()) {
+        hideRenderObject(objects[visual.beacon_object_index]);
+      }
       continue;
     }
     RenderObject &object = objects[visual.object_index];
@@ -402,11 +408,30 @@ void LumenRun::updateClassicGauntletVisuals(const float dt) {
                                 actor->mode == ClassicActorMode::Strike
                             ? 1.0f
                             : 0.0f;
-    object.transform.position = actor->position + Vec3{0.0f, 0.17f, 0.0f};
+    const Vec3 forward{std::sin(actor->facing_yaw), 0.0f, std::cos(actor->facing_yaw)};
+    object.transform.position = actor->position + Vec3{0.0f, 0.14f, 0.0f};
     object.transform.rotation =
-        quatFromEulerXyz({0.0f, actor->facing_yaw, 0.09f * std::sin(actor->age * 7.0f)});
-    object.transform.scale = {0.34f + alert * 0.06f, 0.26f, 0.34f + alert * 0.06f};
-    object.material.emission_strength = 0.08f + alert * 0.26f;
+        quatFromEulerXyz({0.0f, actor->facing_yaw, 0.055f * std::sin(actor->age * 7.0f)});
+    object.transform.scale = {1.62f + alert * 0.16f, 1.50f + alert * 0.08f,
+                              1.62f + alert * 0.16f};
+    object.material.emission_strength = 0.24f + alert * 0.32f;
+    if (visual.eye_object_index < objects.size()) {
+      RenderObject &eye = objects[visual.eye_object_index];
+      eye.transform.position = actor->position + forward * 0.40f + Vec3{0.0f, 0.34f, 0.0f};
+      eye.transform.rotation = quatFromEulerXyz({0.0f, actor->facing_yaw, 0.0f});
+      const float eye_pulse = 0.5f + 0.5f * std::sin(actor->age * (alert > 0.0f ? 15.0f : 8.0f));
+      eye.transform.scale = {0.105f + eye_pulse * 0.018f, 0.070f, 0.105f + eye_pulse * 0.018f};
+      eye.material.emission_strength = 0.40f + alert * 0.40f + eye_pulse * 0.16f;
+    }
+    if (visual.beacon_object_index < objects.size()) {
+      RenderObject &beacon = objects[visual.beacon_object_index];
+      beacon.transform.position = actor->position + Vec3{0.0f, 0.60f + alert * 0.06f, 0.0f};
+      beacon.transform.rotation = quatFromEulerXyz({0.0f, actor->facing_yaw + actor->age * 2.4f, 0.0f});
+      const float beacon_pulse = 0.5f + 0.5f * std::sin(actor->age * 10.0f);
+      beacon.transform.scale = {0.080f + alert * 0.040f, 0.13f + beacon_pulse * 0.040f,
+                                0.080f + alert * 0.040f};
+      beacon.material.emission_strength = 0.28f + alert * 0.50f + beacon_pulse * 0.14f;
+    }
   }
 }
 

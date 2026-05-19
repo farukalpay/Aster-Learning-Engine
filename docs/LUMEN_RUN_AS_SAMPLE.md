@@ -33,5 +33,5 @@ Useful commands:
 ./build/aster_lumen_run --smoke-test --no-vsync
 ./build/aster_lumen_run --frame-report --run-frames 240 --window-width 1280 --window-height 720
 ./build/aster_lumen_run --screenshot /tmp/lumen_run.ppm --screenshot-frame 8 --capture-hud
-./build/aster_lumen_run --screenshot /tmp/lumen_classic.ppm --capture-route classic-gauntlet --screenshot-frame 96 --capture-hud --msaa 0 --window-width 1280 --window-height 720
+./build/aster_lumen_run --screenshot /tmp/lumen_classic.ppm --capture-route classic-gauntlet --screenshot-frame 160 --capture-hud --msaa 0 --window-width 1280 --window-height 720
 ```

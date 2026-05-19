@@ -1,0 +1,13 @@
+{
+  "schema_version": 2,
+  "name": "Primate Lab",
+  "assets": [
+    {
+      "id": "asset_graph.primate_lab.cercopithecidae",
+      "guid": "asset-v2-primate-lab-cercopithecidae-00000001",
+      "kind": "asset_graph",
+      "path": "cercopithecidae.astergraph",
+      "import_preset": "default"
+    }
+  ]
+}

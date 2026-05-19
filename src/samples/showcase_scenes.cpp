@@ -7,12 +7,14 @@
 #include "aster/geometry/cable_mesh.hpp"
 #include "aster/geometry/cave_web_mesh.hpp"
 #include "aster/geometry/fracture_mesh.hpp"
+#include "aster/geometry/primate_anatomy.hpp"
 #include "aster/geometry/terrain_mesh.hpp"
 #include "aster/geometry/tube_mesh.hpp"
 
 #include <cstdint>
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <utility>
 
 namespace aster {
@@ -147,6 +149,37 @@ std::shared_ptr<const CpuMesh> labFracturedMesh() {
     return std::make_shared<const CpuMesh>(std::move(merged));
   }();
   return mesh;
+}
+
+Material cercopithecidaeMaterialFor(const AnatomicalTissue tissue) {
+  switch (tissue) {
+  case AnatomicalTissue::Bone:
+    return material({0.72f, 0.66f, 0.55f}, {}, 0.74f, 0.0f, 0.0f, 0.34f, 5.0f, 0.08f,
+                    0.88f, SurfacePattern::None);
+  case AnatomicalTissue::Enamel:
+    return material({0.92f, 0.88f, 0.76f}, {0.015f, 0.012f, 0.008f}, 0.34f, 0.0f, 0.02f,
+                    0.12f, 2.0f, 0.0f, 0.96f, SurfacePattern::None);
+  case AnatomicalTissue::Muscle:
+    return material({0.48f, 0.15f, 0.13f}, {}, 0.62f, 0.0f, 0.0f, 0.48f, 6.0f, 0.10f,
+                    0.76f, SurfacePattern::FiberStrands, {7.0f, 2.0f}, 0.08f, 0.38f);
+  case AnatomicalTissue::Tendon:
+    return material({0.78f, 0.68f, 0.48f}, {}, 0.66f, 0.0f, 0.0f, 0.42f, 9.0f, 0.06f,
+                    0.84f, SurfacePattern::FiberStrands, {9.0f, 1.4f}, 0.06f, 0.32f);
+  case AnatomicalTissue::SoftTissue:
+    return material({0.55f, 0.32f, 0.25f}, {}, 0.70f, 0.0f, 0.0f, 0.24f, 3.0f, 0.04f,
+                    0.82f, SurfacePattern::FiberStrands, {2.0f, 2.0f}, 0.025f, 0.16f);
+  case AnatomicalTissue::PlantarPad:
+    return material({0.20f, 0.17f, 0.14f}, {}, 0.84f, 0.0f, 0.0f, 0.30f, 3.4f, 0.06f,
+                    0.70f, SurfacePattern::FiberStrands, {2.4f, 1.6f}, 0.035f, 0.20f);
+  case AnatomicalTissue::FurSkin:
+    return material({0.34f, 0.29f, 0.22f}, {}, 0.82f, 0.0f, 0.0f, 0.58f, 9.0f, 0.12f,
+                    0.70f, SurfacePattern::FurFibers, {8.0f, 4.0f}, 0.10f, 0.34f,
+                    0.08f, {.macro_variation = 0.28f,
+                            .micro_normal_strength = 0.26f,
+                            .roughness_variation = 0.20f,
+                            .height_shading = 0.08f});
+  }
+  return material({0.65f, 0.62f, 0.56f}, {}, 0.70f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
 }
 
 } // namespace
@@ -630,6 +663,46 @@ Scene makeCaveConformanceShowcaseScene() {
                                       .ground_irradiance = {0.10f, 0.075f, 0.052f},
                                       .specular_tint = {1.0f, 0.88f, 0.76f},
                                       .intensity = 1.35f});
+  return scene;
+}
+
+Scene makeCercopithecidaeShowcaseScene() {
+  Scene scene;
+
+  const Material floor_material =
+      makeSupportSurfaceMaterial(material({0.10f, 0.115f, 0.105f}, {}, 0.92f, 0.0f, 0.0f,
+                                          0.20f, 3.0f, 0.08f, 0.86f,
+                                          SurfacePattern::CourseCells, {2.0f, 2.0f},
+                                          0.035f, 0.22f));
+  RenderObject floor;
+  floor.name = "cercopithecidae anatomical inspection floor";
+  floor.primitive = MeshPrimitive::Plane;
+  floor.transform.scale = {1.35f, 1.0f, 1.35f};
+  floor.material = floor_material;
+  floor.auto_contact_shadow = false;
+  scene.objects().push_back(floor);
+
+  const AnatomicalModel model = makeCercopithecidaeModel({.surface_segments = 28,
+                                                          .surface_rings = 14,
+                                                          .include_soft_tissue = true,
+                                                          .include_muscle_insertions = true,
+                                                          .include_surface_pads = true});
+  for (const AnatomicalModelPart &part : model.parts) {
+    RenderObject object;
+    object.name = "Cercopithecidae " + part.name;
+    object.primitive = MeshPrimitive::Box;
+    object.custom_mesh = std::make_shared<const CpuMesh>(part.mesh);
+    object.transform.position = {0.0f, 0.04f, 0.24f};
+    object.transform.rotation = quatFromEulerXyz({0.0f, radians(-17.0f), 0.0f});
+    object.material = cercopithecidaeMaterialFor(part.tissue);
+    object.material_asset_id = std::string("procedural.cercopithecidae.") +
+                               anatomicalTissueName(part.tissue);
+    object.casts_contact_shadow = true;
+    object.contact_shadow_strength = part.tissue == AnatomicalTissue::FurSkin ? 0.28f : 0.42f;
+    object.contact_shadow_radius_scale = 0.70f;
+    scene.objects().push_back(std::move(object));
+  }
+
   return scene;
 }
 

@@ -1046,7 +1046,7 @@ Vec3 LumenRun::classicGauntletLookTarget() const {
   if (length(classic_gauntlet_door_center_) > 0.0001f &&
       length(classic_gauntlet_lift_base_) > 0.0001f) {
     return classic_gauntlet_door_center_ +
-           (classic_gauntlet_lift_base_ - classic_gauntlet_door_center_) * 0.46f +
+           (classic_gauntlet_lift_base_ - classic_gauntlet_door_center_) * 0.76f +
            Vec3{0.0f, 0.28f, 0.0f};
   }
   return length(classic_gauntlet_exit_) <= 0.0001f ? player_position_ : classic_gauntlet_exit_;

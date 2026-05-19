@@ -337,6 +337,8 @@ private:
   struct ClassicGauntletActorVisual {
     std::string id;
     std::size_t object_index = 0;
+    std::size_t eye_object_index = 0;
+    std::size_t beacon_object_index = 0;
   };
 
   std::size_t appendObject(RenderObject object);

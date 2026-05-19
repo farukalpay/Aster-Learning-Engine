@@ -4,6 +4,7 @@
 #include "aster/asset/procedural_asset_graph.hpp"
 
 #include "aster/asset/json_document.hpp"
+#include "aster/geometry/primate_anatomy.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -286,6 +287,29 @@ ProceduralAssetGraphPackage loadProceduralAssetGraphPackage(const std::filesyste
 
 Material proceduralAssetGraphMaterial(const ProceduralAssetGraphPackage &package) {
   return resolveMaterialAssetFallback(package.material);
+}
+
+CpuMesh proceduralAssetGraphMesh(const ProceduralAssetGraphPackage &package) {
+  const std::string primitive = normalized(package.mesh.primitive);
+  if (primitive == "cercopithecidae" || primitive == "primate-cercopithecidae") {
+    return makeCercopithecidaeMesh({.surface_segments = 28, .surface_rings = 14});
+  }
+  if (primitive == "sphere" || primitive == "uv-sphere") {
+    return makeUvSphere(32, 16, 1.0f);
+  }
+  if (primitive == "box" || primitive == "cube") {
+    return makeBox();
+  }
+  if (primitive == "plane") {
+    return makePlane(2.0f);
+  }
+  if (primitive == "crystal") {
+    return makeCrystal(8, 0.5f, 1.2f);
+  }
+  if (primitive == "pillar") {
+    return makePillar(12, 0.45f, 1.4f);
+  }
+  return makeRock(18, 10, 1.0f);
 }
 
 MaterialAuthoringGraph materialAuthoringGraphForPackage(

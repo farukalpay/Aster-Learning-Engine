@@ -158,7 +158,6 @@ Run built-in lab scenes:
 | [docs/SCENE_AND_MESH_PIPELINE.md](docs/SCENE_AND_MESH_PIPELINE.md) | Scene objects and procedural/custom mesh path |
 | [docs/RENDERER_BACKEND_MATRIX.md](docs/RENDERER_BACKEND_MATRIX.md) | Backend capabilities, pass support, gaps, conformance |
 | [docs/LUMEN_RUN_AS_SAMPLE.md](docs/LUMEN_RUN_AS_SAMPLE.md) | How the sample game uses the engine |
-| [docs/FARUKALPAY_PORT_COVERAGE.md](docs/FARUKALPAY_PORT_COVERAGE.md) | FarukAlpay source-family coverage and Aster-native destinations |
 | [docs/ENGINE_INTERNALS/ENGINE_KERNEL.md](docs/ENGINE_INTERNALS/ENGINE_KERNEL.md) | ABI and public/internal boundary |
 | [docs/ENGINE_INTERNALS/ARCHITECTURE.md](docs/ENGINE_INTERNALS/ARCHITECTURE.md) | Deeper architecture notes |
 | [docs/RESEARCH/RESEARCH_NOTES.md](docs/RESEARCH/RESEARCH_NOTES.md) | Research notes |
@@ -269,8 +268,8 @@ mkdir -p assets/screenshots /tmp/aster_learning_shots
 ./build/aster_preview --scene scene-lab --output /tmp/aster_learning_shots/scene_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene cave-conformance --output /tmp/aster_learning_shots/cave_conformance.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene industrial-pipe --output /tmp/aster_learning_shots/industrial_pipe.ppm --width 1280 --height 720 --samples 2
-./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_run.ppm --capture-route classic-gauntlet --screenshot-frame 96 --capture-hud --msaa 0 --window-width 1280 --window-height 720
-./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_cave_interior.ppm --capture-route classic-gauntlet --screenshot-frame 96 --msaa 0 --window-width 1280 --window-height 720
+./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_run.ppm --capture-route classic-gauntlet --screenshot-frame 160 --capture-hud --msaa 0 --window-width 1280 --window-height 720
+./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_cave_interior.ppm --capture-route classic-gauntlet --screenshot-frame 160 --msaa 0 --window-width 1280 --window-height 720
 
 sips -s format png /tmp/aster_learning_shots/material_lab.ppm --out assets/screenshots/material_lab.png
 sips -s format png /tmp/aster_learning_shots/mesh_lab.ppm --out assets/screenshots/mesh_lab.png
