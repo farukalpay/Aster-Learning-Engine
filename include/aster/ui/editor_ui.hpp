@@ -4,7 +4,7 @@
 #pragma once
 
 #include "aster/asset/asset_database.hpp"
-#include "aster/asset/asset_factory.hpp"
+#include "aster/asset/asset_library.hpp"
 #include "aster/asset/asset_production_model.hpp"
 #include "aster/material/material_lab.hpp"
 #include "aster/render/camera.hpp"

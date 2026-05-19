@@ -224,11 +224,11 @@ std::string firstOrNone(const std::vector<std::string> &values) {
   return values.empty() ? std::string("none") : clippedValue(values.front());
 }
 
-void drawAssetFactoryPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
+void drawAssetPipelinePanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
                            const aster::EditorRuntimeModel &runtime, const float x, float &y,
                            const float width, const float visible_top,
                            const float visible_bottom) {
-  section(canvas, "Asset Factory", x, y, width);
+  section(canvas, "Asset Pipeline", x, y, width);
   const aster::AssetDatabase *database = runtime.asset_database;
   const aster::AssetLibrary *library = runtime.asset_library;
   if (database == nullptr) {
@@ -1022,7 +1022,7 @@ void drawAssetStudioPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
                           const float visible_bottom) {
   const aster::AssetProductionModel *model = runtime.asset_production_model;
   if (model == nullptr) {
-    drawAssetFactoryPanel(canvas, selected_asset, runtime, x, y, width, visible_top,
+    drawAssetPipelinePanel(canvas, selected_asset, runtime, x, y, width, visible_top,
                           visible_bottom);
     return;
   }

@@ -1,7 +1,7 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
-#include "aster/asset/asset_factory.hpp"
+#include "aster/asset/asset_library.hpp"
 
 #include <algorithm>
 #include <array>
@@ -83,7 +83,100 @@ namespace {
   return "Assets/" + kind;
 }
 
+[[nodiscard]] std::vector<std::string> tagsForRecord(const AssetDatabaseRecord &record) {
+  std::vector<std::string> tags;
+  if (!record.kind.empty()) {
+    tags.push_back(record.kind);
+  }
+  if (!record.platform.empty()) {
+    tags.push_back(record.platform);
+  }
+  if (!record.import_preset.name.empty()) {
+    tags.push_back("preset:" + record.import_preset.name);
+  }
+  if (record.fate_report.production_ready) {
+    tags.push_back("production-ready");
+  }
+  for (const AssetCookedOutput &output : record.outputs) {
+    if (!output.role.empty()) {
+      tags.push_back("output:" + output.role);
+    }
+  }
+  std::sort(tags.begin(), tags.end());
+  tags.erase(std::unique(tags.begin(), tags.end()), tags.end());
+  return tags;
+}
+
+[[nodiscard]] std::vector<std::string>
+creativeVariantTagsForRecord(const AssetDatabaseRecord &record) {
+  std::vector<std::string> tags;
+  const auto add_if_present = [&](const std::string &value, const char *prefix) {
+    if (!value.empty() && value != "default") {
+      tags.push_back(std::string(prefix) + value);
+    }
+  };
+  add_if_present(record.import_preset.collision_policy, "collision:");
+  add_if_present(record.import_preset.lod_policy, "lod:");
+  add_if_present(record.import_preset.texture_role_policy, "texture-policy:");
+  add_if_present(record.import_preset.material_slot_policy, "material-slots:");
+  if (!record.derived_hashes.material_hash.empty()) {
+    tags.push_back("material-variant");
+  }
+  if (!record.derived_hashes.pipeline_cache_key.empty()) {
+    tags.push_back("pipeline-variant");
+  }
+  std::sort(tags.begin(), tags.end());
+  tags.erase(std::unique(tags.begin(), tags.end()), tags.end());
+  return tags;
+}
+
+void addCatalogPath(AssetCatalogTreeNode &root, const std::string &path,
+                    const std::size_t catalog_index) {
+  AssetCatalogTreeNode *node = &root;
+  std::size_t start = 0u;
+  while (start < path.size()) {
+    const std::size_t slash = path.find('/', start);
+    const std::string segment = path.substr(start, slash == std::string::npos
+                                                       ? std::string::npos
+                                                       : slash - start);
+    if (!segment.empty()) {
+      AssetCatalogTreeNode *child = node->findChild(segment);
+      if (child == nullptr) {
+        AssetCatalogTreeNode next;
+        next.name = segment;
+        next.catalog_path = node->catalog_path.empty() ? segment : node->catalog_path + "/" + segment;
+        node->children.push_back(std::move(next));
+        child = &node->children.back();
+      }
+      node = child;
+    }
+    if (slash == std::string::npos) {
+      break;
+    }
+    start = slash + 1u;
+  }
+  node->catalog_indices.push_back(catalog_index);
+}
+
 } // namespace
+
+AssetCatalogTreeNode *AssetCatalogTreeNode::findChild(
+    const std::string_view child_name) noexcept {
+  const auto found =
+      std::find_if(children.begin(), children.end(), [&](const AssetCatalogTreeNode &child) {
+        return child.name == child_name;
+      });
+  return found == children.end() ? nullptr : &*found;
+}
+
+const AssetCatalogTreeNode *AssetCatalogTreeNode::findChild(
+    const std::string_view child_name) const noexcept {
+  const auto found =
+      std::find_if(children.begin(), children.end(), [&](const AssetCatalogTreeNode &child) {
+        return child.name == child_name;
+      });
+  return found == children.end() ? nullptr : &*found;
+}
 
 AssetRepresentation AssetRepresentation::fromRecord(const AssetDatabaseRecord &record,
                                                     const std::filesystem::path &database_root) {
@@ -95,6 +188,22 @@ AssetRepresentation AssetRepresentation::fromRecord(const AssetDatabaseRecord &r
   representation.source_path = resolveRelative(database_root, record.source_path);
   representation.production_ready = record.fate_report.production_ready;
   representation.derived_hashes = record.derived_hashes;
+  representation.tags = tagsForRecord(record);
+  representation.creative_variant_tags = creativeVariantTagsForRecord(record);
+  for (const AssetDependencyEdge &edge : record.dependency_edges) {
+    if (!edge.to.empty()) {
+      representation.dependency_ids.push_back(edge.to);
+    }
+  }
+  for (const AssetDependencyRecord &dependency : record.dependencies) {
+    if (!dependency.path.empty()) {
+      representation.dependency_ids.push_back(dependency.path);
+    }
+  }
+  std::sort(representation.dependency_ids.begin(), representation.dependency_ids.end());
+  representation.dependency_ids.erase(
+      std::unique(representation.dependency_ids.begin(), representation.dependency_ids.end()),
+      representation.dependency_ids.end());
   for (const AssetCookedOutput &output : record.outputs) {
     if (output.role == "preview") {
       representation.preview_path = resolveRelative(database_root, output.path);
@@ -140,6 +249,21 @@ AssetLibrary AssetLibrary::fromDatabase(const AssetDatabase &database,
                                         const std::filesystem::path &database_root) {
   AssetLibrary library;
   library.root_path = database_root;
+  library.sources.push_back({.id = database.source_path.empty() ? std::string("database")
+                                                                : database.source_path.stem().string(),
+                             .kind = AssetLibrarySourceKind::OnDisk,
+                             .root_path = database_root,
+                             .available = true});
+  library.catalog_tree.name = "Assets";
+  library.catalog_tree.catalog_path = "Assets";
+  library.dependency_edges.reserve(database.asset_graph.edges.size());
+  for (const AssetGraphEdge &edge : database.asset_graph.edges) {
+    library.dependency_edges.push_back({.from = edge.from,
+                                        .to = edge.to,
+                                        .role = edge.role,
+                                        .present = edge.present,
+                                        .hash = edge.hash});
+  }
   std::unordered_map<std::string, std::size_t> catalog_index;
   for (const AssetDatabaseRecord &record : database.records) {
     const std::size_t asset_index = library.assets.size();
@@ -147,7 +271,16 @@ AssetLibrary AssetLibrary::fromDatabase(const AssetDatabase &database,
     const std::string catalog_path = catalogPathFor(record);
     const auto [it, inserted] = catalog_index.emplace(catalog_path, library.catalogs.size());
     if (inserted) {
-      library.catalogs.push_back({.catalog_path = catalog_path});
+      library.catalogs.push_back({.catalog_path = catalog_path,
+                                  .tags = tagsForRecord(record)});
+      addCatalogPath(library.catalog_tree, catalog_path, library.catalogs.size() - 1u);
+    } else {
+      AssetCatalogEntry &catalog = library.catalogs[it->second];
+      std::vector<std::string> tags = tagsForRecord(record);
+      catalog.tags.insert(catalog.tags.end(), tags.begin(), tags.end());
+      std::sort(catalog.tags.begin(), catalog.tags.end());
+      catalog.tags.erase(std::unique(catalog.tags.begin(), catalog.tags.end()),
+                         catalog.tags.end());
     }
     library.catalogs[it->second].asset_indices.push_back(asset_index);
   }
@@ -160,6 +293,25 @@ const AssetRepresentation *AssetLibrary::find(const std::string_view id_or_guid)
                                     return asset.id == id_or_guid || asset.guid == id_or_guid;
                                   });
   return found == assets.end() ? nullptr : &*found;
+}
+
+std::vector<const AssetRepresentation *> AssetLibrary::assetsInCatalog(
+    const std::string_view catalog_path) const {
+  std::vector<const AssetRepresentation *> out;
+  const auto found = std::find_if(catalogs.begin(), catalogs.end(),
+                                  [&](const AssetCatalogEntry &catalog) {
+                                    return catalog.catalog_path == catalog_path;
+                                  });
+  if (found == catalogs.end()) {
+    return out;
+  }
+  out.reserve(found->asset_indices.size());
+  for (const std::size_t index : found->asset_indices) {
+    if (index < assets.size()) {
+      out.push_back(&assets[index]);
+    }
+  }
+  return out;
 }
 
 std::optional<OutlinerDropTarget>

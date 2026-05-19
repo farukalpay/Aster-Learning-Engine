@@ -12,6 +12,9 @@ use aster_runtime::{
     build_frame_plan, AsterRuntimeCamera, AsterRuntimeRenderObject, AsterRuntimeRenderPlanOptions,
     AsterRuntimeVec3,
 };
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 fn self_check() {
@@ -84,6 +87,8 @@ fn usage() -> &'static str {
   aster_assetc graph-package --input <file.astergraph> --output <dir>
   aster_assetc cook --project <file.asterproj> --platform desktop --output <dir>
   aster_assetc report --db <assetdb.asterdb.json>
+  aster_assetc catalog-inspect --db <assetdb.asterdb.json>
+  aster_assetc mesh-import-inspect --input <mesh.obj|mesh.ply|mesh.stl>
   aster_assetc graph --db <assetdb.asterdb.json>
   aster_assetc fate --db <assetdb.asterdb.json> --asset <id-or-guid>
   aster_assetc diff --before <old.assetdb.asterdb.json> --after <new.assetdb.asterdb.json>
@@ -284,6 +289,143 @@ fn report_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn catalog_inspect_command(args: &[String]) -> Result<(), String> {
+    let db = value_after(args, "--db")
+        .map(PathBuf::from)
+        .ok_or_else(|| "catalog-inspect requires --db <assetdb.asterdb.json>".to_string())?;
+    let database = read_asset_database(&db).map_err(|error| error.to_string())?;
+    let mut by_kind = BTreeMap::<String, usize>::new();
+    let mut production_ready = 0usize;
+    for record in &database.records {
+        *by_kind.entry(record.kind.clone()).or_default() += 1;
+        if record.fate_report.production_ready {
+            production_ready += 1;
+        }
+    }
+    println!(
+        "catalog db={} platform={} assets={} production_ready={} graph_nodes={} graph_edges={}",
+        db.display(),
+        database.platform,
+        database.records.len(),
+        production_ready,
+        database.asset_graph.nodes.len(),
+        database.asset_graph.edges.len()
+    );
+    for (kind, count) in by_kind {
+        println!("catalog Assets/{} assets={}", title_case(&kind), count);
+    }
+    for edge in &database.asset_graph.edges {
+        println!(
+            "dependency from={} to={} role={} present={}",
+            edge.from, edge.to, edge.role, edge.present
+        );
+    }
+    Ok(())
+}
+
+fn title_case(value: &str) -> String {
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => "Asset".to_string(),
+    }
+}
+
+fn mesh_import_inspect_command(args: &[String]) -> Result<(), String> {
+    let input = value_after(args, "--input")
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            "mesh-import-inspect requires --input <mesh.obj|mesh.ply|mesh.stl>".to_string()
+        })?;
+    let bytes = fs::read(&input).map_err(|error| error.to_string())?;
+    let text = String::from_utf8_lossy(&bytes);
+    let format = mesh_format_for_path(&input);
+    let (vertices, indices) = match format.as_str() {
+        "obj" => inspect_obj_text(&text),
+        "ply" => inspect_ply_text(&text),
+        "stl" => inspect_stl_text(&text),
+        _ => {
+            return Err(format!(
+                "unsupported mesh import format for {}",
+                input.display()
+            ))
+        }
+    };
+    println!(
+        "mesh-import input={} format={} vertices={} indices={} source_hash={}",
+        input.display(),
+        format,
+        vertices,
+        indices,
+        hex_u64(hash_bytes(&bytes))
+    );
+    Ok(())
+}
+
+fn mesh_format_for_path(path: &Path) -> String {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+}
+
+fn inspect_obj_text(text: &str) -> (usize, usize) {
+    let mut vertices = 0usize;
+    let mut indices = 0usize;
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("v ") {
+            vertices += 1;
+        } else if trimmed.starts_with("f ") {
+            let corners = trimmed.split_whitespace().skip(1).count();
+            if corners >= 3 {
+                indices += (corners - 2) * 3;
+            }
+        }
+    }
+    (vertices, indices)
+}
+
+fn inspect_ply_text(text: &str) -> (usize, usize) {
+    let mut vertices = 0usize;
+    let mut faces = 0usize;
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        if parts.next() == Some("element") {
+            match parts.next() {
+                Some("vertex") => vertices = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+                Some("face") => faces = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+                _ => {}
+            }
+        }
+        if line.trim() == "end_header" {
+            break;
+        }
+    }
+    (vertices, faces * 3)
+}
+
+fn inspect_stl_text(text: &str) -> (usize, usize) {
+    let vertices = text
+        .lines()
+        .filter(|line| line.trim_start().starts_with("vertex "))
+        .count();
+    (vertices, vertices)
+}
+
+fn hash_bytes(bytes: &[u8]) -> u64 {
+    let mut hash = 1469598103934665603u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(1099511628211u64);
+    }
+    hash
+}
+
+fn hex_u64(value: u64) -> String {
+    format!("0x{value:016x}")
+}
+
 fn graph_command(args: &[String]) -> Result<(), String> {
     let db = value_after(args, "--db")
         .map(PathBuf::from)
@@ -350,6 +492,8 @@ fn run() -> Result<(), String> {
         Some("graph-package") => graph_package_command(&args[2..]),
         Some("cook") => cook_command(&args[2..]),
         Some("report") => report_command(&args[2..]),
+        Some("catalog-inspect") => catalog_inspect_command(&args[2..]),
+        Some("mesh-import-inspect") => mesh_import_inspect_command(&args[2..]),
         Some("graph") => graph_command(&args[2..]),
         Some("fate") => fate_command(&args[2..]),
         Some("diff") => diff_command(&args[2..]),

@@ -110,13 +110,16 @@ set(ASTER_FRAMEGRAPH_SOURCES
 
 set(ASTER_ASSET_SOURCES
   "${PROJECT_SOURCE_DIR}/src/asset/asset_database.cpp"
-  "${PROJECT_SOURCE_DIR}/src/asset/asset_factory.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/asset_io.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/asset_library.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/asset_modifier_stack.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_production_model.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/compiled_scene_asset.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/legacy_lump_archive.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/mesh_pipeline.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/pipe_runtime_asset.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/procedural_asset_graph.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/procedural_graph_runtime.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/scene_asset_importer.cpp"
 )
 
@@ -159,6 +162,7 @@ set(ASTER_RENDER_SOURCES
   "${PROJECT_SOURCE_DIR}/src/render/render_graph_executor.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/render_quality.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/render_scene.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/preview_compositor.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/software_framebuffer.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/software_preview_renderer.cpp"
 )
@@ -187,8 +191,10 @@ set(ASTER_GEOMETRY_SOURCES
   "${PROJECT_SOURCE_DIR}/src/geometry/energy_conduit_mesh.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/fracture_mesh.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/generated_scenery.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/geometry_operations.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/implicit_surface.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/mesh_cut.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/mesh_authoring.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/mesh_modeling.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/mesh_projection.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/nature_mesh.cpp"
@@ -218,6 +224,7 @@ set(ASTER_PHYSICS_SOURCES
   "${PROJECT_SOURCE_DIR}/src/physics/placement_validation.cpp"
   "${PROJECT_SOURCE_DIR}/src/physics/surface_support.cpp"
   "${PROJECT_SOURCE_DIR}/src/physics/terrain_contact.cpp"
+  "${PROJECT_SOURCE_DIR}/src/physics/xpbd_constraints.cpp"
 )
 
 set(ASTER_SYSTEMS_SOURCES
@@ -557,6 +564,13 @@ if(ASTER_BUILD_TESTS)
   )
   add_dependencies(aster_asset_cache_tests aster_rust_runtime)
   add_test(NAME aster_asset_cache_tests COMMAND aster_asset_cache_tests)
+  add_executable(aster_asset_tooling_port_tests tests/asset_tooling_port_tests.cpp)
+  target_link_libraries(aster_asset_tooling_port_tests PRIVATE aster_engine_internal)
+  target_include_directories(aster_asset_tooling_port_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  target_compile_definitions(aster_asset_tooling_port_tests PRIVATE
+    ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+  )
+  add_test(NAME aster_asset_tooling_port_tests COMMAND aster_asset_tooling_port_tests)
   add_executable(aster_kernel_public_consumer tests/kernel_public_consumer.cpp)
   target_link_libraries(aster_kernel_public_consumer PRIVATE aster_kernel)
   add_test(NAME aster_kernel_public_consumer COMMAND aster_kernel_public_consumer)

@@ -3,7 +3,7 @@
 
 #include "aster/core/clock.hpp"
 #include "aster/asset/asset_database.hpp"
-#include "aster/asset/asset_factory.hpp"
+#include "aster/asset/asset_library.hpp"
 #include "aster/asset/asset_production_model.hpp"
 #include "aster/core/config.hpp"
 #include "aster/core/frame_time_stats.hpp"

@@ -131,7 +131,7 @@ Run built-in lab scenes:
 - Procedural geometry and mesh tooling for terrain, caves, tubes, cables,
   fracture pieces, water, architecture, vegetation, projected meshes, and
   generated scenery.
-- AssetFactory-inspired Aster-native production asset tooling, including the
+- Aster production asset tooling, including the
   `pipe_lab` rusted-pipe runtime asset with modifier-stack descriptors,
   bevel/weld/seam authoring, rust and wetness masks, UV island policy, LODs,
   collision proxy metadata, and cook reports. The older `primate_lab`

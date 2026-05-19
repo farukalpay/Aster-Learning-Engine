@@ -19,6 +19,32 @@ namespace aster {
 struct AssetCatalogEntry {
   std::string catalog_path;
   std::vector<std::size_t> asset_indices;
+  std::vector<std::string> tags;
+};
+
+enum class AssetLibrarySourceKind {
+  OnDisk,
+  Runtime,
+  Remote,
+  Essentials,
+};
+
+struct AssetLibrarySourceRecord {
+  std::string id;
+  AssetLibrarySourceKind kind = AssetLibrarySourceKind::OnDisk;
+  std::filesystem::path root_path;
+  bool available = true;
+  std::vector<std::string> diagnostics;
+};
+
+struct AssetCatalogTreeNode {
+  std::string name;
+  std::string catalog_path;
+  std::vector<std::size_t> catalog_indices;
+  std::vector<AssetCatalogTreeNode> children;
+
+  [[nodiscard]] AssetCatalogTreeNode *findChild(std::string_view child_name) noexcept;
+  [[nodiscard]] const AssetCatalogTreeNode *findChild(std::string_view child_name) const noexcept;
 };
 
 struct AssetRepresentation {
@@ -31,6 +57,9 @@ struct AssetRepresentation {
   bool production_ready = false;
   AssetDerivedHashes derived_hashes;
   std::vector<std::string> diagnostics;
+  std::vector<std::string> tags;
+  std::vector<std::string> dependency_ids;
+  std::vector<std::string> creative_variant_tags;
 
   [[nodiscard]] static AssetRepresentation fromRecord(const AssetDatabaseRecord &record,
                                                       const std::filesystem::path &database_root);
@@ -62,12 +91,17 @@ private:
 class AssetLibrary {
 public:
   std::filesystem::path root_path;
+  std::vector<AssetLibrarySourceRecord> sources;
   std::vector<AssetCatalogEntry> catalogs;
   std::vector<AssetRepresentation> assets;
+  AssetCatalogTreeNode catalog_tree;
+  std::vector<AssetDependencyEdge> dependency_edges;
 
   [[nodiscard]] static AssetLibrary fromDatabase(const AssetDatabase &database,
                                                  const std::filesystem::path &database_root);
   [[nodiscard]] const AssetRepresentation *find(std::string_view id_or_guid) const;
+  [[nodiscard]] std::vector<const AssetRepresentation *> assetsInCatalog(
+      std::string_view catalog_path) const;
 };
 
 enum class OutlinerDropInsertType {
