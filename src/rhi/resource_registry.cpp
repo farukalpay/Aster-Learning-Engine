@@ -110,6 +110,19 @@ ResourceRegistryStats ResourceRegistry::stats() const {
   return stats;
 }
 
+std::optional<ResourceRegistryEntrySnapshot> ResourceRegistry::snapshot(const std::uint64_t id) const {
+  const auto found = entries_.find(id);
+  if (found == entries_.end()) {
+    return std::nullopt;
+  }
+  return ResourceRegistryEntrySnapshot{.id = id,
+                                       .generation = found->second.generation,
+                                       .kind = found->second.kind,
+                                       .residency = found->second.residency,
+                                       .version = found->second.version,
+                                       .label = found->second.label};
+}
+
 void ResourceRegistry::clearRetired() {
   for (auto it = entries_.begin(); it != entries_.end();) {
     if (it->second.residency == ResourceResidency::Retired) {

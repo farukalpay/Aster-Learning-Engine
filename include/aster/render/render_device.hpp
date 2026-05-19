@@ -13,6 +13,7 @@
 #include "aster/rhi/device.hpp"
 #include "aster/rhi/frame_trace.hpp"
 #include "aster/rhi/resource_registry.hpp"
+#include "aster/rhi/resource_lifetime_validator.hpp"
 #include "aster/texture/runtime_texture.hpp"
 
 #include <cstddef>
@@ -364,6 +365,58 @@ struct FrameDebugCapture {
   std::vector<std::uint8_t> rgba8;
 };
 
+enum class BackendFeatureProofKind : std::uint32_t {
+  GraphResource,
+  Capture,
+  TextureSampling,
+  Instancing,
+  GpuTimestamps,
+  HdrRenderTarget,
+  Msaa,
+  Presentation,
+};
+
+enum class BackendFeatureProofStatus : std::uint32_t {
+  NotAdvertised,
+  NotExercised,
+  Proven,
+  MissingProof,
+  Unsupported,
+};
+
+struct BackendFeatureProof {
+  BackendFeatureProofKind kind = BackendFeatureProofKind::GraphResource;
+  BackendFeatureProofStatus status = BackendFeatureProofStatus::NotAdvertised;
+  RenderGraphResource resource = RenderGraphResource::SceneColor;
+  RenderGraphPass pass = RenderGraphPass::SceneColorDepth;
+  std::string feature;
+  std::string label;
+  std::string message;
+  std::uint32_t advertised = 0u;
+  std::uint32_t native = 0u;
+  std::uint64_t evidence_hash = 0u;
+};
+
+struct BackendCertificationReport {
+  RenderBackendKind backend = RenderBackendKind::Unknown;
+  bool valid = true;
+  std::size_t proof_count = 0u;
+  std::size_t proven_count = 0u;
+  std::size_t missing_proof_count = 0u;
+  std::size_t validation_error_count = 0u;
+};
+
+struct FramePassArtifact {
+  RenderGraphPass pass = RenderGraphPass::SceneColorDepth;
+  RenderGraphResource resource = RenderGraphResource::SceneColor;
+  std::string label;
+  std::string kind;
+  std::uint32_t width = 0u;
+  std::uint32_t height = 0u;
+  std::uint64_t content_hash = 0u;
+  bool available = false;
+};
+
 struct FrameResourceTrace {
   RenderGraphPass pass = RenderGraphPass::SceneColorDepth;
   RenderGraphResource resource = RenderGraphResource::SceneColor;
@@ -450,12 +503,35 @@ struct FrameForensics {
   std::vector<FramePassStats> passes;
   std::vector<FrameDiagnosticEvent> events;
   std::vector<FrameDebugCapture> captures;
+  std::vector<FramePassArtifact> pass_artifacts;
   std::vector<FrameResourceTrace> resource_traces;
   std::vector<MaterialBindingTrace> material_bindings;
   std::vector<MeshVisibilityTrace> mesh_visibility;
   std::vector<ObjectClusterMembershipTrace> object_clusters;
+  std::vector<rhi::ResourceLifetimeValidationEvent> rhi_validation_events;
+  std::vector<BackendFeatureProof> backend_feature_proofs;
+  std::vector<rhi::TimestampQueryResult> timestamp_samples;
+  BackendCertificationReport certification{};
   ClusteredLightFrameData clustered_lights;
   rhi::FrameTrace rhi_trace{};
+};
+
+class GpuFrameProfiler {
+public:
+  explicit GpuFrameProfiler(bool supported = false,
+                            double timestamp_period_nanoseconds = 1.0);
+
+  void beginFrame(std::uint32_t slot_count);
+  void recordUnavailable(std::uint32_t slot_count = 0u);
+  void recordSample(std::uint32_t slot, std::uint64_t ticks, bool available);
+
+  [[nodiscard]] bool supported() const noexcept;
+  [[nodiscard]] const std::vector<rhi::TimestampQueryResult> &samples() const noexcept;
+
+private:
+  bool supported_ = false;
+  double timestamp_period_nanoseconds_ = 1.0;
+  std::vector<rhi::TimestampQueryResult> samples_;
 };
 
 class RenderWorld {
@@ -599,6 +675,8 @@ private:
 };
 
 [[nodiscard]] std::string_view renderBackendKindName(RenderBackendKind kind);
+[[nodiscard]] std::string_view backendFeatureProofKindName(BackendFeatureProofKind kind);
+[[nodiscard]] std::string_view backendFeatureProofStatusName(BackendFeatureProofStatus status);
 [[nodiscard]] std::string_view renderStylePresetName(RenderStylePreset preset);
 [[nodiscard]] std::optional<RenderStylePreset> parseRenderStylePreset(std::string_view value);
 [[nodiscard]] RenderStyleProfile makeRenderStyleProfile(RenderStylePreset preset);

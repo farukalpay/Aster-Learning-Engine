@@ -882,6 +882,86 @@ const aster::FrameDebugCapture *captureFor(const aster::FrameForensics &forensic
   return it == forensics.captures.end() ? nullptr : &*it;
 }
 
+std::string jsonString(const std::string_view text) {
+  std::string out = "\"";
+  for (const char c : text) {
+    if (c == '"' || c == '\\') {
+      out.push_back('\\');
+    }
+    if (c == '\n') {
+      out += "\\n";
+    } else {
+      out.push_back(c);
+    }
+  }
+  out.push_back('"');
+  return out;
+}
+
+bool hasCertifiedResourceProof(const aster::FrameForensics &forensics,
+                               const aster::RenderGraphResource resource) {
+  return std::any_of(forensics.backend_feature_proofs.begin(),
+                     forensics.backend_feature_proofs.end(),
+                     [resource](const aster::BackendFeatureProof &proof) {
+                       return proof.kind == aster::BackendFeatureProofKind::GraphResource &&
+                              proof.resource == resource &&
+                              proof.status == aster::BackendFeatureProofStatus::Proven &&
+                              proof.native != 0u;
+                     });
+}
+
+bool hasMissingProof(const aster::FrameForensics &forensics) {
+  return std::any_of(forensics.backend_feature_proofs.begin(),
+                     forensics.backend_feature_proofs.end(),
+                     [](const aster::BackendFeatureProof &proof) {
+                       return proof.status == aster::BackendFeatureProofStatus::MissingProof;
+                     });
+}
+
+void writeCertificationArtifact(const std::filesystem::path &root, const std::string &label,
+                                const LabRenderResult &result) {
+  std::ostringstream json;
+  json << "{\n"
+       << "  \"label\": " << jsonString(label) << ",\n"
+       << "  \"backend\": " << jsonString(aster::renderBackendKindName(result.backend.kind))
+       << ",\n"
+       << "  \"certification_valid\": "
+       << (result.forensics.certification.valid ? "true" : "false") << ",\n"
+       << "  \"missing_proofs\": " << result.forensics.certification.missing_proof_count
+       << ",\n"
+       << "  \"validation_errors\": "
+       << result.forensics.certification.validation_error_count << ",\n"
+       << "  \"passes\": [";
+  for (std::size_t i = 0u; i < result.forensics.passes.size(); ++i) {
+    if (i != 0u) {
+      json << ", ";
+    }
+    json << jsonString(result.forensics.passes[i].name);
+  }
+  json << "],\n"
+       << "  \"captures\": [\n";
+  for (std::size_t i = 0u; i < result.forensics.captures.size(); ++i) {
+    const aster::FrameDebugCapture &capture = result.forensics.captures[i];
+    json << "    {\"label\": " << jsonString(capture.label)
+         << ", \"available\": " << (capture.available ? "true" : "false")
+         << ", \"hash\": " << capture.content_hash << "}";
+    json << (i + 1u == result.forensics.captures.size() ? "\n" : ",\n");
+  }
+  json << "  ],\n"
+       << "  \"proofs\": [\n";
+  for (std::size_t i = 0u; i < result.forensics.backend_feature_proofs.size(); ++i) {
+    const aster::BackendFeatureProof &proof = result.forensics.backend_feature_proofs[i];
+    json << "    {\"feature\": " << jsonString(proof.feature)
+         << ", \"kind\": " << jsonString(aster::backendFeatureProofKindName(proof.kind))
+         << ", \"status\": " << jsonString(aster::backendFeatureProofStatusName(proof.status))
+         << ", \"label\": " << jsonString(proof.label) << "}";
+    json << (i + 1u == result.forensics.backend_feature_proofs.size() ? "\n" : ",\n");
+  }
+  json << "  ]\n"
+       << "}\n";
+  writeTextFile(root / (label + "_certification.json"), json.str());
+}
+
 bool hasCapabilityMismatchForProofResources(const aster::FrameForensics &forensics) {
   for (const aster::FrameDiagnosticEvent &event : forensics.events) {
     if (event.kind == aster::FrameDiagnosticKind::CapabilityMismatch &&
@@ -925,6 +1005,11 @@ void testCaveConformanceSoftwareGolden() {
   assert(first.metrics.foreground_ratio > 0.18);
   assert(first.metrics.hash == second.metrics.hash);
   assertCaveProofCaptures(first);
+  writeCertificationArtifact(artifactRoot(), "cave_conformance_software", first);
+  assert(first.forensics.certification.valid);
+  assert(hasCertifiedResourceProof(first.forensics, aster::RenderGraphResource::ShadowAtlas));
+  assert(hasCertifiedResourceProof(first.forensics, aster::RenderGraphResource::VolumetricFog));
+  assert(hasCertifiedResourceProof(first.forensics, aster::RenderGraphResource::ReflectionProbes));
 
   bool saw_albedo = false;
   bool saw_normal = false;
@@ -970,9 +1055,34 @@ void testCapabilityMismatchRequiresResourceMask() {
       renderCaveConformanceNullFrame(artifactRoot() / "cave_conformance_null.ppm");
   assert(result.backend.kind == aster::RenderBackendKind::Null);
   assert(hasCapabilityMismatchForProofResources(result.forensics));
+  assert(!result.forensics.certification.valid);
+  assert(hasMissingProof(result.forensics));
+  writeCertificationArtifact(artifactRoot(), "cave_conformance_null", result);
   assert(captureFor(result.forensics, aster::RenderGraphResource::ShadowAtlas) == nullptr);
   assert(captureFor(result.forensics, aster::RenderGraphResource::VolumetricFog) == nullptr);
   assert(captureFor(result.forensics, aster::RenderGraphResource::ReflectionProbes) == nullptr);
+}
+
+void testBackendFeatureCertificationRejectsLyingNull() {
+  const LabRenderResult result =
+      renderCaveConformanceNullFrame(artifactRoot() / "cave_conformance_certification_lie.ppm");
+  assert(result.backend.kind == aster::RenderBackendKind::Null);
+  assert(!result.forensics.certification.valid);
+  assert(result.forensics.certification.missing_proof_count >= 1u);
+  assert(std::any_of(result.forensics.backend_feature_proofs.begin(),
+                     result.forensics.backend_feature_proofs.end(),
+                     [](const aster::BackendFeatureProof &proof) {
+                       return proof.kind == aster::BackendFeatureProofKind::GraphResource &&
+                              proof.resource == aster::RenderGraphResource::CaptureReadback &&
+                              proof.status == aster::BackendFeatureProofStatus::MissingProof;
+                     }));
+  assert(std::any_of(result.forensics.backend_feature_proofs.begin(),
+                     result.forensics.backend_feature_proofs.end(),
+                     [](const aster::BackendFeatureProof &proof) {
+                       return proof.kind == aster::BackendFeatureProofKind::GpuTimestamps &&
+                              proof.status == aster::BackendFeatureProofStatus::Unsupported;
+                     }));
+  writeCertificationArtifact(artifactRoot(), "cave_conformance_certification_lie", result);
 }
 
 void testNativeCaveConformanceWhenAvailable() {
@@ -986,6 +1096,7 @@ void testNativeCaveConformanceWhenAvailable() {
   }
   assert(native.backend.supports_capture);
   assert(native.stats.visible_objects == software.stats.visible_objects);
+  writeCertificationArtifact(artifactRoot(), "cave_conformance_native", native);
   if (native.backend.kind == aster::RenderBackendKind::Metal) {
     assert(native.backend.capability_table.shadow_maps);
     assert((native.backend.graph_resource_mask &
@@ -996,6 +1107,10 @@ void testNativeCaveConformanceWhenAvailable() {
             aster::renderGraphResourceBit(aster::RenderGraphResource::ReflectionProbes)) != 0u);
     assert(!hasCapabilityMismatchForProofResources(native.forensics));
     assertCaveProofCaptures(native);
+    assert(native.forensics.certification.valid);
+    assert(hasCertifiedResourceProof(native.forensics, aster::RenderGraphResource::ShadowAtlas));
+    assert(hasCertifiedResourceProof(native.forensics, aster::RenderGraphResource::VolumetricFog));
+    assert(hasCertifiedResourceProof(native.forensics, aster::RenderGraphResource::ReflectionProbes));
   }
 #if defined(_WIN32)
   if (native.backend.kind == aster::RenderBackendKind::D3D12) {
@@ -1009,6 +1124,7 @@ void testNativeCaveConformanceWhenAvailable() {
       assert((native.backend.graph_resource_mask &
               aster::renderGraphResourceBit(aster::RenderGraphResource::ReflectionProbes)) == 0u);
       assert(hasCapabilityMismatchForProofResources(native.forensics));
+      assert(native.forensics.certification.valid);
       return;
     }
     assert((native.backend.graph_resource_mask &
@@ -1019,6 +1135,10 @@ void testNativeCaveConformanceWhenAvailable() {
             aster::renderGraphResourceBit(aster::RenderGraphResource::ReflectionProbes)) != 0u);
     assert(!hasCapabilityMismatchForProofResources(native.forensics));
     assertCaveProofCaptures(native);
+    assert(native.forensics.certification.valid);
+    assert(hasCertifiedResourceProof(native.forensics, aster::RenderGraphResource::ShadowAtlas));
+    assert(hasCertifiedResourceProof(native.forensics, aster::RenderGraphResource::VolumetricFog));
+    assert(hasCertifiedResourceProof(native.forensics, aster::RenderGraphResource::ReflectionProbes));
   }
 #endif
   const ImageDiffMetrics metrics = diffImages(software.image, native.image);
@@ -1132,6 +1252,7 @@ void testNativeLabScenesMatchSoftwareReferenceWhenAvailable() {
     assert(native.stats.visible_objects == software.stats.visible_objects);
     assert(native.stats.draw_calls > 0u);
     assert(!native.forensics.passes.empty());
+    writeCertificationArtifact(artifactRoot(), std::string(lab.name) + "_native", native);
     const ImageDiffMetrics metrics = diffImages(software.image, native.image);
     if (metrics.mean_abs_error > 52.0 || metrics.differing_pixel_ratio > 0.82) {
       writeDiffArtifacts(artifactRoot(), std::string(lab.name) + "_native_reference_mismatch",
@@ -1188,6 +1309,8 @@ constexpr TestCase kTestCases[] = {
     {"cave_conformance_software_golden", testCaveConformanceSoftwareGolden},
     {"resource_capability_mismatch_requires_resource_mask",
      testCapabilityMismatchRequiresResourceMask},
+    {"backend_feature_certification_rejects_lying_null",
+     testBackendFeatureCertificationRejectsLyingNull},
     {"native_cave_conformance_when_available", testNativeCaveConformanceWhenAvailable},
     {"native_material_pipeline_key_tracks_feature_bits",
      testNativeMaterialPipelineKeyTracksFeatureBits},

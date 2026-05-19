@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 4u
-#define ASTER_KERNEL_ABI_MINOR 0u
+#define ASTER_KERNEL_ABI_MINOR 1u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -177,6 +177,64 @@ typedef enum AsterKernelRenderGraphPass {
   ASTER_KERNEL_RENDER_PASS_UI_COMPOSITE = 9,
   ASTER_KERNEL_RENDER_PASS_CAPTURE = 10
 } AsterKernelRenderGraphPass;
+
+typedef enum AsterKernelRenderGraphResource {
+  ASTER_KERNEL_RENDER_RESOURCE_SCENE_COLOR = 0,
+  ASTER_KERNEL_RENDER_RESOURCE_SCENE_DEPTH = 1,
+  ASTER_KERNEL_RENDER_RESOURCE_LIGHT_CLUSTERS = 2,
+  ASTER_KERNEL_RENDER_RESOURCE_SHADOW_ATLAS = 3,
+  ASTER_KERNEL_RENDER_RESOURCE_VOLUMETRIC_FOG = 4,
+  ASTER_KERNEL_RENDER_RESOURCE_REFLECTION_PROBES = 5,
+  ASTER_KERNEL_RENDER_RESOURCE_UI_OVERLAY = 6,
+  ASTER_KERNEL_RENDER_RESOURCE_CAPTURE_READBACK = 7
+} AsterKernelRenderGraphResource;
+
+typedef enum AsterKernelRhiResourceState {
+  ASTER_KERNEL_RHI_RESOURCE_STATE_UNDEFINED = 0,
+  ASTER_KERNEL_RHI_RESOURCE_STATE_COPY_SOURCE = 1,
+  ASTER_KERNEL_RHI_RESOURCE_STATE_COPY_DESTINATION = 2,
+  ASTER_KERNEL_RHI_RESOURCE_STATE_SHADER_READ = 3,
+  ASTER_KERNEL_RHI_RESOURCE_STATE_SHADER_WRITE = 4,
+  ASTER_KERNEL_RHI_RESOURCE_STATE_COLOR_ATTACHMENT = 5,
+  ASTER_KERNEL_RHI_RESOURCE_STATE_DEPTH_ATTACHMENT = 6,
+  ASTER_KERNEL_RHI_RESOURCE_STATE_PRESENT = 7,
+  ASTER_KERNEL_RHI_RESOURCE_STATE_READBACK = 8
+} AsterKernelRhiResourceState;
+
+typedef enum AsterKernelRhiQueueKind {
+  ASTER_KERNEL_RHI_QUEUE_GRAPHICS = 0,
+  ASTER_KERNEL_RHI_QUEUE_COMPUTE = 1,
+  ASTER_KERNEL_RHI_QUEUE_COPY = 2
+} AsterKernelRhiQueueKind;
+
+typedef enum AsterKernelBackendFeatureProofKind {
+  ASTER_KERNEL_BACKEND_FEATURE_GRAPH_RESOURCE = 0,
+  ASTER_KERNEL_BACKEND_FEATURE_CAPTURE = 1,
+  ASTER_KERNEL_BACKEND_FEATURE_TEXTURE_SAMPLING = 2,
+  ASTER_KERNEL_BACKEND_FEATURE_INSTANCING = 3,
+  ASTER_KERNEL_BACKEND_FEATURE_GPU_TIMESTAMPS = 4,
+  ASTER_KERNEL_BACKEND_FEATURE_HDR_RENDER_TARGET = 5,
+  ASTER_KERNEL_BACKEND_FEATURE_MSAA = 6,
+  ASTER_KERNEL_BACKEND_FEATURE_PRESENTATION = 7
+} AsterKernelBackendFeatureProofKind;
+
+typedef enum AsterKernelBackendFeatureProofStatus {
+  ASTER_KERNEL_BACKEND_FEATURE_NOT_ADVERTISED = 0,
+  ASTER_KERNEL_BACKEND_FEATURE_NOT_EXERCISED = 1,
+  ASTER_KERNEL_BACKEND_FEATURE_PROVEN = 2,
+  ASTER_KERNEL_BACKEND_FEATURE_MISSING_PROOF = 3,
+  ASTER_KERNEL_BACKEND_FEATURE_UNSUPPORTED = 4
+} AsterKernelBackendFeatureProofStatus;
+
+typedef enum AsterKernelRhiValidationKind {
+  ASTER_KERNEL_RHI_VALIDATION_READ_BEFORE_WRITE = 0,
+  ASTER_KERNEL_RHI_VALIDATION_MISSING_BARRIER = 1,
+  ASTER_KERNEL_RHI_VALIDATION_QUEUE_OWNERSHIP_MISMATCH = 2,
+  ASTER_KERNEL_RHI_VALIDATION_DESCRIPTOR_RESOURCE_MISMATCH = 3,
+  ASTER_KERNEL_RHI_VALIDATION_MISSING_RESOURCE = 4,
+  ASTER_KERNEL_RHI_VALIDATION_RETIRED_RESOURCE_USE = 5,
+  ASTER_KERNEL_RHI_VALIDATION_INVALID_RESOURCE_STATE = 6
+} AsterKernelRhiValidationKind;
 
 typedef enum AsterKernelFrameDiagnosticSeverity {
   ASTER_KERNEL_FRAME_DIAGNOSTIC_INFO = 0,
@@ -610,6 +668,22 @@ typedef struct AsterFrameForensicsCounts {
   size_t event_count;
 } AsterFrameForensicsCounts;
 
+typedef struct AsterFrameForensicsDetailCounts {
+  size_t size;
+  uint32_t version;
+  size_t pass_count;
+  size_t event_count;
+  size_t debug_capture_count;
+  size_t pass_artifact_count;
+  size_t resource_transition_count;
+  size_t rhi_validation_event_count;
+  size_t timestamp_sample_count;
+  size_t backend_feature_proof_count;
+  uint32_t certification_valid;
+  size_t certification_missing_proof_count;
+  size_t certification_validation_error_count;
+} AsterFrameForensicsDetailCounts;
+
 typedef struct AsterFramePassStats {
   size_t size;
   uint32_t version;
@@ -631,6 +705,83 @@ typedef struct AsterFrameDiagnosticEvent {
   AsterStringView message;
   uint64_t value;
 } AsterFrameDiagnosticEvent;
+
+typedef struct AsterFrameDebugCaptureInfo {
+  size_t size;
+  uint32_t version;
+  AsterKernelRenderGraphPass pass;
+  AsterKernelRenderGraphResource resource;
+  uint32_t view;
+  AsterStringView label;
+  uint32_t width;
+  uint32_t height;
+  uint32_t row_stride_bytes;
+  uint64_t content_hash;
+  uint32_t available;
+  size_t payload_size;
+} AsterFrameDebugCaptureInfo;
+
+typedef struct AsterFramePassArtifactInfo {
+  size_t size;
+  uint32_t version;
+  AsterKernelRenderGraphPass pass;
+  AsterKernelRenderGraphResource resource;
+  AsterStringView label;
+  AsterStringView kind;
+  uint32_t width;
+  uint32_t height;
+  uint64_t content_hash;
+  uint32_t available;
+} AsterFramePassArtifactInfo;
+
+typedef struct AsterFrameResourceTransition {
+  size_t size;
+  uint32_t version;
+  AsterKernelRenderGraphPass pass;
+  AsterKernelRenderGraphResource resource;
+  AsterStringView pass_name;
+  AsterStringView resource_name;
+  AsterKernelRhiResourceState before;
+  AsterKernelRhiResourceState after;
+  AsterKernelRhiQueueKind queue;
+  uint32_t write;
+} AsterFrameResourceTransition;
+
+typedef struct AsterRhiValidationEvent {
+  size_t size;
+  uint32_t version;
+  AsterKernelRhiValidationKind kind;
+  AsterKernelFrameDiagnosticSeverity severity;
+  AsterStringView pass;
+  AsterStringView resource;
+  AsterStringView message;
+  size_t pass_index;
+  uint64_t resource_id;
+} AsterRhiValidationEvent;
+
+typedef struct AsterFrameTimestampSample {
+  size_t size;
+  uint32_t version;
+  uint32_t slot;
+  uint64_t ticks;
+  double nanoseconds;
+  uint32_t available;
+} AsterFrameTimestampSample;
+
+typedef struct AsterBackendFeatureProof {
+  size_t size;
+  uint32_t version;
+  AsterKernelBackendFeatureProofKind kind;
+  AsterKernelBackendFeatureProofStatus status;
+  AsterKernelRenderGraphPass pass;
+  AsterKernelRenderGraphResource resource;
+  AsterStringView feature;
+  AsterStringView label;
+  AsterStringView message;
+  uint32_t advertised;
+  uint32_t native;
+  uint64_t evidence_hash;
+} AsterBackendFeatureProof;
 
 typedef struct AsterCaptureDesc {
   size_t size;
@@ -749,12 +900,32 @@ ASTER_KERNEL_API AsterStatus aster_kernel_renderer_last_stats(AsterRendererHandl
                                                               AsterFrameStats *out_stats);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_forensics_counts(
     AsterRendererHandle renderer, AsterFrameForensicsCounts *out_counts);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
+    AsterRendererHandle renderer, AsterFrameForensicsDetailCounts *out_counts);
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_frame_pass_stats(AsterRendererHandle renderer, size_t index,
                                        AsterFramePassStats *out_stats);
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_frame_diagnostic(AsterRendererHandle renderer, size_t index,
                                        AsterFrameDiagnosticEvent *out_event);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_renderer_debug_capture_info(AsterRendererHandle renderer, size_t index,
+                                         AsterFrameDebugCaptureInfo *out_capture);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_renderer_pass_artifact_info(AsterRendererHandle renderer, size_t index,
+                                         AsterFramePassArtifactInfo *out_artifact);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_renderer_resource_transition(AsterRendererHandle renderer, size_t index,
+                                          AsterFrameResourceTransition *out_transition);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_renderer_rhi_validation_event(AsterRendererHandle renderer, size_t index,
+                                           AsterRhiValidationEvent *out_event);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_renderer_timestamp_sample(AsterRendererHandle renderer, size_t index,
+                                       AsterFrameTimestampSample *out_sample);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_renderer_backend_feature_proof(AsterRendererHandle renderer, size_t index,
+                                            AsterBackendFeatureProof *out_proof);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_destroy(AsterRendererHandle renderer);
 
 ASTER_KERNEL_API AsterStatus aster_kernel_mesh_create(AsterEngineHandle engine,

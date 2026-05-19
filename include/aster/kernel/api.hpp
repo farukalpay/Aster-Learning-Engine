@@ -619,6 +619,17 @@ public:
     return Result<AsterFrameForensicsCounts>(std::move(counts));
   }
 
+  [[nodiscard]] Result<AsterFrameForensicsDetailCounts>
+  frameForensicsDetailCounts() const noexcept {
+    AsterFrameForensicsDetailCounts counts{sizeof(AsterFrameForensicsDetailCounts),
+                                           ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_frame_forensics_detail_counts(handle_, &counts));
+    if (!status) {
+      return Result<AsterFrameForensicsDetailCounts>(status);
+    }
+    return Result<AsterFrameForensicsDetailCounts>(std::move(counts));
+  }
+
   [[nodiscard]] Result<AsterFramePassStats> framePassStats(const size_t index) const noexcept {
     AsterFramePassStats stats{sizeof(AsterFramePassStats), ASTER_KERNEL_STRUCT_VERSION_1};
     const Status status(aster_kernel_renderer_frame_pass_stats(handle_, index, &stats));
@@ -637,6 +648,72 @@ public:
       return Result<AsterFrameDiagnosticEvent>(status);
     }
     return Result<AsterFrameDiagnosticEvent>(std::move(event));
+  }
+
+  [[nodiscard]] Result<AsterFrameDebugCaptureInfo> debugCaptureInfo(
+      const size_t index) const noexcept {
+    AsterFrameDebugCaptureInfo capture{sizeof(AsterFrameDebugCaptureInfo),
+                                       ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_debug_capture_info(handle_, index, &capture));
+    if (!status) {
+      return Result<AsterFrameDebugCaptureInfo>(status);
+    }
+    return Result<AsterFrameDebugCaptureInfo>(std::move(capture));
+  }
+
+  [[nodiscard]] Result<AsterFramePassArtifactInfo> passArtifactInfo(
+      const size_t index) const noexcept {
+    AsterFramePassArtifactInfo artifact{sizeof(AsterFramePassArtifactInfo),
+                                        ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_pass_artifact_info(handle_, index, &artifact));
+    if (!status) {
+      return Result<AsterFramePassArtifactInfo>(status);
+    }
+    return Result<AsterFramePassArtifactInfo>(std::move(artifact));
+  }
+
+  [[nodiscard]] Result<AsterFrameResourceTransition> resourceTransition(
+      const size_t index) const noexcept {
+    AsterFrameResourceTransition transition{sizeof(AsterFrameResourceTransition),
+                                            ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_resource_transition(handle_, index, &transition));
+    if (!status) {
+      return Result<AsterFrameResourceTransition>(status);
+    }
+    return Result<AsterFrameResourceTransition>(std::move(transition));
+  }
+
+  [[nodiscard]] Result<AsterRhiValidationEvent> rhiValidationEvent(
+      const size_t index) const noexcept {
+    AsterRhiValidationEvent event{sizeof(AsterRhiValidationEvent),
+                                  ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_rhi_validation_event(handle_, index, &event));
+    if (!status) {
+      return Result<AsterRhiValidationEvent>(status);
+    }
+    return Result<AsterRhiValidationEvent>(std::move(event));
+  }
+
+  [[nodiscard]] Result<AsterFrameTimestampSample> timestampSample(
+      const size_t index) const noexcept {
+    AsterFrameTimestampSample sample{sizeof(AsterFrameTimestampSample),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_timestamp_sample(handle_, index, &sample));
+    if (!status) {
+      return Result<AsterFrameTimestampSample>(status);
+    }
+    return Result<AsterFrameTimestampSample>(std::move(sample));
+  }
+
+  [[nodiscard]] Result<AsterBackendFeatureProof> backendFeatureProof(
+      const size_t index) const noexcept {
+    AsterBackendFeatureProof proof{sizeof(AsterBackendFeatureProof),
+                                   ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_backend_feature_proof(handle_, index, &proof));
+    if (!status) {
+      return Result<AsterBackendFeatureProof>(status);
+    }
+    return Result<AsterBackendFeatureProof>(std::move(proof));
   }
 
   [[nodiscard]] AsterRendererHandle get() const noexcept {

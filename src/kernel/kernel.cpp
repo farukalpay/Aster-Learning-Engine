@@ -462,6 +462,138 @@ AsterKernelRenderGraphPass renderGraphPass(const aster::RenderGraphPass pass) {
   }
 }
 
+AsterKernelRenderGraphResource renderGraphResource(const aster::RenderGraphResource resource) {
+  switch (resource) {
+  case aster::RenderGraphResource::SceneDepth:
+    return ASTER_KERNEL_RENDER_RESOURCE_SCENE_DEPTH;
+  case aster::RenderGraphResource::LightClusters:
+    return ASTER_KERNEL_RENDER_RESOURCE_LIGHT_CLUSTERS;
+  case aster::RenderGraphResource::ShadowAtlas:
+    return ASTER_KERNEL_RENDER_RESOURCE_SHADOW_ATLAS;
+  case aster::RenderGraphResource::VolumetricFog:
+    return ASTER_KERNEL_RENDER_RESOURCE_VOLUMETRIC_FOG;
+  case aster::RenderGraphResource::ReflectionProbes:
+    return ASTER_KERNEL_RENDER_RESOURCE_REFLECTION_PROBES;
+  case aster::RenderGraphResource::UiOverlay:
+    return ASTER_KERNEL_RENDER_RESOURCE_UI_OVERLAY;
+  case aster::RenderGraphResource::CaptureReadback:
+    return ASTER_KERNEL_RENDER_RESOURCE_CAPTURE_READBACK;
+  case aster::RenderGraphResource::SceneColor:
+  default:
+    return ASTER_KERNEL_RENDER_RESOURCE_SCENE_COLOR;
+  }
+}
+
+AsterKernelRhiResourceState rhiResourceState(const aster::rhi::ResourceState state) {
+  switch (state) {
+  case aster::rhi::ResourceState::CopySource:
+    return ASTER_KERNEL_RHI_RESOURCE_STATE_COPY_SOURCE;
+  case aster::rhi::ResourceState::CopyDestination:
+    return ASTER_KERNEL_RHI_RESOURCE_STATE_COPY_DESTINATION;
+  case aster::rhi::ResourceState::ShaderRead:
+    return ASTER_KERNEL_RHI_RESOURCE_STATE_SHADER_READ;
+  case aster::rhi::ResourceState::ShaderWrite:
+    return ASTER_KERNEL_RHI_RESOURCE_STATE_SHADER_WRITE;
+  case aster::rhi::ResourceState::ColorAttachment:
+    return ASTER_KERNEL_RHI_RESOURCE_STATE_COLOR_ATTACHMENT;
+  case aster::rhi::ResourceState::DepthAttachment:
+    return ASTER_KERNEL_RHI_RESOURCE_STATE_DEPTH_ATTACHMENT;
+  case aster::rhi::ResourceState::Present:
+    return ASTER_KERNEL_RHI_RESOURCE_STATE_PRESENT;
+  case aster::rhi::ResourceState::Readback:
+    return ASTER_KERNEL_RHI_RESOURCE_STATE_READBACK;
+  case aster::rhi::ResourceState::Undefined:
+  default:
+    return ASTER_KERNEL_RHI_RESOURCE_STATE_UNDEFINED;
+  }
+}
+
+AsterKernelRhiQueueKind rhiQueueKind(const aster::rhi::QueueKind queue) {
+  switch (queue) {
+  case aster::rhi::QueueKind::Compute:
+    return ASTER_KERNEL_RHI_QUEUE_COMPUTE;
+  case aster::rhi::QueueKind::Copy:
+    return ASTER_KERNEL_RHI_QUEUE_COPY;
+  case aster::rhi::QueueKind::Graphics:
+  default:
+    return ASTER_KERNEL_RHI_QUEUE_GRAPHICS;
+  }
+}
+
+AsterKernelBackendFeatureProofKind
+backendFeatureProofKind(const aster::BackendFeatureProofKind kind) {
+  switch (kind) {
+  case aster::BackendFeatureProofKind::Capture:
+    return ASTER_KERNEL_BACKEND_FEATURE_CAPTURE;
+  case aster::BackendFeatureProofKind::TextureSampling:
+    return ASTER_KERNEL_BACKEND_FEATURE_TEXTURE_SAMPLING;
+  case aster::BackendFeatureProofKind::Instancing:
+    return ASTER_KERNEL_BACKEND_FEATURE_INSTANCING;
+  case aster::BackendFeatureProofKind::GpuTimestamps:
+    return ASTER_KERNEL_BACKEND_FEATURE_GPU_TIMESTAMPS;
+  case aster::BackendFeatureProofKind::HdrRenderTarget:
+    return ASTER_KERNEL_BACKEND_FEATURE_HDR_RENDER_TARGET;
+  case aster::BackendFeatureProofKind::Msaa:
+    return ASTER_KERNEL_BACKEND_FEATURE_MSAA;
+  case aster::BackendFeatureProofKind::Presentation:
+    return ASTER_KERNEL_BACKEND_FEATURE_PRESENTATION;
+  case aster::BackendFeatureProofKind::GraphResource:
+  default:
+    return ASTER_KERNEL_BACKEND_FEATURE_GRAPH_RESOURCE;
+  }
+}
+
+AsterKernelBackendFeatureProofStatus
+backendFeatureProofStatus(const aster::BackendFeatureProofStatus status) {
+  switch (status) {
+  case aster::BackendFeatureProofStatus::NotExercised:
+    return ASTER_KERNEL_BACKEND_FEATURE_NOT_EXERCISED;
+  case aster::BackendFeatureProofStatus::Proven:
+    return ASTER_KERNEL_BACKEND_FEATURE_PROVEN;
+  case aster::BackendFeatureProofStatus::MissingProof:
+    return ASTER_KERNEL_BACKEND_FEATURE_MISSING_PROOF;
+  case aster::BackendFeatureProofStatus::Unsupported:
+    return ASTER_KERNEL_BACKEND_FEATURE_UNSUPPORTED;
+  case aster::BackendFeatureProofStatus::NotAdvertised:
+  default:
+    return ASTER_KERNEL_BACKEND_FEATURE_NOT_ADVERTISED;
+  }
+}
+
+AsterKernelRhiValidationKind
+rhiValidationKind(const aster::rhi::ResourceLifetimeValidationKind kind) {
+  switch (kind) {
+  case aster::rhi::ResourceLifetimeValidationKind::ReadBeforeWrite:
+    return ASTER_KERNEL_RHI_VALIDATION_READ_BEFORE_WRITE;
+  case aster::rhi::ResourceLifetimeValidationKind::MissingBarrier:
+    return ASTER_KERNEL_RHI_VALIDATION_MISSING_BARRIER;
+  case aster::rhi::ResourceLifetimeValidationKind::QueueOwnershipMismatch:
+    return ASTER_KERNEL_RHI_VALIDATION_QUEUE_OWNERSHIP_MISMATCH;
+  case aster::rhi::ResourceLifetimeValidationKind::DescriptorResourceMismatch:
+    return ASTER_KERNEL_RHI_VALIDATION_DESCRIPTOR_RESOURCE_MISMATCH;
+  case aster::rhi::ResourceLifetimeValidationKind::MissingResource:
+    return ASTER_KERNEL_RHI_VALIDATION_MISSING_RESOURCE;
+  case aster::rhi::ResourceLifetimeValidationKind::RetiredResourceUse:
+    return ASTER_KERNEL_RHI_VALIDATION_RETIRED_RESOURCE_USE;
+  case aster::rhi::ResourceLifetimeValidationKind::InvalidResourceState:
+  default:
+    return ASTER_KERNEL_RHI_VALIDATION_INVALID_RESOURCE_STATE;
+  }
+}
+
+AsterKernelFrameDiagnosticSeverity
+rhiValidationSeverity(const aster::rhi::ResourceLifetimeValidationSeverity severity) {
+  switch (severity) {
+  case aster::rhi::ResourceLifetimeValidationSeverity::Warning:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_WARNING;
+  case aster::rhi::ResourceLifetimeValidationSeverity::Error:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR;
+  case aster::rhi::ResourceLifetimeValidationSeverity::Info:
+  default:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_INFO;
+  }
+}
+
 AsterKernelFrameDiagnosticSeverity
 diagnosticSeverity(const aster::FrameDiagnosticSeverity severity) {
   switch (severity) {
@@ -1346,6 +1478,32 @@ AsterStatus aster_kernel_renderer_frame_forensics_counts(
   return aster_kernel_status_ok();
 }
 
+AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
+    const AsterRendererHandle renderer, AsterFrameForensicsDetailCounts *out_counts) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_counts)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame forensics detail counts struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  out_counts->pass_count = forensics.passes.size();
+  out_counts->event_count = forensics.events.size();
+  out_counts->debug_capture_count = forensics.captures.size();
+  out_counts->pass_artifact_count = forensics.pass_artifacts.size();
+  out_counts->resource_transition_count = forensics.resource_traces.size();
+  out_counts->rhi_validation_event_count = forensics.rhi_validation_events.size();
+  out_counts->timestamp_sample_count = forensics.timestamp_samples.size();
+  out_counts->backend_feature_proof_count = forensics.backend_feature_proofs.size();
+  out_counts->certification_valid = forensics.certification.valid ? 1u : 0u;
+  out_counts->certification_missing_proof_count =
+      forensics.certification.missing_proof_count;
+  out_counts->certification_validation_error_count =
+      forensics.certification.validation_error_count;
+  return aster_kernel_status_ok();
+}
+
 AsterStatus aster_kernel_renderer_frame_pass_stats(const AsterRendererHandle renderer,
                                                    const std::size_t index,
                                                    AsterFramePassStats *out_stats) {
@@ -1391,6 +1549,163 @@ AsterStatus aster_kernel_renderer_frame_diagnostic(
   out_event->label = viewFromString(event.label);
   out_event->message = viewFromString(event.message);
   out_event->value = event.value;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_debug_capture_info(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterFrameDebugCaptureInfo *out_capture) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_capture)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame debug capture struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.captures.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame debug capture index is out of range");
+  }
+  const aster::FrameDebugCapture &capture = forensics.captures[index];
+  out_capture->pass = renderGraphPass(capture.pass);
+  out_capture->resource = renderGraphResource(capture.resource);
+  out_capture->view = static_cast<std::uint32_t>(capture.view);
+  out_capture->label = viewFromString(capture.label);
+  out_capture->width = capture.width;
+  out_capture->height = capture.height;
+  out_capture->row_stride_bytes = capture.row_stride_bytes;
+  out_capture->content_hash = capture.content_hash;
+  out_capture->available = capture.available ? 1u : 0u;
+  out_capture->payload_size = capture.rgba8.size();
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_pass_artifact_info(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterFramePassArtifactInfo *out_artifact) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_artifact)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame pass artifact struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.pass_artifacts.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame pass artifact index is out of range");
+  }
+  const aster::FramePassArtifact &artifact = forensics.pass_artifacts[index];
+  out_artifact->pass = renderGraphPass(artifact.pass);
+  out_artifact->resource = renderGraphResource(artifact.resource);
+  out_artifact->label = viewFromString(artifact.label);
+  out_artifact->kind = viewFromString(artifact.kind);
+  out_artifact->width = artifact.width;
+  out_artifact->height = artifact.height;
+  out_artifact->content_hash = artifact.content_hash;
+  out_artifact->available = artifact.available ? 1u : 0u;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_resource_transition(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterFrameResourceTransition *out_transition) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_transition)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame resource transition struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.resource_traces.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame resource transition index is out of range");
+  }
+  const aster::FrameResourceTrace &trace = forensics.resource_traces[index];
+  out_transition->pass = renderGraphPass(trace.pass);
+  out_transition->resource = renderGraphResource(trace.resource);
+  out_transition->pass_name = viewFromString(trace.pass_name);
+  out_transition->resource_name = viewFromString(trace.resource_name);
+  out_transition->before = rhiResourceState(trace.before);
+  out_transition->after = rhiResourceState(trace.after);
+  out_transition->queue = rhiQueueKind(trace.queue);
+  out_transition->write = trace.write ? 1u : 0u;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_rhi_validation_event(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterRhiValidationEvent *out_event) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_event)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "RHI validation event struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.rhi_validation_events.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "RHI validation event index is out of range");
+  }
+  const aster::rhi::ResourceLifetimeValidationEvent &event =
+      forensics.rhi_validation_events[index];
+  out_event->kind = rhiValidationKind(event.kind);
+  out_event->severity = rhiValidationSeverity(event.severity);
+  out_event->pass = viewFromString(event.pass);
+  out_event->resource = viewFromString(event.resource);
+  out_event->message = viewFromString(event.message);
+  out_event->pass_index = event.pass_index;
+  out_event->resource_id = event.resource_id;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_timestamp_sample(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterFrameTimestampSample *out_sample) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_sample)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame timestamp sample struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.timestamp_samples.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "timestamp sample index is out of range");
+  }
+  const aster::rhi::TimestampQueryResult &sample = forensics.timestamp_samples[index];
+  out_sample->slot = sample.slot;
+  out_sample->ticks = sample.ticks;
+  out_sample->nanoseconds = sample.nanoseconds;
+  out_sample->available = sample.available ? 1u : 0u;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_backend_feature_proof(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterBackendFeatureProof *out_proof) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_proof)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "backend feature proof struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.backend_feature_proofs.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "backend feature proof index is out of range");
+  }
+  const aster::BackendFeatureProof &proof = forensics.backend_feature_proofs[index];
+  out_proof->kind = backendFeatureProofKind(proof.kind);
+  out_proof->status = backendFeatureProofStatus(proof.status);
+  out_proof->pass = renderGraphPass(proof.pass);
+  out_proof->resource = renderGraphResource(proof.resource);
+  out_proof->feature = viewFromString(proof.feature);
+  out_proof->label = viewFromString(proof.label);
+  out_proof->message = viewFromString(proof.message);
+  out_proof->advertised = proof.advertised;
+  out_proof->native = proof.native;
+  out_proof->evidence_hash = proof.evidence_hash;
   return aster_kernel_status_ok();
 }
 

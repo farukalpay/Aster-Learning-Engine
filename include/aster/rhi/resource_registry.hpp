@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -58,6 +59,15 @@ struct ResourceRegistryStats {
   std::size_t shaders = 0u;
   std::size_t pipelines = 0u;
   std::size_t framebuffers = 0u;
+};
+
+struct ResourceRegistryEntrySnapshot {
+  std::uint64_t id = 0u;
+  std::uint32_t generation = 0u;
+  ResourceKind kind = ResourceKind::Buffer;
+  ResourceResidency residency = ResourceResidency::Unresident;
+  std::uint64_t version = 0u;
+  std::string label;
 };
 
 class ResourceRegistry {
@@ -129,6 +139,7 @@ public:
   }
 
   [[nodiscard]] ResourceRegistryStats stats() const;
+  [[nodiscard]] std::optional<ResourceRegistryEntrySnapshot> snapshot(std::uint64_t id) const;
   void clearRetired();
 
 private:

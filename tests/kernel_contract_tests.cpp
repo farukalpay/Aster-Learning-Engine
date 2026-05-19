@@ -40,8 +40,15 @@ static_assert(std::is_standard_layout_v<AsterCameraDesc>);
 static_assert(std::is_standard_layout_v<AsterRendererSettings>);
 static_assert(std::is_standard_layout_v<AsterFrameStats>);
 static_assert(std::is_standard_layout_v<AsterFrameForensicsCounts>);
+static_assert(std::is_standard_layout_v<AsterFrameForensicsDetailCounts>);
 static_assert(std::is_standard_layout_v<AsterFramePassStats>);
 static_assert(std::is_standard_layout_v<AsterFrameDiagnosticEvent>);
+static_assert(std::is_standard_layout_v<AsterFrameDebugCaptureInfo>);
+static_assert(std::is_standard_layout_v<AsterFramePassArtifactInfo>);
+static_assert(std::is_standard_layout_v<AsterFrameResourceTransition>);
+static_assert(std::is_standard_layout_v<AsterRhiValidationEvent>);
+static_assert(std::is_standard_layout_v<AsterFrameTimestampSample>);
+static_assert(std::is_standard_layout_v<AsterBackendFeatureProof>);
 static_assert(std::is_standard_layout_v<AsterCaptureDesc>);
 static_assert(std::is_standard_layout_v<AsterVec2>);
 static_assert(std::is_standard_layout_v<AsterVec3>);
@@ -120,7 +127,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 4u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 0u);
+  assert(version.minor == 1u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -351,10 +358,49 @@ void testRendererAbi3Lifecycle() {
   assert(aster_kernel_renderer_frame_forensics_counts(renderer, &forensics_counts).code ==
          ASTER_STATUS_OK);
   assert(forensics_counts.pass_count >= 1u);
+  AsterFrameForensicsDetailCounts detail_counts{sizeof(AsterFrameForensicsDetailCounts),
+                                                ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_forensics_detail_counts(renderer, &detail_counts).code ==
+         ASTER_STATUS_OK);
+  assert(detail_counts.pass_count == forensics_counts.pass_count);
+  assert(detail_counts.debug_capture_count >= 1u);
+  assert(detail_counts.resource_transition_count >= 1u);
+  assert(detail_counts.backend_feature_proof_count >= 1u);
   AsterFramePassStats pass_stats{sizeof(AsterFramePassStats), ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_renderer_frame_pass_stats(renderer, 0u, &pass_stats).code ==
          ASTER_STATUS_OK);
   assert(pass_stats.name.size > 0u);
+  AsterFrameDebugCaptureInfo capture_info{sizeof(AsterFrameDebugCaptureInfo),
+                                          ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_debug_capture_info(renderer, 0u, &capture_info).code ==
+         ASTER_STATUS_OK);
+  assert(capture_info.label.size > 0u);
+  AsterFramePassArtifactInfo artifact_info{sizeof(AsterFramePassArtifactInfo),
+                                           ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_pass_artifact_info(renderer, 0u, &artifact_info).code ==
+         ASTER_STATUS_OK);
+  assert(artifact_info.kind.size > 0u);
+  AsterFrameResourceTransition transition{sizeof(AsterFrameResourceTransition),
+                                          ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_resource_transition(renderer, 0u, &transition).code ==
+         ASTER_STATUS_OK);
+  AsterFrameTimestampSample timestamp{sizeof(AsterFrameTimestampSample),
+                                      ASTER_KERNEL_STRUCT_VERSION_1};
+  if (detail_counts.timestamp_sample_count > 0u) {
+    assert(aster_kernel_renderer_timestamp_sample(renderer, 0u, &timestamp).code ==
+           ASTER_STATUS_OK);
+  }
+  AsterRhiValidationEvent validation_event{sizeof(AsterRhiValidationEvent),
+                                           ASTER_KERNEL_STRUCT_VERSION_1};
+  if (detail_counts.rhi_validation_event_count > 0u) {
+    assert(aster_kernel_renderer_rhi_validation_event(renderer, 0u, &validation_event).code ==
+           ASTER_STATUS_OK);
+  }
+  AsterBackendFeatureProof proof{sizeof(AsterBackendFeatureProof),
+                                 ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_backend_feature_proof(renderer, 0u, &proof).code ==
+         ASTER_STATUS_OK);
+  assert(proof.feature.size > 0u);
 
   const std::filesystem::path capture_path =
       std::filesystem::temp_directory_path() / "aster_kernel_renderer_abi4.ppm";
@@ -476,8 +522,15 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_renderer_capture",
       "aster_kernel_renderer_last_stats",
       "aster_kernel_renderer_frame_forensics_counts",
+      "aster_kernel_renderer_frame_forensics_detail_counts",
       "aster_kernel_renderer_frame_pass_stats",
       "aster_kernel_renderer_frame_diagnostic",
+      "aster_kernel_renderer_debug_capture_info",
+      "aster_kernel_renderer_pass_artifact_info",
+      "aster_kernel_renderer_resource_transition",
+      "aster_kernel_renderer_rhi_validation_event",
+      "aster_kernel_renderer_timestamp_sample",
+      "aster_kernel_renderer_backend_feature_proof",
       "aster_kernel_renderer_destroy",
       "aster_kernel_mesh_create",
       "aster_kernel_mesh_destroy",
@@ -545,8 +598,15 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_renderer_capture;
   (void)&aster_kernel_renderer_last_stats;
   (void)&aster_kernel_renderer_frame_forensics_counts;
+  (void)&aster_kernel_renderer_frame_forensics_detail_counts;
   (void)&aster_kernel_renderer_frame_pass_stats;
   (void)&aster_kernel_renderer_frame_diagnostic;
+  (void)&aster_kernel_renderer_debug_capture_info;
+  (void)&aster_kernel_renderer_pass_artifact_info;
+  (void)&aster_kernel_renderer_resource_transition;
+  (void)&aster_kernel_renderer_rhi_validation_event;
+  (void)&aster_kernel_renderer_timestamp_sample;
+  (void)&aster_kernel_renderer_backend_feature_proof;
   (void)&aster_kernel_renderer_destroy;
   (void)&aster_kernel_mesh_create;
   (void)&aster_kernel_mesh_destroy;

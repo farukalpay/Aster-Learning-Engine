@@ -93,6 +93,7 @@ set(ASTER_CORE_SOURCES
 
 set(ASTER_RHI_SOURCES
   "${PROJECT_SOURCE_DIR}/src/rhi/resource_registry.cpp"
+  "${PROJECT_SOURCE_DIR}/src/rhi/resource_lifetime_validator.cpp"
 )
 
 set(ASTER_FRAMEGRAPH_SOURCES
@@ -558,6 +559,7 @@ if(ASTER_BUILD_TESTS)
       material_render_policies
       runtime_light_policy
       rhi_resource_registry
+      rhi_resource_lifetime_validator
       rhi_explicit_gpu_contracts
       frame_graph
       backend_kinds
@@ -588,6 +590,7 @@ if(ASTER_BUILD_TESTS)
       golden_lab_scenes
       cave_conformance_software_golden
       resource_capability_mismatch_requires_resource_mask
+      backend_feature_certification_rejects_lying_null
       native_cave_conformance_when_available
       native_material_pipeline_key_tracks_feature_bits
       native_lab_scenes_match_software_reference_when_available

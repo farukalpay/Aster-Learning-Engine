@@ -14,15 +14,20 @@ Aster builds a frame from engine data, not sample-specific code:
    barriers, descriptor requirements, and render-pass compatibility metadata.
 5. Backends consume the same plan and publish `FrameStats` plus
    `FrameForensics`.
+6. The certification layer validates the compiled RHI contract and records
+   backend feature proofs before the frame is considered conformant.
 
 The frame debugger is contract-first: every frame records pass stats, resource
 transition traces, queue submit traces, descriptor layout hashes, pipeline cache
-keys, material binding/fallback state, and debug-capture declarations. The
+keys, material binding/fallback state, debug-capture declarations, resource
+lifetime validation events, pass artifacts, timestamp samples, and backend
+feature proofs. The
 software reference path now produces checksummed RGBA captures for final color,
-shadow atlas, volumetric fog, and reflection probes. Native Metal/D3D12 still
-report shadow/fog/probe as declared resources until their GPU workloads are
-wired. Per-object visibility traces and object-to-cluster membership traces are
-recorded alongside the pass/resource data.
+shadow atlas, volumetric fog, and reflection probes. Native backends that
+advertise those proof resources must populate matching capture and sampling
+evidence; otherwise certification records missing proof. Per-object visibility
+traces and object-to-cluster membership traces are recorded alongside the
+pass/resource data.
 
 Clustered forward lighting v1 is a shared CPU-reference contract. It builds
 deterministic cluster lists from the camera and `LightRig` so software, Metal,

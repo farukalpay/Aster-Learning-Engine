@@ -1793,6 +1793,35 @@ std::size_t FrameExecutor::execute(const FixedRenderGraph &graph,
   return executeFixedRenderGraph(graph, callback);
 }
 
+GpuFrameProfiler::GpuFrameProfiler(const bool supported,
+                                   const double timestamp_period_nanoseconds)
+    : supported_(supported), timestamp_period_nanoseconds_(timestamp_period_nanoseconds) {}
+
+void GpuFrameProfiler::beginFrame(const std::uint32_t slot_count) {
+  samples_.clear();
+  samples_.reserve(slot_count);
+}
+
+void GpuFrameProfiler::recordUnavailable(const std::uint32_t slot_count) {
+  beginFrame(slot_count);
+}
+
+void GpuFrameProfiler::recordSample(const std::uint32_t slot, const std::uint64_t ticks,
+                                    const bool available) {
+  samples_.push_back({.slot = slot,
+                      .ticks = ticks,
+                      .nanoseconds = static_cast<double>(ticks) * timestamp_period_nanoseconds_,
+                      .available = available});
+}
+
+bool GpuFrameProfiler::supported() const noexcept {
+  return supported_;
+}
+
+const std::vector<rhi::TimestampQueryResult> &GpuFrameProfiler::samples() const noexcept {
+  return samples_;
+}
+
 std::string_view renderBackendKindName(const RenderBackendKind kind) {
   switch (kind) {
   case RenderBackendKind::SoftwareReference:
@@ -1807,6 +1836,44 @@ std::string_view renderBackendKindName(const RenderBackendKind kind) {
     return "unknown";
   }
   return "unknown";
+}
+
+std::string_view backendFeatureProofKindName(const BackendFeatureProofKind kind) {
+  switch (kind) {
+  case BackendFeatureProofKind::GraphResource:
+    return "graph-resource";
+  case BackendFeatureProofKind::Capture:
+    return "capture";
+  case BackendFeatureProofKind::TextureSampling:
+    return "texture-sampling";
+  case BackendFeatureProofKind::Instancing:
+    return "instancing";
+  case BackendFeatureProofKind::GpuTimestamps:
+    return "gpu-timestamps";
+  case BackendFeatureProofKind::HdrRenderTarget:
+    return "hdr-render-target";
+  case BackendFeatureProofKind::Msaa:
+    return "msaa";
+  case BackendFeatureProofKind::Presentation:
+    return "presentation";
+  }
+  return "graph-resource";
+}
+
+std::string_view backendFeatureProofStatusName(const BackendFeatureProofStatus status) {
+  switch (status) {
+  case BackendFeatureProofStatus::NotAdvertised:
+    return "not-advertised";
+  case BackendFeatureProofStatus::NotExercised:
+    return "not-exercised";
+  case BackendFeatureProofStatus::Proven:
+    return "proven";
+  case BackendFeatureProofStatus::MissingProof:
+    return "missing-proof";
+  case BackendFeatureProofStatus::Unsupported:
+    return "unsupported";
+  }
+  return "missing-proof";
 }
 
 std::string_view renderStylePresetName(const RenderStylePreset preset) {
@@ -2560,6 +2627,330 @@ void appendSoftwareCapturePayloads(const SoftwareFrameResources &resources,
   }
 }
 
+void appendFramebufferCapturePayloads(const aster::SoftwareFrameBuffer &framebuffer,
+                                      aster::FrameForensics &forensics) {
+  if (framebuffer.empty()) {
+    return;
+  }
+  const std::vector<std::uint8_t> final_rgba(framebuffer.rgba8().begin(), framebuffer.rgba8().end());
+  for (aster::FrameDebugCapture &capture : forensics.captures) {
+    if (!capture.available &&
+        (capture.resource == aster::RenderGraphResource::CaptureReadback ||
+         capture.resource == aster::RenderGraphResource::SceneColor)) {
+      updateCapturePayload(capture, static_cast<std::uint32_t>(std::max(framebuffer.width(), 0)),
+                           static_cast<std::uint32_t>(std::max(framebuffer.height(), 0)),
+                           final_rgba);
+    }
+  }
+}
+
+std::uint64_t proofHash(const std::uint64_t seed, const std::uint64_t value) {
+  return appendEvidenceValue(seed, value);
+}
+
+bool hasAvailableCapture(const aster::FrameForensics &forensics,
+                         const aster::RenderGraphResource resource) {
+  return std::any_of(forensics.captures.begin(), forensics.captures.end(),
+                     [resource](const aster::FrameDebugCapture &capture) {
+                       return capture.resource == resource && capture.available &&
+                              capture.content_hash != 0u;
+                     });
+}
+
+bool hasResourceTrace(const aster::FrameForensics &forensics,
+                      const aster::RenderGraphResource resource, const bool write) {
+  return std::any_of(forensics.resource_traces.begin(), forensics.resource_traces.end(),
+                     [resource, write](const aster::FrameResourceTrace &trace) {
+                       return trace.resource == resource && trace.write == write;
+                     });
+}
+
+bool hasReadAfterWriteEvidence(const aster::FrameForensics &forensics,
+                               const aster::RenderGraphResource resource) {
+  bool saw_write = false;
+  for (const aster::FrameResourceTrace &trace : forensics.resource_traces) {
+    if (trace.resource != resource) {
+      continue;
+    }
+    if (trace.write) {
+      saw_write = true;
+    } else if (saw_write) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool requiresNativeCaptureProof(const aster::RenderGraphResource resource) {
+  return resource == aster::RenderGraphResource::ShadowAtlas ||
+         resource == aster::RenderGraphResource::VolumetricFog ||
+         resource == aster::RenderGraphResource::ReflectionProbes ||
+         resource == aster::RenderGraphResource::CaptureReadback;
+}
+
+void appendProof(aster::FrameForensics &forensics, const aster::BackendFeatureProofKind kind,
+                 const aster::BackendFeatureProofStatus status, std::string feature,
+                 std::string label, std::string message,
+                 const aster::RenderGraphResource resource = aster::RenderGraphResource::SceneColor,
+                 const aster::RenderGraphPass pass = aster::RenderGraphPass::SceneColorDepth,
+                 const std::uint32_t advertised = 0u, const std::uint32_t native = 0u,
+                 const std::uint64_t evidence_hash = 0u) {
+  forensics.backend_feature_proofs.push_back({.kind = kind,
+                                              .status = status,
+                                              .resource = resource,
+                                              .pass = pass,
+                                              .feature = std::move(feature),
+                                              .label = std::move(label),
+                                              .message = std::move(message),
+                                              .advertised = advertised,
+                                              .native = native,
+                                              .evidence_hash = evidence_hash});
+}
+
+void appendPassArtifacts(aster::FrameForensics &forensics) {
+  forensics.pass_artifacts.clear();
+  for (const aster::FrameDebugCapture &capture : forensics.captures) {
+    forensics.pass_artifacts.push_back({.pass = capture.pass,
+                                        .resource = capture.resource,
+                                        .label = capture.label,
+                                        .kind = "debug-capture",
+                                        .width = capture.width,
+                                        .height = capture.height,
+                                        .content_hash = capture.content_hash,
+                                        .available = capture.available});
+  }
+  for (const aster::rhi::PipelineStateTrace &pipeline : forensics.rhi_trace.pipelines) {
+    forensics.pass_artifacts.push_back({.pass = aster::renderGraphPassFromName(pipeline.label),
+                                        .label = pipeline.label,
+                                        .kind = "pipeline-state",
+                                        .content_hash = pipeline.cache_key,
+                                        .available = pipeline.cache_key != 0u});
+  }
+}
+
+bool graphResourceExercised(const aster::RenderGraphResource resource,
+                            const aster::RendererSettings &settings) {
+  switch (resource) {
+  case aster::RenderGraphResource::ShadowAtlas:
+    return settings.shadows.enabled;
+  case aster::RenderGraphResource::VolumetricFog:
+    return settings.atmosphere.enabled && settings.atmosphere.fog_strength > 0.0f;
+  case aster::RenderGraphResource::ReflectionProbes:
+    return settings.reflections.enabled && settings.reflections.static_local_probes;
+  default:
+    return true;
+  }
+}
+
+void appendResourceCertification(const aster::FixedRenderGraph &graph,
+                                 const aster::RenderBackendCapabilities &capabilities,
+                                 const aster::RendererSettings &settings,
+                                 aster::FrameForensics &forensics) {
+  for (const aster::framegraph::CompiledResource &resource_node : graph.resources) {
+    const aster::RenderGraphResource resource =
+        aster::renderGraphResourceFromName(resource_node.name);
+    const bool advertised =
+        (capabilities.graph_resource_mask & aster::renderGraphResourceBit(resource)) != 0u;
+    if (!advertised) {
+      appendProof(forensics, aster::BackendFeatureProofKind::GraphResource,
+                  aster::BackendFeatureProofStatus::NotAdvertised,
+                  std::string(aster::renderGraphResourceName(resource)), resource_node.name,
+                  "Backend does not advertise this graph resource.", resource,
+                  aster::RenderGraphPass::SceneColorDepth, 0u, 0u);
+      continue;
+    }
+    if (!graphResourceExercised(resource, settings)) {
+      appendProof(forensics, aster::BackendFeatureProofKind::GraphResource,
+                  aster::BackendFeatureProofStatus::NotExercised,
+                  std::string(aster::renderGraphResourceName(resource)), resource_node.name,
+                  "Advertised graph resource was not exercised by this frame's settings.",
+                  resource, aster::RenderGraphPass::SceneColorDepth, 1u, 0u);
+      continue;
+    }
+
+    const bool write_trace =
+        resource_node.desc.lifetime == aster::framegraph::ResourceLifetime::Imported ||
+        hasResourceTrace(forensics, resource, true);
+    const bool capture_ok = !requiresNativeCaptureProof(resource) || hasAvailableCapture(forensics, resource);
+    const bool sampling_ok =
+        resource == aster::RenderGraphResource::ShadowAtlas ||
+                resource == aster::RenderGraphResource::VolumetricFog ||
+                resource == aster::RenderGraphResource::ReflectionProbes
+            ? hasReadAfterWriteEvidence(forensics, resource)
+            : true;
+    const bool proven = write_trace && capture_ok && sampling_ok;
+    appendProof(forensics, aster::BackendFeatureProofKind::GraphResource,
+                proven ? aster::BackendFeatureProofStatus::Proven
+                       : aster::BackendFeatureProofStatus::MissingProof,
+                std::string(aster::renderGraphResourceName(resource)), resource_node.name,
+                proven ? "Advertised graph resource produced required frame evidence."
+                       : "Advertised graph resource is missing write, capture, or sampling proof.",
+                resource, aster::RenderGraphPass::SceneColorDepth, 1u, proven ? 1u : 0u,
+                proofHash(resource_node.desc.usage, hasAvailableCapture(forensics, resource) ? 1u : 0u));
+  }
+}
+
+void appendCapabilityCertification(const aster::RenderBackendCapabilities &capabilities,
+                                   const aster::RendererSettings &settings,
+                                   const aster::FrameStats &stats,
+                                   aster::FrameForensics &forensics) {
+  const bool capture_proven = hasAvailableCapture(forensics, aster::RenderGraphResource::CaptureReadback) ||
+                              hasAvailableCapture(forensics, aster::RenderGraphResource::SceneColor);
+  appendProof(forensics, aster::BackendFeatureProofKind::Capture,
+              capabilities.supports_capture
+                  ? (capture_proven ? aster::BackendFeatureProofStatus::Proven
+                                    : aster::BackendFeatureProofStatus::MissingProof)
+                  : aster::BackendFeatureProofStatus::NotAdvertised,
+              "capture", "frame-capture",
+              capture_proven ? "Frame capture payload is available."
+                             : "No frame capture payload was produced for this frame.",
+              aster::RenderGraphResource::CaptureReadback, aster::RenderGraphPass::Capture,
+              capabilities.supports_capture ? 1u : 0u, capture_proven ? 1u : 0u);
+
+  const bool texture_exercised =
+      std::any_of(forensics.material_bindings.begin(), forensics.material_bindings.end(),
+                  [](const aster::MaterialBindingTrace &binding) {
+                    return binding.valid && binding.bound && !binding.fallback;
+                  });
+  appendProof(forensics, aster::BackendFeatureProofKind::TextureSampling,
+              capabilities.supports_texture_sampling
+                  ? (texture_exercised ? aster::BackendFeatureProofStatus::Proven
+                                       : aster::BackendFeatureProofStatus::NotExercised)
+                  : aster::BackendFeatureProofStatus::NotAdvertised,
+              "texture-sampling", "material-bindings",
+              texture_exercised ? "At least one authored material texture was bound."
+                                : "This frame did not exercise authored texture sampling.",
+              aster::RenderGraphResource::SceneColor, aster::RenderGraphPass::Opaque,
+              capabilities.supports_texture_sampling ? 1u : 0u, texture_exercised ? 1u : 0u);
+
+  const bool instancing_exercised = stats.instance_groups > 0u && stats.visible_objects > 1u;
+  appendProof(forensics, aster::BackendFeatureProofKind::Instancing,
+              capabilities.supports_instancing
+                  ? (instancing_exercised ? aster::BackendFeatureProofStatus::Proven
+                                          : aster::BackendFeatureProofStatus::NotExercised)
+                  : aster::BackendFeatureProofStatus::NotAdvertised,
+              "instancing", "draw-groups",
+              instancing_exercised ? "Frame contains grouped draw instances."
+                                   : "This frame did not require backend instancing.",
+              aster::RenderGraphResource::SceneColor, aster::RenderGraphPass::Opaque,
+              capabilities.supports_instancing ? 1u : 0u, instancing_exercised ? 1u : 0u);
+
+  const bool timestamp_proven =
+      std::any_of(forensics.timestamp_samples.begin(), forensics.timestamp_samples.end(),
+                  [](const aster::rhi::TimestampQueryResult &sample) {
+                    return sample.available;
+                  });
+  appendProof(forensics, aster::BackendFeatureProofKind::GpuTimestamps,
+              capabilities.supports_gpu_timestamps
+                  ? (timestamp_proven ? aster::BackendFeatureProofStatus::Proven
+                                      : aster::BackendFeatureProofStatus::MissingProof)
+                  : aster::BackendFeatureProofStatus::Unsupported,
+              "gpu-timestamps", "timestamp-query",
+              timestamp_proven ? "GPU timestamp samples were resolved."
+                               : "GPU timestamp queries are not available for this backend.",
+              aster::RenderGraphResource::SceneColor, aster::RenderGraphPass::SceneColorDepth,
+              capabilities.supports_gpu_timestamps ? 1u : 0u, timestamp_proven ? 1u : 0u);
+
+  const bool hdr_graph =
+      std::any_of(forensics.rhi_trace.pipelines.begin(), forensics.rhi_trace.pipelines.end(),
+                  [](const aster::rhi::PipelineStateTrace &pipeline) {
+                    return pipeline.cache_key != 0u;
+                  });
+  appendProof(forensics, aster::BackendFeatureProofKind::HdrRenderTarget,
+              capabilities.capability_table.hdr_render_targets
+                  ? (settings.post.hdr_scene_color && hdr_graph
+                         ? aster::BackendFeatureProofStatus::Proven
+                         : aster::BackendFeatureProofStatus::NotExercised)
+                  : aster::BackendFeatureProofStatus::Unsupported,
+              "hdr-render-target", "scene-color",
+              capabilities.capability_table.hdr_render_targets
+                  ? "HDR scene-color contract is represented in the frame graph."
+                  : "Backend does not advertise native HDR render targets.",
+              aster::RenderGraphResource::SceneColor, aster::RenderGraphPass::SceneColorDepth,
+              capabilities.capability_table.hdr_render_targets ? 1u : 0u,
+              settings.post.hdr_scene_color && hdr_graph ? 1u : 0u);
+
+  appendProof(forensics, aster::BackendFeatureProofKind::Msaa,
+              capabilities.capability_table.msaa ? aster::BackendFeatureProofStatus::MissingProof
+                                                 : aster::BackendFeatureProofStatus::Unsupported,
+              "msaa", "sample-count",
+              capabilities.capability_table.msaa
+                  ? "MSAA is advertised but no resolve proof exists yet."
+                  : "Backend does not advertise MSAA.",
+              aster::RenderGraphResource::SceneColor, aster::RenderGraphPass::SceneColorDepth,
+              capabilities.capability_table.msaa ? 1u : 0u, 0u);
+
+  const bool presentation_proven =
+      capabilities.capability_table.presentation != aster::rhi::PresentationMode::None;
+  appendProof(forensics, aster::BackendFeatureProofKind::Presentation,
+              presentation_proven ? aster::BackendFeatureProofStatus::Proven
+                                  : aster::BackendFeatureProofStatus::Unsupported,
+              "presentation", "presentation-mode",
+              presentation_proven ? "Backend reports a concrete presentation mode."
+                                  : "Backend has no presentation mode.",
+              aster::RenderGraphResource::SceneColor, aster::RenderGraphPass::UiComposite,
+              presentation_proven ? 1u : 0u, presentation_proven ? 1u : 0u);
+}
+
+void certifyBackendFrame(const aster::FixedRenderGraph &graph,
+                         const aster::RenderBackendCapabilities &capabilities,
+                         const aster::RendererSettings &settings,
+                         const aster::FrameStats &stats,
+                         aster::FrameForensics &forensics) {
+  forensics.backend_feature_proofs.clear();
+  forensics.rhi_validation_events.clear();
+  forensics.timestamp_samples.clear();
+
+  const aster::rhi::ResourceLifetimeValidationReport validation =
+      aster::rhi::ResourceLifetimeValidator{}.validateFrameGraph(graph);
+  forensics.rhi_validation_events = validation.events;
+  for (const aster::rhi::ResourceLifetimeValidationEvent &event : validation.events) {
+    forensics.events.push_back(
+        {.kind = aster::FrameDiagnosticKind::ResourceLifetimeHazard,
+         .severity = event.severity == aster::rhi::ResourceLifetimeValidationSeverity::Error
+                         ? aster::FrameDiagnosticSeverity::Error
+                         : aster::FrameDiagnosticSeverity::Warning,
+         .pass = event.pass,
+         .label = event.resource,
+         .message = event.message,
+         .value = event.resource_id});
+  }
+
+  if (capabilities.supports_gpu_timestamps && !forensics.rhi_trace.timestamps.empty()) {
+    forensics.timestamp_samples = forensics.rhi_trace.timestamps;
+  } else if (!capabilities.supports_gpu_timestamps) {
+    aster::GpuFrameProfiler profiler(false);
+    profiler.recordUnavailable(static_cast<std::uint32_t>(graph.passes.size()));
+    forensics.timestamp_samples = profiler.samples();
+    forensics.rhi_trace.timestamps = forensics.timestamp_samples;
+    forensics.events.push_back({.kind = aster::FrameDiagnosticKind::BackendFallback,
+                                .severity = aster::FrameDiagnosticSeverity::Info,
+                                .pass = "frame",
+                                .label = "gpu-timestamps",
+                                .message =
+                                    "Backend does not advertise GPU timestamp queries."});
+  }
+
+  appendPassArtifacts(forensics);
+  appendResourceCertification(graph, capabilities, settings, forensics);
+  appendCapabilityCertification(capabilities, settings, stats, forensics);
+
+  forensics.certification = {.backend = capabilities.kind,
+                             .valid = true,
+                             .proof_count = forensics.backend_feature_proofs.size(),
+                             .validation_error_count = validation.errorCount()};
+  for (const aster::BackendFeatureProof &proof : forensics.backend_feature_proofs) {
+    if (proof.status == aster::BackendFeatureProofStatus::Proven) {
+      ++forensics.certification.proven_count;
+    } else if (proof.status == aster::BackendFeatureProofStatus::MissingProof) {
+      ++forensics.certification.missing_proof_count;
+    }
+  }
+  forensics.certification.valid =
+      forensics.certification.missing_proof_count == 0u &&
+      forensics.certification.validation_error_count == 0u;
+}
+
 void appendMaterialBindingTraces(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
                                  const aster::MaterialResourceLibrary *library,
                                  const aster::RenderBackendCapabilities &capabilities,
@@ -3181,6 +3572,14 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     native_stats.backend_kind_value =
         static_cast<std::uint32_t>(native_backend_->capabilities().kind);
     native_stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
+    if (native_backend_->capabilities().supports_capture) {
+      appendFramebufferCapturePayloads(framebuffer, last_forensics_);
+    }
+    certifyBackendFrame(render_graph_, native_backend_->capabilities(), settings, native_stats,
+                        last_forensics_);
+    native_stats.timestamp_query_slots = last_forensics_.timestamp_samples.size();
+    native_stats.resource_lifetime_warnings +=
+        last_forensics_.certification.validation_error_count;
     return native_stats;
   }
 
@@ -3294,6 +3693,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.registry_retired_resources = registry_stats.retired_resources;
   stats.resource_lifetime_warnings = registry_stats.retired_resources;
   stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
+  certifyBackendFrame(render_graph_, softwareCapabilities(), settings, stats, last_forensics_);
+  stats.timestamp_query_slots = last_forensics_.timestamp_samples.size();
+  stats.resource_lifetime_warnings += last_forensics_.certification.validation_error_count;
 
   return stats;
 }

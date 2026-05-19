@@ -6,6 +6,7 @@
 #include "aster/framegraph/transient_resource_allocator.hpp"
 #include "aster/rhi/graphics_pipeline.hpp"
 #include "aster/rhi/resource_barrier.hpp"
+#include "aster/rhi/resource_lifetime_validator.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -665,6 +666,25 @@ void testSoftwareReferenceFrameResourceCaptures() {
   assert((capabilities.graph_resource_mask &
           aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas)) != 0u);
   assert(capabilities.capability_table.shadow_maps);
+  assert(forensics.certification.valid);
+  assert(forensics.certification.proof_count == forensics.backend_feature_proofs.size());
+  assert(forensics.certification.missing_proof_count == 0u);
+  assert(forensics.rhi_validation_events.empty());
+  assert(!forensics.backend_feature_proofs.empty());
+  assert(!forensics.pass_artifacts.empty());
+  assert(std::any_of(forensics.backend_feature_proofs.begin(),
+                     forensics.backend_feature_proofs.end(),
+                     [](const aster::BackendFeatureProof &proof) {
+                       return proof.kind == aster::BackendFeatureProofKind::GraphResource &&
+                              proof.resource == aster::RenderGraphResource::ShadowAtlas &&
+                              proof.status == aster::BackendFeatureProofStatus::Proven;
+                     }));
+  assert(std::any_of(forensics.backend_feature_proofs.begin(),
+                     forensics.backend_feature_proofs.end(),
+                     [](const aster::BackendFeatureProof &proof) {
+                       return proof.kind == aster::BackendFeatureProofKind::GpuTimestamps &&
+                              proof.status == aster::BackendFeatureProofStatus::Unsupported;
+                     }));
 
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
@@ -972,6 +992,115 @@ void testRhiResourceRegistryContract() {
   assert(registry.stats().retired_resources == 1u);
   registry.clearRetired();
   assert(registry.stats().retired_resources == 0u);
+}
+
+void testRhiResourceLifetimeValidator() {
+  aster::rhi::ResourceLifetimeValidator validator;
+
+  aster::framegraph::FrameGraph valid_graph;
+  const auto color = valid_graph.addResource(
+      "validator-color",
+      {.kind = aster::framegraph::ResourceKind::Image,
+       .lifetime = aster::framegraph::ResourceLifetime::Transient,
+       .format = aster::rhi::ImageFormat::Rgba8Unorm,
+       .extent = {.width = 16u, .height = 16u, .depth = 1u},
+       .usage = aster::rhi::imageUsageBit(aster::rhi::ImageUsage::ColorAttachment) |
+                aster::rhi::imageUsageBit(aster::rhi::ImageUsage::Sampled)});
+  valid_graph.addPass("write-color").writes(color);
+  valid_graph.addPass("sample-color").reads(color);
+  const aster::framegraph::CompiledFrameGraph valid = aster::framegraph::compileFrameGraph(valid_graph);
+  assert(valid.valid());
+  assert(validator.validateFrameGraph(valid).valid());
+
+  aster::framegraph::FrameGraph read_first_graph;
+  const auto read_first = read_first_graph.addResource(
+      "read-first",
+      {.kind = aster::framegraph::ResourceKind::Buffer,
+       .lifetime = aster::framegraph::ResourceLifetime::Transient,
+       .usage = aster::rhi::bufferUsageBit(aster::rhi::BufferUsage::Storage),
+       .byte_size = 256u,
+       .stride = 16u});
+  read_first_graph.addPass("bad-read").reads(read_first);
+  const aster::rhi::ResourceLifetimeValidationReport read_first_report =
+      validator.validateFrameGraph(aster::framegraph::compileFrameGraph(read_first_graph));
+  assert(std::any_of(read_first_report.events.begin(), read_first_report.events.end(),
+                     [](const aster::rhi::ResourceLifetimeValidationEvent &event) {
+                       return event.kind ==
+                              aster::rhi::ResourceLifetimeValidationKind::ReadBeforeWrite;
+                     }));
+
+  aster::framegraph::CompiledFrameGraph missing_barrier = valid;
+  missing_barrier.barriers.clear();
+  missing_barrier.resource_barriers.clear();
+  const aster::rhi::ResourceLifetimeValidationReport missing_barrier_report =
+      validator.validateFrameGraph(missing_barrier);
+  assert(std::any_of(missing_barrier_report.events.begin(), missing_barrier_report.events.end(),
+                     [](const aster::rhi::ResourceLifetimeValidationEvent &event) {
+                       return event.kind ==
+                              aster::rhi::ResourceLifetimeValidationKind::MissingBarrier;
+                     }));
+
+  aster::framegraph::FrameGraph queue_graph;
+  const auto queue_buffer = queue_graph.addResource(
+      "queue-buffer",
+      {.kind = aster::framegraph::ResourceKind::Buffer,
+       .lifetime = aster::framegraph::ResourceLifetime::Transient,
+       .usage = aster::rhi::bufferUsageBit(aster::rhi::BufferUsage::Storage),
+       .byte_size = 256u,
+       .stride = 16u});
+  queue_graph.addPass("compute-write").queue(aster::rhi::QueueKind::Compute).writes(queue_buffer);
+  queue_graph.addPass("graphics-read").queue(aster::rhi::QueueKind::Graphics).reads(queue_buffer);
+  aster::framegraph::CompiledFrameGraph broken_queue =
+      aster::framegraph::compileFrameGraph(queue_graph);
+  assert(broken_queue.valid());
+  assert(!broken_queue.barriers.empty());
+  broken_queue.barriers.back().expanded.destination_queue = aster::rhi::QueueKind::Compute;
+  const aster::rhi::ResourceLifetimeValidationReport queue_report =
+      validator.validateFrameGraph(broken_queue);
+  assert(std::any_of(queue_report.events.begin(), queue_report.events.end(),
+                     [](const aster::rhi::ResourceLifetimeValidationEvent &event) {
+                       return event.kind ==
+                              aster::rhi::ResourceLifetimeValidationKind::QueueOwnershipMismatch;
+                     }));
+
+  aster::framegraph::CompiledFrameGraph descriptor_mismatch = aster::makeFixedRenderGraph();
+  descriptor_mismatch.passes.front().descriptor_requirements.push_back(
+      {.pass_index = 0u,
+       .resource = descriptor_mismatch.resources[2].handle,
+       .kind = aster::rhi::DescriptorRangeKind::StorageBuffer,
+       .binding = 99u,
+       .count = 1u,
+       .label = "wrong-pass-resource"});
+  const aster::rhi::ResourceLifetimeValidationReport descriptor_report =
+      validator.validateFrameGraph(descriptor_mismatch);
+  assert(std::any_of(descriptor_report.events.begin(), descriptor_report.events.end(),
+                     [](const aster::rhi::ResourceLifetimeValidationEvent &event) {
+                       return event.kind == aster::rhi::ResourceLifetimeValidationKind::
+                                                DescriptorResourceMismatch;
+                     }));
+
+  aster::rhi::ResourceRegistry registry;
+  const aster::rhi::BufferHandle retired = registry.createBuffer(
+      {.byte_size = 128u,
+       .usage = aster::rhi::bufferUsageBit(aster::rhi::BufferUsage::Storage),
+       .debug_label = "validator.retired"});
+  assert(registry.destroy(retired));
+  const aster::rhi::ResourceLifetimeValidationReport retired_report =
+      validator.validateRegistryUse(registry, aster::rhi::ResourceKind::Buffer, retired.id,
+                                    retired.generation, "validator.retired");
+  assert(std::any_of(retired_report.events.begin(), retired_report.events.end(),
+                     [](const aster::rhi::ResourceLifetimeValidationEvent &event) {
+                       return event.kind ==
+                              aster::rhi::ResourceLifetimeValidationKind::RetiredResourceUse;
+                     }));
+  const aster::rhi::ResourceLifetimeValidationReport missing_report =
+      validator.validateRegistryUse(registry, aster::rhi::ResourceKind::Image, 99999u, 1u,
+                                    "validator.missing");
+  assert(std::any_of(missing_report.events.begin(), missing_report.events.end(),
+                     [](const aster::rhi::ResourceLifetimeValidationEvent &event) {
+                       return event.kind ==
+                              aster::rhi::ResourceLifetimeValidationKind::MissingResource;
+                     }));
 }
 
 void testRhiExplicitGpuContracts() {
@@ -1652,6 +1781,7 @@ constexpr TestCase kTestCases[] = {
     {"material_render_policies", testMaterialRenderPolicies},
     {"runtime_light_policy", testRuntimeLightPolicy},
     {"rhi_resource_registry", testRhiResourceRegistryContract},
+    {"rhi_resource_lifetime_validator", testRhiResourceLifetimeValidator},
     {"rhi_explicit_gpu_contracts", testRhiExplicitGpuContracts},
     {"frame_graph", testFrameGraphContract},
     {"backend_kinds", testBackendKindContract},

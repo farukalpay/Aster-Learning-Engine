@@ -29,18 +29,35 @@ material, render graph, capture, and diagnostic contracts.
 
 The frame-debugger truth layer is available through `FrameForensics`: pass stats,
 resource transition traces, descriptor layout hashes, pipeline cache keys, queue
-submit traces, material binding traces, and debug-capture declarations. Software
-captures include RGBA payloads and content hashes for final color, shadow atlas,
-volumetric fog, and reflection probe resources. Metal cave conformance captures
-are populated from native GPU/readback payloads for those same resources. Object
-visibility and object-to-cluster membership traces are recorded for
-frame-debugger queries.
+submit traces, material binding traces, debug-capture declarations, RHI
+validation events, pass artifacts, timestamp samples, and backend feature
+proofs. Software captures include RGBA payloads and content hashes for final
+color, shadow atlas, volumetric fog, and reflection probe resources. Metal cave
+conformance captures are populated from native GPU/readback payloads for those
+same resources. Object visibility and object-to-cluster membership traces are
+recorded for frame-debugger queries.
+
+Backend feature support is certification-gated. `BackendFeatureProof` records
+state whether graph resources, capture, texture sampling, instancing, GPU
+timestamps, HDR, MSAA, and presentation were proven, not exercised, unsupported,
+or missing proof in the current frame. The conformance tests write per-pass
+certification artifacts next to image/diff artifacts under the temporary
+conformance artifact directory. If a backend advertises shadow, fog, or
+reflection-probe graph resources in the cave proof scene, it must produce native
+pass evidence, resource transitions, debug captures, and final sampling proof.
+Unsupported GPU timestamps, MSAA, and native HDR stay unsupported until native
+proof data exists.
 
 Resource capability reporting is intentionally strict: if a render graph pass
 declares an output that is not in a backend's `graph_resource_mask`,
 `FrameForensics` emits a `CapabilityMismatch` event even when the pass itself is
 present in the compiled graph. That keeps declared contracts separate from
 native behavior.
+
+RHI resource lifetime validation now runs as part of frame certification. It
+reports read-before-write, missing barriers, queue ownership mismatches,
+descriptor/resource mismatches, missing resources, retired resource use, and
+invalid graph state through the forensics/ABI detail accessors.
 
 Capability details are available at runtime through
 `aster_kernel_renderer_get_backend_capability_table`. The older
