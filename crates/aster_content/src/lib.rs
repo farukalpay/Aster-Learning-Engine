@@ -1889,6 +1889,10 @@ fn graph_node_capability_status(kind: &str) -> &'static str {
         | "height_baker"
         | "collision_proxy"
         | "lod_generator"
+        | "pipe_body"
+        | "bevel_modifier"
+        | "weld_seam"
+        | "rust_mask"
         | "anatomy_landmark"
         | "ellipsoid_section"
         | "sweep_limb"
@@ -1952,6 +1956,11 @@ fn push_graph_node(parsed: &mut ParsedAssetGraphSource, tokens: &[String]) -> Re
         if let Some(primitive) = params.get("primitive") {
             parsed.primitive = primitive.clone();
         }
+    } else if kind == "pipe_body" {
+        parsed.primitive = params
+            .get("primitive")
+            .cloned()
+            .unwrap_or_else(|| "rusted-pipe".to_string());
     } else if kind == "uv_policy" {
         if let Some(policy) = params.get("mapping").or_else(|| params.get("policy")) {
             parsed.uv_policy = policy.clone();
@@ -2160,6 +2169,10 @@ fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
             "height_baker" => set(12),
             "collision_proxy" => set(13),
             "lod_generator" => set(14),
+            "pipe_body" => set(39),
+            "bevel_modifier" => set(40),
+            "weld_seam" => set(41),
+            "rust_mask" => set(42),
             "probe_helper" | "prefab_variant" | "cook_export" | "diagnostic" => set(15),
             "anatomy_landmark" | "measurement_probe" => set(20),
             "ellipsoid_section" | "sweep_limb" => set(21),

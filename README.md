@@ -48,7 +48,7 @@ hashes, shader variant keys, and the frame-forensics timeline.
 
 ![Lumen Run cave entry motion](assets/screenshots/lumen_cave_entry.gif)
 
-![Cercopithecidae procedural anatomy model](assets/screenshots/cercopithecidae_model.png)
+![Primate anatomy research model](assets/screenshots/cercopithecidae_model.png)
 
 ![Clean cave material showcase](assets/screenshots/clean_cave_showcase.png)
 
@@ -131,10 +131,12 @@ Run built-in lab scenes:
 - Procedural geometry and mesh tooling for terrain, caves, tubes, cables,
   fracture pieces, water, architecture, vegetation, projected meshes, and
   generated scenery.
-- AssetFactory-inspired Aster-native procedural anatomy tooling, including the
-  `primate_lab` Cercopithecidae graph, sweep/ribbon/capsule mesh generation,
-  anatomical landmark probes, bilophodont dentition, tendon/fur guide systems,
-  and procedural surface-detail texture channels.
+- AssetFactory-inspired Aster-native production asset tooling, including the
+  `pipe_lab` rusted-pipe runtime asset with modifier-stack descriptors,
+  bevel/weld/seam authoring, rust and wetness masks, UV island policy, LODs,
+  collision proxy metadata, and cook reports. The older `primate_lab`
+  biological-integument work remains a research lab, not a production character
+  asset claim.
 - Material/shader contracts for strict `.astermat` cooking, required
   albedo/normal/ORM LitPBR roles, source texture validation, typed material
   graph nodes, shader variants, render quality profiles, and hot reload.
@@ -204,6 +206,8 @@ cargo run -p aster_assetc -- graph-package --input showcases/material_lab/proced
 cargo run -p aster_assetc -- cook --project showcases/material_lab/material_lab.asterproj --platform desktop --output showcases/material_lab/cooked/desktop
 cargo run -p aster_assetc -- report --db showcases/material_lab/cooked/desktop/assetdb.asterdb.json
 ./build/aster_material_lab --graph showcases/material_lab/cooked/desktop/asset_graphs/asset_graph.material_lab.wet_rock.assetgraphbin --output /tmp/wet_rock_graph.ppm
+cargo run -p aster_assetc -- graph-package --input showcases/pipe_lab/rusted_pipe.astergraph --output /tmp/aster_pipe_graph_package
+cargo run -p aster_assetc -- cook --project showcases/pipe_lab/pipe_lab.asterproj --platform desktop --output /tmp/aster_pipe_lab_cooked
 ```
 
 `.astergraph` is the V1 procedural asset graph format and cooks to

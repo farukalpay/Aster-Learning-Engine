@@ -3,6 +3,7 @@
 
 #include "aster/samples/showcase_scenes.hpp"
 
+#include "aster/asset/pipe_runtime_asset.hpp"
 #include "aster/geometry/architectural_mesh.hpp"
 #include "aster/geometry/cable_mesh.hpp"
 #include "aster/geometry/cave_web_mesh.hpp"
@@ -71,16 +72,6 @@ std::shared_ptr<const CpuMesh> pipeSectionMesh() {
                                                     .wall_thickness = 0.075f,
                                                     .radial_segments = 96,
                                                     .length_segments = 24}));
-  return mesh;
-}
-
-std::shared_ptr<const CpuMesh> weldBeadMesh() {
-  static const std::shared_ptr<const CpuMesh> mesh =
-      std::make_shared<const CpuMesh>(makeCircumferentialBeadMesh({.pipe_radius = 0.54f,
-                                                                   .bead_radius = 0.045f,
-                                                                   .axial_width = 0.18f,
-                                                                   .radial_segments = 96,
-                                                                   .bead_segments = 14}));
   return mesh;
 }
 
@@ -171,18 +162,13 @@ Material cercopithecidaeMaterialFor(const AnatomicalTissue tissue) {
   case AnatomicalTissue::PlantarPad:
     return material({0.20f, 0.17f, 0.14f}, {}, 0.84f, 0.0f, 0.0f, 0.30f, 3.4f, 0.06f,
                     0.70f, SurfacePattern::FiberStrands, {2.4f, 1.6f}, 0.035f, 0.20f);
-  case AnatomicalTissue::FurSkin: {
-    Material integument =
-        material({0.36f, 0.28f, 0.19f}, {}, 0.86f, 0.0f, 0.0f, 0.68f, 10.5f, 0.18f,
-                 0.72f, SurfacePattern::BiologicalIntegument, {10.0f, 5.2f}, 0.18f,
-                 0.62f, 0.08f, {.macro_variation = 0.42f,
-                                 .micro_normal_strength = 0.34f,
-                                 .roughness_variation = 0.26f,
-                                 .wetness = 0.04f,
-                                 .height_shading = 0.14f});
-    integument.surface_profile = MaterialSurfaceProfile::BiologicalIntegument;
-    return integument;
-  }
+  case AnatomicalTissue::FurSkin:
+    return material({0.34f, 0.29f, 0.22f}, {}, 0.82f, 0.0f, 0.0f, 0.58f, 9.0f, 0.12f,
+                    0.70f, SurfacePattern::FurFibers, {8.0f, 4.0f}, 0.10f, 0.34f,
+                    0.08f, {.macro_variation = 0.28f,
+                            .micro_normal_strength = 0.26f,
+                            .roughness_variation = 0.20f,
+                            .height_shading = 0.08f});
   }
   return material({0.65f, 0.62f, 0.56f}, {}, 0.70f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
 }
@@ -274,22 +260,6 @@ Scene makeArchitectureShowcaseScene() {
 Scene makeIndustrialPipeScene() {
   Scene scene;
 
-  const Material pipe_metal =
-      material({0.18f, 0.17f, 0.16f}, {0.0f, 0.0f, 0.0f}, 0.78f, 0.82f, 0.0f, 0.92f, 9.6f, 0.28f,
-               0.70f, SurfacePattern::WeatheredMetal, {3.6f, 11.5f}, 0.42f, 0.92f, 0.05f,
-               {.macro_variation = 0.72f,
-                .micro_normal_strength = 0.54f,
-                .roughness_variation = 0.72f,
-                .wetness = 0.04f,
-                .height_shading = 0.40f});
-  const Material weld_metal =
-      material({0.36f, 0.32f, 0.27f}, {0.06f, 0.025f, 0.008f}, 0.62f, 0.88f, 0.0f, 0.96f, 18.0f,
-               0.52f, 0.72f, SurfacePattern::WeldBead, {24.0f, 18.0f}, 0.36f, 0.95f, 0.035f,
-               {.macro_variation = 0.42f,
-                .micro_normal_strength = 0.48f,
-                .roughness_variation = 0.48f,
-                .wetness = 0.08f,
-                .height_shading = 0.32f});
   const Material floor_material =
       material({0.075f, 0.080f, 0.082f}, {0.0f, 0.0f, 0.0f}, 0.86f, 0.0f, 0.0f, 0.25f, 3.0f, 0.10f,
                0.90f);
@@ -301,30 +271,28 @@ Scene makeIndustrialPipeScene() {
   floor.material = floor_material;
   scene.objects().push_back(floor);
 
-  RenderObject pipe;
-  pipe.name = "weathered hollow pipe section";
-  pipe.primitive = MeshPrimitive::Box;
-  pipe.custom_mesh = pipeSectionMesh();
-  pipe.transform.position = {0.0f, 0.62f, 0.0f};
-  pipe.transform.rotation = quatFromEulerXyz({0.0f, 0.0f, -0.045f});
-  pipe.material = pipe_metal;
-  pipe.casts_contact_shadow = true;
-  pipe.contact_shadow_strength = 0.44f;
-  pipe.contact_shadow_radius_scale = 1.35f;
-  scene.objects().push_back(pipe);
-
-  for (const float x : {-1.55f, 1.42f}) {
-    RenderObject bead;
-    bead.name = "circumferential weld bead";
-    bead.primitive = MeshPrimitive::Box;
-    bead.custom_mesh = weldBeadMesh();
-    bead.transform.position = {x, 0.62f + x * -0.045f, 0.0f};
-    bead.transform.rotation = pipe.transform.rotation;
-    bead.material = weld_metal;
-    bead.casts_contact_shadow = true;
-    bead.contact_shadow_strength = 0.36f;
-    bead.contact_shadow_radius_scale = 0.85f;
-    scene.objects().push_back(bead);
+  const AsterPipeAsset pipe_asset = makeAsterPipeAsset({.asset_id = "asset_graph.pipe_lab.rusted_pipe",
+                                                        .length = 5.2f,
+                                                        .outer_radius = 0.54f,
+                                                        .wall_thickness = 0.075f,
+                                                        .radial_segments = 96,
+                                                        .length_segments = 24,
+                                                        .bolt_count_per_flange = 10,
+                                                        .rust_strength = 0.86f,
+                                                        .wetness_strength = 0.24f});
+  for (const AsterPipeAssetPart &part : pipe_asset.parts) {
+    RenderObject object;
+    object.name = "runtime rusted pipe " + part.name;
+    object.primitive = MeshPrimitive::Box;
+    object.custom_mesh = std::make_shared<const CpuMesh>(part.mesh);
+    object.transform.position = {0.0f, 0.62f, 0.0f};
+    object.transform.rotation = quatFromEulerXyz({0.0f, 0.0f, -0.045f});
+    object.material = makeAsterPipeMaterial(part.material_slot);
+    object.material_asset_id = "asset_graph.pipe_lab.rusted_pipe/" + part.material_slot;
+    object.casts_contact_shadow = true;
+    object.contact_shadow_strength = part.material_slot == "pipe.weld" ? 0.36f : 0.44f;
+    object.contact_shadow_radius_scale = part.material_slot == "pipe.body" ? 1.35f : 0.92f;
+    scene.objects().push_back(std::move(object));
   }
 
   return scene;
@@ -773,15 +741,7 @@ Scene makeCercopithecidaeShowcaseScene() {
                                                           .include_surface_pads = true,
                                                           .include_surface_detail = true,
                                                           .fur_strand_guides = 96,
-                                                          .surface_detail_strength = 1.0f,
-                                                          .include_integument = true,
-                                                          .integument_epidermal_layers = 3,
-                                                          .integument_shell_offset = 0.022f,
-                                                          .pigment_heterogeneity = 0.68f,
-                                                          .vascular_translucency = 0.42f,
-                                                          .follicle_density = 1.22f,
-                                                          .gland_cluster_count = 36,
-                                                          .tension_line_strength = 1.15f});
+                                                          .surface_detail_strength = 1.0f});
   for (const AnatomicalModelPart &part : model.parts) {
     RenderObject object;
     object.name = "Cercopithecidae " + part.name;

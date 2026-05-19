@@ -115,6 +115,7 @@ set(ASTER_ASSET_SOURCES
   "${PROJECT_SOURCE_DIR}/src/asset/compiled_scene_asset.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/legacy_lump_archive.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/mesh_pipeline.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/pipe_runtime_asset.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/procedural_asset_graph.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/scene_asset_importer.cpp"
 )
@@ -539,6 +540,15 @@ if(ASTER_BUILD_TESTS)
   add_dependencies(aster_cercopithecidae_modeling_tests aster_rust_runtime)
   add_test(NAME aster_cercopithecidae_modeling_tests
            COMMAND aster_cercopithecidae_modeling_tests)
+  add_executable(aster_pipe_runtime_asset_tests tests/pipe_runtime_asset_tests.cpp)
+  target_link_libraries(aster_pipe_runtime_asset_tests PRIVATE aster_engine_internal)
+  target_include_directories(aster_pipe_runtime_asset_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  target_compile_definitions(aster_pipe_runtime_asset_tests PRIVATE
+    ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    ASTER_ASSETC_EXECUTABLE="${ASTER_ASSETC_EXECUTABLE}"
+  )
+  add_dependencies(aster_pipe_runtime_asset_tests aster_rust_runtime)
+  add_test(NAME aster_pipe_runtime_asset_tests COMMAND aster_pipe_runtime_asset_tests)
   add_executable(aster_asset_cache_tests tests/asset_cache_tests.cpp)
   target_link_libraries(aster_asset_cache_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_asset_cache_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)

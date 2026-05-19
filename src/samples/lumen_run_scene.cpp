@@ -3,6 +3,8 @@
 
 #include "lumen_run_detail.hpp"
 
+#include "aster/asset/pipe_runtime_asset.hpp"
+
 namespace aster {
 namespace {
 
@@ -759,6 +761,31 @@ void LumenRun::rebuildScene() {
         return keepCameraSolid(
             appendGeneratedScenery(name, mesh, position, scale, rotation, scenery_material));
       };
+
+  const AsterPipeAsset runtime_pipe_asset =
+      makeAsterPipeAsset({.asset_id = "asset_graph.pipe_lab.rusted_pipe.lumen_run",
+                          .length = 3.4f,
+                          .outer_radius = 0.22f,
+                          .wall_thickness = 0.035f,
+                          .radial_segments = 48,
+                          .length_segments = 12,
+                          .bolt_count_per_flange = 8,
+                          .rust_strength = 0.74f,
+                          .wetness_strength = 0.18f});
+  for (const AsterPipeAssetPart &part : runtime_pipe_asset.parts) {
+    Material part_material = makeAsterPipeMaterial(part.material_slot);
+    part_material.camera_occlusion = CameraOcclusionPolicy::Solid;
+    const std::string object_name = "Cooked runtime pipe " + part.name;
+    const std::size_t pipe_index = appendGeneratedStructuralScenery(
+        object_name.c_str(), makeSharedMesh(part.mesh), {2.20f, 0.58f, -1.62f},
+        {0.72f, 0.72f, 0.72f},
+        {0.0f, radians(-11.0f), radians(4.0f)}, part_material);
+    if (pipe_index < scene_.objects().size()) {
+      scene_.objects()[pipe_index].material_asset_id =
+          "asset_graph.pipe_lab.rusted_pipe/" + part.material_slot;
+    }
+    enableContactShadow(pipe_index, part.material_slot == "pipe.weld" ? 0.28f : 0.34f, 0.86f);
+  }
 
   auto appendBeam = [&](const char *name, const Vec3 from, const Vec3 to, const float radius,
                         const Material &beam_material) {

@@ -3,6 +3,7 @@
 
 #include "test_support.hpp"
 
+#include "aster/asset/pipe_runtime_asset.hpp"
 #include "aster/framegraph/transient_resource_allocator.hpp"
 #include "aster/rhi/graphics_pipeline.hpp"
 #include "aster/rhi/resource_barrier.hpp"
@@ -180,9 +181,45 @@ void testIndustrialPipeSceneContract() {
   assert(!bead.vertices.empty());
   assert(!bead.indices.empty());
 
+  const aster::AsterPipeAsset asset = aster::makeAsterPipeAsset(
+      {.asset_id = "test.pipe.runtime",
+       .radial_segments = 64,
+       .length_segments = 16,
+       .bolt_count_per_flange = 8});
+  assert(asset.cook_report.production_ready);
+  assert(asset.parts.size() >= 6u);
+  assert(asset.material_slots.size() >= 3u);
+  assert(asset.uv_islands.size() >= 3u);
+  assert(asset.rust_anchors.size() >= 8u);
+  assert(asset.wetness_streaks.size() >= 5u);
+  assert(asset.lods.size() == 3u);
+  assert(asset.lods[0].mesh.indices.size() > asset.lods[1].mesh.indices.size());
+  assert(asset.lods[1].mesh.indices.size() > asset.lods[2].mesh.indices.size());
+  assert(asset.collision_proxies.size() == 1u);
+  assert(asset.collision_proxies.front().covers_render_bounds);
+  assert(asset.collision_proxies.front().triangle_budget <= 64u);
+  assert(asset.cook_report.dependency_edges.size() >= 6u);
+  const aster::CpuMesh merged_pipe = asset.mergedRenderMesh();
+  assert(merged_pipe.vertices.size() == asset.renderVertexCount());
+  assert(merged_pipe.indices.size() == asset.renderIndexCount());
+  const aster::MeshTopologyReport pipe_topology = aster::validateMeshTopology(merged_pipe);
+  assert(pipe_topology.indexable());
+  assert(pipe_topology.invalid_indices == 0u);
+  assert(pipe_topology.degenerate_triangles == 0u);
+  for (const aster::Vertex &vertex : merged_pipe.vertices) {
+    assert(std::isfinite(vertex.position.x));
+    assert(std::isfinite(vertex.position.y));
+    assert(std::isfinite(vertex.position.z));
+    assert(aster::length(vertex.normal) > 0.45f);
+    assert(aster::length(aster::Vec3{vertex.tangent.x, vertex.tangent.y, vertex.tangent.z}) >
+           0.45f);
+    assert(vertex.uv.x >= -0.01f && vertex.uv.y >= -0.01f);
+  }
+
   const aster::Scene scene = aster::makeIndustrialPipeScene();
   std::size_t weathered_metal = 0;
   std::size_t weld_beads = 0;
+  std::size_t runtime_parts = 0;
   for (const aster::RenderObject &object : scene.objects()) {
     weathered_metal +=
         aster::resolveMaterialSurfaceProfile(object.material) ==
@@ -193,9 +230,11 @@ void testIndustrialPipeSceneContract() {
                           aster::MaterialSurfaceProfile::WeldBead
                       ? 1u
                       : 0u;
+    runtime_parts += object.name.find("runtime rusted pipe") != std::string::npos ? 1u : 0u;
   }
-  assert(weathered_metal == 1u);
-  assert(weld_beads == 2u);
+  assert(weathered_metal >= 3u);
+  assert(weld_beads >= 3u);
+  assert(runtime_parts >= asset.parts.size());
 }
 
 void testShowcaseLabSceneContracts() {

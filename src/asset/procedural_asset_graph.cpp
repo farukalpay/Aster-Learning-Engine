@@ -4,6 +4,7 @@
 #include "aster/asset/procedural_asset_graph.hpp"
 
 #include "aster/asset/json_document.hpp"
+#include "aster/asset/pipe_runtime_asset.hpp"
 #include "aster/geometry/primate_anatomy.hpp"
 
 #include <algorithm>
@@ -312,6 +313,18 @@ CpuMesh proceduralAssetGraphMesh(const ProceduralAssetGraphPackage &package) {
                                     .follicle_density = 1.22f,
                                     .gland_cluster_count = 36,
                                     .tension_line_strength = 1.15f});
+  }
+  if (primitive == "rusted-pipe" || primitive == "industrial-pipe" ||
+      primitive == "production-rusted-pipe") {
+    return makeAsterPipeRenderMesh({.asset_id = package.id,
+                                    .length = 5.2f,
+                                    .outer_radius = 0.54f,
+                                    .wall_thickness = 0.075f,
+                                    .radial_segments = 96,
+                                    .length_segments = 24,
+                                    .bolt_count_per_flange = 10,
+                                    .rust_strength = 0.86f,
+                                    .wetness_strength = 0.24f});
   }
   if (primitive == "sphere" || primitive == "uv-sphere") {
     return makeUvSphere(32, 16, 1.0f);

@@ -664,170 +664,37 @@ void pushPart(AnatomicalModel &model, AnatomicalModelPart part) {
   return std::clamp(spec.integument_epidermal_layers, 1, 6);
 }
 
-void addIntegumentShells(AnatomicalModelPart &part, const CercopithecidaeMorphologySpec &spec) {
-  const float shell = std::max(spec.integument_shell_offset, 0.0f);
-  appendMesh(part.mesh, ellipsoid({0.0f, 0.88f, -0.78f},
-                                  {0.35f + shell, 0.31f + shell * 0.70f, 0.80f + shell},
-                                  spec, {0.36f, 0.48f}));
-  appendMesh(part.mesh, ellipsoid({0.0f, 0.88f, -0.78f},
-                                  {0.32f + shell * 0.45f, 0.28f + shell * 0.35f,
-                                   0.74f + shell * 0.55f},
-                                  spec, {0.31f, 0.48f}));
-  appendMesh(part.mesh, ellipsoid({0.0f, 1.56f, 0.43f},
-                                  {0.31f + shell, 0.21f + shell * 0.60f, 0.33f + shell},
-                                  spec, {0.54f, 0.48f}));
-  appendMesh(part.mesh, ellipsoid({0.0f, 1.47f, 0.71f},
-                                  {0.18f + shell * 0.45f, 0.070f + shell * 0.20f,
-                                   0.16f + shell * 0.35f},
-                                  spec, {0.66f, 0.48f}));
-  appendMesh(part.mesh, ellipsoid({0.0f, 1.41f, 0.82f},
-                                  {0.080f, 0.034f, 0.060f}, spec, {0.73f, 0.49f}));
-
-  for (const float side : {-1.0f, 1.0f}) {
-    appendMesh(part.mesh, capsule({side * 0.36f, 0.94f, -0.58f},
-                                  {side * 0.50f, 0.22f, -0.12f}, 0.064f + shell * 0.55f,
-                                  spec, 0.72f, 0.78f));
-    appendMesh(part.mesh, capsule({side * 0.25f, 0.70f, -1.58f},
-                                  {side * 0.39f, 0.060f, -0.46f}, 0.072f + shell * 0.60f,
-                                  spec, 0.74f, 0.82f));
-    appendMesh(part.mesh, ellipsoid({side * 0.49f, 0.19f, -0.040f},
-                                    {0.066f, 0.024f, 0.13f}, spec, {0.48f, 0.62f}));
-    appendMesh(part.mesh, ellipsoid({side * 0.39f, 0.030f, -0.42f},
-                                    {0.092f, 0.020f, 0.17f}, spec, {0.21f, 0.63f}));
-    appendMesh(part.mesh, ellipsoid({side * 0.34f, 1.61f, 0.22f},
-                                    {0.050f, 0.11f, 0.080f}, spec, {0.78f, 0.52f}));
-  }
-}
-
-void addLowPelageZones(AnatomicalModelPart &part, const CercopithecidaeMorphologySpec &spec) {
-  for (const float side : {-1.0f, 1.0f}) {
-    appendMesh(part.mesh, ovalTube({side * 0.18f, 1.61f, 0.0f}, 0.112f, 0.070f, 0.548f,
-                                   0.0080f, spec));
-    appendMesh(part.mesh, ellipsoid({side * 0.18f, 1.58f, 0.57f},
-                                    {0.070f, 0.012f, 0.048f}, spec, {0.78f, 0.66f}));
-    appendMesh(part.mesh, ellipsoid({side * 0.34f, 1.59f, 0.24f},
-                                    {0.028f, 0.056f, 0.044f}, spec, {0.82f, 0.66f}));
-  }
-  appendMesh(part.mesh, ellipsoid({0.0f, 1.43f, 0.82f}, {0.070f, 0.018f, 0.055f}, spec,
-                                  {0.86f, 0.66f}));
-  appendMesh(part.mesh, ribbon({{-0.095f, 1.39f, 0.76f}, {-0.030f, 1.365f, 0.83f},
-                                {0.030f, 1.365f, 0.83f}, {0.095f, 1.39f, 0.76f}},
-                               {0.010f, 0.012f, 0.012f, 0.010f}, spec,
-                               {0.0f, 1.0f, 0.0f}, 0.0018f));
-}
-
-[[nodiscard]] int addTerminalPelageGuides(AnatomicalModelPart &part,
-                                          const CercopithecidaeMorphologySpec &spec) {
-  const float density = std::max(spec.follicle_density, 0.0f);
-  const int guide_count =
-      std::clamp(static_cast<int>(std::round(static_cast<float>(std::max(0, spec.fur_strand_guides)) *
-                                            density)),
-                 0, 512);
-  for (int i = 0; i < guide_count; ++i) {
-    const float u = static_cast<float>(i) / static_cast<float>(std::max(guide_count, 1));
-    const float theta = u * pi() * 2.0f;
-    const float hashed = static_cast<float>((i * 37) % 97) / 96.0f;
-    const float z_band = -1.44f + 1.58f * hashed;
-    const float torso_mask = 1.0f - std::clamp(std::abs(z_band + 0.72f) / 0.90f, 0.0f, 1.0f);
-    const bool dorsal = std::sin(theta) > -0.28f;
-    const float radius_x = 0.27f + torso_mask * 0.11f + (dorsal ? 0.010f : -0.012f);
-    const float radius_y = 0.22f + torso_mask * 0.085f;
-    const float x = std::cos(theta) * radius_x;
-    const float y = 0.88f + std::sin(theta) * radius_y * 0.65f +
-                    0.026f * std::sin(theta * 3.0f + z_band);
-    const float length = 0.036f + 0.027f * dorsal + 0.014f * torso_mask;
-    const Vec3 root{x, y, z_band};
-    const Vec3 lift{std::cos(theta) * 0.018f, 0.014f + 0.010f * dorsal,
-                    length + 0.014f * std::cos(theta * 2.0f)};
-    const Vec3 tip = root + lift;
-    appendMesh(part.mesh, tube({root, (root + tip) * 0.5f + Vec3{0.0f, 0.010f, 0.0f}, tip},
-                               0.0023f + 0.0006f * torso_mask, spec, 0.30f));
-  }
-
-  const int facial_guides = guide_count / 5;
-  for (int i = 0; i < facial_guides; ++i) {
-    const float side = i % 2 == 0 ? -1.0f : 1.0f;
-    const float row = static_cast<float>((i / 2) % 7);
-    const float spread = (row - 3.0f) * 0.020f;
-    const Vec3 root{side * (0.09f + 0.018f * row), 1.50f + 0.008f * std::sin(row),
-                    0.70f + spread};
-    const Vec3 tip = root + Vec3{side * 0.030f, 0.006f, 0.040f + 0.003f * row};
-    appendMesh(part.mesh, tube({root, (root + tip) * 0.5f, tip}, 0.0019f, spec, 0.28f));
-  }
-  return guide_count + facial_guides;
-}
-
-[[nodiscard]] int addIntegumentGlandFields(AnatomicalModelPart &part,
-                                           const CercopithecidaeMorphologySpec &spec) {
-  const int gland_count = std::clamp(spec.gland_cluster_count, 0, 160);
-  for (int i = 0; i < gland_count; ++i) {
-    const float side = i % 2 == 0 ? -1.0f : 1.0f;
-    const float lane = static_cast<float>((i * 29) % 101) / 100.0f;
-    const float band = static_cast<float>((i * 17) % 53) / 52.0f;
-    Vec3 center{};
-    if (i % 5 == 0) {
-      center = {side * (0.075f + 0.035f * band), 1.435f + 0.030f * lane,
-                0.72f + 0.045f * band};
-    } else if (i % 5 == 1) {
-      center = {side * 0.30f, 0.86f + 0.13f * lane, -0.52f - 0.20f * band};
-    } else {
-      const float theta = lane * pi() * 2.0f;
-      const float z = -1.30f + 1.25f * band;
-      const float torso_mask = 1.0f - std::clamp(std::abs(z + 0.72f) / 0.86f, 0.0f, 1.0f);
-      center = {std::cos(theta) * (0.22f + torso_mask * 0.10f),
-                0.88f + std::sin(theta) * (0.13f + torso_mask * 0.05f), z};
-    }
-    appendMesh(part.mesh, ellipsoid(center, {0.009f, 0.0035f, 0.012f}, spec, {0.90f, 0.68f}));
-  }
-  return gland_count;
-}
-
-[[nodiscard]] int addDynamicTensionLines(AnatomicalModelPart &part,
-                                         const CercopithecidaeMorphologySpec &spec) {
-  if (spec.tension_line_strength <= 0.0f) {
-    return 0;
-  }
-  const float gain = std::clamp(spec.tension_line_strength, 0.15f, 2.0f);
-  int lines = 0;
-  appendMesh(part.mesh, ribbon({{-0.17f, 1.63f, 0.58f}, {-0.06f, 1.67f, 0.60f},
-                                {0.06f, 1.67f, 0.60f}, {0.17f, 1.63f, 0.58f}},
-                               {0.006f * gain, 0.007f * gain, 0.007f * gain, 0.006f * gain},
-                               spec, {0.0f, 0.0f, 1.0f}, 0.0015f));
-  ++lines;
-  appendMesh(part.mesh, ribbon({{-0.10f, 1.41f, 0.75f}, {-0.030f, 1.38f, 0.82f},
-                                {0.030f, 1.38f, 0.82f}, {0.10f, 1.41f, 0.75f}},
-                               {0.006f * gain, 0.007f * gain, 0.007f * gain, 0.006f * gain},
-                               spec, {0.0f, 1.0f, 0.0f}, 0.0015f));
-  ++lines;
-  for (const float side : {-1.0f, 1.0f}) {
-    appendMesh(part.mesh, ribbon({{side * 0.16f, 1.50f, 0.60f},
-                                  {side * 0.25f, 1.42f, 0.52f},
-                                  {side * 0.34f, 1.36f, 0.36f}},
-                                 {0.007f * gain, 0.006f * gain, 0.0045f * gain}, spec,
-                                 {0.0f, 0.0f, 1.0f}, 0.0012f));
-    appendMesh(part.mesh, ribbon({{side * 0.20f, 1.40f, 0.62f},
-                                  {side * 0.29f, 1.34f, 0.50f},
-                                  {side * 0.35f, 1.29f, 0.34f}},
-                                 {0.0055f * gain, 0.0050f * gain, 0.0040f * gain}, spec,
-                                 {0.0f, 0.0f, 1.0f}, 0.0010f));
-    lines += 2;
-  }
-  return lines;
-}
-
-[[nodiscard]] AnatomicalModelPart integumentEnvelope(const CercopithecidaeMorphologySpec &spec,
-                                                     CercopithecidaeMorphologyReport &report) {
-  AnatomicalModelPart part{.name = "cercopithecidae integument epidermis dermis pelage envelope",
+[[nodiscard]] AnatomicalModelPart furSkinEnvelope(const CercopithecidaeMorphologySpec &spec,
+                                                  CercopithecidaeMorphologyReport &report) {
+  AnatomicalModelPart part{.name = "fur skin anatomical envelope",
                            .tissue = AnatomicalTissue::FurSkin};
   if (!spec.include_integument) {
     return part;
   }
 
-  addIntegumentShells(part, spec);
-  addLowPelageZones(part, spec);
-  const int guide_count = addTerminalPelageGuides(part, spec);
-  const int gland_count = addIntegumentGlandFields(part, spec);
-  const int tension_lines = addDynamicTensionLines(part, spec);
+  appendMesh(part.mesh, ellipsoid({0.0f, 0.88f, -0.78f}, {0.34f, 0.30f, 0.78f}, spec,
+                                  {0.36f, 0.48f}));
+  appendMesh(part.mesh, ellipsoid({0.0f, 1.55f, 0.44f}, {0.29f, 0.20f, 0.31f}, spec,
+                                  {0.54f, 0.48f}));
+  const int guide_count = std::max(0, spec.fur_strand_guides);
+  for (int i = 0; i < guide_count; ++i) {
+    const float u = static_cast<float>(i) / static_cast<float>(std::max(guide_count, 1));
+    const float theta = u * pi() * 2.0f;
+    const float z_band = -1.44f + 1.52f * static_cast<float>((i * 37) % 97) / 96.0f;
+    const float torso_mask = 1.0f - std::clamp(std::abs(z_band + 0.74f) / 0.88f, 0.0f, 1.0f);
+    const float radius_x = 0.27f + torso_mask * 0.10f;
+    const float radius_y = 0.23f + torso_mask * 0.08f;
+    const float x = std::cos(theta) * radius_x;
+    const float y = 0.88f + std::sin(theta) * radius_y * 0.65f +
+                    0.025f * std::sin(theta * 3.0f + z_band);
+    const Vec3 root{x, y, z_band};
+    const Vec3 tip{x * 1.035f, y + 0.010f + 0.015f * std::sin(theta * 5.0f),
+                   z_band + 0.045f + 0.018f * std::cos(theta * 2.0f)};
+    appendMesh(part.mesh, tube({root, (root + tip) * 0.5f + Vec3{0.0f, 0.012f, 0.0f}, tip},
+                               0.0028f, spec, 0.32f));
+  }
+  const int gland_count = std::clamp(spec.gland_cluster_count, 0, 160);
+  const int tension_lines = spec.tension_line_strength > 0.0f ? 6 : 0;
 
   const float capillary = std::clamp(spec.vascular_translucency, 0.0f, 1.0f);
   const float pigment = std::clamp(spec.pigment_heterogeneity, 0.0f, 1.0f);
@@ -882,8 +749,7 @@ void addLowPelageZones(AnatomicalModelPart &part, const CercopithecidaeMorpholog
   part.landmarks.push_back({"integument.plantar_thickening",
                             scaled({0.39f, 0.020f, -0.42f}, spec.scale),
                             report.integument.plantar_integument_thickening});
-  addSurfaceDetail(part.mesh, spec, 0.010f + report.integument.micro_abrasion_density * 0.004f,
-                   13.0f + pigment * 5.0f, 0.82f, 0.14f, 1423u,
+  addSurfaceDetail(part.mesh, spec, 0.010f, 12.0f, 0.82f, 0.12f, 1423u,
                    {0.0f, 1.0f, 0.2f});
   return part;
 }
@@ -953,7 +819,7 @@ AnatomicalModel makeCercopithecidaeModel(CercopithecidaeMorphologySpec spec) {
   pushPart(model, manus(spec, model.report));
   pushPart(model, pelvisAndHindlimb(spec, model.report));
   pushPart(model, pesAndPads(spec, model.report));
-  pushPart(model, integumentEnvelope(spec, model.report));
+  pushPart(model, furSkinEnvelope(spec, model.report));
   addLandmark(model.report, "model.part_count", {}, static_cast<float>(model.parts.size()));
   return model;
 }

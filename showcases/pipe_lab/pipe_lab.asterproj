@@ -1,0 +1,13 @@
+{
+  "schema_version": 2,
+  "name": "Pipe Lab",
+  "assets": [
+    {
+      "id": "asset_graph.pipe_lab.rusted_pipe",
+      "guid": "asset-v2-pipe-lab-rusted-pipe-00000001",
+      "kind": "asset_graph",
+      "path": "rusted_pipe.astergraph",
+      "import_preset": "default"
+    }
+  ]
+}

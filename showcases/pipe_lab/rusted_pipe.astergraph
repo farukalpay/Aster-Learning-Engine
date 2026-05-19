@@ -1,0 +1,59 @@
+astergraph asset_graph.pipe_lab.rusted_pipe
+schema_version 1
+name "Rusted Pipe Production Runtime Asset"
+material_id material.graph_rusted_pipe
+surface_profile corroded-metal
+primitive rusted-pipe
+uv_policy pipe-triplanar-uv-islands
+tangent_policy validate-or-generate
+collision_proxy pipe-runtime-bounds
+lod_policy lod0-lod1-lod2
+base_color 0.18 0.17 0.16
+roughness 0.78
+metallic 0.82
+param wetness 0.24
+param macro_variation 0.72
+param micro_normal_strength 0.54
+param roughness_variation 0.72
+param height_shading 0.40
+param rust_strength 0.86
+param seam_grime 0.64
+param exposed_edge_ratio 0.22
+feature triplanar true
+feature normal_map true
+feature parallax true
+preview environment inspection-neutral
+preview rig pipe-lab-three-quarter
+node mesh.pipe pipe_body role=mesh primitive=rusted-pipe length=5.2 outer_radius=0.54 wall_thickness=0.075
+node modifier.bevel bevel_modifier role=modifier segments=4 width=0.026 affects=rim,flange,seam
+node uv.pipe uv_policy role=uv mapping=pipe-triplanar-uv-islands texel_density=5.2 islands=outer,inner,weld
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=corroded-metal
+node material.weld material_assignment role=material surface_profile=weld-bead slot=pipe.weld
+node seam.longitudinal weld_seam role=geometry label="longitudinal seam band" grime=0.64
+node seam.circumferential weld_seam role=geometry label="circumferential raised weld beads" count=2
+node mask.rust rust_mask role=material anchors=9 severity=0.86 exposed_edge=0.22
+node mask.wetness wetness_flow role=material streaks=5 strength=0.24 downhill_bias=0.36
+node mask.edge_wear edge_wear role=material rim_chipping=true flange_contact=true
+node mask.cavity cavity_dirt role=material seam_bias=0.64 bolt_occlusion=0.58
+node normal.pipe normal_height role=material source=rust_mask height=0.40
+node collision.proxy collision_proxy role=collision shape=pipe-runtime-bounds triangles=48
+node lod.chain lod_generator role=lod policy=lod0-lod1-lod2 levels=3
+node prefab.variant prefab_variant role=prefab variant=runtime-pipe-section
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mesh.pipe modifier.bevel modifier_stack
+edge modifier.bevel seam.longitudinal beveled_body
+edge modifier.bevel seam.circumferential weld_base
+edge seam.longitudinal material.weld weld_material
+edge seam.circumferential material.weld weld_material
+edge mask.rust material.assign rust_mask
+edge mask.wetness material.assign wetness_mask
+edge mask.edge_wear material.assign exposed_edge_mask
+edge mask.cavity material.assign seam_grime_mask
+edge normal.pipe material.assign normal_height
+edge mesh.pipe collision.proxy collision_source
+edge mesh.pipe lod.chain lod_source
+edge lod.chain export.runtime runtime_lods
+edge collision.proxy export.runtime runtime_collision
+edge diagnostic.quality export.runtime cook_report

@@ -72,7 +72,11 @@ should not hide their contracts. Single-domain compiler failures must remain
 visible and reproducible from the command line. `.astergraph` is the canonical
 full asset graph format; `.astermat` remains the legacy/import material path.
 
-The V1 authoring kernel is deliberately bounded but end to end:
+The V1 authoring kernel is deliberately bounded but end to end. `pipe_lab`
+is the first production-runtime asset proof: a rusted pipe graph must produce
+mesh parts, material masks, UV islands, LODs, collision proxy metadata, cook
+diagnostics, and a live Lumen Run placement from the same Aster-owned asset
+contract.
 
 ```text
 Procedural Graph

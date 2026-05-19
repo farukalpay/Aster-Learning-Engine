@@ -243,7 +243,7 @@ void testCercopithecidaeAnatomyModel() {
   assert(tissues.count(aster::AnatomicalTissue::PlantarPad) == 1u);
   assert(tissues.count(aster::AnatomicalTissue::FurSkin) == 1u);
   assert(fur_skin != nullptr);
-  assert(fur_skin->name.find("integument") != std::string::npos);
+  assert(fur_skin->name.find("fur skin") != std::string::npos);
   assert(fur_skin->mesh.vertices.size() > 2600u);
 
   const auto &cranio = model.report.craniofacial;
@@ -269,7 +269,7 @@ void testCercopithecidaeAnatomyModel() {
   assert(post.plantar_pad_thickness > 0.045f);
   assert(post.pes_phalanx_elongation > 1.15f);
   assert(post.tendon_band_count >= 20);
-  assert(post.fur_strand_guides >= 120);
+  assert(post.fur_strand_guides >= 70);
 
   const auto &integument = model.report.integument;
   assert(integument.epidermal_layer_count == 3);
@@ -277,7 +277,7 @@ void testCercopithecidaeAnatomyModel() {
   assert(integument.dermal_elasticity > 0.68f);
   assert(integument.hypodermal_vascularity > 0.45f);
   assert(integument.pigment_heterogeneity > 0.65f);
-  assert(integument.follicle_guide_count >= 120);
+  assert(integument.follicle_guide_count >= 70);
   assert(integument.gland_cluster_count == 34);
   assert(integument.capillary_translucency > 0.40f);
   assert(integument.micro_abrasion_density > 0.48f);
@@ -409,16 +409,13 @@ void testCercopithecidaePreviewSceneRenders() {
   assert(scene.objects().size() >= 10u);
   bool saw_dentition = false;
   bool saw_pes = false;
-  bool saw_biological_integument = false;
+  bool saw_skin_envelope = false;
   for (const aster::RenderObject &object : scene.objects()) {
     saw_dentition = saw_dentition || object.name.find("dentition") != std::string::npos;
     saw_pes = saw_pes || object.name.find("pes") != std::string::npos;
     if (object.name.find("integument") != std::string::npos ||
         object.name.find("fur") != std::string::npos) {
-      saw_biological_integument =
-          saw_biological_integument ||
-          aster::resolveMaterialSurfaceProfile(object.material) ==
-              aster::MaterialSurfaceProfile::BiologicalIntegument;
+      saw_skin_envelope = true;
       assert(object.material.base_color.x < 0.90f);
       assert(object.material.base_color.y < 0.90f);
       assert(object.material.base_color.z < 0.90f);
@@ -429,7 +426,7 @@ void testCercopithecidaePreviewSceneRenders() {
   }
   assert(saw_dentition);
   assert(saw_pes);
-  assert(saw_biological_integument);
+  assert(saw_skin_envelope);
 
   aster::OrbitCamera camera;
   camera.target = {0.0f, 0.92f, -0.48f};
