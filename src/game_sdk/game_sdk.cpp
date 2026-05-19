@@ -1257,6 +1257,9 @@ AssetKind parseAssetKind(const std::string_view value) {
   if (value == "texture") {
     return AssetKind::Texture;
   }
+  if (value == "asset_graph" || value == "procedural_asset" || value == "astergraph") {
+    return AssetKind::AssetGraph;
+  }
   return AssetKind::Unknown;
 }
 
@@ -1282,6 +1285,8 @@ std::string_view assetKindName(const AssetKind kind) {
     return "mesh";
   case AssetKind::Texture:
     return "texture";
+  case AssetKind::AssetGraph:
+    return "asset_graph";
   case AssetKind::Unknown:
     return "unknown";
   }

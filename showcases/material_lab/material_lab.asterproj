@@ -15,6 +15,34 @@
       "kind": "material",
       "path": "weathered_metal.astermat",
       "import_preset": "default"
+    },
+    {
+      "id": "asset_graph.material_lab.wet_rock",
+      "guid": "asset-v2-showcase-graph-wet-rock-0001",
+      "kind": "asset_graph",
+      "path": "procedural_wet_rock.astergraph",
+      "import_preset": "default"
+    },
+    {
+      "id": "asset_graph.material_lab.weathered_metal_rust",
+      "guid": "asset-v2-showcase-graph-metal-rust-0001",
+      "kind": "asset_graph",
+      "path": "procedural_weathered_metal_rust.astergraph",
+      "import_preset": "default"
+    },
+    {
+      "id": "asset_graph.material_lab.cave_moss",
+      "guid": "asset-v2-showcase-graph-cave-moss-0001",
+      "kind": "asset_graph",
+      "path": "procedural_cave_moss.astergraph",
+      "import_preset": "default"
+    },
+    {
+      "id": "asset_graph.material_lab.wet_decal_soot",
+      "guid": "asset-v2-showcase-graph-decal-soot-0001",
+      "kind": "asset_graph",
+      "path": "procedural_wet_decal_soot.astergraph",
+      "import_preset": "default"
     }
   ]
 }

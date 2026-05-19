@@ -995,6 +995,10 @@ typedef struct AsterObjectRenderFate {
   AsterStringView material_asset_id;
   AsterStringView shader_variant_key;
   AsterStringView pipeline_tag;
+  AsterStringView source_graph_guid;
+  AsterStringView source_graph_node;
+  AsterStringView pipeline_cache_key;
+  AsterStringView procedural_capability_status;
   AsterStringView texture_roles;
   AsterStringView pass_list;
   AsterStringView resource_transitions;

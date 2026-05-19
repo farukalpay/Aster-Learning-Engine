@@ -3,6 +3,7 @@
 
 #include "aster/material/material_compiler.hpp"
 #include "aster/material/material_graph.hpp"
+#include "aster/asset/procedural_asset_graph.hpp"
 #include "aster/math/color.hpp"
 #include "aster/shader/shader_compiler.hpp"
 #include "aster/shader/shader_hot_reload.hpp"
@@ -464,6 +465,96 @@ material Broken {
   assert(!loaded.ok());
 }
 
+void testProceduralAssetGraphPackageRuntimeMaterial() {
+  const std::filesystem::path dir = tempDir();
+  const std::filesystem::path path = dir / "wet_rock.assetgraphbin";
+  writeText(path, R"json({
+  "schema_version": 1,
+  "asset_guid": "graph-guid-wet-rock",
+  "id": "asset_graph.wet_rock",
+  "name": "Graph Wet Rock",
+  "kind": "asset_graph",
+  "source_path": "wet_rock.astergraph",
+  "runtime_model": "runtime-procedural",
+  "material": {
+    "id": "material.graph_wet_rock",
+    "surface_profile": "stratified-rock",
+    "feature_mask": 127,
+    "shader_variant_key": 123456,
+    "shader_variant_tag": "AssetGraph.material.graph_wet_rock.runtime-procedural",
+    "pipeline_tag": "material:material.graph_wet_rock:stratified-rock:runtime-procedural",
+    "fallback": {
+      "base_color": [0.19, 0.17, 0.145],
+      "emission_color": [0.0, 0.0, 0.0],
+      "roughness": 0.78,
+      "metallic": 0.0,
+      "emission_strength": 0.0,
+      "opacity": 1.0,
+      "double_sided": false,
+      "alpha_mode": "Opaque",
+      "receives_shadows": true,
+      "surface_profile": "stratified-rock"
+    },
+    "params": {
+      "wetness": 0.52,
+      "macro_variation": 0.42,
+      "micro_normal_strength": 0.50,
+      "roughness_variation": 0.16,
+      "height_shading": 0.28
+    },
+    "features": {
+      "triplanar": true,
+      "normal_map": true,
+      "parallax": true
+    }
+  },
+  "mesh": {
+    "primitive": "rock",
+    "uv_policy": "triplanar",
+    "tangent_policy": "validate-or-generate",
+    "collision_proxy": "convex-hull",
+    "lod_policy": "single-lod"
+  },
+  "nodes": [
+    {
+      "id": "mat.noise",
+      "kind": "noise",
+      "role": "base_color",
+      "label": "base noise",
+      "params": { "scale": "3.2" },
+      "capability_status": "runtime-procedural-reference"
+    }
+  ],
+  "edges": [],
+  "preview": { "environment": "cave-dark" },
+  "quality": { "score": 92, "production_ready": true, "issues": [] },
+  "derived_hashes": {
+    "pipeline_cache_key": "0x0000000000000001"
+  },
+  "diagnostics": []
+})json");
+
+  const aster::ProceduralAssetGraphPackage package =
+      aster::loadProceduralAssetGraphPackage(path);
+  assert(package.asset_guid == "graph-guid-wet-rock");
+  assert(package.nodes.size() == 1u);
+  assert(package.quality.score == 92u);
+  assert(package.pipeline_key == 1u);
+  assert(package.material.procedural_graph_guid == "graph-guid-wet-rock");
+  assert(package.material.procedural_pipeline_key == 1u);
+
+  const aster::Material material = aster::proceduralAssetGraphMaterial(package);
+  assert(material.asset_id == "material.graph_wet_rock");
+  assert(material.shader_variant_key == 123456u);
+  assert(material.procedural_graph_guid == "graph-guid-wet-rock");
+  assert(material.procedural_graph_node == "mat.noise");
+  assert(material.procedural_pipeline_key == 1u);
+  assert(material.procedural.wetness > 0.51f);
+  assert(material.procedural.micro_normal_strength > 0.49f);
+  assert(aster::resolveMaterialSurfaceProfile(material) ==
+         aster::MaterialSurfaceProfile::StratifiedRock);
+}
+
 struct TestCase {
   const char *name = "";
   void (*run)() = nullptr;
@@ -478,6 +569,7 @@ constexpr TestCase kTestCases[] = {
     {"native_render_style_shaders", testNativeRenderStyleShaderContracts},
     {"hot_reload_snapshot", testHotReloadSnapshot},
     {"invalid_material_diagnostics", testInvalidMaterialDiagnostics},
+    {"procedural_asset_graph_package", testProceduralAssetGraphPackageRuntimeMaterial},
 };
 
 int runTestCase(const TestCase &test_case) {

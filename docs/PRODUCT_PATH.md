@@ -5,6 +5,7 @@ not define the engine boundary; they consume it. The product stack is:
 
 ```text
 Aster Renderer Contract
+  -> Aster Procedural Asset Graph
   -> Aster Asset Compilers
   -> Aster Authoring Studio
   -> Lumen Run and sample games
@@ -45,16 +46,42 @@ Priority order:
 
 The content pipeline has three explicit compiler roles:
 
-- `aster_materialc`: `.astermat` or material graph input to material package,
+- `aster_assetc graph-inspect` and `graph-package`: `.astergraph` input to
+  `assetgraphbin`, stable graph GUID/node IDs, dependency edges, procedural
+  material IR, mesh/collision/LOD descriptors, shader and pipeline keys, quality
+  score, diagnostics, and FrameForensics provenance.
+- `aster_materialc`: legacy `.astermat` input to material package,
   shader variants, reflection, binding layout, preview, and diagnostics.
 - `aster_texturec`: source image/KTX2 input to cooked texture, mip/compression
   profile, role/color-space validation, report, and byte-cost metadata.
-- `aster_assetc`: project, scene, mesh, material, and image bundles to stable
-  GUIDs, dependency graph, cooked artifacts, failure reports, and asset database.
+- `aster_assetc cook`: project, scene, mesh, graph, material, and image bundles
+  to stable GUIDs, dependency graph, cooked artifacts, failure reports, and asset
+  database.
 
-`aster_assetc` may orchestrate material and texture compilation, but it should
-not hide their contracts. Single-domain compiler failures must remain visible
-and reproducible from the command line.
+`aster_assetc` may orchestrate graph, material, and texture compilation, but it
+should not hide their contracts. Single-domain compiler failures must remain
+visible and reproducible from the command line. `.astergraph` is the canonical
+full asset graph format; `.astermat` remains the legacy/import material path.
+
+The V1 authoring kernel is deliberately bounded but end to end:
+
+```text
+Procedural Graph
+  -> Mesh Generator / Descriptor
+  -> UV / Tangent / Lightmap Policy
+  -> Material Graph
+  -> Collision / Gameplay Tags
+  -> LOD / Impostor / Proxy
+  -> Prefab Variant
+  -> Cooked Runtime Asset
+  -> Frame Forensics
+```
+
+Material Lab is the acceptance gate for V1. Complex mesh operators can start as
+deterministic descriptors plus diagnostics, but graph-authored materials must
+execute through renderer-facing procedural IR and trace back to graph GUID, node
+ID, shader variant, pipeline key, backend capability, and fallback/degradation
+reason.
 
 ## Authoring Studio
 
@@ -72,6 +99,11 @@ first complete workflow is:
 Required Studio surfaces are asset browser, outliner, inspector, viewport gizmo,
 material node editor, procedural mesh graph, prefab authoring, cook button,
 dependency viewer, and error panel.
+
+Studio adoption comes after the graph package, diagnostics, and renderer traces
+are stable. Node edits should update both preview output and frame forensics so
+authors can see draw count, overdraw, normal aliasing, probe coverage, backend
+fallback, and quality-score changes from the same graph.
 
 ## Lumen Run
 

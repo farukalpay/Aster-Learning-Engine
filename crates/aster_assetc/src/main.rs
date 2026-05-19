@@ -2,10 +2,11 @@
 // Do not remove this notice.
 
 use aster_content::{
-    asset_database_diff_json, asset_fate_report_json, asset_graph_report_json,
-    bake_texture_to_ktx2, compile_scene_asset_to_cache, cook_project, hex_hash, inspect_cache,
-    inspect_texture, material_inspect_report_json, read_asset_database, report_asset_database,
-    write_missing_asset_meta, CompileOptions, OriginPolicy,
+    asset_database_diff_json, asset_fate_report_json, asset_graph_inspect_report_json,
+    asset_graph_report_json, bake_texture_to_ktx2, compile_scene_asset_to_cache, cook_project,
+    hex_hash, inspect_cache, inspect_texture, material_inspect_report_json, package_asset_graph,
+    read_asset_database, report_asset_database, write_missing_asset_meta, CompileOptions,
+    OriginPolicy,
 };
 use aster_runtime::{
     build_frame_plan, AsterRuntimeCamera, AsterRuntimeRenderObject, AsterRuntimeRenderPlanOptions,
@@ -79,6 +80,8 @@ fn usage() -> &'static str {
   aster_assetc texture-inspect --input <texture> [--role albedo|normal|orm|height|emissive]
   aster_assetc texture-bake --input <texture> --output <file.ktx2> [--role albedo|normal|orm|height|emissive]
   aster_assetc material-inspect --input <file.astermat> [--asset-root <dir>]
+  aster_assetc graph-inspect --input <file.astergraph>
+  aster_assetc graph-package --input <file.astergraph> --output <dir>
   aster_assetc cook --project <file.asterproj> --platform desktop --output <dir>
   aster_assetc report --db <assetdb.asterdb.json>
   aster_assetc graph --db <assetdb.asterdb.json>
@@ -205,6 +208,34 @@ fn material_inspect_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn graph_inspect_command(args: &[String]) -> Result<(), String> {
+    let input = value_after(args, "--input")
+        .map(PathBuf::from)
+        .ok_or_else(|| "graph-inspect requires --input <file.astergraph>".to_string())?;
+    let report = asset_graph_inspect_report_json(&input).map_err(|error| error.to_string())?;
+    println!("{report}");
+    Ok(())
+}
+
+fn graph_package_command(args: &[String]) -> Result<(), String> {
+    let input = value_after(args, "--input")
+        .map(PathBuf::from)
+        .ok_or_else(|| "graph-package requires --input <file.astergraph>".to_string())?;
+    let output = value_after(args, "--output")
+        .map(PathBuf::from)
+        .ok_or_else(|| "graph-package requires --output <dir>".to_string())?;
+    let cooked = package_asset_graph(&input, &output).map_err(|error| error.to_string())?;
+    println!(
+        "packaged {} -> {} report={} nodes={} score={}",
+        input.display(),
+        cooked.graph_bin_path.display(),
+        cooked.report_path.display(),
+        cooked.graph_bin.nodes.len(),
+        cooked.graph_bin.quality.score
+    );
+    Ok(())
+}
+
 fn cook_command(args: &[String]) -> Result<(), String> {
     let project = value_after(args, "--project")
         .map(PathBuf::from)
@@ -315,6 +346,8 @@ fn run() -> Result<(), String> {
         Some("texture-inspect") => texture_inspect_command(&args[2..]),
         Some("texture-bake") => texture_bake_command(&args[2..]),
         Some("material-inspect") => material_inspect_command(&args[2..]),
+        Some("graph-inspect") => graph_inspect_command(&args[2..]),
+        Some("graph-package") => graph_package_command(&args[2..]),
         Some("cook") => cook_command(&args[2..]),
         Some("report") => report_command(&args[2..]),
         Some("graph") => graph_command(&args[2..]),

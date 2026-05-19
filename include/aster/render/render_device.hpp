@@ -457,10 +457,15 @@ struct AssetFrameTrace {
   std::string object_name;
   std::size_t object_index = 0u;
   std::string source_asset_id;
+  std::string source_graph_guid;
+  std::string source_graph_node;
   std::string source_path;
   std::string source_node;
   std::string source_mesh;
   std::string material_slot;
+  std::string shader_variant_key;
+  std::string pipeline_cache_key;
+  std::string procedural_capability_status;
   std::vector<std::string> issues;
   std::vector<std::string> texture_roles;
   std::vector<std::string> backend_degradations;
@@ -492,6 +497,10 @@ struct ObjectRenderFateTrace {
   std::string material_asset_id;
   std::string shader_variant_key;
   std::string pipeline_tag;
+  std::string source_graph_guid;
+  std::string source_graph_node;
+  std::string pipeline_cache_key;
+  std::string procedural_capability_status;
   std::string asset_source_path;
   std::string asset_source_node;
   std::string asset_source_mesh;

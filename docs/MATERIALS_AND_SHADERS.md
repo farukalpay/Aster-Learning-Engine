@@ -1,12 +1,18 @@
 # Materials And Shaders
 
-Materials enter through `.astermat` authoring files, future material graph
-packages, or C++ `Material` values. `aster_materialc` owns the single-material
-contract: parse the material grammar, validate texture roles and color spaces,
-cook runtime KTX2 texture outputs through `aster_texturec` behavior, write
-`.materialbin` records, emit reports, and create tiny preview frames only for
-materials that pass validation. `aster_assetc cook` orchestrates those contracts
-for full projects and asset databases.
+Materials enter through `.astergraph` procedural asset graphs, legacy `.astermat`
+authoring files, or C++ `Material` values. `.astergraph` is the canonical V1
+authoring kernel for graph-authored runtime procedural materials: it records a
+stable graph GUID, node IDs, dependency edges, procedural material IR, mesh and
+collision descriptors, shader and pipeline keys, quality score, and per-node
+diagnostics. `.astermat` remains supported as a legacy/import path.
+
+`aster_materialc` owns the single-material `.astermat` contract: parse the
+material grammar, validate texture roles and color spaces, cook runtime KTX2
+texture outputs through `aster_texturec` behavior, write `.materialbin` records,
+emit reports, and create tiny preview frames only for materials that pass
+validation. `aster_assetc cook` orchestrates `.astergraph`, material, texture,
+scene, and project contracts for full projects and asset databases.
 
 Strict material cook is the default. The cook still writes the project asset
 database and per-asset reports when diagnostics are present, but the process
@@ -20,6 +26,13 @@ Single-material validation is available through:
 cargo run -p aster_assetc --bin aster_materialc -- inspect --input path/to/material.astermat --asset-root path/to/assets
 cargo run -p aster_assetc --bin aster_materialc -- package --input path/to/material.astermat --asset-root path/to/assets --output /tmp/material_package
 cargo run -p aster_assetc -- material-inspect --input path/to/material.astermat --asset-root path/to/assets
+```
+
+Single-graph validation and package output is available through:
+
+```bash
+cargo run -p aster_assetc -- graph-inspect --input path/to/material.astergraph
+cargo run -p aster_assetc -- graph-package --input path/to/material.astergraph --output /tmp/asset_graph_package
 ```
 
 Single-texture validation and package output is available through:
@@ -55,6 +68,16 @@ Current material contracts:
 - `CompiledMaterialAsset` carries the renderer-visible material graph next to
   the fallback runtime material and shader variant key, keeping `SurfacePattern`
   as legacy/procedural fallback rather than the primary authoring interface.
+- Typed `.astergraph` nodes for mesh primitive/descriptors, boolean or carve
+  intent, bevel/fracture intent, UV policy, tangent validation, material
+  assignment, procedural material generators, collision proxy, LOD, probe helper,
+  prefab variant, cook/export, and diagnostics. Complex mesh operators are V1
+  descriptors plus diagnostics; Material Lab procedural material execution is
+  the renderer acceptance path.
+- Runtime procedural material nodes include noise, cellular, slope, curvature,
+  cavity, edge wear, wetness flow, rust spread, moss growth, decal layering, ORM
+  pack/unpack intent, normal, and height. They feed shared runtime/reference
+  metadata rather than requiring mandatory baked textures in V1.
 
 Cooked material records include texture source hash, cooked hash, source format,
 runtime format, dimensions, mip count, byte cost, color-space decision,
@@ -78,11 +101,14 @@ Frame forensics expose material binding status per visible object and role:
 source path, texture kind, color space, fallback/degrade reason,
 valid/fallback/bound, dimensions, mip count, and descriptor layout hash. Asset
 frame traces connect the render object back to source asset, source node, source
-mesh, material slot, mesh import diagnostics, texture roles, and backend
-degradations. A bad frame should therefore say whether the failure came from a
-missing UV channel, generated or missing tangent basis, incomplete mip chain,
-wrong color space, fallback texture, unknown texture role, or backend sampling
-degrade. Debug view names exist for base color, normal, roughness, metallic, AO,
+mesh, material slot, mesh import diagnostics, texture roles, backend
+degradations, source graph GUID, graph node ID, shader variant key, pipeline
+cache key, procedural capability status, residency/fallback reason, and native
+or reference backend status. A bad frame should therefore say whether the
+failure came from a missing UV channel, generated or missing tangent basis,
+incomplete mip chain, wrong color space, fallback texture, unknown texture role,
+backend sampling degrade, unsupported procedural node, or procedural reference
+path. Debug view names exist for base color, normal, roughness, metallic, AO,
 emissive, UV, mip level, overdraw, light clusters, shadow mask, fog, and
 reflection probes. Software frame captures now carry RGBA payloads plus content
 hashes for the final frame and reference shadow/fog/probe resources. Mesh

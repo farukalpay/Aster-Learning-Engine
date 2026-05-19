@@ -93,6 +93,11 @@ struct MaterialAsset {
   std::map<std::string, bool> explicit_features;
   std::vector<MaterialLayerExpression> layers;
   std::filesystem::path source_path;
+  std::string procedural_graph_guid;
+  std::string procedural_graph_node;
+  std::string procedural_capability_status;
+  std::uint64_t procedural_shader_variant_key = 0u;
+  std::uint64_t procedural_pipeline_key = 0u;
 };
 
 struct MaterialAssetLoadResult {

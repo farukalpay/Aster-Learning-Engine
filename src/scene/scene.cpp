@@ -32,6 +32,10 @@ Material makeMaterial(const MaterialDesc &desc) {
   material.camera_occlusion = desc.camera_occlusion;
   material.procedural = desc.procedural;
   material.receives_shadows = desc.receives_shadows;
+  material.procedural_graph_guid = desc.procedural_graph_guid;
+  material.procedural_graph_node = desc.procedural_graph_node;
+  material.procedural_capability_status = desc.procedural_capability_status;
+  material.procedural_pipeline_key = desc.procedural_pipeline_key;
   return material;
 }
 

@@ -673,6 +673,74 @@ void testFrameDebuggerAssetProvenanceTrace() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
 
+void testFrameDebuggerProceduralAssetGraphTrace() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+
+  aster::MaterialDesc desc;
+  desc.base_color = {0.19f, 0.17f, 0.145f};
+  desc.roughness = 0.78f;
+  desc.surface_profile = aster::MaterialSurfaceProfile::StratifiedRock;
+  desc.procedural.wetness = 0.52f;
+  desc.procedural.macro_variation = 0.42f;
+  desc.procedural.micro_normal_strength = 0.50f;
+  desc.procedural.roughness_variation = 0.16f;
+  desc.procedural.height_shading = 0.28f;
+  desc.procedural_graph_guid = "graph-guid-wet-rock";
+  desc.procedural_graph_node = "mat.noise";
+  desc.procedural_capability_status = "runtime-procedural-reference";
+  desc.procedural_pipeline_key = 99u;
+  aster::Material material = aster::makeMaterial(desc);
+  material.asset_id = "material.graph_wet_rock";
+  material.shader_variant_key = 123456u;
+
+  aster::RenderObject object;
+  object.name = "procedural graph probe";
+  object.primitive = aster::MeshPrimitive::Rock;
+  object.material = material;
+  object.material_asset_id = material.asset_id;
+
+  aster::Scene scene;
+  scene.objects().push_back(object);
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.0f, 0.0f};
+  camera.radius = 4.0f;
+
+  aster::RendererSettings settings;
+  settings.sun_light.enabled = true;
+  settings.procedural_surface_normals = true;
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.prepareScene(scene);
+  (void)renderer.render(scene, camera, settings, 64, 48, 0.0);
+
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  assert(forensics.asset_traces.size() == 1u);
+  const aster::AssetFrameTrace &trace = forensics.asset_traces.front();
+  assert(trace.source_graph_guid == "graph-guid-wet-rock");
+  assert(trace.source_graph_node == "mat.noise");
+  assert(trace.shader_variant_key == "123456");
+  assert(!trace.pipeline_cache_key.empty());
+  assert(trace.procedural_capability_status == "runtime-procedural-reference");
+  assert(std::any_of(trace.backend_degradations.begin(), trace.backend_degradations.end(),
+                     [](const std::string &degradation) {
+                       return degradation.find("procedural-material-reference-path") !=
+                              std::string::npos;
+                     }));
+  const auto fate = std::find_if(forensics.object_fates.begin(), forensics.object_fates.end(),
+                                 [](const aster::ObjectRenderFateTrace &candidate) {
+                                   return candidate.object_name == "procedural graph probe";
+                                 });
+  assert(fate != forensics.object_fates.end());
+  assert(fate->source_graph_guid == "graph-guid-wet-rock");
+  assert(fate->source_graph_node == "mat.noise");
+  assert(fate->shader_variant_key == "123456");
+  assert(!fate->pipeline_cache_key.empty());
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
 void testSoftwareReferenceFrameResourceCaptures() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
   setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
@@ -1940,6 +2008,8 @@ constexpr TestCase kTestCases[] = {
     {"frame_math_diagnostics", testFrameMathDiagnostics},
     {"frame_debugger_material_binding_trace", testFrameDebuggerMaterialBindingTrace},
     {"frame_debugger_asset_provenance_trace", testFrameDebuggerAssetProvenanceTrace},
+    {"frame_debugger_procedural_asset_graph_trace",
+     testFrameDebuggerProceduralAssetGraphTrace},
     {"software_reference_frame_resource_captures", testSoftwareReferenceFrameResourceCaptures},
     {"retro_style_neutral_preview", testRetroStyleNeutralSoftwarePreviewMatchesDefault},
     {"retro_style_preview_effects", testRetroStyleSoftwarePreviewEffects},

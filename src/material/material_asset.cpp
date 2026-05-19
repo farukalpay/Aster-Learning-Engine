@@ -802,6 +802,10 @@ Material resolveMaterialAssetFallback(const MaterialAsset &asset) {
   desc.depth_policy = asset.depth_policy;
   desc.receives_shadows = asset.receives_shadows;
   desc.surface_profile = asset.surface_profile;
+  desc.procedural_graph_guid = asset.procedural_graph_guid;
+  desc.procedural_graph_node = asset.procedural_graph_node;
+  desc.procedural_capability_status = asset.procedural_capability_status;
+  desc.procedural_pipeline_key = asset.procedural_pipeline_key;
   if (desc.surface_profile == MaterialSurfaceProfile::Auto &&
       (materialFeatureSet(asset).triplanar || materialFeatureSet(asset).height)) {
     desc.surface_profile = MaterialSurfaceProfile::StratifiedRock;
@@ -832,7 +836,9 @@ Material resolveMaterialAssetFallback(const MaterialAsset &asset) {
   }
   Material material = makeMaterial(desc);
   material.asset_id = asset.id;
-  material.shader_variant_key = materialFeatureMask(materialFeatureSet(asset));
+  material.shader_variant_key = asset.procedural_shader_variant_key == 0u
+                                    ? materialFeatureMask(materialFeatureSet(asset))
+                                    : asset.procedural_shader_variant_key;
   return material;
 }
 

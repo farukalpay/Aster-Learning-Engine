@@ -235,6 +235,10 @@ struct Material {
   std::uint64_t compiled_permutation_key = 0u;
   std::uint32_t compiled_permutation_flags = 0u;
   std::uint64_t shader_variant_key = 0u;
+  std::string procedural_graph_guid;
+  std::string procedural_graph_node;
+  std::string procedural_capability_status;
+  std::uint64_t procedural_pipeline_key = 0u;
 };
 
 struct MaterialDesc {
@@ -263,6 +267,10 @@ struct MaterialDesc {
   CameraOcclusionPolicy camera_occlusion = CameraOcclusionPolicy::Fade;
   ProceduralSurfaceLayer procedural{};
   bool receives_shadows = true;
+  std::string procedural_graph_guid;
+  std::string procedural_graph_node;
+  std::string procedural_capability_status;
+  std::uint64_t procedural_pipeline_key = 0u;
 };
 
 [[nodiscard]] Material makeMaterial(const MaterialDesc &desc);

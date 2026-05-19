@@ -119,6 +119,10 @@ CompiledMaterial compileMaterialForRendering(const Material &material,
   appendFloat(hash, material.procedural.wetness);
   appendFloat(hash, material.procedural.height_shading);
   appendU64(hash, material.shader_variant_key);
+  appendString(hash, material.procedural_graph_guid);
+  appendString(hash, material.procedural_graph_node);
+  appendString(hash, material.procedural_capability_status);
+  appendU64(hash, material.procedural_pipeline_key);
   appendString(hash, material.asset_id);
   appendString(hash, material_id);
   compiled.permutation_key = hash;

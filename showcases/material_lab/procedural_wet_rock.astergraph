@@ -1,0 +1,46 @@
+astergraph asset_graph.material_lab.wet_rock
+schema_version 1
+name "Procedural Wet Rock"
+material_id material.graph_wet_rock
+surface_profile stratified-rock
+primitive rock
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy convex-hull
+lod_policy single-lod
+base_color 0.19 0.17 0.145
+roughness 0.78
+metallic 0.0
+param wetness 0.52
+param macro_variation 0.42
+param micro_normal_strength 0.50
+param roughness_variation 0.16
+param height_shading 0.28
+feature triplanar true
+feature normal_map true
+feature parallax true
+preview environment cave-dark
+preview rig material-lab-three-point
+node mesh.surface mesh_primitive role=mesh primitive=rock
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=2.7
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=stratified-rock
+node mat.noise noise role=base_color scale=3.2 strength=0.30
+node mat.cells cellular role=roughness scale=7.0 strength=0.16
+node mat.slope slope_mask role=mask threshold=0.42
+node mat.cavity cavity_dirt role=ao strength=0.34
+node mat.wet wetness_flow role=wetness strength=0.52
+node mat.rust rust_spread role=oxidation strength=0.0
+node mat.moss moss_growth role=moss strength=0.10
+node mat.decal decal_layer role=decal opacity=0.18
+node mat.orm orm_baker role=orm policy=runtime-procedural
+node mat.normal normal_baker role=normal strength=0.50
+node mat.height height_baker role=height strength=0.28
+node collision.proxy collision_proxy role=collision shape=convex-hull
+node lod.single lod_generator role=lod policy=single-lod
+node probe.preview probe_helper role=lighting environment=cave-dark
+node prefab.variant prefab_variant role=prefab variant=material-lab
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.noise material.assign base_color
+edge mat.wet material.assign wetness

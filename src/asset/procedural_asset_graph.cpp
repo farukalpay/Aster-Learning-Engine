@@ -1,0 +1,283 @@
+// Author: Faruk Alpay
+// Do not remove this notice.
+
+#include "aster/asset/procedural_asset_graph.hpp"
+
+#include "aster/asset/json_document.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
+#include <string_view>
+
+namespace aster {
+namespace {
+
+using asset_json::Value;
+
+[[nodiscard]] const Value *objectField(const Value &json, const std::string_view key) {
+  const Value *value = json.find(key);
+  return value != nullptr && value->kind == Value::Kind::Object ? value : nullptr;
+}
+
+[[nodiscard]] const Value *arrayField(const Value &json, const std::string_view key) {
+  const Value *value = json.find(key);
+  return value != nullptr && value->kind == Value::Kind::Array ? value : nullptr;
+}
+
+[[nodiscard]] std::string normalized(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  std::replace(value.begin(), value.end(), '_', '-');
+  return value;
+}
+
+[[nodiscard]] int hexNibble(const char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  }
+  if (c >= 'a' && c <= 'f') {
+    return 10 + (c - 'a');
+  }
+  if (c >= 'A' && c <= 'F') {
+    return 10 + (c - 'A');
+  }
+  return -1;
+}
+
+[[nodiscard]] std::uint64_t hexHashPrefixOr(const std::string_view value,
+                                            const std::uint64_t fallback = 0u) {
+  std::size_t offset = value.rfind("0x", 0) == 0 || value.rfind("0X", 0) == 0 ? 2u : 0u;
+  std::uint64_t parsed = 0u;
+  std::uint32_t digits = 0u;
+  for (; offset < value.size() && digits < 16u; ++offset) {
+    const int nibble = hexNibble(value[offset]);
+    if (nibble < 0) {
+      return digits == 0u ? fallback : parsed;
+    }
+    parsed = (parsed << 4u) | static_cast<std::uint64_t>(nibble);
+    ++digits;
+  }
+  return digits == 0u ? fallback : parsed;
+}
+
+[[nodiscard]] MaterialSurfaceProfile parseSurfaceProfile(const std::string &value) {
+  const std::string profile = normalized(value);
+  if (profile == "stratified-rock" || profile == "cave-rock" || profile == "rock") {
+    return MaterialSurfaceProfile::StratifiedRock;
+  }
+  if (profile == "corroded-metal" || profile == "weathered-metal" ||
+      profile == "rusted-metal") {
+    return MaterialSurfaceProfile::CorrodedMetal;
+  }
+  if (profile == "moss" || profile == "foliage") {
+    return MaterialSurfaceProfile::Foliage;
+  }
+  if (profile == "plain" || profile == "none") {
+    return MaterialSurfaceProfile::Plain;
+  }
+  return MaterialSurfaceProfile::Auto;
+}
+
+[[nodiscard]] MaterialBlendMode parseBlendMode(const std::string &value) {
+  const std::string mode = normalized(value);
+  if (mode == "masked" || mode == "alpha-clip") {
+    return MaterialBlendMode::Masked;
+  }
+  if (mode == "blend") {
+    return MaterialBlendMode::Blend;
+  }
+  return MaterialBlendMode::Opaque;
+}
+
+[[nodiscard]] std::map<std::string, std::string> stringMapFrom(const Value &json) {
+  std::map<std::string, std::string> out;
+  if (json.kind != Value::Kind::Object) {
+    return out;
+  }
+  for (const auto &[key, value] : json.object) {
+    if (value.kind == Value::Kind::String) {
+      out[key] = value.string;
+    } else if (value.kind == Value::Kind::Number) {
+      out[key] = std::to_string(value.number);
+    } else if (value.kind == Value::Kind::Bool) {
+      out[key] = value.boolean ? "true" : "false";
+    }
+  }
+  return out;
+}
+
+void readFallbackArray(const Value &fallback, const std::string_view key,
+                       const char *r, const char *g, const char *b, MaterialAsset &material) {
+  const Value *array = fallback.find(key);
+  if (array == nullptr || array->kind != Value::Kind::Array || array->array.size() < 3u) {
+    return;
+  }
+  if (array->array[0].kind == Value::Kind::Number) {
+    material.params[r] = static_cast<float>(array->array[0].number);
+  }
+  if (array->array[1].kind == Value::Kind::Number) {
+    material.params[g] = static_cast<float>(array->array[1].number);
+  }
+  if (array->array[2].kind == Value::Kind::Number) {
+    material.params[b] = static_cast<float>(array->array[2].number);
+  }
+}
+
+[[nodiscard]] std::vector<ProceduralAssetGraphNode> nodesFrom(const Value &json) {
+  std::vector<ProceduralAssetGraphNode> nodes;
+  if (const Value *array = arrayField(json, "nodes")) {
+    nodes.reserve(array->array.size());
+    for (const Value &node_json : array->array) {
+      ProceduralAssetGraphNode node;
+      node.id = asset_json::textOr(node_json, "id");
+      node.kind = asset_json::textOr(node_json, "kind");
+      node.role = asset_json::textOr(node_json, "role");
+      node.label = asset_json::textOr(node_json, "label");
+      node.capability_status = asset_json::textOr(node_json, "capability_status");
+      if (const Value *params = objectField(node_json, "params")) {
+        node.params = stringMapFrom(*params);
+      }
+      nodes.push_back(std::move(node));
+    }
+  }
+  return nodes;
+}
+
+[[nodiscard]] std::vector<ProceduralAssetGraphEdge> edgesFrom(const Value &json) {
+  std::vector<ProceduralAssetGraphEdge> edges;
+  if (const Value *array = arrayField(json, "edges")) {
+    edges.reserve(array->array.size());
+    for (const Value &edge_json : array->array) {
+      edges.push_back({.from = asset_json::textOr(edge_json, "from"),
+                       .to = asset_json::textOr(edge_json, "to"),
+                       .role = asset_json::textOr(edge_json, "role")});
+    }
+  }
+  return edges;
+}
+
+[[nodiscard]] ProceduralAssetGraphQualityReport qualityFrom(const Value &json) {
+  ProceduralAssetGraphQualityReport quality;
+  const Value *quality_json = objectField(json, "quality");
+  if (quality_json == nullptr) {
+    return quality;
+  }
+  quality.score = asset_json::u32Or(*quality_json, "score");
+  quality.production_ready = asset_json::boolOr(*quality_json, "production_ready");
+  if (const Value *issues = arrayField(*quality_json, "issues")) {
+    for (const Value &issue : issues->array) {
+      quality.issues.push_back({.severity = asset_json::textOr(issue, "severity"),
+                                .category = asset_json::textOr(issue, "category"),
+                                .node = asset_json::textOr(issue, "node"),
+                                .message = asset_json::textOr(issue, "message")});
+    }
+  }
+  return quality;
+}
+
+[[nodiscard]] MaterialAsset materialFrom(const Value &root,
+                                         const ProceduralAssetGraphPackage &package) {
+  MaterialAsset material;
+  const Value *material_json = objectField(root, "material");
+  if (material_json == nullptr) {
+    return material;
+  }
+  material.id = asset_json::textOr(*material_json, "id", package.id);
+  material.name = package.name.empty() ? material.id : package.name;
+  material.source_path = package.source_path;
+  material.surface_profile =
+      parseSurfaceProfile(asset_json::textOr(*material_json, "surface_profile"));
+  material.explicit_features["runtime_procedural"] = true;
+  material.procedural_graph_guid = package.asset_guid;
+  material.procedural_graph_node = package.nodes.empty() ? std::string() : package.nodes.front().id;
+  material.procedural_capability_status =
+      package.nodes.empty() ? std::string("runtime-procedural-reference")
+                            : package.nodes.front().capability_status;
+  material.procedural_shader_variant_key = package.shader_variant_key;
+  material.procedural_pipeline_key = package.pipeline_key;
+
+  if (const Value *fallback = objectField(*material_json, "fallback")) {
+    material.surface_profile =
+        parseSurfaceProfile(asset_json::textOr(*fallback, "surface_profile"));
+    material.blend_mode = parseBlendMode(asset_json::textOr(*fallback, "alpha_mode"));
+    material.cull_mode = asset_json::boolOr(*fallback, "double_sided")
+                             ? MaterialAssetCullMode::None
+                             : MaterialAssetCullMode::Back;
+    material.receives_shadows = asset_json::boolOr(*fallback, "receives_shadows", true);
+    readFallbackArray(*fallback, "base_color", "base_color_r", "base_color_g",
+                      "base_color_b", material);
+    readFallbackArray(*fallback, "emission_color", "emission_r", "emission_g", "emission_b",
+                      material);
+    material.params["roughness"] = asset_json::f32Or(*fallback, "roughness", 0.55f);
+    material.params["metallic"] = asset_json::f32Or(*fallback, "metallic", 0.0f);
+    material.params["opacity"] = asset_json::f32Or(*fallback, "opacity", 1.0f);
+    material.params["emission_strength"] =
+        asset_json::f32Or(*fallback, "emission_strength", 0.0f);
+  }
+  if (const Value *params = objectField(*material_json, "params")) {
+    for (const auto &[key, value] : params->object) {
+      if (value.kind == Value::Kind::Number) {
+        material.params[key] = static_cast<float>(value.number);
+      }
+    }
+  }
+  if (const Value *features = objectField(*material_json, "features")) {
+    for (const auto &[key, value] : features->object) {
+      if (value.kind == Value::Kind::Bool) {
+        material.explicit_features[key] = value.boolean;
+      }
+    }
+  }
+  return material;
+}
+
+} // namespace
+
+ProceduralAssetGraphPackage loadProceduralAssetGraphPackage(const std::filesystem::path &path) {
+  const Value root = asset_json::parseFile(path);
+  ProceduralAssetGraphPackage package;
+  package.package_path = path;
+  package.asset_guid = asset_json::textOr(root, "asset_guid");
+  package.id = asset_json::textOr(root, "id");
+  package.name = asset_json::textOr(root, "name", package.id);
+  package.source_path = asset_json::textOr(root, "source_path");
+  package.runtime_model = asset_json::textOr(root, "runtime_model");
+  package.nodes = nodesFrom(root);
+  package.edges = edgesFrom(root);
+  package.quality = qualityFrom(root);
+
+  if (const Value *material = objectField(root, "material")) {
+    package.shader_variant_tag = asset_json::textOr(*material, "shader_variant_tag");
+    package.pipeline_tag = asset_json::textOr(*material, "pipeline_tag");
+    package.feature_mask = asset_json::u64Or(*material, "feature_mask");
+    package.shader_variant_key = asset_json::u64Or(*material, "shader_variant_key");
+  }
+  if (const Value *derived = objectField(root, "derived_hashes")) {
+    package.pipeline_key = hexHashPrefixOr(asset_json::textOr(*derived, "pipeline_cache_key"),
+                                           asset_json::u64Or(*derived, "pipeline_cache_key"));
+  }
+  if (const Value *mesh = objectField(root, "mesh")) {
+    package.mesh = {.primitive = asset_json::textOr(*mesh, "primitive"),
+                    .uv_policy = asset_json::textOr(*mesh, "uv_policy"),
+                    .tangent_policy = asset_json::textOr(*mesh, "tangent_policy"),
+                    .collision_proxy = asset_json::textOr(*mesh, "collision_proxy"),
+                    .lod_policy = asset_json::textOr(*mesh, "lod_policy")};
+  }
+  package.material = materialFrom(root, package);
+  for (const ProceduralAssetGraphQualityIssue &issue : package.quality.issues) {
+    package.diagnostics.push_back(
+        {.severity = issue.severity == "error" ? MaterialDiagnosticSeverity::Error
+                                                : MaterialDiagnosticSeverity::Warning,
+         .source_path = package.source_path,
+         .message = issue.category + ":" + issue.node + ":" + issue.message});
+  }
+  return package;
+}
+
+Material proceduralAssetGraphMaterial(const ProceduralAssetGraphPackage &package) {
+  return resolveMaterialAssetFallback(package.material);
+}
+
+} // namespace aster

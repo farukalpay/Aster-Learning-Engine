@@ -1,0 +1,49 @@
+astergraph asset_graph.material_lab.wet_decal_soot
+schema_version 1
+name "Procedural Wet Decal Soot"
+material_id material.graph_wet_decal_soot
+surface_profile plain
+primitive plane
+uv_policy uv0
+tangent_policy validate-or-generate
+collision_proxy none
+lod_policy single-lod
+base_color 0.045 0.041 0.036
+roughness 0.70
+metallic 0.0
+opacity 0.42
+double_sided true
+alpha_mode Blend
+param wetness 0.44
+param macro_variation 0.28
+param micro_normal_strength 0.10
+param roughness_variation 0.22
+param height_shading 0.08
+feature normal_map true
+feature decal_receiver true
+preview environment cave-dark
+preview rig material-lab-decal
+node mesh.surface mesh_primitive role=mesh primitive=plane
+node uv.uv0 uv_policy role=uv mapping=uv0 texel_density=1.8
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=plain
+node mat.noise noise role=soot scale=6.0 strength=0.26
+node mat.cells cellular role=droplet_mask scale=13.0 strength=0.20
+node mat.slope slope_mask role=drip_direction threshold=0.36
+node mat.cavity cavity_dirt role=soot_accumulation strength=0.44
+node mat.edge edge_wear role=feathered_edge strength=0.30
+node mat.wet wetness_flow role=wetness strength=0.44
+node mat.rust rust_spread role=stain strength=0.12
+node mat.moss moss_growth role=moss strength=0.0
+node mat.decal decal_layer role=decal opacity=0.42
+node mat.orm orm_baker role=orm policy=runtime-procedural
+node mat.normal normal_baker role=normal strength=0.10
+node mat.height height_baker role=height strength=0.08
+node collision.proxy collision_proxy role=collision shape=none
+node lod.single lod_generator role=lod policy=single-lod
+node probe.preview probe_helper role=lighting environment=cave-dark
+node prefab.variant prefab_variant role=prefab variant=material-lab
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.decal material.assign opacity
+edge mat.wet material.assign wetness

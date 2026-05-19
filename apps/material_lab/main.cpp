@@ -3,6 +3,7 @@
 
 #include "aster/material/material_compiler.hpp"
 #include "aster/asset/asset_database.hpp"
+#include "aster/asset/procedural_asset_graph.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/software_framebuffer.hpp"
 #include "aster/render/software_preview_renderer.hpp"
@@ -58,6 +59,10 @@ aster::Scene previewScene(const aster::Material &material, const std::string &me
   object.name = "Material Lab Preview";
   object.material = material;
   object.material_asset_id = material.asset_id;
+  object.asset_provenance.source_asset_id =
+      material.procedural_graph_guid.empty() ? material.asset_id : material.procedural_graph_guid;
+  object.asset_provenance.source_node = material.procedural_graph_node;
+  object.asset_provenance.material_slot = material.asset_id;
   object.primitive = previewPrimitive(mesh_name);
   if (mesh_name == "cave-wall") {
     object.transform.scale = {1.8f, 1.0f, 1.8f};
@@ -104,6 +109,7 @@ aster::RendererSettings previewSettings(const std::string &debug_mode) {
 
 void printUsage() {
   std::cout << "usage: aster_material_lab --material <file.astermat> "
+               "or --graph <file.assetgraphbin> "
                "[--asset-db assetdb.asterdb.json] "
                "[--output preview.ppm] [--mesh sphere|cube|rock|cave-wall] "
                "[--debug beauty|base-color|normal|roughness|ao|fog]\n";
@@ -146,7 +152,8 @@ int main(int argc, char **argv) {
       return 0;
     }
     const std::filesystem::path material_path = argumentValue(argc, argv, "--material", "");
-    if (material_path.empty()) {
+    const std::filesystem::path graph_path = argumentValue(argc, argv, "--graph", "");
+    if (material_path.empty() && graph_path.empty()) {
       printUsage();
       return 1;
     }
@@ -161,10 +168,18 @@ int main(int argc, char **argv) {
     const int width = std::stoi(argumentValue(argc, argv, "--width", "640"));
     const int height = std::stoi(argumentValue(argc, argv, "--height", "480"));
 
-    const std::optional<aster::CookedMaterialAsset> cooked =
-        loadCookedMaterialForSource(material_path, asset_db_path);
     aster::MaterialAssetLoadResult loaded;
-    if (cooked.has_value()) {
+    if (!graph_path.empty()) {
+      const aster::ProceduralAssetGraphPackage graph =
+          aster::loadProceduralAssetGraphPackage(graph_path);
+      loaded.value = graph.material;
+      loaded.diagnostics = graph.diagnostics;
+      std::cout << "asset-graph=" << graph_path << " graph=" << graph.asset_guid
+                << " nodes=" << graph.nodes.size() << " quality=" << graph.quality.score
+                << '\n';
+    } else if (const std::optional<aster::CookedMaterialAsset> cooked =
+                   loadCookedMaterialForSource(material_path, asset_db_path);
+               cooked.has_value()) {
       loaded.value = cooked->asset;
       loaded.diagnostics.push_back({.severity = aster::MaterialDiagnosticSeverity::Warning,
                                     .source_path = material_path,

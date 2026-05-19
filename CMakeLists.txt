@@ -113,6 +113,7 @@ set(ASTER_ASSET_SOURCES
   "${PROJECT_SOURCE_DIR}/src/asset/asset_production_model.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/compiled_scene_asset.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/mesh_pipeline.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/procedural_asset_graph.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/scene_asset_importer.cpp"
 )
 

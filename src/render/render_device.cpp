@@ -2457,10 +2457,15 @@ std::uint64_t assetFrameTraceHash(const aster::AssetFrameTrace &trace) {
   hash = appendEvidenceValue(hash, trace.object_index);
   hash = appendEvidenceText(hash, trace.object_name);
   hash = appendEvidenceText(hash, trace.source_asset_id);
+  hash = appendEvidenceText(hash, trace.source_graph_guid);
+  hash = appendEvidenceText(hash, trace.source_graph_node);
   hash = appendEvidenceText(hash, trace.source_path);
   hash = appendEvidenceText(hash, trace.source_node);
   hash = appendEvidenceText(hash, trace.source_mesh);
   hash = appendEvidenceText(hash, trace.material_slot);
+  hash = appendEvidenceText(hash, trace.shader_variant_key);
+  hash = appendEvidenceText(hash, trace.pipeline_cache_key);
+  hash = appendEvidenceText(hash, trace.procedural_capability_status);
   for (const std::string &issue : trace.issues) {
     hash = appendEvidenceText(hash, issue);
   }
@@ -3249,6 +3254,29 @@ void appendAssetFrameTraces(const aster::Scene &scene,
     trace.material_slot = provenance.material_slot.empty() && runtime_material != nullptr
                               ? runtime_material->compiled.asset.name
                               : provenance.material_slot;
+    trace.source_graph_guid = object.material.procedural_graph_guid;
+    trace.source_graph_node = object.material.procedural_graph_node;
+    trace.procedural_capability_status = object.material.procedural_capability_status;
+    trace.shader_variant_key = std::to_string(object.material.shader_variant_key);
+    const aster::CompiledMaterial compiled_trace =
+        aster::compileMaterialForRendering(object.material, runtime_material != nullptr,
+                                           materialAssetIdFor(object));
+    trace.pipeline_cache_key = std::to_string(compiled_trace.permutation_key);
+    if (!trace.source_graph_guid.empty()) {
+      if (trace.source_asset_id.empty() || trace.source_asset_id == materialAssetIdFor(object)) {
+        trace.source_asset_id = trace.source_graph_guid;
+      }
+      if (trace.source_node.empty()) {
+        trace.source_node = trace.source_graph_node;
+      }
+      if (trace.procedural_capability_status.find("unsupported") != std::string::npos) {
+        appendAssetIssue(trace.issues, "procedural:node-unsupported-by-runtime");
+      } else {
+        appendUnique(trace.backend_degradations,
+                     std::string(aster::renderBackendKindName(capabilities.kind)) +
+                         ":procedural-material-reference-path");
+      }
+    }
 
     const bool material_has_texture_declarations =
         runtime_material != nullptr && !runtime_material->compiled.asset.textures.empty();
@@ -3409,6 +3437,10 @@ std::uint64_t objectFateHash(const aster::ObjectRenderFateTrace &fate) {
   hash = appendEvidenceText(hash, fate.material_asset_id);
   hash = appendEvidenceText(hash, fate.shader_variant_key);
   hash = appendEvidenceText(hash, fate.pipeline_tag);
+  hash = appendEvidenceText(hash, fate.source_graph_guid);
+  hash = appendEvidenceText(hash, fate.source_graph_node);
+  hash = appendEvidenceText(hash, fate.pipeline_cache_key);
+  hash = appendEvidenceText(hash, fate.procedural_capability_status);
   hash = appendEvidenceText(hash, fate.asset_source_path);
   hash = appendEvidenceText(hash, fate.asset_source_node);
   hash = appendEvidenceText(hash, fate.asset_source_mesh);
@@ -3461,6 +3493,10 @@ void appendObjectRenderFateTraces(const aster::Scene &scene, const aster::FrameR
     fate.material_asset_id = material_asset_id;
     fate.shader_variant_key = std::to_string(object.material.shader_variant_key);
     fate.pipeline_tag = compiled.pipeline_tag;
+    fate.source_graph_guid = object.material.procedural_graph_guid;
+    fate.source_graph_node = object.material.procedural_graph_node;
+    fate.pipeline_cache_key = std::to_string(compiled.permutation_key);
+    fate.procedural_capability_status = object.material.procedural_capability_status;
     const auto asset_trace =
         std::find_if(forensics.asset_traces.begin(), forensics.asset_traces.end(),
                      [object_index](const aster::AssetFrameTrace &trace) {
@@ -3471,6 +3507,10 @@ void appendObjectRenderFateTraces(const aster::Scene &scene, const aster::FrameR
       fate.asset_source_node = asset_trace->source_node;
       fate.asset_source_mesh = asset_trace->source_mesh;
       fate.asset_material_slot = asset_trace->material_slot;
+      fate.source_graph_guid = asset_trace->source_graph_guid;
+      fate.source_graph_node = asset_trace->source_graph_node;
+      fate.pipeline_cache_key = asset_trace->pipeline_cache_key;
+      fate.procedural_capability_status = asset_trace->procedural_capability_status;
       fate.asset_issues = asset_trace->issues;
       fate.backend_degradations = asset_trace->backend_degradations;
     }

@@ -74,6 +74,7 @@ enum class AssetKind {
   Ui,
   Mesh,
   Texture,
+  AssetGraph,
 };
 
 struct ProjectAssetRef {

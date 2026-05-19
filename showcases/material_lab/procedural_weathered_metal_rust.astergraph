@@ -1,0 +1,46 @@
+astergraph asset_graph.material_lab.weathered_metal_rust
+schema_version 1
+name "Procedural Weathered Metal Rust"
+material_id material.graph_weathered_metal_rust
+surface_profile corroded-metal
+primitive cube
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy box
+lod_policy single-lod
+base_color 0.34 0.33 0.31
+roughness 0.66
+metallic 0.78
+param wetness 0.08
+param macro_variation 0.36
+param micro_normal_strength 0.34
+param roughness_variation 0.24
+param height_shading 0.18
+feature triplanar true
+feature normal_map true
+preview environment reflection-probe
+preview rig material-lab-metal
+node mesh.surface mesh_primitive role=mesh primitive=cube
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=3.0
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=corroded-metal
+node mat.noise noise role=base_color scale=9.0 strength=0.22
+node mat.cells cellular role=oxidation_cells scale=12.0 strength=0.28
+node mat.slope slope_mask role=drip_mask threshold=0.30
+node mat.cavity cavity_dirt role=dirt strength=0.38
+node mat.edge edge_wear role=edge_wear strength=0.42
+node mat.wet wetness_flow role=wetness strength=0.08
+node mat.rust rust_spread role=oxidation strength=0.58
+node mat.moss moss_growth role=moss strength=0.0
+node mat.decal decal_layer role=paint_chips opacity=0.20
+node mat.orm orm_baker role=orm policy=runtime-procedural
+node mat.normal normal_baker role=normal strength=0.34
+node mat.height height_baker role=height strength=0.18
+node collision.proxy collision_proxy role=collision shape=box
+node lod.single lod_generator role=lod policy=single-lod
+node probe.preview probe_helper role=lighting environment=reflection-probe
+node prefab.variant prefab_variant role=prefab variant=material-lab
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.rust material.assign oxidation
+edge mat.edge material.assign edge_wear

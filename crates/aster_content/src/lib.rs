@@ -501,6 +501,7 @@ pub const ASSET_DATABASE_SCHEMA_VERSION: u32 = 2;
 pub const ASSET_IMPORT_SETTINGS_VERSION: u32 = 2;
 pub const ASSET_MANIFEST_SCHEMA_VERSION: u32 = 1;
 pub const MATERIAL_BIN_SCHEMA_VERSION: u32 = 2;
+pub const ASSET_GRAPH_BIN_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AssetSourceLocation {
@@ -850,6 +851,89 @@ pub struct MaterialCookResult {
     pub preview_path: Option<PathBuf>,
     pub material_bin: MaterialBin,
     pub emitted_runtime_outputs: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProceduralGraphNode {
+    pub id: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub role: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, String>,
+    pub capability_status: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProceduralGraphEdge {
+    pub from: String,
+    pub to: String,
+    pub role: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetGraphMeshDescriptor {
+    pub primitive: String,
+    pub uv_policy: String,
+    pub tangent_policy: String,
+    pub collision_proxy: String,
+    pub lod_policy: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetGraphQualityIssue {
+    pub severity: String,
+    pub category: String,
+    pub node: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetGraphQualityReport {
+    pub score: u32,
+    pub production_ready: bool,
+    pub issues: Vec<AssetGraphQualityIssue>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct AssetGraphMaterialPackage {
+    pub id: String,
+    pub surface_profile: String,
+    pub feature_mask: u64,
+    pub shader_variant_key: u64,
+    pub shader_variant_tag: String,
+    pub pipeline_tag: String,
+    pub fallback: MaterialBinFallback,
+    pub params: BTreeMap<String, f32>,
+    pub features: BTreeMap<String, bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct AssetGraphBin {
+    pub schema_version: u32,
+    pub asset_guid: String,
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub source_path: String,
+    pub runtime_model: String,
+    pub material: AssetGraphMaterialPackage,
+    pub mesh: AssetGraphMeshDescriptor,
+    pub nodes: Vec<ProceduralGraphNode>,
+    pub edges: Vec<ProceduralGraphEdge>,
+    pub preview: BTreeMap<String, String>,
+    pub quality: AssetGraphQualityReport,
+    pub derived_hashes: AssetDerivedHashes,
+    pub diagnostics: Vec<AssetCookDiagnostic>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AssetGraphCookResult {
+    pub graph_bin_path: PathBuf,
+    pub report_path: PathBuf,
+    pub graph_bin: AssetGraphBin,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1625,6 +1709,745 @@ fn compile_options_from_preset(preset: &AssetImportPresetRecord) -> CompileOptio
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct ParsedAssetGraphSource {
+    id: String,
+    schema_version: u32,
+    name: String,
+    material_id: String,
+    source_path: String,
+    surface_profile: String,
+    primitive: String,
+    uv_policy: String,
+    tangent_policy: String,
+    collision_proxy: String,
+    lod_policy: String,
+    base_color: [f32; 3],
+    emission_color: [f32; 3],
+    roughness: f32,
+    metallic: f32,
+    emission_strength: f32,
+    opacity: f32,
+    double_sided: bool,
+    alpha_mode: String,
+    receives_shadows: bool,
+    params: BTreeMap<String, f32>,
+    features: BTreeMap<String, bool>,
+    preview: BTreeMap<String, String>,
+    nodes: Vec<ProceduralGraphNode>,
+    edges: Vec<ProceduralGraphEdge>,
+    diagnostics: Vec<AssetCookDiagnostic>,
+}
+
+impl ParsedAssetGraphSource {
+    fn new(fallback_id: &str, source_path: &Path) -> Self {
+        Self {
+            id: fallback_id.to_string(),
+            schema_version: 1,
+            name: fallback_id.to_string(),
+            material_id: fallback_id.to_string(),
+            source_path: source_path.to_string_lossy().replace('\\', "/"),
+            surface_profile: "stratified-rock".to_string(),
+            primitive: "rock".to_string(),
+            uv_policy: "triplanar".to_string(),
+            tangent_policy: "validate-or-generate".to_string(),
+            collision_proxy: "none".to_string(),
+            lod_policy: "single-lod".to_string(),
+            base_color: [1.0, 1.0, 1.0],
+            emission_color: [0.0, 0.0, 0.0],
+            roughness: 0.55,
+            metallic: 0.0,
+            emission_strength: 0.0,
+            opacity: 1.0,
+            double_sided: false,
+            alpha_mode: "Opaque".to_string(),
+            receives_shadows: true,
+            params: BTreeMap::new(),
+            features: BTreeMap::new(),
+            preview: BTreeMap::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
+fn strip_graph_comment(line: &str) -> String {
+    let mut out = String::new();
+    let mut quoted = false;
+    let mut previous = '\0';
+    let chars = line.chars().peekable();
+    for c in chars {
+        if c == '"' && previous != '\\' {
+            quoted = !quoted;
+        }
+        if !quoted && c == '#' {
+            break;
+        }
+        if !quoted && previous == '/' && c == '/' {
+            out.pop();
+            break;
+        }
+        out.push(c);
+        previous = c;
+    }
+    out
+}
+
+fn tokenize_graph_line(line: &str) -> Vec<String> {
+    let line = strip_graph_comment(line);
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut escaped = false;
+    for c in line.chars() {
+        if escaped {
+            current.push(c);
+            escaped = false;
+            continue;
+        }
+        if quoted && c == '\\' {
+            escaped = true;
+            continue;
+        }
+        if c == '"' {
+            quoted = !quoted;
+            continue;
+        }
+        if !quoted && c.is_whitespace() {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        current.push(c);
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+fn parse_graph_f32(token: Option<&String>, field: &str) -> Result<f32> {
+    let Some(token) = token else {
+        return Err(ContentError::new(format!(
+            "missing value for graph field '{field}'"
+        )));
+    };
+    let value = token.parse::<f32>().map_err(|_| {
+        ContentError::new(format!(
+            "invalid number '{token}' for graph field '{field}'"
+        ))
+    })?;
+    if !value.is_finite() {
+        return Err(ContentError::new(format!(
+            "non-finite number for graph field '{field}'"
+        )));
+    }
+    Ok(value)
+}
+
+fn parse_graph_bool(token: Option<&String>, field: &str) -> Result<bool> {
+    let Some(token) = token else {
+        return Err(ContentError::new(format!(
+            "missing value for graph field '{field}'"
+        )));
+    };
+    match token.as_str() {
+        "true" | "yes" | "1" => Ok(true),
+        "false" | "no" | "0" => Ok(false),
+        _ => Err(ContentError::new(format!(
+            "invalid boolean '{token}' for graph field '{field}'"
+        ))),
+    }
+}
+
+fn canonical_graph_node_kind(kind: &str) -> String {
+    kind.replace('-', "_").to_ascii_lowercase()
+}
+
+fn graph_node_capability_status(kind: &str) -> &'static str {
+    match canonical_graph_node_kind(kind).as_str() {
+        "mesh_primitive"
+        | "uv_policy"
+        | "tangent_validation"
+        | "material_assignment"
+        | "mask_generator"
+        | "noise"
+        | "cellular"
+        | "curvature_mask"
+        | "slope_mask"
+        | "cavity_dirt"
+        | "edge_wear"
+        | "wetness_flow"
+        | "rust_spread"
+        | "moss_growth"
+        | "decal_layer"
+        | "orm_baker"
+        | "normal_height"
+        | "normal_baker"
+        | "height_baker"
+        | "collision_proxy"
+        | "lod_generator"
+        | "probe_helper"
+        | "prefab_variant"
+        | "cook_export"
+        | "diagnostic" => "runtime-procedural-reference",
+        "boolean" | "carve" | "bevel" | "fracture" => "descriptor-only-reference",
+        _ => "unsupported",
+    }
+}
+
+fn parse_graph_param_tokens(tokens: &[String]) -> BTreeMap<String, String> {
+    let mut params = BTreeMap::new();
+    for token in tokens {
+        if let Some((key, value)) = token.split_once('=') {
+            params.insert(key.to_string(), value.to_string());
+        }
+    }
+    params
+}
+
+fn push_graph_node(parsed: &mut ParsedAssetGraphSource, tokens: &[String]) -> Result<()> {
+    if tokens.len() < 3 {
+        return Err(ContentError::new(
+            "graph node requires: node <id> <kind> [key=value...]",
+        ));
+    }
+    let params = parse_graph_param_tokens(&tokens[3..]);
+    let kind = canonical_graph_node_kind(&tokens[2]);
+    let status = graph_node_capability_status(&kind).to_string();
+    let role = params.get("role").cloned().unwrap_or_default();
+    let label = params.get("label").cloned().unwrap_or_default();
+    if status == "unsupported" {
+        parsed.diagnostics.push(cook_warning(format!(
+            "asset graph node '{}' uses unsupported kind '{}'",
+            tokens[1], tokens[2]
+        )));
+    }
+    if kind == "mesh_primitive" {
+        if let Some(primitive) = params.get("primitive") {
+            parsed.primitive = primitive.clone();
+        }
+    } else if kind == "uv_policy" {
+        if let Some(policy) = params.get("mapping").or_else(|| params.get("policy")) {
+            parsed.uv_policy = policy.clone();
+        }
+    } else if kind == "tangent_validation" {
+        if let Some(policy) = params.get("policy") {
+            parsed.tangent_policy = policy.clone();
+        }
+    } else if kind == "collision_proxy" {
+        if let Some(policy) = params.get("shape").or_else(|| params.get("policy")) {
+            parsed.collision_proxy = policy.clone();
+        }
+    } else if kind == "lod_generator" {
+        if let Some(policy) = params.get("policy") {
+            parsed.lod_policy = policy.clone();
+        }
+    }
+    parsed.nodes.push(ProceduralGraphNode {
+        id: tokens[1].clone(),
+        kind,
+        role,
+        label,
+        params,
+        capability_status: status,
+    });
+    Ok(())
+}
+
+fn parse_asset_graph_source(
+    source: &str,
+    fallback_id: &str,
+    source_path: &Path,
+) -> Result<ParsedAssetGraphSource> {
+    let mut parsed = ParsedAssetGraphSource::new(fallback_id, source_path);
+    for (line_index, line) in source.lines().enumerate() {
+        let tokens = tokenize_graph_line(line);
+        if tokens.is_empty() {
+            continue;
+        }
+        match tokens[0].as_str() {
+            "astergraph" | "asset_graph" => {
+                if let Some(id) = tokens.get(1) {
+                    parsed.id = id.clone();
+                    parsed.material_id = id.clone();
+                    if parsed.name == fallback_id {
+                        parsed.name = id.clone();
+                    }
+                }
+            }
+            "schema_version" => {
+                parsed.schema_version = parse_graph_f32(tokens.get(1), "schema_version")? as u32;
+            }
+            "name" => parsed.name = tokens.get(1).cloned().unwrap_or_default(),
+            "material_id" => {
+                parsed.material_id = tokens.get(1).cloned().unwrap_or_else(|| parsed.id.clone());
+            }
+            "surface_profile" => {
+                parsed.surface_profile = tokens
+                    .get(1)
+                    .cloned()
+                    .unwrap_or_else(|| "stratified-rock".to_string());
+            }
+            "primitive" => {
+                parsed.primitive = tokens.get(1).cloned().unwrap_or_else(|| "rock".to_string());
+            }
+            "uv_policy" => {
+                parsed.uv_policy = tokens
+                    .get(1)
+                    .cloned()
+                    .unwrap_or_else(|| "triplanar".to_string());
+            }
+            "tangent_policy" => {
+                parsed.tangent_policy = tokens
+                    .get(1)
+                    .cloned()
+                    .unwrap_or_else(|| "validate-or-generate".to_string());
+            }
+            "collision_proxy" => {
+                parsed.collision_proxy =
+                    tokens.get(1).cloned().unwrap_or_else(|| "none".to_string());
+            }
+            "lod_policy" => {
+                parsed.lod_policy = tokens
+                    .get(1)
+                    .cloned()
+                    .unwrap_or_else(|| "single-lod".to_string());
+            }
+            "base_color" => {
+                parsed.base_color = [
+                    parse_graph_f32(tokens.get(1), "base_color.r")?,
+                    parse_graph_f32(tokens.get(2), "base_color.g")?,
+                    parse_graph_f32(tokens.get(3), "base_color.b")?,
+                ];
+            }
+            "emission_color" => {
+                parsed.emission_color = [
+                    parse_graph_f32(tokens.get(1), "emission_color.r")?,
+                    parse_graph_f32(tokens.get(2), "emission_color.g")?,
+                    parse_graph_f32(tokens.get(3), "emission_color.b")?,
+                ];
+            }
+            "roughness" => parsed.roughness = parse_graph_f32(tokens.get(1), "roughness")?,
+            "metallic" => parsed.metallic = parse_graph_f32(tokens.get(1), "metallic")?,
+            "emission_strength" => {
+                parsed.emission_strength = parse_graph_f32(tokens.get(1), "emission_strength")?;
+            }
+            "opacity" => parsed.opacity = parse_graph_f32(tokens.get(1), "opacity")?,
+            "double_sided" => {
+                parsed.double_sided = parse_graph_bool(tokens.get(1), "double_sided")?;
+            }
+            "alpha_mode" => {
+                parsed.alpha_mode = tokens
+                    .get(1)
+                    .cloned()
+                    .unwrap_or_else(|| "Opaque".to_string());
+            }
+            "receives_shadows" => {
+                parsed.receives_shadows = parse_graph_bool(tokens.get(1), "receives_shadows")?;
+            }
+            "param" => {
+                if tokens.len() < 3 {
+                    return Err(ContentError::new("param requires: param <name> <value>"));
+                }
+                parsed.params.insert(
+                    tokens[1].clone(),
+                    parse_graph_f32(tokens.get(2), &tokens[1])?,
+                );
+            }
+            "feature" => {
+                if tokens.len() < 3 {
+                    return Err(ContentError::new("feature requires: feature <name> <bool>"));
+                }
+                parsed.features.insert(
+                    tokens[1].clone(),
+                    parse_graph_bool(tokens.get(2), &tokens[1])?,
+                );
+            }
+            "preview" => {
+                if tokens.len() < 3 {
+                    return Err(ContentError::new(
+                        "preview requires: preview <name> <value>",
+                    ));
+                }
+                parsed.preview.insert(tokens[1].clone(), tokens[2].clone());
+            }
+            "node" => push_graph_node(&mut parsed, &tokens)?,
+            "edge" => {
+                if tokens.len() >= 5 && tokens[2] == "->" {
+                    parsed.edges.push(ProceduralGraphEdge {
+                        from: tokens[1].clone(),
+                        to: tokens[3].clone(),
+                        role: tokens[4].clone(),
+                    });
+                } else if tokens.len() >= 4 {
+                    parsed.edges.push(ProceduralGraphEdge {
+                        from: tokens[1].clone(),
+                        to: tokens[2].clone(),
+                        role: tokens[3].clone(),
+                    });
+                } else {
+                    return Err(ContentError::new("edge requires: edge <from> <to> <role>"));
+                }
+            }
+            value => parsed.diagnostics.push(AssetCookDiagnostic {
+                severity: "warning".to_string(),
+                message: format!("unknown asset graph directive '{value}'"),
+                source_path: Some(source_path.to_string_lossy().to_string()),
+                line: Some(line_index + 1),
+                column: Some(1),
+                source_locations: Vec::new(),
+            }),
+        }
+    }
+    for (name, fallback) in [
+        ("roughness", parsed.roughness),
+        ("metallic", parsed.metallic),
+        ("wetness", 0.0),
+        ("macro_variation", 0.0),
+        ("micro_normal_strength", 0.0),
+        ("roughness_variation", 0.0),
+        ("height_shading", 0.0),
+    ] {
+        parsed.params.entry(name.to_string()).or_insert(fallback);
+    }
+    Ok(parsed)
+}
+
+fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
+    let mut mask = 1u64;
+    let mut set = |bit: u64| {
+        mask |= 1u64 << bit;
+    };
+    for node in &parsed.nodes {
+        match node.kind.as_str() {
+            "mesh_primitive" => set(1),
+            "material_assignment" => set(2),
+            "noise" => set(3),
+            "cellular" => set(4),
+            "curvature_mask" | "slope_mask" | "cavity_dirt" | "mask_generator" => set(5),
+            "wetness_flow" => set(6),
+            "rust_spread" => set(7),
+            "moss_growth" => set(8),
+            "decal_layer" => set(9),
+            "orm_baker" => set(10),
+            "normal_height" | "normal_baker" => set(11),
+            "height_baker" => set(12),
+            "collision_proxy" => set(13),
+            "lod_generator" => set(14),
+            "probe_helper" | "prefab_variant" | "cook_export" | "diagnostic" => set(15),
+            _ => {}
+        }
+    }
+    for (feature, enabled) in &parsed.features {
+        if *enabled {
+            match feature.as_str() {
+                "triplanar" => set(16),
+                "parallax" => set(17),
+                "normal_map" => set(18),
+                "decal_receiver" => set(19),
+                _ => {}
+            }
+        }
+    }
+    mask
+}
+
+fn graph_hash_u64<T: Serialize>(tag: &str, value: &T) -> u64 {
+    let bytes = serde_json::to_vec(value).unwrap_or_default();
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(tag.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(&bytes);
+    let digest = hasher.finalize();
+    let mut out = [0u8; 8];
+    out.copy_from_slice(&digest.as_bytes()[..8]);
+    u64::from_le_bytes(out)
+}
+
+fn asset_graph_quality_report(
+    parsed: &ParsedAssetGraphSource,
+    diagnostics: &[AssetCookDiagnostic],
+) -> AssetGraphQualityReport {
+    let mut issues = Vec::new();
+    let mut push_issue = |severity: &str, category: &str, node: &str, message: &str| {
+        issues.push(AssetGraphQualityIssue {
+            severity: severity.to_string(),
+            category: category.to_string(),
+            node: node.to_string(),
+            message: message.to_string(),
+        });
+    };
+    let has_kind = |kind: &str| parsed.nodes.iter().any(|node| node.kind == kind);
+    for required in [
+        "mesh_primitive",
+        "uv_policy",
+        "tangent_validation",
+        "material_assignment",
+        "collision_proxy",
+        "lod_generator",
+        "cook_export",
+        "diagnostic",
+    ] {
+        if !has_kind(required) {
+            push_issue(
+                "warning",
+                "graph",
+                required,
+                "full asset graph v1 expects this node family to be represented",
+            );
+        }
+    }
+    if parsed
+        .nodes
+        .iter()
+        .any(|node| node.capability_status == "unsupported")
+    {
+        push_issue(
+            "error",
+            "backend",
+            "procedural",
+            "one or more graph nodes are not supported by the runtime procedural reference path",
+        );
+    }
+    let roughness_variation = parsed
+        .params
+        .get("roughness_variation")
+        .copied()
+        .unwrap_or(0.0);
+    if roughness_variation < 0.05 {
+        push_issue(
+            "warning",
+            "material",
+            "roughness",
+            "roughness distribution is too narrow for the production material profile",
+        );
+    }
+    let normal_strength = parsed
+        .params
+        .get("micro_normal_strength")
+        .copied()
+        .unwrap_or(0.0);
+    if normal_strength > 1.0 {
+        push_issue(
+            "warning",
+            "material",
+            "normal",
+            "normal intensity may alias under grazing light",
+        );
+    }
+    let height = parsed.params.get("height_shading").copied().unwrap_or(0.0);
+    if height > 0.65 {
+        push_issue(
+            "warning",
+            "material",
+            "height",
+            "height response is high enough to risk aliasing",
+        );
+    }
+    let wetness = parsed.params.get("wetness").copied().unwrap_or(0.0);
+    if wetness > 0.0 && !has_kind("wetness_flow") {
+        push_issue(
+            "warning",
+            "material",
+            "wetness",
+            "wet material response has no wetness_flow node",
+        );
+    }
+    let luminance = parsed.base_color[0] * 0.2126
+        + parsed.base_color[1] * 0.7152
+        + parsed.base_color[2] * 0.0722;
+    if luminance < 0.08
+        && !parsed
+            .preview
+            .values()
+            .any(|value| value.contains("dark") || value.contains("cave"))
+    {
+        push_issue(
+            "warning",
+            "preview",
+            "environment",
+            "material may be unreadable in cave-dark preview environments",
+        );
+    }
+    let diagnostic_errors = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == "error")
+        .count();
+    let diagnostic_warnings = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == "warning")
+        .count();
+    let issue_errors = issues
+        .iter()
+        .filter(|issue| issue.severity == "error")
+        .count();
+    let issue_warnings = issues
+        .iter()
+        .filter(|issue| issue.severity == "warning")
+        .count();
+    let penalty = (diagnostic_errors + issue_errors) as u32 * 30
+        + (diagnostic_warnings + issue_warnings) as u32 * 8;
+    let score = 100u32.saturating_sub(penalty);
+    AssetGraphQualityReport {
+        score,
+        production_ready: diagnostic_errors == 0 && issue_errors == 0 && score >= 60,
+        issues,
+    }
+}
+
+fn build_asset_graph_bin(
+    parsed: ParsedAssetGraphSource,
+    source: &str,
+    asset_guid: String,
+    source_path: String,
+) -> AssetGraphBin {
+    let feature_mask = graph_feature_mask(&parsed);
+    let shader_seed = (
+        parsed.id.as_str(),
+        parsed.material_id.as_str(),
+        parsed.surface_profile.as_str(),
+        parsed.params.clone(),
+        parsed.features.clone(),
+        parsed.nodes.clone(),
+        parsed.edges.clone(),
+    );
+    let shader_variant_key = graph_hash_u64("aster.assetgraph.shader.v1", &shader_seed);
+    let shader_variant_tag = format!("AssetGraph.{}.runtime-procedural", parsed.material_id);
+    let pipeline_tag = format!(
+        "material:{}:{}:runtime-procedural",
+        parsed.material_id, parsed.surface_profile
+    );
+    let dependency_hash = hash_serializable("aster.assetgraph.dependencies.v1", &parsed.edges);
+    let artifact_hash = hash_serializable("aster.assetgraph.artifacts.v1", &parsed.nodes);
+    let derived_hashes = AssetDerivedHashes {
+        source_hash: hash_hex_text(source),
+        options_hash: hash_hex_text(&format!(
+            "assetgraphbin:{}:{}",
+            ASSET_GRAPH_BIN_SCHEMA_VERSION, parsed.schema_version
+        )),
+        dependency_hash,
+        artifact_hash,
+        material_hash: hash_hex_text(&format!(
+            "assetgraph:{}:{}:{}",
+            parsed.id, parsed.material_id, pipeline_tag
+        )),
+        shader_variant_key: format!("0x{shader_variant_key:016x}"),
+        pipeline_cache_key: hash_hex_text(&pipeline_tag),
+        vertex_input_contract: hash_hex_text(&format!(
+            "assetgraph-vertex:{}:{}:{}:{}",
+            parsed.primitive, parsed.uv_policy, parsed.tangent_policy, parsed.lod_policy
+        )),
+        frame_plan_fingerprint: hash_hex_text(&format!(
+            "assetgraph-frame:{}:{}:{}",
+            parsed.id,
+            parsed.nodes.len(),
+            parsed.edges.len()
+        )),
+    };
+    let quality = asset_graph_quality_report(&parsed, &parsed.diagnostics);
+    AssetGraphBin {
+        schema_version: ASSET_GRAPH_BIN_SCHEMA_VERSION,
+        asset_guid,
+        id: parsed.id.clone(),
+        name: parsed.name.clone(),
+        kind: "asset_graph".to_string(),
+        source_path,
+        runtime_model: "runtime-procedural".to_string(),
+        material: AssetGraphMaterialPackage {
+            id: parsed.material_id.clone(),
+            surface_profile: parsed.surface_profile.clone(),
+            feature_mask,
+            shader_variant_key,
+            shader_variant_tag,
+            pipeline_tag,
+            fallback: MaterialBinFallback {
+                base_color: parsed.base_color,
+                emission_color: parsed.emission_color,
+                roughness: parsed.roughness,
+                metallic: parsed.metallic,
+                emission_strength: parsed.emission_strength,
+                opacity: parsed.opacity,
+                double_sided: parsed.double_sided,
+                alpha_mode: parsed.alpha_mode.clone(),
+                receives_shadows: parsed.receives_shadows,
+                surface_profile: parsed.surface_profile.clone(),
+            },
+            params: parsed.params.clone(),
+            features: parsed.features.clone(),
+        },
+        mesh: AssetGraphMeshDescriptor {
+            primitive: parsed.primitive.clone(),
+            uv_policy: parsed.uv_policy.clone(),
+            tangent_policy: parsed.tangent_policy.clone(),
+            collision_proxy: parsed.collision_proxy.clone(),
+            lod_policy: parsed.lod_policy.clone(),
+        },
+        nodes: parsed.nodes,
+        edges: parsed.edges,
+        preview: parsed.preview,
+        quality,
+        derived_hashes,
+        diagnostics: parsed.diagnostics,
+    }
+}
+
+fn load_asset_graph_bin_from_source(
+    input: &Path,
+    fallback_id: &str,
+    asset_guid_override: Option<&str>,
+    project_root: &Path,
+) -> Result<AssetGraphBin> {
+    let source = fs::read_to_string(input)?;
+    let source_rel = relative_path_string(input, project_root);
+    let parsed = parse_asset_graph_source(&source, fallback_id, input)?;
+    let guid = asset_guid_override
+        .map(str::to_string)
+        .unwrap_or_else(|| asset_guid("asset_graph", &parsed.id, &source_rel));
+    Ok(build_asset_graph_bin(parsed, &source, guid, source_rel))
+}
+
+pub fn inspect_asset_graph(input: impl AsRef<Path>) -> Result<AssetGraphBin> {
+    let input = input.as_ref();
+    let fallback_id = input
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("asset_graph");
+    load_asset_graph_bin_from_source(
+        input,
+        fallback_id,
+        None,
+        input.parent().unwrap_or_else(|| Path::new("")),
+    )
+}
+
+pub fn asset_graph_inspect_report_json(input: impl AsRef<Path>) -> Result<String> {
+    let graph = inspect_asset_graph(input)?;
+    Ok(serde_json::to_string_pretty(&graph)?)
+}
+
+pub fn package_asset_graph(
+    input: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+) -> Result<AssetGraphCookResult> {
+    let input = input.as_ref();
+    let output_root = output_root.as_ref();
+    let fallback_id = input
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("asset_graph");
+    cook_asset_graph_asset(
+        input,
+        input.parent().unwrap_or_else(|| Path::new("")),
+        output_root,
+        fallback_id,
+        "desktop",
+        None,
+    )
+}
+
 fn read_asset_meta_guid(source: &Path) -> Result<Option<String>> {
     let mut meta_path = source.to_path_buf();
     meta_path.set_extension("astermeta");
@@ -1727,6 +2550,34 @@ fn render_contract_for(record: &AssetDatabaseRecord) -> Vec<String> {
                 record.import_preset.texture_role_policy
             ));
         }
+        "asset_graph" => {
+            contract.push("asset-graph-package".to_string());
+            contract.push("runtime-procedural".to_string());
+            if !record.derived_hashes.material_hash.is_empty() {
+                contract.push(format!(
+                    "material-hash:{}",
+                    record.derived_hashes.material_hash
+                ));
+            }
+            if !record.derived_hashes.shader_variant_key.is_empty() {
+                contract.push(format!(
+                    "shader-variant:{}",
+                    record.derived_hashes.shader_variant_key
+                ));
+            }
+            if !record.derived_hashes.pipeline_cache_key.is_empty() {
+                contract.push(format!(
+                    "pipeline-cache:{}",
+                    record.derived_hashes.pipeline_cache_key
+                ));
+            }
+            if !record.derived_hashes.vertex_input_contract.is_empty() {
+                contract.push(format!(
+                    "vertex-input:{}",
+                    record.derived_hashes.vertex_input_contract
+                ));
+            }
+        }
         _ => contract.push("asset-package".to_string()),
     }
     contract
@@ -1770,6 +2621,12 @@ fn refresh_record_truth(record: &mut AssetDatabaseRecord) {
     if record.kind == "texture" && record.derived_hashes.material_hash.is_empty() {
         record.derived_hashes.material_hash = hash_hex_text(&format!(
             "texture:{}:{}",
+            record.source_hash, record.derived_hashes.artifact_hash
+        ));
+    }
+    if record.kind == "asset_graph" && record.derived_hashes.material_hash.is_empty() {
+        record.derived_hashes.material_hash = hash_hex_text(&format!(
+            "assetgraph:{}:{}",
             record.source_hash, record.derived_hashes.artifact_hash
         ));
     }
@@ -2175,6 +3032,59 @@ pub fn cook_asset(
                 }
             }
         }
+        "asset_graph" if source.extension().and_then(|v| v.to_str()) == Some("astergraph") => {
+            match cook_asset_graph_asset(
+                source,
+                project_root,
+                output_root,
+                id,
+                platform,
+                Some(record.guid.as_str()),
+            ) {
+                Ok(cooked) => {
+                    record.options_hash = hash_hex_text(&format!(
+                        "assetgraphbin:{}:{}",
+                        ASSET_GRAPH_BIN_SCHEMA_VERSION, platform
+                    ));
+                    record.derived_hashes = cooked.graph_bin.derived_hashes.clone();
+                    record.derived_hashes.source_hash = record.source_hash.clone();
+                    record.derived_hashes.options_hash = record.options_hash.clone();
+                    record.diagnostics = cooked.graph_bin.diagnostics.clone();
+                    push_output(
+                        &mut record,
+                        AssetCookedOutput {
+                            role: "assetgraphbin".to_string(),
+                            kind: "assetgraphbin".to_string(),
+                            path: relative_path_string(&cooked.graph_bin_path, output_root),
+                            hash: hash_file_hex(&cooked.graph_bin_path)?,
+                        },
+                        false,
+                    );
+                    push_output(
+                        &mut record,
+                        AssetCookedOutput {
+                            role: "report".to_string(),
+                            kind: "json".to_string(),
+                            path: relative_path_string(&cooked.report_path, output_root),
+                            hash: hash_file_hex(&cooked.report_path)?,
+                        },
+                        false,
+                    );
+                    for edge in &cooked.graph_bin.edges {
+                        record.dependencies.push(AssetDependencyRecord {
+                            role: edge.role.clone(),
+                            path: format!("{}->{}", edge.from, edge.to),
+                            present: true,
+                            hash: hash_hex_text(&format!(
+                                "{}:{}:{}",
+                                edge.from, edge.to, edge.role
+                            )),
+                        });
+                    }
+                }
+                Err(error) => record.diagnostics.push(cook_error(error.to_string())),
+            }
+        }
         "texture" => {
             let role = source
                 .file_stem()
@@ -2222,6 +3132,70 @@ pub fn cook_asset(
     }
     refresh_dependency_edges(&mut record);
     Ok(record)
+}
+
+pub fn cook_asset_graph_asset(
+    input: impl AsRef<Path>,
+    project_root: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+    fallback_id: &str,
+    platform: &str,
+    asset_guid_override: Option<&str>,
+) -> Result<AssetGraphCookResult> {
+    if platform != "desktop" {
+        return Err(ContentError::new(format!(
+            "unsupported asset graph platform '{platform}', expected desktop"
+        )));
+    }
+    let input = input.as_ref();
+    let project_root = project_root.as_ref();
+    let output_root = output_root.as_ref();
+    let mut graph_bin =
+        load_asset_graph_bin_from_source(input, fallback_id, asset_guid_override, project_root)?;
+    let quality_diagnostics = graph_bin
+        .quality
+        .issues
+        .iter()
+        .map(|issue| AssetCookDiagnostic {
+            severity: issue.severity.clone(),
+            message: format!("{}:{}:{}", issue.category, issue.node, issue.message),
+            source_path: Some(graph_bin.source_path.clone()),
+            line: None,
+            column: None,
+            source_locations: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+    graph_bin.diagnostics.extend(quality_diagnostics);
+    let stem = safe_stem(fallback_id, input);
+    let graph_bin_path = output_root
+        .join("asset_graphs")
+        .join(format!("{stem}.assetgraphbin"));
+    let report_path = output_root
+        .join("reports")
+        .join(format!("{stem}.assetgraph.report.json"));
+    write_json(&graph_bin_path, &graph_bin)?;
+    let report = serde_json::json!({
+        "schema_version": ASSET_GRAPH_BIN_SCHEMA_VERSION,
+        "kind": "asset_graph",
+        "id": graph_bin.id.clone(),
+        "asset_guid": graph_bin.asset_guid.clone(),
+        "source_path": graph_bin.source_path.clone(),
+        "runtime_model": graph_bin.runtime_model.clone(),
+        "material": graph_bin.material.clone(),
+        "mesh": graph_bin.mesh.clone(),
+        "nodes": graph_bin.nodes.clone(),
+        "edges": graph_bin.edges.clone(),
+        "preview": graph_bin.preview.clone(),
+        "quality": graph_bin.quality.clone(),
+        "derived_hashes": graph_bin.derived_hashes.clone(),
+        "diagnostics": graph_bin.diagnostics.clone(),
+    });
+    write_json(&report_path, &report)?;
+    Ok(AssetGraphCookResult {
+        graph_bin_path,
+        report_path,
+        graph_bin,
+    })
 }
 
 pub fn cook_texture_asset(
@@ -3890,6 +4864,7 @@ fn canonical_asset_kind(path: &Path, declared_kind: &str) -> String {
         "scene" | "gltf" | "glb" => "scene".to_string(),
         "fbx" | "usd" | "usda" | "usdc" | "usdz" | "blend" => "scene".to_string(),
         "astermat" => "material".to_string(),
+        "astergraph" => "asset_graph".to_string(),
         "png" | "ktx2" | "tga" | "jpg" | "jpeg" => "texture".to_string(),
         _ if !declared_kind.is_empty() => declared_kind.to_string(),
         _ => "unknown".to_string(),
@@ -6561,6 +7536,80 @@ mod tests {
         dir.join("project.asterproj")
     }
 
+    fn write_asset_graph_project(name: &str) -> PathBuf {
+        let dir = fixture_dir(name);
+        fs::create_dir_all(dir.join("graphs")).expect("graphs dir");
+        fs::write(
+            dir.join("graphs/wet_rock.astergraph"),
+            r#"astergraph asset_graph.wet_rock
+schema_version 1
+name "Procedural Wet Rock"
+material_id material.graph_wet_rock
+surface_profile stratified-rock
+primitive rock
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy convex-hull
+lod_policy single-lod
+base_color 0.19 0.17 0.145
+roughness 0.78
+metallic 0.0
+param wetness 0.52
+param macro_variation 0.42
+param micro_normal_strength 0.50
+param roughness_variation 0.16
+param height_shading 0.28
+feature triplanar true
+feature normal_map true
+feature parallax true
+preview environment cave-dark
+node mesh.surface mesh_primitive role=mesh primitive=rock
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=2.7
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=stratified-rock
+node mat.noise noise role=base_color scale=3.2 strength=0.30
+node mat.cells cellular role=roughness scale=7.0 strength=0.16
+node mat.slope slope_mask role=mask threshold=0.42
+node mat.cavity cavity_dirt role=ao strength=0.34
+node mat.wet wetness_flow role=wetness strength=0.52
+node mat.rust rust_spread role=oxidation strength=0.0
+node mat.moss moss_growth role=moss strength=0.10
+node mat.decal decal_layer role=decal opacity=0.18
+node mat.orm orm_baker role=orm policy=runtime-procedural
+node mat.normal normal_baker role=normal strength=0.50
+node mat.height height_baker role=height strength=0.28
+node collision.proxy collision_proxy role=collision shape=convex-hull
+node lod.single lod_generator role=lod policy=single-lod
+node probe.preview probe_helper role=lighting environment=cave-dark
+node prefab.variant prefab_variant role=prefab variant=material-lab
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.noise material.assign base_color
+edge mat.wet material.assign wetness
+"#,
+        )
+        .expect("astergraph");
+        fs::write(
+            dir.join("project.asterproj"),
+            r#"{
+  "schema_version": 2,
+  "name": "Asset Graph Cook Test",
+  "assets": [
+    {
+      "id": "asset_graph.wet_rock",
+      "guid": "asset-v2-graph-wet-rock-000000000001",
+      "kind": "asset_graph",
+      "path": "graphs/wet_rock.astergraph",
+      "import_preset": "default"
+    }
+  ]
+}
+"#,
+        )
+        .expect("project");
+        dir.join("project.asterproj")
+    }
+
     #[test]
     fn cooks_project_database_and_materialbin() {
         let project = write_material_project("cook_project", false);
@@ -6639,6 +7688,43 @@ mod tests {
         assert!(asset_database_diff_json(&db, &db)
             .expect("diff json")
             .contains("\"changed\": []"));
+        fs::remove_dir_all(project.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn cooks_project_database_and_assetgraphbin() {
+        let project = write_asset_graph_project("cook_asset_graph");
+        let graph_path = project.parent().unwrap().join("graphs/wet_rock.astergraph");
+        let inspect = asset_graph_inspect_report_json(&graph_path).expect("inspect graph");
+        assert!(inspect.contains("\"runtime_model\": \"runtime-procedural\""));
+        let package_output = project.parent().unwrap().join("package");
+        let packaged = package_asset_graph(&graph_path, &package_output).expect("package graph");
+        assert!(packaged.graph_bin_path.exists());
+        assert!(packaged.graph_bin.quality.production_ready);
+        assert!(packaged.graph_bin.nodes.len() >= 16);
+
+        let output = project.parent().unwrap().join("cooked/desktop");
+        let result = cook_project(&project, "desktop", &output).expect("cook graph");
+        assert_eq!(result.error_count, 0);
+        assert_eq!(result.database.records.len(), 1);
+        let record = &result.database.records[0];
+        assert_eq!(record.kind, "asset_graph");
+        assert!(record
+            .outputs
+            .iter()
+            .any(|output| output.kind == "assetgraphbin"));
+        assert!(record
+            .fate_report
+            .render_contract
+            .iter()
+            .any(|entry| entry == "runtime-procedural"));
+        assert!(record.derived_hashes.shader_variant_key.starts_with("0x"));
+        assert!(result
+            .database
+            .asset_graph
+            .edges
+            .iter()
+            .any(|edge| edge.role == "wetness"));
         fs::remove_dir_all(project.parent().unwrap()).ok();
     }
 

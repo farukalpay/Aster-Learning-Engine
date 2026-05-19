@@ -185,16 +185,23 @@ Run the sample game and tools:
 cargo run -p aster_assetc --bin aster_materialc -- package --input showcases/material_lab/wet_rock.astermat --asset-root showcases/material_lab --output /tmp/aster_material_package
 cargo run -p aster_assetc --bin aster_texturec -- package --input showcases/material_lab/wet_rock_albedo.ktx2 --role albedo --output /tmp/aster_texture_package
 cargo run -p aster_assetc -- material-inspect --input showcases/material_lab/wet_rock.astermat --asset-root showcases/material_lab
+cargo run -p aster_assetc -- graph-inspect --input showcases/material_lab/procedural_wet_rock.astergraph
+cargo run -p aster_assetc -- graph-package --input showcases/material_lab/procedural_wet_rock.astergraph --output /tmp/aster_asset_graph_package
 cargo run -p aster_assetc -- cook --project showcases/material_lab/material_lab.asterproj --platform desktop --output showcases/material_lab/cooked/desktop
 cargo run -p aster_assetc -- report --db showcases/material_lab/cooked/desktop/assetdb.asterdb.json
+./build/aster_material_lab --graph showcases/material_lab/cooked/desktop/asset_graphs/asset_graph.material_lab.wet_rock.assetgraphbin --output /tmp/wet_rock_graph.ppm
 ```
 
-Material cooking is strict by default. `LitPBR` materials must resolve to
-`albedo`, `normal`, and `orm`; `albedo` and `emissive` are sRGB, while normal,
-ORM, height, wetness, opacity, and masks are linear/non-color. KTX2 sources can
-pass through directly. Other source image formats require `ASTER_TEXTURE_ENCODER`
-to point at a real encoder command, and missing or invalid required textures make
-`aster_assetc cook` return nonzero after writing diagnostics.
+`.astergraph` is the V1 procedural asset graph format and cooks to
+`assetgraphbin` packages with stable graph/node identity, procedural material IR,
+quality diagnostics, shader/pipeline keys, and FrameForensics provenance.
+Material cooking is strict by default. Legacy/import `.astermat` `LitPBR`
+materials must resolve to `albedo`, `normal`, and `orm`; `albedo` and
+`emissive` are sRGB, while normal, ORM, height, wetness, opacity, and masks are
+linear/non-color. KTX2 sources can pass through directly. Other source image
+formats require `ASTER_TEXTURE_ENCODER` to point at a real encoder command, and
+missing or invalid required textures make `aster_assetc cook` return nonzero
+after writing diagnostics.
 
 Set `ASTER_FORCE_SOFTWARE_RENDERER=1` on macOS to use the deterministic
 software fallback.

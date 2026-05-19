@@ -2096,6 +2096,11 @@ AsterStatus aster_kernel_renderer_object_render_fate(
   out_fate->material_asset_id = viewFromString(fate.material_asset_id);
   out_fate->shader_variant_key = viewFromString(fate.shader_variant_key);
   out_fate->pipeline_tag = viewFromString(fate.pipeline_tag);
+  out_fate->source_graph_guid = viewFromString(fate.source_graph_guid);
+  out_fate->source_graph_node = viewFromString(fate.source_graph_node);
+  out_fate->pipeline_cache_key = viewFromString(fate.pipeline_cache_key);
+  out_fate->procedural_capability_status =
+      viewFromString(fate.procedural_capability_status);
   out_fate->texture_roles = viewFromScratch(renderer, joinStrings(fate.texture_roles, ","));
   out_fate->pass_list = viewFromScratch(renderer, joinStrings(fate.pass_list, ","));
   out_fate->resource_transitions =

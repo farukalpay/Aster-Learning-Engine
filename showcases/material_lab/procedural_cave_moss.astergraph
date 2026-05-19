@@ -1,0 +1,46 @@
+astergraph asset_graph.material_lab.cave_moss
+schema_version 1
+name "Procedural Cave Moss"
+material_id material.graph_cave_moss
+surface_profile foliage
+primitive plane
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy none
+lod_policy single-lod
+base_color 0.12 0.24 0.11
+roughness 0.92
+metallic 0.0
+param wetness 0.34
+param macro_variation 0.30
+param micro_normal_strength 0.18
+param roughness_variation 0.18
+param height_shading 0.12
+feature triplanar true
+feature normal_map true
+preview environment cave-dark
+preview rig material-lab-soft
+node mesh.surface mesh_primitive role=mesh primitive=plane
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=2.1
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=foliage
+node mat.noise noise role=base_color scale=5.2 strength=0.24
+node mat.cells cellular role=clump_mask scale=10.0 strength=0.30
+node mat.slope slope_mask role=moss_slope threshold=0.42
+node mat.cavity cavity_dirt role=cavity_growth strength=0.40
+node mat.edge edge_wear role=edge_dryness strength=0.12
+node mat.wet wetness_flow role=wetness strength=0.34
+node mat.rust rust_spread role=oxidation strength=0.0
+node mat.moss moss_growth role=moss strength=0.72
+node mat.decal decal_layer role=lichen opacity=0.16
+node mat.orm orm_baker role=orm policy=runtime-procedural
+node mat.normal normal_baker role=normal strength=0.18
+node mat.height height_baker role=height strength=0.12
+node collision.proxy collision_proxy role=collision shape=none
+node lod.single lod_generator role=lod policy=single-lod
+node probe.preview probe_helper role=lighting environment=cave-dark
+node prefab.variant prefab_variant role=prefab variant=material-lab
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.moss material.assign moss
+edge mat.wet material.assign wetness
