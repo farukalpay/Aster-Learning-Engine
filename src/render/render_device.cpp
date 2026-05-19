@@ -10,6 +10,7 @@
 #include "aster/render/render_conformance.hpp"
 #include "aster/render/render_graph_executor.hpp"
 #include "aster/render/software_framebuffer.hpp"
+#include "aster/framegraph/transient_resource_allocator.hpp"
 #include "aster/scene/scene.hpp"
 #include "native_render_backend.hpp"
 #include "render_backend_common.hpp"
@@ -821,10 +822,7 @@ aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 wo
   case aster::MaterialSurfaceProfile::OrganicFiber: {
     const aster::Vec3 fiber =
         organicFiberAlbedo(material, world_position, normal, uv, pattern_id + 151.0f);
-    const aster::Vec3 twig_tint = material.surface_pattern == aster::SurfacePattern::TwigNest
-                                      ? aster::Vec3{0.90f, 0.78f, 0.58f}
-                                      : aster::Vec3{1.0f, 1.0f, 1.0f};
-    return aster::clamp(fiber * twig_tint, 0.0f, 4.0f);
+    return aster::clamp(fiber, 0.0f, 4.0f);
   }
   case aster::MaterialSurfaceProfile::FilamentWeb:
     return applyProceduralLayer(material, world_position, normal,
@@ -1769,6 +1767,32 @@ namespace aster {
 RenderDevice::RenderDevice() = default;
 RenderDevice::~RenderDevice() = default;
 
+void RenderWorld::rebuild(const Scene &scene) {
+  scene_.rebuild(scene);
+}
+
+const RenderScene &RenderWorld::scene() const noexcept {
+  return scene_;
+}
+
+FixedRenderGraph RenderGraphCompiler::compileDefault(const bool ui_overlay_enabled,
+                                                     const bool capture_enabled) {
+  const auto graph_start = std::chrono::steady_clock::now();
+  const FixedRenderGraph graph = makeFixedRenderGraph(ui_overlay_enabled, capture_enabled);
+  const auto graph_end = std::chrono::steady_clock::now();
+  last_compile_seconds_ = std::chrono::duration<double>(graph_end - graph_start).count();
+  return graph;
+}
+
+double RenderGraphCompiler::lastCompileSeconds() const noexcept {
+  return last_compile_seconds_;
+}
+
+std::size_t FrameExecutor::execute(const FixedRenderGraph &graph,
+                                   const RenderGraphPassCallback &callback) const {
+  return executeFixedRenderGraph(graph, callback);
+}
+
 std::string_view renderBackendKindName(const RenderBackendKind kind) {
   switch (kind) {
   case RenderBackendKind::SoftwareReference:
@@ -1921,8 +1945,12 @@ ClusteredLightGrid buildClusteredLightGrid(const LightRig &lights, const OrbitCa
                             kRenderLightUniformCapacity);
   visible_policy.distance_weighted = true;
   visible_policy.min_intensity = 0.0f;
+  const std::size_t active_light_count =
+      static_cast<std::size_t>(std::count_if(lights.begin(), lights.end(), [&](const Light &light) {
+        return light.intensity > visible_policy.min_intensity;
+      }));
   grid.visible_lights = selectRenderLights(lights, camera.target, visible_policy);
-  grid.fallback_used = grid.visible_lights.size() < lights.size();
+  grid.fallback_used = grid.visible_lights.size() < active_light_count;
 
   const float aspect = static_cast<float>(std::max(framebuffer_width, 1)) /
                        static_cast<float>(std::max(framebuffer_height, 1));
@@ -1982,6 +2010,61 @@ ClusteredLightGrid buildClusteredLightGrid(const LightRig &lights, const OrbitCa
     grid.cluster_offsets[i] += grid.cluster_offsets[i - 1u];
   }
   return grid;
+}
+
+ClusteredLightFrameData buildClusteredLightFrameData(const ClusteredLightGrid &grid) {
+  ClusteredLightFrameData data;
+  data.cluster_count_x = grid.cluster_count_x;
+  data.cluster_count_y = grid.cluster_count_y;
+  data.cluster_count_z = grid.cluster_count_z;
+  data.cluster_offsets = grid.cluster_offsets;
+  data.visible_lights.reserve(grid.visible_lights.size());
+  data.light_indices.reserve(grid.assignments.size());
+  data.overflowed = grid.overflowed;
+  data.fallback_used = grid.fallback_used;
+
+  const auto append_hash = [](std::uint64_t &hash, const std::uint64_t value) {
+    hash ^= value;
+    hash *= 1099511628211ull;
+  };
+  const auto quantized = [](const float value) {
+    return static_cast<std::uint64_t>(
+        static_cast<std::int64_t>(std::llround(std::clamp(value, -65536.0f, 65536.0f) * 4096.0f)));
+  };
+
+  std::uint64_t light_hash = 1469598103934665603ull;
+  append_hash(light_hash, grid.visible_lights.size());
+  for (const Light &light : grid.visible_lights) {
+    data.visible_lights.push_back({.position = light.position,
+                                   .radius = light.source_radius,
+                                   .color = light.color,
+                                   .intensity = light.intensity});
+    append_hash(light_hash, quantized(light.position.x));
+    append_hash(light_hash, quantized(light.position.y));
+    append_hash(light_hash, quantized(light.position.z));
+    append_hash(light_hash, quantized(light.source_radius));
+    append_hash(light_hash, quantized(light.color.x));
+    append_hash(light_hash, quantized(light.color.y));
+    append_hash(light_hash, quantized(light.color.z));
+    append_hash(light_hash, quantized(light.intensity));
+  }
+  data.visible_lights_hash = light_hash;
+
+  std::uint64_t assignment_hash = 1469598103934665603ull;
+  append_hash(assignment_hash, grid.cluster_count_x);
+  append_hash(assignment_hash, grid.cluster_count_y);
+  append_hash(assignment_hash, grid.cluster_count_z);
+  append_hash(assignment_hash, grid.cluster_offsets.size());
+  for (const std::uint32_t offset : grid.cluster_offsets) {
+    append_hash(assignment_hash, offset);
+  }
+  for (const ClusteredLightAssignment &assignment : grid.assignments) {
+    data.light_indices.push_back(assignment.light_index);
+    append_hash(assignment_hash, assignment.cluster_index);
+    append_hash(assignment_hash, assignment.light_index);
+  }
+  data.assignments_hash = assignment_hash;
+  return data;
 }
 
 namespace {
@@ -2275,6 +2358,9 @@ void appendMaterialPipelineKeyTraces(const aster::Scene &scene, const aster::Fra
 }
 
 std::uint64_t estimatedBytesFor(const aster::framegraph::ResourceDesc &desc) {
+  if (desc.kind == aster::framegraph::ResourceKind::Buffer) {
+    return std::max<std::uint64_t>(desc.byte_size, desc.stride);
+  }
   std::uint64_t bytes_per_pixel = 4u;
   switch (desc.format) {
   case aster::rhi::ImageFormat::Rgba16Float:
@@ -2416,6 +2502,25 @@ void appendFrameGraphForensics(const aster::FixedRenderGraph &graph,
     forensics.rhi_trace.memory.resident_bytes += bytes;
   }
   forensics.rhi_trace.memory.budget_bytes = forensics.rhi_trace.memory.resident_bytes;
+  const aster::framegraph::TransientResourceAllocationPlan allocation_plan =
+      aster::framegraph::TransientResourceAllocator{}.allocate(graph);
+  forensics.rhi_trace.memory.transient_bytes = allocation_plan.stats.transient_bytes;
+  forensics.rhi_trace.memory.aliased_bytes_saved = allocation_plan.stats.aliased_bytes_saved;
+  for (const aster::framegraph::TransientResourcePhysicalAllocation &allocation :
+       allocation_plan.physical_allocations) {
+    aster::rhi::TransientAllocationTrace trace;
+    trace.label = "transient-allocation:" + std::to_string(allocation.id);
+    trace.physical_allocation_id = allocation.id;
+    trace.first_pass = allocation.first_pass;
+    trace.last_pass = allocation.last_pass;
+    trace.byte_size = allocation.byte_size;
+    for (const aster::framegraph::ResourceHandle handle : allocation.resources) {
+      if (const aster::framegraph::CompiledResource *resource = compiledResourceFor(graph, handle)) {
+        trace.resources.push_back(resource->name);
+      }
+    }
+    forensics.rhi_trace.transient_allocations.push_back(std::move(trace));
+  }
 }
 
 void updateCapturePayload(aster::FrameDebugCapture &capture, const std::uint32_t width,
@@ -2697,7 +2802,28 @@ MaterialFrameSummary analyzeMaterialFrame(
 
 } // namespace
 
-const CpuMesh &RenderDevice::meshForPrimitive(const MeshPrimitive primitive) const {
+void FrameDebugger::appendGraphForensics(const FixedRenderGraph &graph,
+                                         const RenderBackendCapabilities &capabilities,
+                                         const int framebuffer_width,
+                                         const int framebuffer_height,
+                                         FrameForensics &forensics) const {
+  appendFrameGraphForensics(graph, capabilities, framebuffer_width, framebuffer_height, forensics);
+}
+
+void RenderAssetCache::initializeBuiltins() {
+  const MeshProcessOptions mesh_options = renderMeshOptions();
+  box_ = prepareMeshForRendering(makeBox(), mesh_options);
+  sphere_ =
+      prepareMeshForRendering(makeUvSphere(kSphereSegments, kSphereRings, 1.0f), mesh_options);
+  plane_ = prepareMeshForRendering(makePlane(kPlaneSize), mesh_options);
+  contact_shadow_plane_ = prepareMeshForRendering(makePlane(kContactShadowPlaneSize), mesh_options);
+  rock_ = prepareMeshForRendering(makeRock(kRockSegments, kRockRings, 1.0f), mesh_options);
+  crystal_ = prepareMeshForRendering(makeCrystal(kCrystalSides, 1.0f, 1.8f), mesh_options);
+  ruin_block_ = prepareMeshForRendering(makeRuinBlock(), mesh_options);
+  pillar_ = prepareMeshForRendering(makePillar(kPillarSides, 1.0f, 1.0f), mesh_options);
+}
+
+const CpuMesh &RenderAssetCache::meshForPrimitive(const MeshPrimitive primitive) const {
   switch (primitive) {
   case MeshPrimitive::Box:
     return box_;
@@ -2717,7 +2843,7 @@ const CpuMesh &RenderDevice::meshForPrimitive(const MeshPrimitive primitive) con
   return sphere_;
 }
 
-const CpuMesh &RenderDevice::meshForObject(const RenderObject &object) {
+const CpuMesh &RenderAssetCache::meshForObject(const RenderObject &object) {
   if (object.custom_mesh == nullptr) {
     return meshForPrimitive(object.primitive);
   }
@@ -2742,16 +2868,17 @@ const CpuMesh &RenderDevice::meshForObject(const RenderObject &object) {
   return it->second;
 }
 
-void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_eviction) {
-  ASTER_PROFILE_SCOPE("RenderDevice::syncDynamicMeshes");
+void RenderAssetCache::syncDynamicMeshes(const Scene &scene, rhi::ResourceRegistry &resource_registry,
+                                         const bool immediate_eviction) {
+  ASTER_PROFILE_SCOPE("RenderAssetCache::syncDynamicMeshes");
   if (immediate_eviction) {
     for (const auto &[mesh, handle] : custom_mesh_resource_handles_) {
       (void)mesh;
-      resource_registry_.destroy(handle);
+      resource_registry.destroy(handle);
     }
     for (const auto &[resource, handle] : dynamic_mesh_resource_handles_) {
       (void)resource;
-      resource_registry_.destroy(handle);
+      resource_registry.destroy(handle);
     }
     custom_mesh_cache_.clear();
     custom_mesh_last_seen_.clear();
@@ -2759,7 +2886,7 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
     custom_mesh_resource_last_seen_.clear();
     custom_mesh_resource_handles_.clear();
     dynamic_mesh_resource_handles_.clear();
-    resource_registry_.clearRetired();
+    resource_registry.clearRetired();
   }
 
   ++mesh_cache_frame_;
@@ -2795,7 +2922,7 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
     } else {
       if (const auto handle = custom_mesh_resource_handles_.find(it->first);
           handle != custom_mesh_resource_handles_.end()) {
-        resource_registry_.destroy(handle->second);
+        resource_registry.destroy(handle->second);
         custom_mesh_resource_handles_.erase(handle);
       }
       custom_mesh_last_seen_.erase(it->first);
@@ -2814,7 +2941,7 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
     } else {
       if (const auto handle = dynamic_mesh_resource_handles_.find(it->first);
           handle != dynamic_mesh_resource_handles_.end()) {
-        resource_registry_.destroy(handle->second);
+        resource_registry.destroy(handle->second);
         dynamic_mesh_resource_handles_.erase(handle);
       }
       custom_mesh_resource_last_seen_.erase(it->first);
@@ -2829,7 +2956,7 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
     if (!custom_mesh_resource_handles_.contains(mesh)) {
       const auto &prepared = custom_mesh_cache_.at(mesh);
       custom_mesh_resource_handles_.emplace(
-          mesh, resource_registry_.createBuffer(
+          mesh, resource_registry.createBuffer(
                     {.byte_size = prepared.vertices.size() * sizeof(Vertex) +
                                   prepared.indices.size() * sizeof(std::uint32_t),
                      .usage = rhi::bufferUsageBit(rhi::BufferUsage::Vertex) |
@@ -2852,7 +2979,7 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
       const auto &prepared = custom_mesh_resource_cache_.at(object.dynamic_mesh);
       dynamic_mesh_resource_handles_.emplace(
           object.dynamic_mesh,
-          resource_registry_.createBuffer(
+          resource_registry.createBuffer(
               {.byte_size = prepared.vertices.size() * sizeof(Vertex) +
                             prepared.indices.size() * sizeof(std::uint32_t),
                .usage = rhi::bufferUsageBit(rhi::BufferUsage::Vertex) |
@@ -2860,27 +2987,27 @@ void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_ev
                .debug_label = "dynamic-mesh"}));
     }
   }
-  resource_registry_.clearRetired();
+  resource_registry.clearRetired();
+}
+
+const CpuMesh &RenderDevice::meshForPrimitive(const MeshPrimitive primitive) const {
+  return asset_cache_.meshForPrimitive(primitive);
+}
+
+const CpuMesh &RenderDevice::meshForObject(const RenderObject &object) {
+  return asset_cache_.meshForObject(object);
+}
+
+void RenderDevice::syncDynamicMeshes(const Scene &scene, const bool immediate_eviction) {
+  asset_cache_.syncDynamicMeshes(scene, resource_registry_, immediate_eviction);
 }
 
 void RenderDevice::initialize() {
   ASTER_PROFILE_SCOPE("RenderDevice::initialize");
-  const auto graph_start = std::chrono::steady_clock::now();
   frame_graph_ = makeDefaultFrameGraph(true, true);
-  compiled_frame_graph_ = framegraph::compileFrameGraph(frame_graph_);
-  render_graph_ = compiled_frame_graph_;
-  const auto graph_end = std::chrono::steady_clock::now();
-  graph_compile_seconds_ = std::chrono::duration<double>(graph_end - graph_start).count();
-  const MeshProcessOptions mesh_options = renderMeshOptions();
-  box_ = prepareMeshForRendering(makeBox(), mesh_options);
-  sphere_ =
-      prepareMeshForRendering(makeUvSphere(kSphereSegments, kSphereRings, 1.0f), mesh_options);
-  plane_ = prepareMeshForRendering(makePlane(kPlaneSize), mesh_options);
-  contact_shadow_plane_ = prepareMeshForRendering(makePlane(kContactShadowPlaneSize), mesh_options);
-  rock_ = prepareMeshForRendering(makeRock(kRockSegments, kRockRings, 1.0f), mesh_options);
-  crystal_ = prepareMeshForRendering(makeCrystal(kCrystalSides, 1.0f, 1.8f), mesh_options);
-  ruin_block_ = prepareMeshForRendering(makeRuinBlock(), mesh_options);
-  pillar_ = prepareMeshForRendering(makePillar(kPillarSides, 1.0f, 1.0f), mesh_options);
+  render_graph_ = graph_compiler_.compileDefault(true, true);
+  compiled_frame_graph_ = render_graph_;
+  asset_cache_.initializeBuiltins();
 
   const char *force_null = std::getenv("ASTER_FORCE_NULL_RENDERER");
   const char *force_software = std::getenv("ASTER_FORCE_SOFTWARE_RENDERER");
@@ -2904,7 +3031,7 @@ void RenderDevice::setMaterialResourceLibrary(
 
 void RenderDevice::prepareScene(const Scene &scene) {
   ASTER_PROFILE_SCOPE("RenderDevice::prepareScene");
-  render_scene_.rebuild(scene);
+  render_world_.rebuild(scene);
   syncDynamicMeshes(scene, true);
 }
 
@@ -2930,16 +3057,17 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   }
 
   syncDynamicMeshes(scene, false);
-  render_scene_.rebuild(scene);
+  render_world_.rebuild(scene);
   const FrameRenderPlan plan =
-      buildFrameRenderPlan(render_scene_, camera, settings.line_of_sight_fade, framebuffer_width,
-                           framebuffer_height);
+      buildFrameRenderPlan(render_world_.scene(), camera, settings.line_of_sight_fade,
+                           framebuffer_width, framebuffer_height);
   const RenderBackendCapabilities active_capabilities =
       native_backend_ != nullptr ? native_backend_->capabilities() : softwareCapabilities();
   const ClusteredLightGrid clustered_lights =
       buildClusteredLightGrid(settings.light_rig, camera, framebuffer_width, framebuffer_height,
                               settings.clustered_lighting);
-  last_forensics_.evidence = {.render_ir_hash = render_scene_.ir().content_hash,
+  last_forensics_.clustered_lights = buildClusteredLightFrameData(clustered_lights);
+  last_forensics_.evidence = {.render_ir_hash = render_world_.scene().ir().content_hash,
                               .visibility_plan_hash = framePlanEvidenceHash(plan),
                               .backend_kind =
                                   static_cast<std::uint32_t>(active_capabilities.kind),
@@ -2949,8 +3077,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
       analyzeMaterialFrame(scene, plan, active_capabilities, material_artifact_cache_,
                            previous_transparent_order_);
   previous_transparent_order_ = material_summary.transparent_order;
-  appendFrameGraphForensics(render_graph_, active_capabilities, framebuffer_width,
-                            framebuffer_height, last_forensics_);
+  frame_debugger_.appendGraphForensics(render_graph_, active_capabilities, framebuffer_width,
+                                       framebuffer_height, last_forensics_);
   appendMaterialBindingTraces(scene, plan, material_library_.get(), active_capabilities,
                               last_forensics_.material_bindings);
   appendMaterialPipelineKeyTraces(scene, plan, settings, material_library_.get(),
@@ -2968,8 +3096,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.lod_culled_objects = plan.diagnostics.lod_culled_objects;
   stats.visibility_hint_objects = plan.diagnostics.visibility_hint_objects;
   stats.dynamic_mesh_objects = plan.diagnostics.dynamic_mesh_objects;
-  stats.dynamic_mesh_cache_entries =
-      custom_mesh_cache_.size() + custom_mesh_resource_cache_.size();
+  stats.dynamic_mesh_cache_entries = asset_cache_.cachedMeshCount();
   stats.pipeline_switches = material_summary.pipeline_switches;
   stats.material_permutations = material_summary.material_permutations;
   stats.material_variant_cache_hits = material_summary.material_variant_cache_hits;
@@ -2994,38 +3121,46 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
          .value = clustered_lights.assignments.size()});
   }
   stats.rust_plan_seconds = plan.diagnostics.rust_plan_seconds;
-  stats.graph_compile_seconds = graph_compile_seconds_;
+  stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
   stats.backend_kind_value =
       static_cast<std::uint32_t>(backendCapabilities().kind);
 
   SoftwareFrameBuffer &framebuffer = activeFrameBuffer();
   if (native_backend_ != nullptr) {
     PreparedRenderMeshes meshes{
-        .box = &box_,
-        .sphere = &sphere_,
-        .plane = &plane_,
-        .contact_shadow_plane = &contact_shadow_plane_,
-        .rock = &rock_,
-        .crystal = &crystal_,
-        .ruin_block = &ruin_block_,
-        .pillar = &pillar_,
-        .custom_meshes = &custom_mesh_cache_,
-        .custom_mesh_resources = &custom_mesh_resource_cache_,
+        .box = &asset_cache_.box(),
+        .sphere = &asset_cache_.sphere(),
+        .plane = &asset_cache_.plane(),
+        .contact_shadow_plane = &asset_cache_.contactShadowPlane(),
+        .rock = &asset_cache_.rock(),
+        .crystal = &asset_cache_.crystal(),
+        .ruin_block = &asset_cache_.ruinBlock(),
+        .pillar = &asset_cache_.pillar(),
+        .custom_meshes = &asset_cache_.customMeshes(),
+        .custom_mesh_resources = &asset_cache_.customMeshResources(),
     };
     framebuffer.resize(framebuffer_width, framebuffer_height);
     framebuffer.clearTransparent();
-    FrameStats native_stats =
-        native_backend_->render(scene, plan, camera, settings, render_graph_, meshes,
-                                framebuffer_width, framebuffer_height, frame_seconds,
-                                material_library_.get(), &last_forensics_);
+    const FrameExecutionContext context{.scene = scene,
+                                        .plan = plan,
+                                        .camera = camera,
+                                        .settings = settings,
+                                        .graph = render_graph_,
+                                        .meshes = meshes,
+                                        .clustered_lights = &last_forensics_.clustered_lights,
+                                        .framebuffer_width = framebuffer_width,
+                                        .framebuffer_height = framebuffer_height,
+                                        .frame_seconds = frame_seconds,
+                                        .material_library = material_library_.get(),
+                                        .forensics = &last_forensics_};
+    FrameStats native_stats = native_backend_->render(context);
     native_stats.visible_objects = plan.diagnostics.visible_objects;
     native_stats.culled_objects = plan.diagnostics.culled_objects;
     native_stats.instance_groups = plan.diagnostics.instance_groups;
     native_stats.lod_culled_objects = plan.diagnostics.lod_culled_objects;
     native_stats.visibility_hint_objects = plan.diagnostics.visibility_hint_objects;
     native_stats.dynamic_mesh_objects = plan.diagnostics.dynamic_mesh_objects;
-    native_stats.dynamic_mesh_cache_entries =
-        custom_mesh_cache_.size() + custom_mesh_resource_cache_.size();
+    native_stats.dynamic_mesh_cache_entries = asset_cache_.cachedMeshCount();
     native_stats.pipeline_switches = material_summary.pipeline_switches;
     native_stats.material_permutations = material_summary.material_permutations;
     native_stats.material_variant_cache_hits = material_summary.material_variant_cache_hits;
@@ -3045,7 +3180,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     native_stats.backend_feature_mask = native_backend_->capabilities().graph_resource_mask;
     native_stats.backend_kind_value =
         static_cast<std::uint32_t>(native_backend_->capabilities().kind);
-    native_stats.graph_compile_seconds = graph_compile_seconds_;
+    native_stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
     return native_stats;
   }
 
@@ -3064,7 +3199,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
       return;
     }
     const CpuMesh &mesh = isContactShadowUtility(object) && object.custom_mesh == nullptr
-                              ? contact_shadow_plane_
+                              ? asset_cache_.contactShadowPlane()
                               : meshForObject(object);
     drawMesh(framebuffer, mesh, object, camera, settings, frame_seconds, opacity, stats.draw_calls,
              material_library_.get(), &software_resources);
@@ -3092,7 +3227,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     }
   };
 
-  (void)executeFixedRenderGraph(render_graph_, [&](const RenderGraphPassInvocation &invocation) {
+  (void)frame_executor_.execute(render_graph_, [&](const RenderGraphPassInvocation &invocation) {
     const auto pass_start = std::chrono::steady_clock::now();
     const std::size_t draws_before = stats.draw_calls;
     switch (invocation.semantic) {
@@ -3158,7 +3293,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.registry_live_resources = registry_stats.live_resources;
   stats.registry_retired_resources = registry_stats.retired_resources;
   stats.resource_lifetime_warnings = registry_stats.retired_resources;
-  stats.graph_compile_seconds = graph_compile_seconds_;
+  stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
 
   return stats;
 }

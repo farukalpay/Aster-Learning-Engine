@@ -108,7 +108,6 @@ CompiledMaterial compileMaterialForRendering(const Material &material,
   appendFloat(hash, material.depth_policy.normal_offset);
   appendEnum(hash, material.cull_mode);
   appendEnum(hash, resolveMaterialSurfaceProfile(material));
-  appendEnum(hash, material.surface_pattern);
   appendFloat(hash, material.pattern_scale.x);
   appendFloat(hash, material.pattern_scale.y);
   appendFloat(hash, material.pattern_depth);

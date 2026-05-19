@@ -1159,14 +1159,18 @@ public:
     }
   }
 
-  aster::FrameStats render(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
-                           const aster::OrbitCamera &camera,
-                           const aster::RendererSettings &settings,
-                           const aster::FixedRenderGraph &graph,
-                           const aster::PreparedRenderMeshes &meshes, const int framebuffer_width,
-                           const int framebuffer_height, const double frame_seconds,
-                           const aster::MaterialResourceLibrary *material_library,
-                           aster::FrameForensics *forensics) override {
+  aster::FrameStats render(const aster::FrameExecutionContext &context) override {
+    const aster::Scene &scene = context.scene;
+    const aster::FrameRenderPlan &plan = context.plan;
+    const aster::OrbitCamera &camera = context.camera;
+    const aster::RendererSettings &settings = context.settings;
+    const aster::FixedRenderGraph &graph = context.graph;
+    const aster::PreparedRenderMeshes &meshes = context.meshes;
+    const int framebuffer_width = context.framebuffer_width;
+    const int framebuffer_height = context.framebuffer_height;
+    const double frame_seconds = context.frame_seconds;
+    const aster::MaterialResourceLibrary *material_library = context.material_library;
+    aster::FrameForensics *forensics = context.forensics;
     ASTER_PROFILE_SCOPE("MetalNativeRenderBackend::render");
     aster::FrameStats stats;
     stats.frame_seconds = frame_seconds;
@@ -1198,7 +1202,7 @@ public:
     const auto encode_start = std::chrono::steady_clock::now();
     id<MTLCommandBuffer> command_buffer = [queue_ commandBuffer];
     const MetalSceneUniforms scene_uniforms =
-        makeSceneUniforms(scene, camera, settings, frame_seconds);
+        makeSceneUniforms(scene, camera, settings, frame_seconds, context.clustered_lights);
     const std::size_t uniform_capacity =
         std::max<std::size_t>(plan.instances.size() + scene.objects().size(), 1u);
     if (!ensureObjectUniformCapacity(uniform_capacity)) {
@@ -1706,7 +1710,8 @@ private:
   MetalSceneUniforms makeSceneUniforms(const aster::Scene &scene,
                                        const aster::OrbitCamera &camera,
                                        const aster::RendererSettings &settings,
-                                       const double frame_seconds) const {
+                                       const double frame_seconds,
+                                       const aster::ClusteredLightFrameData *clustered_lights) const {
     const aster::Vec3 camera_position = camera.position();
     MetalSceneUniforms out;
     out.camera_time[0] = camera_position.x;
@@ -1756,8 +1761,17 @@ private:
     out.style_params2[0] = settings.style.procedural_sample_snap;
     out.style_params2[1] = static_cast<float>(settings.atmosphere.fog_falloff);
     out.style_params2[2] = settings.atmosphere.fog_power;
-    const std::vector<aster::Light> selected_lights =
-        aster::selectRenderLights(settings.light_rig, camera.target, settings.light_policy);
+    std::vector<aster::Light> selected_lights;
+    if (settings.clustered_lighting.enabled && clustered_lights != nullptr &&
+        !clustered_lights->visible_lights.empty()) {
+      selected_lights.reserve(clustered_lights->visible_lights.size());
+      for (const aster::PackedClusteredLight &light : clustered_lights->visible_lights) {
+        selected_lights.push_back({light.position, light.color, light.intensity, light.radius});
+      }
+    } else {
+      selected_lights =
+          aster::selectRenderLights(settings.light_rig, camera.target, settings.light_policy);
+    }
     out.lighting_params[0] = static_cast<float>(selected_lights.size());
     out.lighting_params[1] = settings.indirect_albedo_floor;
     out.lighting_params[2] =

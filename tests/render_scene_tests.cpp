@@ -3,6 +3,7 @@
 
 #include "test_support.hpp"
 
+#include "aster/framegraph/transient_resource_allocator.hpp"
 #include "aster/rhi/graphics_pipeline.hpp"
 #include "aster/rhi/resource_barrier.hpp"
 
@@ -906,6 +907,25 @@ void testRuntimeLightPolicy() {
   for (std::size_t i = 1u; i < grid.assignments.size(); ++i) {
     assert(grid.assignments[i - 1u].cluster_index <= grid.assignments[i].cluster_index);
   }
+
+  aster::ClusteredLightPolicy packed_policy = clustered;
+  packed_policy.max_visible_lights = 16u;
+  packed_policy.max_lights_per_cluster = 12u;
+  const aster::ClusteredLightGrid packed_grid =
+      aster::buildClusteredLightGrid(lights, camera, 128, 72, packed_policy);
+  const aster::ClusteredLightFrameData frame_data =
+      aster::buildClusteredLightFrameData(packed_grid);
+  assert(frame_data.visible_lights.size() > aster::kDefaultRenderLightBudget);
+  assert(frame_data.cluster_count_x == packed_policy.cluster_count_x);
+  assert(frame_data.cluster_offsets.size() ==
+         (packed_policy.cluster_count_x * packed_policy.cluster_count_y *
+              packed_policy.cluster_count_z +
+          1u));
+  assert(!frame_data.light_indices.empty());
+  assert(frame_data.visible_lights_hash != 0u);
+  assert(frame_data.assignments_hash != 0u);
+  assert(!frame_data.fallback_used);
+  assert(!frame_data.overflowed);
 }
 
 void testRhiResourceRegistryContract() {
@@ -1083,8 +1103,13 @@ void testFrameGraphContract() {
   assert(graph.validation_errors.empty());
   assert(graph.resources.size() == 8u);
   assert(graph.resources[0].name == "scene-color");
+  assert(graph.resources[0].desc.kind == aster::framegraph::ResourceKind::Image);
   assert(graph.resources[0].desc.lifetime == aster::framegraph::ResourceLifetime::Transient);
   assert(graph.resources[2].name == "light-clusters");
+  assert(graph.resources[2].desc.kind == aster::framegraph::ResourceKind::Buffer);
+  assert((graph.resources[2].desc.usage &
+          aster::rhi::bufferUsageBit(aster::rhi::BufferUsage::Storage)) != 0u);
+  assert(graph.resources[2].desc.byte_size >= 64u * 1024u);
   assert(graph.resources[6].name == "ui-overlay");
   assert(graph.resources[6].desc.lifetime == aster::framegraph::ResourceLifetime::Imported);
   assert(graph.resources[7].name == "capture-readback");
@@ -1142,7 +1167,15 @@ void testFrameGraphContract() {
   assert(!graph.passes[3].attachments.empty());
   assert(!graph.passes[3].pipeline_compatibility.color_formats.empty());
   assert(graph.passes[1].descriptor_requirements.front().kind ==
-         aster::rhi::DescriptorRangeKind::SampledImage);
+         aster::rhi::DescriptorRangeKind::StorageBuffer);
+  assert(graph.passes[1].debug_marker_name == "light-cull");
+  assert(graph.passes[1].timestamp_zone_index == 1u);
+  assert(graph.resources[2].physical_allocation_id != 0u);
+  const aster::framegraph::TransientResourceAllocationPlan allocation_plan =
+      aster::framegraph::TransientResourceAllocator{}.allocate(graph);
+  assert(!allocation_plan.physical_allocations.empty());
+  assert(allocation_plan.stats.physical_allocations == allocation_plan.physical_allocations.size());
+  assert(allocation_plan.stats.transient_bytes > 0u);
   const std::string dump = aster::framegraph::dumpFrameGraph(graph);
   assert(dump.find("scene-color-depth") != std::string::npos);
   assert(dump.find("expanded-barriers") != std::string::npos);
@@ -1170,6 +1203,38 @@ void testFrameGraphContract() {
       aster::framegraph::compileFrameGraph(invalid_graph);
   assert(!invalid.valid());
   assert(!invalid.validation_errors.empty());
+
+  aster::framegraph::FrameGraph queue_graph;
+  const auto queue_buffer = queue_graph.addResource(
+      "queue-buffer",
+      {.kind = aster::framegraph::ResourceKind::Buffer,
+       .lifetime = aster::framegraph::ResourceLifetime::Transient,
+       .usage = aster::rhi::bufferUsageBit(aster::rhi::BufferUsage::Storage),
+       .byte_size = 256u,
+       .stride = 16u});
+  queue_graph.addPass("compute-write").queue(aster::rhi::QueueKind::Compute).writes(queue_buffer);
+  queue_graph.addPass("graphics-read").queue(aster::rhi::QueueKind::Graphics).reads(queue_buffer);
+  const aster::framegraph::CompiledFrameGraph queued =
+      aster::framegraph::compileFrameGraph(queue_graph);
+  assert(queued.valid());
+  assert(std::any_of(queued.resource_barriers.begin(), queued.resource_barriers.end(),
+                     [](const aster::rhi::ResourceBarrier &barrier) {
+                       return aster::rhi::transfersQueueOwnership(barrier);
+                     }));
+
+  aster::framegraph::FrameGraphCompileOptions backend_options;
+  backend_options.backend_resource_mask =
+      aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor);
+  backend_options.required_resource_mask =
+      aster::renderGraphResourceBit(aster::RenderGraphResource::CaptureReadback);
+  backend_options.cull_unsupported_passes = true;
+  const aster::FixedRenderGraph backend_graph = aster::makeFixedRenderGraph(backend_options);
+  assert(!backend_graph.valid());
+  assert(!backend_graph.validation_errors.empty());
+  assert(std::any_of(backend_graph.passes.begin(), backend_graph.passes.end(),
+                     [](const aster::framegraph::CompiledPass &pass) {
+                       return pass.culled;
+                     }));
 
   assert(aster::renderGraphResourceName(aster::RenderGraphResource::UiOverlay) == "ui-overlay");
   assert(aster::renderGraphResourceLifetimeName(aster::RenderGraphResourceLifetime::Readback) ==
@@ -1226,6 +1291,31 @@ void testMaterialCompilerContract() {
           aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::DepthBias)) != 0u);
   assert(decal_compiled.permutation_key != translucent_compiled.permutation_key);
   assert(decal_compiled.pipeline_tag.find(".depth-bias") != std::string::npos);
+
+  aster::Material fur =
+      aster::makeMaterial({.surface_profile = aster::MaterialSurfaceProfile::OrganicFiber,
+                           .surface_pattern = aster::SurfacePattern::FurFibers});
+  aster::Material twig = fur;
+  twig.surface_pattern = aster::SurfacePattern::TwigNest;
+  const aster::CompiledMaterial fur_compiled =
+      aster::compileMaterialForRendering(fur, false, "material.organic-fiber");
+  const aster::CompiledMaterial twig_compiled =
+      aster::compileMaterialForRendering(twig, false, "material.organic-fiber");
+  assert(fur_compiled.permutation_key == twig_compiled.permutation_key);
+  assert(fur_compiled.permutation_flags == twig_compiled.permutation_flags);
+
+  aster::Material cave_alias =
+      aster::makeMaterial({.surface_pattern = aster::SurfacePattern::CaveRock});
+  aster::Material coal_alias = cave_alias;
+  coal_alias.surface_pattern = aster::SurfacePattern::CoalVein;
+  assert(aster::resolveMaterialSurfaceProfile(cave_alias) ==
+         aster::MaterialSurfaceProfile::StratifiedRock);
+  assert(aster::resolveMaterialSurfaceProfile(coal_alias) ==
+         aster::MaterialSurfaceProfile::MineralVein);
+  assert(aster::compileMaterialForRendering(cave_alias, false, "material.alias")
+             .permutation_key !=
+         aster::compileMaterialForRendering(coal_alias, false, "material.alias")
+             .permutation_key);
 }
 
 void testRustRenderFramePlanContracts() {

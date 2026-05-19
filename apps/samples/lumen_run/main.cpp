@@ -951,6 +951,14 @@ int main(int argc, char **argv) {
     double material_cache_miss_sum = 0.0;
     double rust_plan_seconds_sum = 0.0;
     double render_encode_seconds_sum = 0.0;
+    double active_point_light_sum = 0.0;
+    double clustered_light_cluster_sum = 0.0;
+    double clustered_light_assignment_sum = 0.0;
+    double clustered_visible_light_sum = 0.0;
+    double frame_forensics_pass_sum = 0.0;
+    double frame_forensics_resource_sum = 0.0;
+    double frame_forensics_material_sum = 0.0;
+    double clustered_light_fallback_sum = 0.0;
     aster::FixedTimestep simulation_clock(
         {kSimulationStepSeconds, kMaxSimulatedFrameSeconds, kMaxSimulationStepsPerFrame});
     int rendered_frames = 0;
@@ -1329,6 +1337,23 @@ int main(int argc, char **argv) {
         material_cache_miss_sum += static_cast<double>(render_stats.material_variant_cache_misses);
         rust_plan_seconds_sum += render_stats.rust_plan_seconds;
         render_encode_seconds_sum += render_stats.render_encode_seconds;
+        active_point_light_sum += static_cast<double>(render_stats.active_point_lights);
+        clustered_light_cluster_sum += static_cast<double>(render_stats.clustered_light_clusters);
+        clustered_light_assignment_sum +=
+            static_cast<double>(render_stats.clustered_light_assignments);
+        const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+        clustered_visible_light_sum +=
+            static_cast<double>(forensics.clustered_lights.visible_lights.size());
+        frame_forensics_pass_sum += static_cast<double>(forensics.passes.size());
+        frame_forensics_resource_sum += static_cast<double>(forensics.resource_traces.size());
+        frame_forensics_material_sum += static_cast<double>(forensics.material_bindings.size());
+        const bool clustered_fallback =
+            std::any_of(forensics.events.begin(), forensics.events.end(),
+                        [](const aster::FrameDiagnosticEvent &event) {
+                          return event.kind ==
+                                 aster::FrameDiagnosticKind::ClusteredLightingFallback;
+                        });
+        clustered_light_fallback_sum += clustered_fallback ? 1.0 : 0.0;
       }
       if (!scripted_capture || capture_hud) {
         const double hud_start = clock.now();
@@ -1436,6 +1461,14 @@ int main(int argc, char **argv) {
                   << " material_permutations_mean=" << material_permutation_sum / samples
                   << " material_cache_hits_mean=" << material_cache_hit_sum / samples
                   << " material_cache_misses_mean=" << material_cache_miss_sum / samples
+                  << " active_point_lights_mean=" << active_point_light_sum / samples
+                  << " clustered_clusters_mean=" << clustered_light_cluster_sum / samples
+                  << " clustered_assignments_mean=" << clustered_light_assignment_sum / samples
+                  << " clustered_visible_lights_mean=" << clustered_visible_light_sum / samples
+                  << " forensics_passes_mean=" << frame_forensics_pass_sum / samples
+                  << " forensics_resources_mean=" << frame_forensics_resource_sum / samples
+                  << " forensics_materials_mean=" << frame_forensics_material_sum / samples
+                  << " clustered_fallback_frames=" << clustered_light_fallback_sum
                   << " rust_plan_ms_mean="
                   << secondsToMilliseconds(rust_plan_seconds_sum / samples)
                   << " render_encode_ms_mean="

@@ -145,5 +145,8 @@ using FixedRenderGraph = framegraph::CompiledFrameGraph;
                                                           bool capture_enabled = true);
 [[nodiscard]] FixedRenderGraph makeFixedRenderGraph(bool ui_overlay_enabled = true,
                                                     bool capture_enabled = true);
+[[nodiscard]] FixedRenderGraph
+makeFixedRenderGraph(const framegraph::FrameGraphCompileOptions &options,
+                     bool ui_overlay_enabled = true, bool capture_enabled = true);
 
 } // namespace aster

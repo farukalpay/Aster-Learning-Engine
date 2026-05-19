@@ -21,18 +21,27 @@ struct PreparedRenderMeshes {
       *custom_mesh_resources = nullptr;
 };
 
+struct FrameExecutionContext {
+  const Scene &scene;
+  const FrameRenderPlan &plan;
+  const OrbitCamera &camera;
+  const RendererSettings &settings;
+  const FixedRenderGraph &graph;
+  const PreparedRenderMeshes &meshes;
+  const ClusteredLightFrameData *clustered_lights = nullptr;
+  int framebuffer_width = 0;
+  int framebuffer_height = 0;
+  double frame_seconds = 0.0;
+  const MaterialResourceLibrary *material_library = nullptr;
+  FrameForensics *forensics = nullptr;
+};
+
 class NativeRenderBackend {
 public:
   virtual ~NativeRenderBackend() = default;
 
   virtual bool initialize() = 0;
-  virtual FrameStats render(const Scene &scene, const FrameRenderPlan &plan,
-                            const OrbitCamera &camera, const RendererSettings &settings,
-                            const FixedRenderGraph &graph,
-                            const PreparedRenderMeshes &meshes, int framebuffer_width,
-                            int framebuffer_height, double frame_seconds,
-                            const MaterialResourceLibrary *material_library,
-                            FrameForensics *forensics) = 0;
+  virtual FrameStats render(const FrameExecutionContext &context) = 0;
   [[nodiscard]] virtual const char *backendName() const = 0;
   [[nodiscard]] virtual RenderBackendCapabilities capabilities() const = 0;
 };

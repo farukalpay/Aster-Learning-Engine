@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "aster/rhi/buffer.hpp"
 #include "aster/rhi/image.hpp"
 
 #include <cstdint>
@@ -14,6 +15,11 @@ enum class ResourceLifetime : std::uint32_t {
   Transient,
   Imported,
   Readback,
+};
+
+enum class ResourceKind : std::uint32_t {
+  Image,
+  Buffer,
 };
 
 struct ResourceHandle {
@@ -31,10 +37,13 @@ struct ResourceHandle {
 };
 
 struct ResourceDesc {
+  ResourceKind kind = ResourceKind::Image;
   ResourceLifetime lifetime = ResourceLifetime::Transient;
   rhi::ImageFormat format = rhi::ImageFormat::Unknown;
   rhi::ImageExtent extent{};
   std::uint32_t usage = 0u;
+  std::uint64_t byte_size = 0u;
+  std::uint32_t stride = 0u;
 };
 
 } // namespace aster::framegraph

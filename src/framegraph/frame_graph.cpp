@@ -24,6 +24,13 @@ PassBuilder &PassBuilder::writes(const ResourceHandle resource) {
   return *this;
 }
 
+PassBuilder &PassBuilder::queue(const rhi::QueueKind queue) {
+  if (graph_ != nullptr && pass_index_ < graph_->passes_.size()) {
+    graph_->passes_[pass_index_].queue = queue;
+  }
+  return *this;
+}
+
 ResourceHandle FrameGraph::addResource(std::string name, ResourceDesc desc) {
   const ResourceHandle handle{static_cast<std::uint32_t>(resources_.size()), 1u};
   resources_.push_back({handle, std::move(name), desc});
@@ -31,7 +38,7 @@ ResourceHandle FrameGraph::addResource(std::string name, ResourceDesc desc) {
 }
 
 PassBuilder FrameGraph::addPass(std::string name) {
-  passes_.push_back({std::move(name), {}, {}});
+  passes_.push_back({.name = std::move(name)});
   return PassBuilder(*this, passes_.size() - 1u);
 }
 

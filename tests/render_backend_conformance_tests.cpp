@@ -731,6 +731,27 @@ void assertRenderableFrame(const RenderResult &result) {
   assert(result.stats.active_point_lights > 4u);
   assert(result.stats.clustered_light_clusters == 48u);
   assert(result.stats.clustered_light_assignments >= result.stats.active_point_lights);
+  assert(result.forensics.clustered_lights.visible_lights.size() >
+         aster::kDefaultRenderLightBudget);
+  assert(result.forensics.clustered_lights.cluster_offsets.size() == 49u);
+  assert(!result.forensics.clustered_lights.light_indices.empty());
+  assert(result.forensics.clustered_lights.visible_lights_hash != 0u);
+  assert(result.forensics.clustered_lights.assignments_hash != 0u);
+  assert(!result.forensics.clustered_lights.fallback_used);
+  assert(!result.forensics.clustered_lights.overflowed);
+  assert(!result.forensics.object_clusters.empty());
+  if ((result.backend.graph_resource_mask &
+       aster::renderGraphResourceBit(aster::RenderGraphResource::LightClusters)) != 0u) {
+    assert(std::any_of(result.forensics.rhi_trace.descriptor_layouts.begin(),
+                       result.forensics.rhi_trace.descriptor_layouts.end(),
+                       [](const aster::rhi::DescriptorLayoutTrace &layout) {
+                         return std::any_of(layout.ranges.begin(), layout.ranges.end(),
+                                            [](const aster::rhi::DescriptorRangeDesc &range) {
+                                              return range.kind ==
+                                                     aster::rhi::DescriptorRangeKind::StorageBuffer;
+                                            });
+                       }));
+  }
   assert(!result.forensics.passes.empty());
   assert(result.metrics.hash != 0u);
   assert(result.metrics.alpha_ratio > 0.90);

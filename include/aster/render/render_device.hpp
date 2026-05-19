@@ -8,6 +8,7 @@
 #include "aster/render/material_compiler.hpp"
 #include "aster/render/mesh.hpp"
 #include "aster/render/render_graph.hpp"
+#include "aster/render/render_graph_executor.hpp"
 #include "aster/render/render_scene.hpp"
 #include "aster/rhi/device.hpp"
 #include "aster/rhi/frame_trace.hpp"
@@ -145,6 +146,26 @@ struct ClusteredLightGrid {
   bool fallback_used = false;
 };
 
+struct PackedClusteredLight {
+  Vec3 position{};
+  float radius = 0.0f;
+  Vec3 color{};
+  float intensity = 0.0f;
+};
+
+struct ClusteredLightFrameData {
+  std::uint32_t cluster_count_x = 0u;
+  std::uint32_t cluster_count_y = 0u;
+  std::uint32_t cluster_count_z = 0u;
+  std::vector<PackedClusteredLight> visible_lights;
+  std::vector<std::uint32_t> cluster_offsets;
+  std::vector<std::uint32_t> light_indices;
+  std::uint64_t visible_lights_hash = 0u;
+  std::uint64_t assignments_hash = 0u;
+  bool overflowed = false;
+  bool fallback_used = false;
+};
+
 [[nodiscard]] LightRig defaultLightRig();
 [[nodiscard]] std::vector<Light> selectRenderLights(const LightRig &lights, Vec3 reference_position,
                                                     const RenderLightPolicy &policy);
@@ -153,6 +174,8 @@ struct ClusteredLightGrid {
                                                          int framebuffer_width,
                                                          int framebuffer_height,
                                                          const ClusteredLightPolicy &policy);
+[[nodiscard]] ClusteredLightFrameData
+buildClusteredLightFrameData(const ClusteredLightGrid &grid);
 
 struct GroundingSettings {
   bool enabled = false;
@@ -431,7 +454,106 @@ struct FrameForensics {
   std::vector<MaterialBindingTrace> material_bindings;
   std::vector<MeshVisibilityTrace> mesh_visibility;
   std::vector<ObjectClusterMembershipTrace> object_clusters;
+  ClusteredLightFrameData clustered_lights;
   rhi::FrameTrace rhi_trace{};
+};
+
+class RenderWorld {
+public:
+  void rebuild(const Scene &scene);
+  [[nodiscard]] const RenderScene &scene() const noexcept;
+
+private:
+  RenderScene scene_;
+};
+
+class RenderGraphCompiler {
+public:
+  [[nodiscard]] FixedRenderGraph compileDefault(bool ui_overlay_enabled = true,
+                                                bool capture_enabled = true);
+  [[nodiscard]] double lastCompileSeconds() const noexcept;
+
+private:
+  double last_compile_seconds_ = 0.0;
+};
+
+class RenderAssetCache {
+public:
+  using CustomMeshCache = std::unordered_map<const CpuMesh *, CpuMesh>;
+  using DynamicMeshCache =
+      std::unordered_map<DynamicMeshResourceKey, CpuMesh, DynamicMeshResourceKeyHash>;
+
+  void initializeBuiltins();
+  [[nodiscard]] const CpuMesh &meshForPrimitive(MeshPrimitive primitive) const;
+  [[nodiscard]] const CpuMesh &meshForObject(const RenderObject &object);
+  void syncDynamicMeshes(const Scene &scene, rhi::ResourceRegistry &resource_registry,
+                         bool immediate_eviction);
+
+  [[nodiscard]] const CpuMesh &box() const noexcept {
+    return box_;
+  }
+  [[nodiscard]] const CpuMesh &sphere() const noexcept {
+    return sphere_;
+  }
+  [[nodiscard]] const CpuMesh &plane() const noexcept {
+    return plane_;
+  }
+  [[nodiscard]] const CpuMesh &contactShadowPlane() const noexcept {
+    return contact_shadow_plane_;
+  }
+  [[nodiscard]] const CpuMesh &rock() const noexcept {
+    return rock_;
+  }
+  [[nodiscard]] const CpuMesh &crystal() const noexcept {
+    return crystal_;
+  }
+  [[nodiscard]] const CpuMesh &ruinBlock() const noexcept {
+    return ruin_block_;
+  }
+  [[nodiscard]] const CpuMesh &pillar() const noexcept {
+    return pillar_;
+  }
+  [[nodiscard]] const CustomMeshCache &customMeshes() const noexcept {
+    return custom_mesh_cache_;
+  }
+  [[nodiscard]] const DynamicMeshCache &customMeshResources() const noexcept {
+    return custom_mesh_resource_cache_;
+  }
+  [[nodiscard]] std::size_t cachedMeshCount() const noexcept {
+    return custom_mesh_cache_.size() + custom_mesh_resource_cache_.size();
+  }
+
+private:
+  CpuMesh box_;
+  CpuMesh sphere_;
+  CpuMesh plane_;
+  CpuMesh contact_shadow_plane_;
+  CpuMesh rock_;
+  CpuMesh crystal_;
+  CpuMesh ruin_block_;
+  CpuMesh pillar_;
+  CustomMeshCache custom_mesh_cache_;
+  std::unordered_map<const CpuMesh *, std::uint64_t> custom_mesh_last_seen_;
+  DynamicMeshCache custom_mesh_resource_cache_;
+  std::unordered_map<DynamicMeshResourceKey, std::uint64_t, DynamicMeshResourceKeyHash>
+      custom_mesh_resource_last_seen_;
+  std::unordered_map<const CpuMesh *, rhi::BufferHandle> custom_mesh_resource_handles_;
+  std::unordered_map<DynamicMeshResourceKey, rhi::BufferHandle, DynamicMeshResourceKeyHash>
+      dynamic_mesh_resource_handles_;
+  std::uint64_t mesh_cache_frame_ = 0u;
+};
+
+class FrameExecutor {
+public:
+  [[nodiscard]] std::size_t execute(const FixedRenderGraph &graph,
+                                    const RenderGraphPassCallback &callback) const;
+};
+
+class FrameDebugger {
+public:
+  void appendGraphForensics(const FixedRenderGraph &graph,
+                            const RenderBackendCapabilities &capabilities, int framebuffer_width,
+                            int framebuffer_height, FrameForensics &forensics) const;
 };
 
 class RenderDevice {
@@ -461,30 +583,15 @@ private:
   void syncDynamicMeshes(const Scene &scene, bool immediate_eviction);
 
   std::unique_ptr<NativeRenderBackend> native_backend_;
-  CpuMesh box_;
-  CpuMesh sphere_;
-  CpuMesh plane_;
-  CpuMesh contact_shadow_plane_;
-  CpuMesh rock_;
-  CpuMesh crystal_;
-  CpuMesh ruin_block_;
-  CpuMesh pillar_;
-  std::unordered_map<const CpuMesh *, CpuMesh> custom_mesh_cache_;
-  std::unordered_map<const CpuMesh *, std::uint64_t> custom_mesh_last_seen_;
-  std::unordered_map<DynamicMeshResourceKey, CpuMesh, DynamicMeshResourceKeyHash>
-      custom_mesh_resource_cache_;
-  std::unordered_map<DynamicMeshResourceKey, std::uint64_t, DynamicMeshResourceKeyHash>
-      custom_mesh_resource_last_seen_;
-  std::uint64_t mesh_cache_frame_ = 0u;
-  double graph_compile_seconds_ = 0.0;
-  RenderScene render_scene_;
+  RenderAssetCache asset_cache_;
+  RenderWorld render_world_;
+  RenderGraphCompiler graph_compiler_;
+  FrameExecutor frame_executor_;
+  FrameDebugger frame_debugger_;
   FixedRenderGraph render_graph_;
   framegraph::FrameGraph frame_graph_;
   framegraph::CompiledFrameGraph compiled_frame_graph_;
   rhi::ResourceRegistry resource_registry_;
-  std::unordered_map<const CpuMesh *, rhi::BufferHandle> custom_mesh_resource_handles_;
-  std::unordered_map<DynamicMeshResourceKey, rhi::BufferHandle, DynamicMeshResourceKeyHash>
-      dynamic_mesh_resource_handles_;
   std::unordered_map<std::uint64_t, MaterialPermutationArtifact> material_artifact_cache_;
   std::shared_ptr<const MaterialResourceLibrary> material_library_;
   std::vector<std::size_t> previous_transparent_order_;

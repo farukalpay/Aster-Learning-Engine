@@ -259,10 +259,11 @@ framegraph::ResourceDesc defaultRenderGraphResourceDesc(const RenderGraphResourc
             .usage = rhi::imageUsageBit(rhi::ImageUsage::DepthAttachment) |
                      rhi::imageUsageBit(rhi::ImageUsage::Sampled)};
   case RenderGraphResource::LightClusters:
-    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-            .format = rhi::ImageFormat::Rgba8Unorm,
-            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
-                     rhi::imageUsageBit(rhi::ImageUsage::Storage)};
+    return {.kind = framegraph::ResourceKind::Buffer,
+            .lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .usage = rhi::bufferUsageBit(rhi::BufferUsage::Storage),
+            .byte_size = 64u * 1024u,
+            .stride = 16u};
   case RenderGraphResource::ShadowAtlas:
     return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
             .format = rhi::ImageFormat::Depth32Float,
@@ -433,7 +434,7 @@ framegraph::FrameGraph makeDefaultFrameGraph(const bool ui_overlay_enabled,
     return handles[static_cast<std::uint32_t>(resource)];
   };
   for (const RenderGraphPassDeclaration &declaration : registry.passes()) {
-    auto pass_builder = graph.addPass(declaration.name);
+    auto pass_builder = graph.addPass(declaration.name).queue(declaration.queue);
     for (const RenderGraphResourceBindingDesc &input : declaration.inputs) {
       pass_builder.reads(handle_for(input.resource));
     }
@@ -446,6 +447,13 @@ framegraph::FrameGraph makeDefaultFrameGraph(const bool ui_overlay_enabled,
 
 FixedRenderGraph makeFixedRenderGraph(const bool ui_overlay_enabled, const bool capture_enabled) {
   return framegraph::compileFrameGraph(makeDefaultFrameGraph(ui_overlay_enabled, capture_enabled));
+}
+
+FixedRenderGraph makeFixedRenderGraph(const framegraph::FrameGraphCompileOptions &options,
+                                      const bool ui_overlay_enabled,
+                                      const bool capture_enabled) {
+  return framegraph::compileFrameGraph(makeDefaultFrameGraph(ui_overlay_enabled, capture_enabled),
+                                       options);
 }
 
 } // namespace aster

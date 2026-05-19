@@ -4,6 +4,7 @@
 #pragma once
 
 #include "aster/framegraph/resource_handle.hpp"
+#include "aster/rhi/queue.hpp"
 
 #include <string>
 #include <vector>
@@ -24,6 +25,7 @@ struct PassDesc {
   std::string name;
   std::vector<ResourceHandle> reads;
   std::vector<ResourceHandle> writes;
+  rhi::QueueKind queue = rhi::QueueKind::Graphics;
 };
 
 class FrameGraph;
@@ -34,6 +36,7 @@ public:
 
   PassBuilder &reads(ResourceHandle resource);
   PassBuilder &writes(ResourceHandle resource);
+  PassBuilder &queue(rhi::QueueKind queue);
 
 private:
   FrameGraph *graph_ = nullptr;

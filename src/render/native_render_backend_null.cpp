@@ -49,42 +49,35 @@ public:
     return true;
   }
 
-  aster::FrameStats render(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
-                           const aster::OrbitCamera &camera,
-                           const aster::RendererSettings &settings,
-                           const aster::FixedRenderGraph &graph,
-                           const aster::PreparedRenderMeshes &meshes, const int framebuffer_width,
-                           const int framebuffer_height, const double frame_seconds,
-                           const aster::MaterialResourceLibrary *material_library,
-                           aster::FrameForensics *forensics) override {
-    (void)scene;
-    (void)plan;
-    (void)camera;
-    (void)settings;
-    (void)meshes;
-    (void)material_library;
+  aster::FrameStats render(const aster::FrameExecutionContext &context) override {
+    (void)context.scene;
+    (void)context.plan;
+    (void)context.camera;
+    (void)context.settings;
+    (void)context.meshes;
+    (void)context.material_library;
     ASTER_PROFILE_SCOPE("NullNativeRenderBackend::render");
     const auto encode_start = std::chrono::steady_clock::now();
     aster::FrameStats stats;
-    stats.frame_seconds = frame_seconds;
-    stats.framebuffer_width = framebuffer_width;
-    stats.framebuffer_height = framebuffer_height;
-    stats.graph_passes = graph.passes.size();
-    stats.graph_resources = graph.resources.size();
-    stats.graph_barriers = graph.barriers.size();
-    stats.graph_transient_resources = graph.transient_resource_count;
+    stats.frame_seconds = context.frame_seconds;
+    stats.framebuffer_width = context.framebuffer_width;
+    stats.framebuffer_height = context.framebuffer_height;
+    stats.graph_passes = context.graph.passes.size();
+    stats.graph_resources = context.graph.resources.size();
+    stats.graph_barriers = context.graph.barriers.size();
+    stats.graph_transient_resources = context.graph.transient_resource_count;
     stats.backend_feature_mask = capabilities().graph_resource_mask;
     stats.backend_kind_value = static_cast<std::uint32_t>(capabilities().kind);
-    aster::activeFrameBuffer().resize(framebuffer_width, framebuffer_height);
+    aster::activeFrameBuffer().resize(context.framebuffer_width, context.framebuffer_height);
     aster::activeFrameBuffer().clearTransparent();
     const auto encode_end = std::chrono::steady_clock::now();
     stats.render_encode_seconds =
         std::chrono::duration<double>(encode_end - encode_start).count();
-    if (forensics != nullptr) {
-      forensics->passes.push_back({.pass = aster::RenderGraphPass::SceneColorDepth,
-                                   .name = "null-clear",
-                                   .encode_seconds = stats.render_encode_seconds});
-      forensics->events.push_back(
+    if (context.forensics != nullptr) {
+      context.forensics->passes.push_back({.pass = aster::RenderGraphPass::SceneColorDepth,
+                                           .name = "null-clear",
+                                           .encode_seconds = stats.render_encode_seconds});
+      context.forensics->events.push_back(
           {.kind = aster::FrameDiagnosticKind::BackendFallback,
            .severity = aster::FrameDiagnosticSeverity::Warning,
            .label = "null-renderer",

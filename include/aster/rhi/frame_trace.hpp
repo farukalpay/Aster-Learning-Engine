@@ -49,6 +49,16 @@ struct MemoryBudgetTrace {
   std::uint64_t budget_bytes = 0u;
   std::uint64_t resident_bytes = 0u;
   std::uint64_t transient_bytes = 0u;
+  std::uint64_t aliased_bytes_saved = 0u;
+};
+
+struct TransientAllocationTrace {
+  std::string label;
+  std::size_t physical_allocation_id = 0u;
+  std::size_t first_pass = 0u;
+  std::size_t last_pass = 0u;
+  std::uint64_t byte_size = 0u;
+  std::vector<std::string> resources;
 };
 
 struct FrameTrace {
@@ -58,6 +68,7 @@ struct FrameTrace {
   std::vector<QueueSubmitTrace> queue_submits;
   std::vector<FenceTimelineTrace> fences;
   std::vector<TimestampQueryResult> timestamps;
+  std::vector<TransientAllocationTrace> transient_allocations;
   MemoryBudgetTrace memory{};
 };
 

@@ -22,6 +22,7 @@ struct CompiledResource {
   std::size_t first_pass = 0u;
   std::size_t last_pass = 0u;
   std::size_t alias_group = 0u;
+  std::size_t physical_allocation_id = 0u;
 };
 
 struct CompiledResourceAccess {
@@ -48,8 +49,12 @@ struct CompiledPass {
   std::vector<rhi::FramebufferAttachmentDesc> attachments;
   std::vector<DescriptorRequirement> descriptor_requirements;
   rhi::RenderPassCompatibilityDesc pipeline_compatibility{};
+  rhi::QueueKind queue = rhi::QueueKind::Graphics;
+  std::string debug_marker_name;
+  std::size_t timestamp_zone_index = 0u;
   std::uint32_t read_mask = 0u;
   std::uint32_t write_mask = 0u;
+  bool culled = false;
 };
 
 struct GraphBarrier {
@@ -82,7 +87,17 @@ struct CompiledFrameGraph {
   }
 };
 
+struct FrameGraphCompileOptions {
+  rhi::ImageExtent frame_extent{};
+  std::uint32_t backend_resource_mask = 0xffffffffu;
+  std::uint32_t required_resource_mask = 0u;
+  bool cull_unsupported_passes = false;
+  bool assign_physical_allocations = true;
+};
+
 [[nodiscard]] CompiledFrameGraph compileFrameGraph(const FrameGraph &graph);
+[[nodiscard]] CompiledFrameGraph compileFrameGraph(const FrameGraph &graph,
+                                                   const FrameGraphCompileOptions &options);
 [[nodiscard]] std::string dumpFrameGraph(const CompiledFrameGraph &graph);
 
 } // namespace aster::framegraph
