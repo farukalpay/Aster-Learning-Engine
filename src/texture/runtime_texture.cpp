@@ -173,6 +173,17 @@ bool MaterialResourceLibrary::addMaterialAsset(const MaterialAsset &asset,
   resource->parameters = materialParameterBlockForAsset(asset);
   resource->fallback_material = resolveMaterialAssetFallback(asset);
   const RuntimeTextureSet texture_set = runtimeTextureSetForMaterial(asset, root, options);
+  if (options.require_existing_files) {
+    for (const auto &[role, slot] : asset.textures) {
+      if (!slot.required) {
+        continue;
+      }
+      const RuntimeTexture *texture = texture_set.find(role);
+      if (texture == nullptr || !texture->valid || texture->fallback) {
+        return false;
+      }
+    }
+  }
   resource->texture_set = texture_set;
   resource->receives_shadows = asset.receives_shadows;
   const std::string key = resource->asset_id;
@@ -272,7 +283,9 @@ RuntimeTexture runtimeTextureForSlot(const std::string_view role, const Material
     path = asset_root / path;
   }
   TextureImportOptions inspect_options = options;
-  inspect_options.require_existing_files = false;
+  if (!slot.required) {
+    inspect_options.require_existing_files = false;
+  }
   const TextureKind kind = textureKindForRole(canonical_role);
   const TextureAssetMetadata metadata = inspectTextureAsset(path, kind, inspect_options);
   if (!metadata.valid) {

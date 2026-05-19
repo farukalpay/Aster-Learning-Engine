@@ -3,7 +3,8 @@
 
 use aster_content::{
     bake_texture_to_ktx2, compile_scene_asset_to_cache, cook_project, hex_hash, inspect_cache,
-    inspect_texture, read_asset_database, report_asset_database, CompileOptions, OriginPolicy,
+    inspect_texture, material_inspect_report_json, read_asset_database, report_asset_database,
+    CompileOptions, OriginPolicy,
 };
 use aster_runtime::{
     build_frame_plan, AsterRuntimeCamera, AsterRuntimeRenderObject, AsterRuntimeRenderPlanOptions,
@@ -75,6 +76,7 @@ fn usage() -> &'static str {
   aster_assetc inspect --input <file.astercache>
   aster_assetc texture-inspect --input <texture> [--role albedo|normal|orm|height|emissive]
   aster_assetc texture-bake --input <texture> --output <file.ktx2> [--role albedo|normal|orm|height|emissive]
+  aster_assetc material-inspect --input <file.astermat> [--asset-root <dir>]
   aster_assetc cook --project <file.asterproj> --platform desktop --output <dir>
   aster_assetc report --db <assetdb.asterdb.json>"
 }
@@ -184,6 +186,19 @@ fn texture_bake_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn material_inspect_command(args: &[String]) -> Result<(), String> {
+    let input = value_after(args, "--input")
+        .map(PathBuf::from)
+        .ok_or_else(|| "material-inspect requires --input <file.astermat>".to_string())?;
+    let asset_root = value_after(args, "--asset-root")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let report =
+        material_inspect_report_json(&input, &asset_root).map_err(|error| error.to_string())?;
+    println!("{report}");
+    Ok(())
+}
+
 fn cook_command(args: &[String]) -> Result<(), String> {
     let project = value_after(args, "--project")
         .map(PathBuf::from)
@@ -200,6 +215,12 @@ fn cook_command(args: &[String]) -> Result<(), String> {
         result.database.records.len()
     );
     println!("{}", report_asset_database(&result.database));
+    if result.error_count > 0 {
+        return Err(format!(
+            "strict cook failed with {} error(s) and {} warning(s)",
+            result.error_count, result.warning_count
+        ));
+    }
     Ok(())
 }
 
@@ -236,6 +257,7 @@ fn run() -> Result<(), String> {
         Some("inspect") => inspect_command(&args[2..]),
         Some("texture-inspect") => texture_inspect_command(&args[2..]),
         Some("texture-bake") => texture_bake_command(&args[2..]),
+        Some("material-inspect") => material_inspect_command(&args[2..]),
         Some("cook") => cook_command(&args[2..]),
         Some("report") => report_command(&args[2..]),
         Some("--help") | Some("-h") | None => {

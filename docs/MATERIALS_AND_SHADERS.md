@@ -1,13 +1,23 @@
 # Materials And Shaders
 
 Materials enter through `.astermat` authoring files or C++ `Material` values.
-The parser validates texture roles, parameters, feature flags, and material
-layers, then produces a fallback runtime material and a shader variant key.
-Asset Pipeline v1 treats `.astermat` as source: `aster_assetc cook` writes a
-project asset database, cooked `.materialbin` files, KTX2 texture outputs,
-reports, and tiny preview frames. Material Lab prefers the cooked database when
-one is present and falls back to direct source loading with an explicit
-diagnostic.
+Asset Pipeline v1 treats Aster-native `.astermat` plus source textures as the
+production material source. `aster_assetc cook` parses the material grammar,
+validates texture roles and color spaces, hashes dependencies, cooks runtime
+KTX2 texture outputs, writes `.materialbin` records, emits reports, and creates
+tiny preview frames only for materials that pass validation.
+
+Strict material cook is the default. The cook still writes the project asset
+database and per-asset reports when diagnostics are present, but the process
+returns nonzero if any asset has an error. A material with errors stays in the
+asset database with diagnostics and dependencies only; it does not emit
+renderer-visible `.materialbin`, cooked texture outputs, or previews.
+
+Single-material validation is available through:
+
+```bash
+cargo run -p aster_assetc -- material-inspect --input path/to/material.astermat --asset-root path/to/assets
+```
 
 Current material contracts:
 
@@ -20,6 +30,14 @@ Current material contracts:
 - Texture roles for albedo, normal, ORM, roughness, metallic, AO, height,
   emissive, wetness, and opacity. Runtime binding uses a fixed role table so
   software, Metal, and D3D12 can report the same material binding trace.
+- LitPBR runtime materials require `albedo`, `normal`, and `orm`. Authoring may
+  provide an existing `orm` texture or a complete split source set of
+  `roughness`, `metallic`, and `ao` that the configured encoder can pack into
+  ORM. Incomplete split ORM sources are errors.
+- Role color spaces are enforced: `albedo` and `emissive` are sRGB; `normal`,
+  `orm`, `height`, `wetness`, `opacity`, and mask-like data are linear/non-color.
+  KTX2 headers are checked against the expected runtime format before a material
+  is allowed to cook.
 - Feature flags for triplanar, normal maps, height/parallax, alpha, fog, shadow,
   decals, and instancing.
 - Typed `MaterialGraphNode` operations while preserving raw operation text for
@@ -27,6 +45,20 @@ Current material contracts:
 - `CompiledMaterialAsset` carries the renderer-visible material graph next to
   the fallback runtime material and shader variant key, keeping `SurfacePattern`
   as legacy/procedural fallback rather than the primary authoring interface.
+
+Cooked material records include texture source hash, cooked hash, source format,
+runtime format, dimensions, mip count, byte cost, color-space decision,
+encoder/backend, shader variant key, fallback reason, platform compatibility,
+dependencies, and diagnostics. Runtime fallback textures remain available for
+explicit preview/debug paths. Production cooked materials loaded with
+`require_existing_files = true` reject missing or fallback-bound required roles.
+
+Non-KTX2 source image cooking requires `ASTER_TEXTURE_ENCODER` to point at a
+real encoder command. The encoder is invoked with `--input`, `--output`,
+`--role`, `--color-space`, and `--mips` for direct texture cooks, and with
+`--pack-orm`, `--roughness`, `--metallic`, `--ao`, and `--output` for split ORM
+packing. If the encoder is unavailable or writes invalid KTX2 output, strict
+cook fails instead of writing fake compressed content.
 
 Shader library modules live in `shaders/lib`. The v1 utility set includes BRDF,
 PBR, tonemap, fog, triplanar, normal mapping, clearcoat, wetness, parallax,

@@ -7,6 +7,7 @@
 #include "aster/render/material_compiler.hpp"
 #include "aster/texture/runtime_texture.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <array>
 #include <cstdlib>
@@ -40,29 +41,35 @@ bool nonZeroHash(const aster::SceneAssetHash &hash) {
   return false;
 }
 
-void writeTinyPngHeader(const std::filesystem::path &path, const std::uint32_t width,
-                        const std::uint32_t height) {
+void writeTinyKtx2Header(const std::filesystem::path &path, const std::uint32_t width,
+                         const std::uint32_t height, const std::uint32_t mip_count,
+                         const std::uint32_t vk_format) {
   std::filesystem::create_directories(path.parent_path());
   std::ofstream out(path, std::ios::binary);
-  const std::array<unsigned char, 8> signature{0x89u, 'P', 'N', 'G', '\r', '\n', 0x1au, '\n'};
+  const std::array<unsigned char, 12> signature{0xabu, 'K', 'T', 'X', ' ', '2',
+                                                '0',   0xbbu, '\r', '\n', 0x1au, '\n'};
   out.write(reinterpret_cast<const char *>(signature.data()),
             static_cast<std::streamsize>(signature.size()));
-  const auto write_be32 = [&](const std::uint32_t value) {
+  const auto write_le32 = [&](const std::uint32_t value) {
     const std::array<unsigned char, 4> bytes{
-        static_cast<unsigned char>((value >> 24u) & 0xffu),
-        static_cast<unsigned char>((value >> 16u) & 0xffu),
-        static_cast<unsigned char>((value >> 8u) & 0xffu),
         static_cast<unsigned char>(value & 0xffu),
+        static_cast<unsigned char>((value >> 8u) & 0xffu),
+        static_cast<unsigned char>((value >> 16u) & 0xffu),
+        static_cast<unsigned char>((value >> 24u) & 0xffu),
     };
     out.write(reinterpret_cast<const char *>(bytes.data()),
               static_cast<std::streamsize>(bytes.size()));
   };
-  write_be32(13u);
-  out.write("IHDR", 4);
-  write_be32(width);
-  write_be32(height);
-  const std::array<unsigned char, 5> tail{8u, 6u, 0u, 0u, 0u};
-  out.write(reinterpret_cast<const char *>(tail.data()), static_cast<std::streamsize>(tail.size()));
+  write_le32(vk_format);
+  write_le32(1u);
+  write_le32(width);
+  write_le32(height);
+  write_le32(0u);
+  write_le32(0u);
+  write_le32(1u);
+  write_le32(mip_count);
+  write_le32(1u);
+  out.write("ASTER_CPP_TEST_KTX2_PAYLOAD", 27);
   assert(out.good());
 }
 
@@ -72,8 +79,9 @@ std::filesystem::path writeMaterialCookProject() {
   std::filesystem::remove_all(dir);
   std::filesystem::create_directories(dir / "materials");
   std::filesystem::create_directories(dir / "textures");
-  writeTinyPngHeader(dir / "textures" / "albedo.png", 16u, 8u);
-  writeTinyPngHeader(dir / "textures" / "normal.png", 16u, 8u);
+  writeTinyKtx2Header(dir / "textures" / "albedo.ktx2", 16u, 8u, 4u, 43u);
+  writeTinyKtx2Header(dir / "textures" / "normal.ktx2", 16u, 8u, 4u, 37u);
+  writeTinyKtx2Header(dir / "textures" / "orm.ktx2", 16u, 8u, 4u, 37u);
   {
     std::ofstream material(dir / "materials" / "wet_rock.astermat");
     material << R"mat(material CookedWetRock {
@@ -83,8 +91,9 @@ std::filesystem::path writeMaterialCookProject() {
   blend_mode: Opaque
   cull_mode: Back
   textures {
-    albedo: "../textures/albedo.png"
-    normal: "../textures/normal.png"
+    albedo: "../textures/albedo.ktx2"
+    normal: "../textures/normal.ktx2"
+    orm: "../textures/orm.ktx2"
   }
   params {
     base_color_r: 0.31
@@ -208,9 +217,18 @@ void testAssetDatabaseAndMaterialBinLoad() {
 
   const aster::CookedMaterialAsset cooked = aster::loadCookedMaterialAsset(*material_bin);
   assert(cooked.asset.id == "CookedWetRock");
-  assert(cooked.textures.size() == 2u);
+  assert(cooked.textures.size() == 3u);
   assert(cooked.shader_variant_key != 0u);
   assert(cooked.asset.params.at("roughness") > 0.70f);
+  const auto orm = std::find_if(cooked.textures.begin(), cooked.textures.end(),
+                                [](const aster::CookedMaterialTextureRecord &texture) {
+                                  return texture.role == "orm";
+                                });
+  assert(orm != cooked.textures.end());
+  assert(orm->source_format == "ktx2");
+  assert(orm->runtime_format == "ktx2");
+  assert(orm->encoder == "passthrough-ktx2");
+  assert(orm->byte_cost > 0u);
 
   aster::MaterialResourceLibrary library;
   assert(library.addCookedMaterialAsset(cooked, {.require_existing_files = true}));
@@ -218,6 +236,7 @@ void testAssetDatabaseAndMaterialBinLoad() {
   assert(resource != nullptr);
   assert(!resource->texture_set.find("albedo")->fallback);
   assert(!resource->texture_set.find("normal")->fallback);
+  assert(!resource->texture_set.find("orm")->fallback);
   std::filesystem::remove_all(project.parent_path());
 }
 

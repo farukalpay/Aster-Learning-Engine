@@ -105,9 +105,9 @@ Run built-in lab scenes:
 - Procedural geometry and mesh tooling for terrain, caves, tubes, cables,
   fracture pieces, water, architecture, vegetation, projected meshes, and
   generated scenery.
-- Material/shader contracts for `.astermat` parsing, generic surface profiles,
-  typed material graph nodes, shader variants, texture validation, render
-  quality profiles, and hot reload.
+- Material/shader contracts for strict `.astermat` cooking, required
+  albedo/normal/ORM LitPBR roles, source texture validation, typed material
+  graph nodes, shader variants, render quality profiles, and hot reload.
 - A Rust runtime planner for frustum culling, draw-key grouping, translucent
   ordering, diagnostics, and offline asset-tool validation.
 - A semantic math path where cameras and render helpers use typed
@@ -161,9 +161,17 @@ Run the sample game and tools:
 ./build/aster_lumen_run
 ./build/aster_studio
 ./build/aster_material_lab --material showcases/material_lab/wet_rock.astermat --output /tmp/wet_rock.ppm
+cargo run -p aster_assetc -- material-inspect --input showcases/material_lab/wet_rock.astermat --asset-root showcases/material_lab
 cargo run -p aster_assetc -- cook --project showcases/material_lab/material_lab.asterproj --platform desktop --output showcases/material_lab/cooked/desktop
 cargo run -p aster_assetc -- report --db showcases/material_lab/cooked/desktop/assetdb.asterdb.json
 ```
+
+Material cooking is strict by default. `LitPBR` materials must resolve to
+`albedo`, `normal`, and `orm`; `albedo` and `emissive` are sRGB, while normal,
+ORM, height, wetness, opacity, and masks are linear/non-color. KTX2 sources can
+pass through directly. Other source image formats require `ASTER_TEXTURE_ENCODER`
+to point at a real encoder command, and missing or invalid required textures make
+`aster_assetc cook` return nonzero after writing diagnostics.
 
 Set `ASTER_FORCE_SOFTWARE_RENDERER=1` on macOS to use the deterministic
 software fallback.

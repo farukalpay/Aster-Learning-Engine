@@ -290,7 +290,10 @@ private:
       values != nullptr && values->kind == Json::Kind::Array) {
     for (const Json &value : values->array) {
       diagnostics.push_back({.severity = textOr(value, "severity"),
-                             .message = textOr(value, "message")});
+                             .message = textOr(value, "message"),
+                             .source_path = textOr(value, "source_path"),
+                             .line = u32Or(value, "line"),
+                             .column = u32Or(value, "column")});
     }
   }
   return diagnostics;
@@ -479,9 +482,15 @@ CookedMaterialAsset loadCookedMaterialAsset(const std::filesystem::path &path) {
                                                     textOr(texture_json, "cooked_path")));
       texture.kind = textOr(texture_json, "kind");
       texture.color_space = textOr(texture_json, "color_space");
+      texture.source_format = textOr(texture_json, "source_format", textOr(texture_json, "format"));
+      texture.runtime_format = textOr(texture_json, "runtime_format", "ktx2");
       texture.width = u32Or(texture_json, "width");
       texture.height = u32Or(texture_json, "height");
       texture.mip_count = u32Or(texture_json, "mip_count");
+      texture.byte_cost = u64Or(texture_json, "byte_cost");
+      texture.encoder = textOr(texture_json, "encoder");
+      texture.fallback_reason = textOr(texture_json, "fallback_reason");
+      texture.platform_compatibility = textOr(texture_json, "platform_compatibility");
       texture.source_hash = textOr(texture_json, "source_hash");
       texture.cooked_hash = textOr(texture_json, "cooked_hash");
       if (const Json *diagnostics = texture_json.find("diagnostics");

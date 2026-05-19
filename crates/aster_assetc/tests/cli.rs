@@ -101,12 +101,30 @@ fn write_png_header(path: &PathBuf, width: u32, height: u32) {
     fs::write(path, png).expect("png");
 }
 
+fn write_ktx2_header(path: &PathBuf, width: u32, height: u32, mip_count: u32, vk_format: u32) {
+    let mut ktx2 = Vec::new();
+    ktx2.extend_from_slice(&[0xab, b'K', b'T', b'X', b' ', b'2', b'0', 0xbb]);
+    ktx2.extend_from_slice(&[b'\r', b'\n', 0x1a, b'\n']);
+    ktx2.extend_from_slice(&vk_format.to_le_bytes());
+    ktx2.extend_from_slice(&1u32.to_le_bytes());
+    ktx2.extend_from_slice(&width.to_le_bytes());
+    ktx2.extend_from_slice(&height.to_le_bytes());
+    ktx2.extend_from_slice(&0u32.to_le_bytes());
+    ktx2.extend_from_slice(&0u32.to_le_bytes());
+    ktx2.extend_from_slice(&1u32.to_le_bytes());
+    ktx2.extend_from_slice(&mip_count.to_le_bytes());
+    ktx2.extend_from_slice(&1u32.to_le_bytes());
+    ktx2.extend_from_slice(b"ASTER_CLI_TEST_KTX2_PAYLOAD");
+    fs::write(path, ktx2).expect("ktx2");
+}
+
 fn write_material_project() -> PathBuf {
     let dir = fixture_dir();
     fs::create_dir_all(dir.join("materials")).expect("materials");
     fs::create_dir_all(dir.join("textures")).expect("textures");
-    write_png_header(&dir.join("textures/albedo.png"), 16, 16);
-    write_png_header(&dir.join("textures/normal.png"), 16, 16);
+    write_ktx2_header(&dir.join("textures/albedo.ktx2"), 16, 16, 5, 43);
+    write_ktx2_header(&dir.join("textures/normal.ktx2"), 16, 16, 5, 37);
+    write_ktx2_header(&dir.join("textures/orm.ktx2"), 16, 16, 5, 37);
     fs::write(
         dir.join("materials/test.astermat"),
         r#"material CliWetRock {
@@ -115,8 +133,9 @@ fn write_material_project() -> PathBuf {
   blend_mode: Opaque
   cull_mode: Back
   textures {
-    albedo: "../textures/albedo.png"
-    normal: "../textures/normal.png"
+    albedo: "../textures/albedo.ktx2"
+    normal: "../textures/normal.ktx2"
+    orm: "../textures/orm.ktx2"
   }
   params {
     base_color_r: 0.25
@@ -139,6 +158,42 @@ fn write_material_project() -> PathBuf {
   "name": "CLI Project",
   "assets": [
     { "id": "material.cli_wet_rock", "kind": "material", "path": "materials/test.astermat" }
+  ]
+}
+"#,
+    )
+    .expect("project");
+    dir.join("project.asterproj")
+}
+
+fn write_broken_material_project() -> PathBuf {
+    let dir = fixture_dir();
+    fs::create_dir_all(dir.join("materials")).expect("materials");
+    fs::create_dir_all(dir.join("textures")).expect("textures");
+    write_png_header(&dir.join("textures/albedo.png"), 16, 16);
+    write_ktx2_header(&dir.join("textures/normal.ktx2"), 16, 16, 5, 37);
+    fs::write(
+        dir.join("materials/test.astermat"),
+        r#"material BrokenCliRock {
+  name: "Broken CLI Rock"
+  shading_model: LitPBR
+  blend_mode: Opaque
+  cull_mode: Back
+  textures {
+    albedo: "../textures/albedo.png"
+    normal: "../textures/normal.ktx2"
+  }
+}
+"#,
+    )
+    .expect("material");
+    fs::write(
+        dir.join("project.asterproj"),
+        r#"{
+  "schema_version": 1,
+  "name": "Broken CLI Project",
+  "assets": [
+    { "id": "material.broken_cli_rock", "kind": "material", "path": "materials/test.astermat" }
   ]
 }
 "#,
@@ -229,5 +284,64 @@ fn cook_and_report_asset_database() {
     let report_stdout = String::from_utf8_lossy(&report.stdout);
     assert!(report_stdout.contains("material.cli_wet_rock"));
     assert!(report_stdout.contains("outputs="));
+    fs::remove_dir_all(project.parent().unwrap()).ok();
+}
+
+#[test]
+fn strict_cook_fails_broken_material_and_skips_runtime_outputs() {
+    let project = write_broken_material_project();
+    let output_dir = project.parent().unwrap().join("cooked/desktop");
+    let binary = env!("CARGO_BIN_EXE_aster_assetc");
+    let cook = Command::new(binary)
+        .arg("cook")
+        .arg("--project")
+        .arg(&project)
+        .arg("--platform")
+        .arg("desktop")
+        .arg("--output")
+        .arg(&output_dir)
+        .output()
+        .expect("run cook");
+    assert!(!cook.status.success());
+    let stderr = String::from_utf8_lossy(&cook.stderr);
+    assert!(stderr.contains("strict cook failed"));
+    let db = output_dir.join("assetdb.asterdb.json");
+    assert!(db.exists());
+    assert!(!output_dir
+        .join("materials/brokenclirock.materialbin")
+        .exists());
+    assert!(!output_dir
+        .join("previews/brokenclirock.preview.ppm")
+        .exists());
+    assert!(!output_dir.join("textures").exists());
+
+    let report = Command::new(binary)
+        .arg("report")
+        .arg("--db")
+        .arg(&db)
+        .output()
+        .expect("run report");
+    assert!(report.status.success());
+    let report_stdout = String::from_utf8_lossy(&report.stdout);
+    assert!(report_stdout.contains("errors="));
+    assert!(report_stdout.contains("requires 'orm' texture"));
+    fs::remove_dir_all(project.parent().unwrap()).ok();
+}
+
+#[test]
+fn material_inspect_reports_strict_validation() {
+    let project = write_broken_material_project();
+    let material = project.parent().unwrap().join("materials/test.astermat");
+    let binary = env!("CARGO_BIN_EXE_aster_assetc");
+    let inspect = Command::new(binary)
+        .arg("material-inspect")
+        .arg("--input")
+        .arg(&material)
+        .output()
+        .expect("run material inspect");
+    assert!(inspect.status.success());
+    let stdout = String::from_utf8_lossy(&inspect.stdout);
+    assert!(stdout.contains("\"production_ready\": false"));
+    assert!(stdout.contains("requires 'orm' texture"));
     fs::remove_dir_all(project.parent().unwrap()).ok();
 }

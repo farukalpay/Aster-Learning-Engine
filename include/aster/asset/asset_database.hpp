@@ -32,6 +32,9 @@ struct AssetCookedOutput {
 struct AssetCookDiagnostic {
   std::string severity;
   std::string message;
+  std::string source_path;
+  std::uint32_t line = 0u;
+  std::uint32_t column = 0u;
 };
 
 struct AssetDatabaseRecord {
@@ -61,9 +64,15 @@ struct CookedMaterialTextureRecord {
   std::filesystem::path cooked_path;
   std::string kind;
   std::string color_space;
+  std::string source_format;
+  std::string runtime_format;
   std::uint32_t width = 0u;
   std::uint32_t height = 0u;
   std::uint32_t mip_count = 0u;
+  std::uint64_t byte_cost = 0u;
+  std::string encoder;
+  std::string fallback_reason;
+  std::string platform_compatibility;
   std::string source_hash;
   std::string cooked_hash;
   std::vector<std::string> diagnostics;

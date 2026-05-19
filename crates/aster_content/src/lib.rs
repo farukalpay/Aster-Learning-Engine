@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 pub const CACHE_MAGIC: [u8; 8] = *b"ASTRCV1\0";
 pub const CACHE_VERSION: u32 = 2;
@@ -424,6 +425,12 @@ pub struct AssetCookedOutput {
 pub struct AssetCookDiagnostic {
     pub severity: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -455,9 +462,15 @@ pub struct MaterialBinTextureRecord {
     pub cooked_path: String,
     pub kind: String,
     pub color_space: String,
+    pub source_format: String,
+    pub runtime_format: String,
     pub width: u32,
     pub height: u32,
     pub mip_count: u32,
+    pub byte_cost: u64,
+    pub encoder: String,
+    pub fallback_reason: String,
+    pub platform_compatibility: String,
     pub source_hash: String,
     pub cooked_hash: String,
     pub diagnostics: Vec<String>,
@@ -511,9 +524,15 @@ pub struct TextureCookReport {
     pub kind: String,
     pub color_space: String,
     pub format: String,
+    pub source_format: String,
+    pub runtime_format: String,
     pub width: u32,
     pub height: u32,
     pub mip_count: u32,
+    pub byte_cost: u64,
+    pub encoder: String,
+    pub fallback_reason: String,
+    pub platform_compatibility: String,
     pub source_hash: String,
     pub cooked_hash: String,
     pub cooked_path: String,
@@ -529,16 +548,49 @@ pub struct TextureCookResult {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MaterialCookResult {
-    pub material_bin_path: PathBuf,
+    pub material_bin_path: Option<PathBuf>,
     pub report_path: PathBuf,
-    pub preview_path: PathBuf,
+    pub preview_path: Option<PathBuf>,
     pub material_bin: MaterialBin,
+    pub emitted_runtime_outputs: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CookProjectResult {
     pub database: AssetDatabase,
     pub database_path: PathBuf,
+    pub error_count: usize,
+    pub warning_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MaterialInspectTexture {
+    pub role: String,
+    pub path: String,
+    pub present: bool,
+    pub kind: String,
+    pub color_space: String,
+    pub source_format: String,
+    pub width: u32,
+    pub height: u32,
+    pub mip_count: u32,
+    pub source_hash: String,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MaterialInspectReport {
+    pub schema_version: u32,
+    pub id: String,
+    pub name: String,
+    pub source_path: String,
+    pub shading_model: String,
+    pub required_runtime_roles: Vec<String>,
+    pub textures: Vec<MaterialInspectTexture>,
+    pub dependencies: Vec<AssetDependencyRecord>,
+    pub diagnostics: Vec<AssetCookDiagnostic>,
+    pub production_ready: bool,
+    pub platform_compatibility: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -978,9 +1030,29 @@ pub fn inspect_texture(path: impl AsRef<Path>, role: &str) -> Result<TextureImpo
     let bytes = fs::read(path)?;
     let (format, width, height, header_mips, mut diagnostics) = inspect_texture_header(&bytes);
     if width == 0 || height == 0 {
-        diagnostics.push("texture dimensions could not be decoded from header".to_string());
+        diagnostics.push("error: texture dimensions could not be decoded from header".to_string());
     }
     let kind = TextureImportKind::role(role);
+    if kind == TextureImportKind::Unknown {
+        diagnostics.push(format!("error: unsupported texture role '{role}'"));
+    }
+    if format == "ktx2" && bytes.len() >= 16 {
+        let vk_format = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
+        let expected_vk_format = if kind.color_space() == "srgb" {
+            43u32
+        } else {
+            37u32
+        };
+        if vk_format != expected_vk_format {
+            diagnostics.push(format!(
+                "error: texture role '{}' expects {} KTX2 VkFormat {}, found {}",
+                role,
+                kind.color_space(),
+                expected_vk_format,
+                vk_format
+            ));
+        }
+    }
     Ok(TextureImportSummary {
         role: role.to_string(),
         kind,
@@ -1004,68 +1076,143 @@ pub fn bake_texture_to_ktx2(
     role: &str,
 ) -> Result<TextureImportSummary> {
     let summary = inspect_texture(&input, role)?;
-    let width = summary.width.max(1);
-    let height = summary.height.max(1);
-    let mip_count = summary.mip_count.max(1);
-    let vk_format = if summary.color_space == "srgb" {
-        43u32
-    } else {
-        37u32
-    };
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(&[0xab, b'K', b'T', b'X', b' ', b'2', b'0', 0xbb]);
-    bytes.extend_from_slice(&[b'\r', b'\n', 0x1a, b'\n']);
-    bytes.extend_from_slice(&vk_format.to_le_bytes());
-    bytes.extend_from_slice(&1u32.to_le_bytes());
-    bytes.extend_from_slice(&width.to_le_bytes());
-    bytes.extend_from_slice(&height.to_le_bytes());
-    bytes.extend_from_slice(&0u32.to_le_bytes());
-    bytes.extend_from_slice(&0u32.to_le_bytes());
-    bytes.extend_from_slice(&1u32.to_le_bytes());
-    bytes.extend_from_slice(&mip_count.to_le_bytes());
-    bytes.extend_from_slice(&1u32.to_le_bytes());
-    bytes.extend_from_slice(b"ASTER_TEXTURE_BAKE_V1\0");
-    bytes.extend_from_slice(summary.kind.as_str().as_bytes());
-    bytes.push(0);
-    bytes.extend_from_slice(summary.color_space.as_bytes());
-    bytes.push(0);
-    bytes.extend_from_slice(&summary.source_hash);
-    bytes.extend_from_slice(b"ASTER_MIP_PAYLOADS_V1\0");
-    let mut mip_width = width;
-    let mut mip_height = height;
-    for level in 0..mip_count {
-        let block_width = (mip_width.max(1) + 3) / 4;
-        let block_height = (mip_height.max(1) + 3) / 4;
-        let payload_len = (block_width as usize * block_height as usize * 16).max(16);
-        bytes.extend_from_slice(&level.to_le_bytes());
-        bytes.extend_from_slice(&mip_width.to_le_bytes());
-        bytes.extend_from_slice(&mip_height.to_le_bytes());
-        bytes.extend_from_slice(&(payload_len as u64).to_le_bytes());
-        for byte_index in 0..payload_len {
-            let hash_byte =
-                summary.source_hash[(byte_index + level as usize) % summary.source_hash.len()];
-            let role_bytes = summary.role.as_bytes();
-            let role_byte = if role_bytes.is_empty() {
-                0
-            } else {
-                role_bytes[(byte_index + summary.kind.as_str().len()) % role_bytes.len()]
-            };
-            bytes.push(hash_byte ^ role_byte ^ (level as u8).wrapping_mul(17) ^ (byte_index as u8));
-        }
-        mip_width = (mip_width / 2).max(1);
-        mip_height = (mip_height / 2).max(1);
+    if texture_summary_has_error(&summary) {
+        return Err(ContentError::new(format!(
+            "texture '{}' failed validation: {}",
+            input.as_ref().display(),
+            summary.diagnostics.join("; ")
+        )));
     }
     if let Some(parent) = output.as_ref().parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)?;
         }
     }
-    fs::write(output, bytes)?;
+    if summary.format == "ktx2" {
+        if input.as_ref() != output.as_ref() {
+            fs::copy(input.as_ref(), output.as_ref())?;
+        }
+        return Ok(summary);
+    }
+    let encoder = std::env::var("ASTER_TEXTURE_ENCODER").map_err(|_| {
+        ContentError::new(format!(
+            "texture '{}' is {} source; strict cook requires KTX2 source or ASTER_TEXTURE_ENCODER",
+            input.as_ref().display(),
+            summary.format
+        ))
+    })?;
+    let status = Command::new(&encoder)
+        .arg("--input")
+        .arg(input.as_ref())
+        .arg("--output")
+        .arg(output.as_ref())
+        .arg("--role")
+        .arg(role)
+        .arg("--color-space")
+        .arg(&summary.color_space)
+        .arg("--mips")
+        .arg(summary.mip_count.to_string())
+        .status()
+        .map_err(|error| {
+            ContentError::new(format!(
+                "failed to run texture encoder '{encoder}': {error}"
+            ))
+        })?;
+    if !status.success() {
+        return Err(ContentError::new(format!(
+            "texture encoder '{encoder}' failed for {}",
+            input.as_ref().display()
+        )));
+    }
+    let output_summary = inspect_texture(output.as_ref(), role)?;
+    if texture_summary_has_error(&output_summary) {
+        return Err(ContentError::new(format!(
+            "texture encoder '{encoder}' wrote invalid KTX2 for {}: {}",
+            input.as_ref().display(),
+            output_summary.diagnostics.join("; ")
+        )));
+    }
     Ok(summary)
 }
 
 pub fn read_asset_database(path: impl AsRef<Path>) -> Result<AssetDatabase> {
     Ok(serde_json::from_slice(&fs::read(path)?)?)
+}
+
+fn cook_error(message: impl Into<String>) -> AssetCookDiagnostic {
+    AssetCookDiagnostic {
+        severity: "error".to_string(),
+        message: message.into(),
+        source_path: None,
+        line: None,
+        column: None,
+    }
+}
+
+fn cook_warning(message: impl Into<String>) -> AssetCookDiagnostic {
+    AssetCookDiagnostic {
+        severity: "warning".to_string(),
+        message: message.into(),
+        source_path: None,
+        line: None,
+        column: None,
+    }
+}
+
+fn cook_error_at(
+    source_path: impl Into<String>,
+    line: usize,
+    column: usize,
+    message: impl Into<String>,
+) -> AssetCookDiagnostic {
+    AssetCookDiagnostic {
+        severity: "error".to_string(),
+        message: message.into(),
+        source_path: Some(source_path.into()),
+        line: Some(line),
+        column: Some(column),
+    }
+}
+
+fn diagnostics_have_errors(diagnostics: &[AssetCookDiagnostic]) -> bool {
+    diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == "error")
+}
+
+fn texture_summary_has_error(summary: &TextureImportSummary) -> bool {
+    summary
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.starts_with("error:"))
+}
+
+fn texture_encoder_name(summary: &TextureImportSummary) -> String {
+    if summary.format == "ktx2" {
+        "passthrough-ktx2".to_string()
+    } else {
+        std::env::var("ASTER_TEXTURE_ENCODER")
+            .map(|value| format!("external:{value}"))
+            .unwrap_or_else(|_| "missing-external-encoder".to_string())
+    }
+}
+
+pub fn asset_database_error_count(database: &AssetDatabase) -> usize {
+    database
+        .records
+        .iter()
+        .flat_map(|record| record.diagnostics.iter())
+        .filter(|diagnostic| diagnostic.severity == "error")
+        .count()
+}
+
+pub fn asset_database_warning_count(database: &AssetDatabase) -> usize {
+    database
+        .records
+        .iter()
+        .flat_map(|record| record.diagnostics.iter())
+        .filter(|diagnostic| diagnostic.severity == "warning")
+        .count()
 }
 
 pub fn cook_project(
@@ -1111,9 +1258,13 @@ pub fn cook_project(
     };
     let database_path = output.join("assetdb.asterdb.json");
     write_json(&database_path, &database)?;
+    let error_count = asset_database_error_count(&database);
+    let warning_count = asset_database_warning_count(&database);
     Ok(CookProjectResult {
         database,
         database_path,
+        error_count,
+        warning_count,
     })
 }
 
@@ -1132,10 +1283,10 @@ pub fn cook_asset(
     let kind = canonical_asset_kind(source, declared_kind);
     let mut record = base_asset_record(id, &kind, &source_rel, platform);
     if !source.exists() {
-        record.diagnostics.push(AssetCookDiagnostic {
-            severity: "error".to_string(),
-            message: format!("asset source is missing: {}", source.display()),
-        });
+        record.diagnostics.push(cook_error(format!(
+            "asset source is missing: {}",
+            source.display()
+        )));
         return Ok(record);
     }
     let source_bytes = fs::read(source)?;
@@ -1169,13 +1320,10 @@ pub fn cook_asset(
                                 hash: hex_hash(&dependency.hash),
                             });
                             if !dependency.present {
-                                record.diagnostics.push(AssetCookDiagnostic {
-                                    severity: "warning".to_string(),
-                                    message: format!(
-                                        "scene material '{}' references missing texture '{}'",
-                                        material.name, dependency.uri
-                                    ),
-                                });
+                                record.diagnostics.push(cook_warning(format!(
+                                    "scene material '{}' references missing texture '{}'",
+                                    material.name, dependency.uri
+                                )));
                             }
                         }
                     }
@@ -1210,10 +1358,7 @@ pub fn cook_asset(
                         hash: hash_file_hex(&report_path)?,
                     });
                 }
-                Err(error) => record.diagnostics.push(AssetCookDiagnostic {
-                    severity: "error".to_string(),
-                    message: error.to_string(),
-                }),
+                Err(error) => record.diagnostics.push(cook_error(error.to_string())),
             }
         }
         "material" if source.extension().and_then(|v| v.to_str()) == Some("astermat") => {
@@ -1224,31 +1369,37 @@ pub fn cook_asset(
                 "materialbin:{}:{}",
                 MATERIAL_BIN_SCHEMA_VERSION, platform
             ));
-            record.outputs.push(AssetCookedOutput {
-                role: "materialbin".to_string(),
-                kind: "materialbin".to_string(),
-                path: relative_path_string(&cooked.material_bin_path, output_root),
-                hash: hash_file_hex(&cooked.material_bin_path)?,
-            });
-            record.outputs.push(AssetCookedOutput {
-                role: "report".to_string(),
-                kind: "json".to_string(),
-                path: relative_path_string(&cooked.report_path, output_root),
-                hash: hash_file_hex(&cooked.report_path)?,
-            });
-            record.outputs.push(AssetCookedOutput {
-                role: "preview".to_string(),
-                kind: "ppm".to_string(),
-                path: relative_path_string(&cooked.preview_path, output_root),
-                hash: hash_file_hex(&cooked.preview_path)?,
-            });
-            for texture in &cooked.material_bin.textures {
+            if cooked.emitted_runtime_outputs {
+                if let Some(material_bin_path) = &cooked.material_bin_path {
+                    record.outputs.push(AssetCookedOutput {
+                        role: "materialbin".to_string(),
+                        kind: "materialbin".to_string(),
+                        path: relative_path_string(material_bin_path, output_root),
+                        hash: hash_file_hex(material_bin_path)?,
+                    });
+                }
                 record.outputs.push(AssetCookedOutput {
-                    role: format!("texture:{}", texture.role),
-                    kind: "ktx2".to_string(),
-                    path: texture.cooked_path.clone(),
-                    hash: texture.cooked_hash.clone(),
+                    role: "report".to_string(),
+                    kind: "json".to_string(),
+                    path: relative_path_string(&cooked.report_path, output_root),
+                    hash: hash_file_hex(&cooked.report_path)?,
                 });
+                if let Some(preview_path) = &cooked.preview_path {
+                    record.outputs.push(AssetCookedOutput {
+                        role: "preview".to_string(),
+                        kind: "ppm".to_string(),
+                        path: relative_path_string(preview_path, output_root),
+                        hash: hash_file_hex(preview_path)?,
+                    });
+                }
+                for texture in &cooked.material_bin.textures {
+                    record.outputs.push(AssetCookedOutput {
+                        role: format!("texture:{}", texture.role),
+                        kind: "ktx2".to_string(),
+                        path: texture.cooked_path.clone(),
+                        hash: texture.cooked_hash.clone(),
+                    });
+                }
             }
         }
         "texture" => {
@@ -1257,35 +1408,36 @@ pub fn cook_asset(
                 .and_then(|value| value.to_str())
                 .and_then(|stem| stem.rsplit_once('_').map(|(_, role)| role))
                 .unwrap_or("unknown");
-            let cooked = cook_texture_asset(source, output_root, role)?;
-            record.options_hash = hash_hex_text("texture:ktx2-basis:v1");
-            record.outputs.push(AssetCookedOutput {
-                role: "texture".to_string(),
-                kind: "ktx2".to_string(),
-                path: relative_path_string(&cooked.output_path, output_root),
-                hash: cooked.report.cooked_hash.clone(),
-            });
-            record.outputs.push(AssetCookedOutput {
-                role: "report".to_string(),
-                kind: "json".to_string(),
-                path: relative_path_string(&cooked.report_path, output_root),
-                hash: hash_file_hex(&cooked.report_path)?,
-            });
-            record.dependencies.push(AssetDependencyRecord {
-                role: role.to_string(),
-                path: source_rel,
-                present: true,
-                hash: cooked.report.source_hash,
-            });
+            match cook_texture_asset(source, output_root, role) {
+                Ok(cooked) => {
+                    record.options_hash = hash_hex_text("texture:ktx2-basis:v1");
+                    record.outputs.push(AssetCookedOutput {
+                        role: "texture".to_string(),
+                        kind: "ktx2".to_string(),
+                        path: relative_path_string(&cooked.output_path, output_root),
+                        hash: cooked.report.cooked_hash.clone(),
+                    });
+                    record.outputs.push(AssetCookedOutput {
+                        role: "report".to_string(),
+                        kind: "json".to_string(),
+                        path: relative_path_string(&cooked.report_path, output_root),
+                        hash: hash_file_hex(&cooked.report_path)?,
+                    });
+                    record.dependencies.push(AssetDependencyRecord {
+                        role: role.to_string(),
+                        path: source_rel,
+                        present: true,
+                        hash: cooked.report.source_hash,
+                    });
+                }
+                Err(error) => record.diagnostics.push(cook_error(error.to_string())),
+            }
         }
-        _ => record.diagnostics.push(AssetCookDiagnostic {
-            severity: "warning".to_string(),
-            message: format!(
-                "Asset v1 cook does not transform kind '{}' from '{}'",
-                declared_kind,
-                source.display()
-            ),
-        }),
+        _ => record.diagnostics.push(cook_warning(format!(
+            "Asset v1 cook does not transform kind '{}' from '{}'",
+            declared_kind,
+            source.display()
+        ))),
     }
     Ok(record)
 }
@@ -1318,7 +1470,7 @@ pub fn cook_material_asset(
     let project_root = project_root.as_ref();
     let output_root = output_root.as_ref();
     let source = fs::read_to_string(input)?;
-    let parsed = parse_astermat_source(&source, fallback_id);
+    let parsed = parse_astermat_source(&source, fallback_id, input);
     let id = if parsed.id.is_empty() {
         fallback_id.to_string()
     } else {
@@ -1327,8 +1479,10 @@ pub fn cook_material_asset(
     let asset_guid = asset_guid("material", &id, &relative_path_string(input, project_root));
     let material_stem = safe_identifier(&id);
     let mut texture_records = Vec::new();
+    let mut emitted_texture_artifacts = Vec::new();
     let mut dependencies = Vec::new();
     let mut diagnostics = parsed.diagnostics.clone();
+    let mut resolved_textures = BTreeMap::new();
 
     for (role, uri) in &parsed.textures {
         let source_path = if Path::new(uri).is_absolute() {
@@ -1337,14 +1491,11 @@ pub fn cook_material_asset(
             input.parent().unwrap_or_else(|| Path::new("")).join(uri)
         };
         if !source_path.exists() {
-            diagnostics.push(AssetCookDiagnostic {
-                severity: "error".to_string(),
-                message: format!(
-                    "material texture '{}' is missing: {}",
-                    role,
-                    source_path.display()
-                ),
-            });
+            diagnostics.push(cook_error(format!(
+                "material texture '{}' is missing: {}",
+                role,
+                source_path.display()
+            )));
             dependencies.push(AssetDependencyRecord {
                 role: role.clone(),
                 path: relative_path_string(&source_path, project_root),
@@ -1353,114 +1504,245 @@ pub fn cook_material_asset(
             });
             continue;
         }
-        let cooked_name = format!("{}_{}.ktx2", material_stem, safe_identifier(role));
-        let cooked_path = output_root.join("textures").join(cooked_name);
-        let cooked = cook_texture_asset_as(&source_path, output_root, role, &cooked_path)?;
         dependencies.push(AssetDependencyRecord {
             role: role.clone(),
             path: relative_path_string(&source_path, project_root),
             present: true,
-            hash: cooked.report.source_hash.clone(),
+            hash: hash_file_hex(&source_path)?,
         });
-        texture_records.push(MaterialBinTextureRecord {
-            role: role.clone(),
-            source_path: relative_path_string(&source_path, project_root),
-            cooked_path: relative_path_string(&cooked.output_path, output_root),
-            kind: cooked.report.kind.clone(),
-            color_space: cooked.report.color_space.clone(),
-            width: cooked.report.width,
-            height: cooked.report.height,
-            mip_count: cooked.report.mip_count,
-            source_hash: cooked.report.source_hash.clone(),
-            cooked_hash: cooked.report.cooked_hash.clone(),
-            diagnostics: cooked.report.diagnostics.clone(),
-        });
+        resolved_textures.insert(role.clone(), source_path);
     }
 
-    let mut binding_layout = vec![MaterialBinBinding {
-        name: "MaterialParameters".to_string(),
-        kind: "uniform-buffer".to_string(),
-        binding: 0,
-    }];
-    for (index, texture) in texture_records.iter().enumerate() {
-        binding_layout.push(MaterialBinBinding {
-            name: texture.role.clone(),
-            kind: "texture".to_string(),
-            binding: (index + 1) as u32,
-        });
+    let direct_roles = direct_material_texture_roles(&parsed);
+    for role in &direct_roles {
+        if let Some(source_path) = resolved_textures.get(role) {
+            diagnostics.extend(texture_preflight_diagnostics(source_path, role));
+        }
     }
-    if !texture_records.is_empty() {
-        binding_layout.push(MaterialBinBinding {
-            name: "MaterialSampler".to_string(),
-            kind: "sampler".to_string(),
-            binding: binding_layout.len() as u32,
-        });
+    if parsed_requires_split_orm_pack(&parsed) {
+        diagnostics.extend(split_orm_preflight_diagnostics(&resolved_textures));
     }
 
-    let feature_mask = material_feature_mask(&parsed);
-    let shader_variant_key = material_variant_key(&source, &texture_records);
-    let shader_variant_tag = material_variant_tag(&parsed, !texture_records.is_empty());
-    let material_bin = MaterialBin {
-        schema_version: MATERIAL_BIN_SCHEMA_VERSION,
+    let report_path = output_root
+        .join("reports")
+        .join(format!("{}.report.json", material_stem));
+
+    if !diagnostics_have_errors(&diagnostics) {
+        for role in &direct_roles {
+            let Some(source_path) = resolved_textures.get(role) else {
+                continue;
+            };
+            let cooked_name = format!("{}_{}.ktx2", material_stem, safe_identifier(role));
+            let cooked_path = output_root.join("textures").join(cooked_name);
+            match cook_texture_asset_as(source_path, output_root, role, &cooked_path) {
+                Ok(cooked) => {
+                    emitted_texture_artifacts.push(cooked.output_path.clone());
+                    emitted_texture_artifacts.push(cooked.report_path.clone());
+                    texture_records.push(MaterialBinTextureRecord {
+                        role: role.clone(),
+                        source_path: relative_path_string(source_path, project_root),
+                        cooked_path: relative_path_string(&cooked.output_path, output_root),
+                        kind: cooked.report.kind.clone(),
+                        color_space: cooked.report.color_space.clone(),
+                        source_format: cooked.report.source_format.clone(),
+                        runtime_format: cooked.report.runtime_format.clone(),
+                        width: cooked.report.width,
+                        height: cooked.report.height,
+                        mip_count: cooked.report.mip_count,
+                        byte_cost: cooked.report.byte_cost,
+                        encoder: cooked.report.encoder.clone(),
+                        fallback_reason: cooked.report.fallback_reason.clone(),
+                        platform_compatibility: cooked.report.platform_compatibility.clone(),
+                        source_hash: cooked.report.source_hash.clone(),
+                        cooked_hash: cooked.report.cooked_hash.clone(),
+                        diagnostics: cooked.report.diagnostics.clone(),
+                    });
+                }
+                Err(error) => diagnostics.push(cook_error(error.to_string())),
+            }
+        }
+        if parsed_requires_split_orm_pack(&parsed) && !diagnostics_have_errors(&diagnostics) {
+            match cook_split_orm_texture_as(
+                &resolved_textures,
+                project_root,
+                output_root,
+                &material_stem,
+            ) {
+                Ok(record) => texture_records.push(record),
+                Err(error) => {
+                    let _ = fs::remove_file(
+                        output_root
+                            .join("textures")
+                            .join(format!("{}_orm.ktx2", material_stem)),
+                    );
+                    let _ = fs::remove_file(
+                        output_root
+                            .join("reports")
+                            .join(format!("{}.orm.report.json", material_stem)),
+                    );
+                    diagnostics.push(cook_error(error.to_string()));
+                }
+            }
+        }
+    }
+
+    let material_bin = build_material_bin(
+        &parsed,
         asset_guid,
-        id: id.clone(),
-        name: parsed.name.clone(),
-        source_path: relative_path_string(input, project_root),
-        feature_mask,
-        shader_variant_key,
-        shader_variant_tag: shader_variant_tag.clone(),
-        pipeline_tag: material_bin_pipeline_tag(&parsed, !texture_records.is_empty()),
-        fallback: MaterialBinFallback {
-            base_color: [
-                param_or(&parsed, "base_color_r", 1.0),
-                param_or(&parsed, "base_color_g", 1.0),
-                param_or(&parsed, "base_color_b", 1.0),
-            ],
-            emission_color: [
-                param_or(&parsed, "emission_color_r", 0.0),
-                param_or(&parsed, "emission_color_g", 0.0),
-                param_or(&parsed, "emission_color_b", 0.0),
-            ],
-            roughness: param_or(&parsed, "roughness", 0.55),
-            metallic: param_or(&parsed, "metallic", 0.0),
-            emission_strength: param_or(&parsed, "emission_strength", 0.0),
-            opacity: param_or(&parsed, "opacity", 1.0),
-            double_sided: parsed
-                .features
-                .get("double_sided")
-                .copied()
-                .unwrap_or(parsed.cull_mode.eq_ignore_ascii_case("None")),
-            alpha_mode: parsed.blend_mode.clone(),
-            receives_shadows: parsed.receives_shadows,
-            surface_profile: parsed.surface_profile.clone(),
-        },
-        params: parsed.params.clone(),
-        features: parsed.features.clone(),
-        textures: texture_records,
-        binding_layout,
-        dependency_hashes: dependencies,
+        &id,
+        relative_path_string(input, project_root),
+        &source,
+        texture_records,
+        dependencies,
         diagnostics,
-    };
+        platform,
+    );
+    write_json(&report_path, &material_bin)?;
+
+    if diagnostics_have_errors(&material_bin.diagnostics) {
+        for artifact in emitted_texture_artifacts {
+            let _ = fs::remove_file(artifact);
+        }
+        return Ok(MaterialCookResult {
+            material_bin_path: None,
+            report_path,
+            preview_path: None,
+            material_bin,
+            emitted_runtime_outputs: false,
+        });
+    }
 
     let material_bin_path = output_root
         .join("materials")
         .join(format!("{}.materialbin", material_stem));
     write_json(&material_bin_path, &material_bin)?;
-    let report_path = output_root
-        .join("reports")
-        .join(format!("{}.report.json", material_stem));
-    write_json(&report_path, &material_bin)?;
     let preview_path = output_root
         .join("previews")
         .join(format!("{}.preview.ppm", material_stem));
     write_material_preview(&preview_path, &material_bin)?;
-    let _ = platform;
     Ok(MaterialCookResult {
-        material_bin_path,
+        material_bin_path: Some(material_bin_path),
         report_path,
-        preview_path,
+        preview_path: Some(preview_path),
         material_bin,
+        emitted_runtime_outputs: true,
     })
+}
+
+pub fn inspect_material_asset(
+    input: impl AsRef<Path>,
+    asset_root: impl AsRef<Path>,
+) -> Result<MaterialInspectReport> {
+    let input = input.as_ref();
+    let asset_root = asset_root.as_ref();
+    let source = fs::read_to_string(input)?;
+    let fallback_id = input
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("material");
+    let mut parsed = parse_astermat_source(&source, fallback_id, input);
+    let root = if asset_root.as_os_str().is_empty() {
+        input.parent().unwrap_or_else(|| Path::new(""))
+    } else {
+        asset_root
+    };
+    let mut dependencies = Vec::new();
+    let mut textures = Vec::new();
+    let texture_entries = parsed
+        .textures
+        .iter()
+        .map(|(role, uri)| (role.clone(), uri.clone()))
+        .collect::<Vec<_>>();
+    for (role, uri) in texture_entries {
+        let path = if Path::new(&uri).is_absolute() {
+            PathBuf::from(uri)
+        } else {
+            root.join(uri)
+        };
+        if !path.exists() {
+            dependencies.push(AssetDependencyRecord {
+                role: role.clone(),
+                path: relative_path_string(&path, root),
+                present: false,
+                hash: String::new(),
+            });
+            parsed.diagnostics.push(cook_error(format!(
+                "material texture '{}' is missing: {}",
+                role,
+                path.display()
+            )));
+            textures.push(MaterialInspectTexture {
+                role: role.clone(),
+                path: relative_path_string(&path, root),
+                present: false,
+                kind: TextureImportKind::role(&role).as_str().to_string(),
+                color_space: TextureImportKind::role(&role).color_space().to_string(),
+                source_format: "missing".to_string(),
+                width: 0,
+                height: 0,
+                mip_count: 0,
+                source_hash: String::new(),
+                diagnostics: vec![format!("error: texture is missing: {}", path.display())],
+            });
+            continue;
+        }
+        let summary = inspect_texture(&path, &role)?;
+        dependencies.push(AssetDependencyRecord {
+            role: role.clone(),
+            path: relative_path_string(&path, root),
+            present: true,
+            hash: hex_hash(&summary.source_hash),
+        });
+        for diagnostic in &summary.diagnostics {
+            if diagnostic.starts_with("error:") {
+                parsed.diagnostics.push(cook_error(format!(
+                    "texture '{}' for role '{}' failed validation: {}",
+                    path.display(),
+                    role,
+                    diagnostic.trim_start_matches("error: ")
+                )));
+            }
+        }
+        textures.push(MaterialInspectTexture {
+            role: role.clone(),
+            path: relative_path_string(&path, root),
+            present: true,
+            kind: summary.kind.as_str().to_string(),
+            color_space: summary.color_space,
+            source_format: summary.format,
+            width: summary.width,
+            height: summary.height,
+            mip_count: summary.mip_count,
+            source_hash: hex_hash(&summary.source_hash),
+            diagnostics: summary.diagnostics,
+        });
+    }
+    Ok(MaterialInspectReport {
+        schema_version: parsed.schema_version,
+        id: parsed.id,
+        name: parsed.name,
+        source_path: input.to_string_lossy().replace('\\', "/"),
+        shading_model: parsed.shading_model,
+        required_runtime_roles: vec![
+            "albedo".to_string(),
+            "normal".to_string(),
+            "orm".to_string(),
+        ],
+        textures,
+        dependencies,
+        production_ready: !diagnostics_have_errors(&parsed.diagnostics),
+        diagnostics: parsed.diagnostics,
+        platform_compatibility: "desktop".to_string(),
+    })
+}
+
+pub fn material_inspect_report_json(
+    input: impl AsRef<Path>,
+    asset_root: impl AsRef<Path>,
+) -> Result<String> {
+    Ok(serde_json::to_string_pretty(&inspect_material_asset(
+        input, asset_root,
+    )?)?)
 }
 
 pub fn report_asset_database(database: &AssetDatabase) -> String {
@@ -1498,8 +1780,24 @@ fn cook_texture_asset_as(
     role: &str,
     output_path: &Path,
 ) -> Result<TextureCookResult> {
+    let input_summary = inspect_texture(input, role)?;
+    if texture_summary_has_error(&input_summary) {
+        return Err(ContentError::new(format!(
+            "texture '{}' failed validation: {}",
+            input.display(),
+            input_summary.diagnostics.join("; ")
+        )));
+    }
+    if input_summary.format != "ktx2" && std::env::var("ASTER_TEXTURE_ENCODER").is_err() {
+        return Err(ContentError::new(format!(
+            "texture '{}' is {} source; strict cook requires KTX2 source or ASTER_TEXTURE_ENCODER",
+            input.display(),
+            input_summary.format
+        )));
+    }
     let summary = bake_texture_to_ktx2(input, output_path, role)?;
     let cooked_hash = hash_file_hex(output_path)?;
+    let byte_cost = fs::metadata(output_path)?.len();
     let report_path = output_root.join("reports").join(format!(
         "{}.{}.report.json",
         input
@@ -1513,10 +1811,16 @@ fn cook_texture_asset_as(
         role: role.to_string(),
         kind: summary.kind.as_str().to_string(),
         color_space: summary.color_space,
-        format: summary.format,
+        format: summary.format.clone(),
+        source_format: summary.format,
+        runtime_format: "ktx2".to_string(),
         width: summary.width,
         height: summary.height,
         mip_count: summary.mip_count,
+        byte_cost,
+        encoder: texture_encoder_name(&input_summary),
+        fallback_reason: String::new(),
+        platform_compatibility: "desktop:ok".to_string(),
         source_hash: hex_hash(&summary.source_hash),
         cooked_hash,
         cooked_path: relative_path_string(output_path, output_root),
@@ -1530,8 +1834,282 @@ fn cook_texture_asset_as(
     })
 }
 
+fn is_split_orm_role(role: &str) -> bool {
+    matches!(role, "roughness" | "metallic" | "ao")
+}
+
+fn direct_material_texture_roles(parsed: &ParsedMaterialSource) -> Vec<String> {
+    parsed
+        .textures
+        .keys()
+        .filter(|role| !is_split_orm_role(role))
+        .cloned()
+        .collect()
+}
+
+fn parsed_requires_split_orm_pack(parsed: &ParsedMaterialSource) -> bool {
+    !parsed.textures.contains_key("orm")
+        && ["roughness", "metallic", "ao"]
+            .iter()
+            .all(|role| parsed.textures.contains_key(*role))
+}
+
+fn texture_preflight_diagnostics(source_path: &Path, role: &str) -> Vec<AssetCookDiagnostic> {
+    match inspect_texture(source_path, role) {
+        Ok(summary) => {
+            let mut diagnostics = summary
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.starts_with("error:"))
+                .map(|diagnostic| {
+                    cook_error(format!(
+                        "texture '{}' for role '{}' failed validation: {}",
+                        source_path.display(),
+                        role,
+                        diagnostic.trim_start_matches("error: ")
+                    ))
+                })
+                .collect::<Vec<_>>();
+            if summary.format != "ktx2" && std::env::var("ASTER_TEXTURE_ENCODER").is_err() {
+                diagnostics.push(cook_error(format!(
+                    "texture '{}' for role '{}' is {} source; strict cook requires KTX2 source or ASTER_TEXTURE_ENCODER",
+                    source_path.display(),
+                    role,
+                    summary.format
+                )));
+            }
+            diagnostics
+        }
+        Err(error) => vec![cook_error(format!(
+            "texture '{}' for role '{}' failed inspection: {}",
+            source_path.display(),
+            role,
+            error
+        ))],
+    }
+}
+
+fn split_orm_preflight_diagnostics(
+    resolved_textures: &BTreeMap<String, PathBuf>,
+) -> Vec<AssetCookDiagnostic> {
+    let mut diagnostics = Vec::new();
+    if std::env::var("ASTER_TEXTURE_ENCODER").is_err() {
+        diagnostics.push(cook_error(
+            "split roughness/metallic/ao ORM packing requires ASTER_TEXTURE_ENCODER",
+        ));
+    }
+    for role in ["roughness", "metallic", "ao"] {
+        if let Some(path) = resolved_textures.get(role) {
+            diagnostics.extend(texture_preflight_diagnostics(path, role));
+        }
+    }
+    diagnostics
+}
+
+fn cook_split_orm_texture_as(
+    resolved_textures: &BTreeMap<String, PathBuf>,
+    project_root: &Path,
+    output_root: &Path,
+    material_stem: &str,
+) -> Result<MaterialBinTextureRecord> {
+    let encoder = std::env::var("ASTER_TEXTURE_ENCODER").map_err(|_| {
+        ContentError::new("split roughness/metallic/ao ORM packing requires ASTER_TEXTURE_ENCODER")
+    })?;
+    let roughness = resolved_textures
+        .get("roughness")
+        .ok_or_else(|| ContentError::new("split ORM packing is missing roughness source"))?;
+    let metallic = resolved_textures
+        .get("metallic")
+        .ok_or_else(|| ContentError::new("split ORM packing is missing metallic source"))?;
+    let ao = resolved_textures
+        .get("ao")
+        .ok_or_else(|| ContentError::new("split ORM packing is missing ao source"))?;
+    let output_path = output_root
+        .join("textures")
+        .join(format!("{}_orm.ktx2", material_stem));
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let status = Command::new(&encoder)
+        .arg("--pack-orm")
+        .arg("--roughness")
+        .arg(roughness)
+        .arg("--metallic")
+        .arg(metallic)
+        .arg("--ao")
+        .arg(ao)
+        .arg("--output")
+        .arg(&output_path)
+        .status()
+        .map_err(|error| {
+            ContentError::new(format!(
+                "failed to run texture encoder '{encoder}': {error}"
+            ))
+        })?;
+    if !status.success() {
+        return Err(ContentError::new(format!(
+            "texture encoder '{encoder}' failed while packing ORM"
+        )));
+    }
+    let summary = inspect_texture(&output_path, "orm")?;
+    if texture_summary_has_error(&summary) {
+        return Err(ContentError::new(format!(
+            "texture encoder '{encoder}' wrote invalid ORM KTX2: {}",
+            summary.diagnostics.join("; ")
+        )));
+    }
+    let mut hasher = blake3::Hasher::new();
+    for (role, path) in [("roughness", roughness), ("metallic", metallic), ("ao", ao)] {
+        hasher.update(role.as_bytes());
+        hasher.update(&fs::read(path)?);
+    }
+    let source_hash = hex_hash(hasher.finalize().as_bytes());
+    let cooked_hash = hash_file_hex(&output_path)?;
+    let byte_cost = fs::metadata(&output_path)?.len();
+    let source_path = format!(
+        "roughness={};metallic={};ao={}",
+        relative_path_string(roughness, project_root),
+        relative_path_string(metallic, project_root),
+        relative_path_string(ao, project_root)
+    );
+    let report = TextureCookReport {
+        schema_version: 1,
+        role: "orm".to_string(),
+        kind: "orm".to_string(),
+        color_space: "linear".to_string(),
+        format: "split-orm".to_string(),
+        source_format: "split-orm".to_string(),
+        runtime_format: "ktx2".to_string(),
+        width: summary.width,
+        height: summary.height,
+        mip_count: summary.mip_count,
+        byte_cost,
+        encoder: format!("external:{encoder}"),
+        fallback_reason: String::new(),
+        platform_compatibility: "desktop:ok".to_string(),
+        source_hash: source_hash.clone(),
+        cooked_hash: cooked_hash.clone(),
+        cooked_path: relative_path_string(&output_path, output_root),
+        diagnostics: summary.diagnostics,
+    };
+    let report_path = output_root
+        .join("reports")
+        .join(format!("{}.orm.report.json", material_stem));
+    write_json(&report_path, &report)?;
+    Ok(MaterialBinTextureRecord {
+        role: "orm".to_string(),
+        source_path,
+        cooked_path: report.cooked_path,
+        kind: report.kind,
+        color_space: report.color_space,
+        source_format: report.source_format,
+        runtime_format: report.runtime_format,
+        width: report.width,
+        height: report.height,
+        mip_count: report.mip_count,
+        byte_cost: report.byte_cost,
+        encoder: report.encoder,
+        fallback_reason: report.fallback_reason,
+        platform_compatibility: report.platform_compatibility,
+        source_hash,
+        cooked_hash,
+        diagnostics: report.diagnostics,
+    })
+}
+
+fn build_material_bin(
+    parsed: &ParsedMaterialSource,
+    asset_guid: String,
+    id: &str,
+    source_path: String,
+    source: &str,
+    texture_records: Vec<MaterialBinTextureRecord>,
+    dependencies: Vec<AssetDependencyRecord>,
+    diagnostics: Vec<AssetCookDiagnostic>,
+    platform: &str,
+) -> MaterialBin {
+    let mut binding_layout = vec![MaterialBinBinding {
+        name: "MaterialParameters".to_string(),
+        kind: "uniform-buffer".to_string(),
+        binding: 0,
+    }];
+    for (index, texture) in texture_records.iter().enumerate() {
+        binding_layout.push(MaterialBinBinding {
+            name: texture.role.clone(),
+            kind: "texture".to_string(),
+            binding: (index + 1) as u32,
+        });
+    }
+    if !texture_records.is_empty() {
+        binding_layout.push(MaterialBinBinding {
+            name: "MaterialSampler".to_string(),
+            kind: "sampler".to_string(),
+            binding: binding_layout.len() as u32,
+        });
+    }
+    MaterialBin {
+        schema_version: MATERIAL_BIN_SCHEMA_VERSION,
+        asset_guid,
+        id: id.to_string(),
+        name: parsed.name.clone(),
+        source_path,
+        feature_mask: material_feature_mask(parsed),
+        shader_variant_key: material_variant_key(source, &texture_records),
+        shader_variant_tag: material_variant_tag(parsed, !texture_records.is_empty()),
+        pipeline_tag: material_bin_pipeline_tag(parsed, !texture_records.is_empty()),
+        fallback: MaterialBinFallback {
+            base_color: [
+                param_or(parsed, "base_color_r", 1.0),
+                param_or(parsed, "base_color_g", 1.0),
+                param_or(parsed, "base_color_b", 1.0),
+            ],
+            emission_color: [
+                param_or(parsed, "emission_color_r", 0.0),
+                param_or(parsed, "emission_color_g", 0.0),
+                param_or(parsed, "emission_color_b", 0.0),
+            ],
+            roughness: param_or(parsed, "roughness", 0.55),
+            metallic: param_or(parsed, "metallic", 0.0),
+            emission_strength: param_or(parsed, "emission_strength", 0.0),
+            opacity: param_or(parsed, "opacity", 1.0),
+            double_sided: parsed
+                .features
+                .get("double_sided")
+                .copied()
+                .unwrap_or(parsed.cull_mode.eq_ignore_ascii_case("None")),
+            alpha_mode: parsed.blend_mode.clone(),
+            receives_shadows: parsed.receives_shadows,
+            surface_profile: parsed.surface_profile.clone(),
+        },
+        params: parsed.params.clone(),
+        features: parsed.features.clone(),
+        textures: texture_records,
+        binding_layout,
+        dependency_hashes: dependencies,
+        diagnostics: diagnostics
+            .into_iter()
+            .chain(if platform == "desktop" {
+                Vec::new()
+            } else {
+                vec![cook_error(format!(
+                    "unsupported material platform '{platform}', expected desktop"
+                ))]
+            })
+            .collect(),
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct ParsedMaterialLayer {
+    name: String,
+    operation: String,
+    arguments: Vec<String>,
+    raw: String,
+}
+
 #[derive(Clone, Debug, Default)]
 struct ParsedMaterialSource {
+    schema_version: u32,
     id: String,
     name: String,
     shading_model: String,
@@ -1542,111 +2120,645 @@ struct ParsedMaterialSource {
     textures: BTreeMap<String, String>,
     params: BTreeMap<String, f32>,
     features: BTreeMap<String, bool>,
+    layers: Vec<ParsedMaterialLayer>,
     diagnostics: Vec<AssetCookDiagnostic>,
 }
 
-fn parse_astermat_source(source: &str, fallback_id: &str) -> ParsedMaterialSource {
-    let mut parsed = ParsedMaterialSource {
-        id: fallback_id.to_string(),
-        name: fallback_id.to_string(),
-        shading_model: "LitPBR".to_string(),
-        blend_mode: "Opaque".to_string(),
-        cull_mode: "Back".to_string(),
-        surface_profile: "Auto".to_string(),
-        receives_shadows: true,
-        ..ParsedMaterialSource::default()
-    };
-    let mut block = "";
-    for raw_line in source.lines() {
-        let line = raw_line.split("//").next().unwrap_or("").trim();
-        if line.is_empty() {
-            continue;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MaterialTokenKind {
+    Identifier,
+    String,
+    Number,
+    LeftBrace,
+    RightBrace,
+    LeftParen,
+    RightParen,
+    Colon,
+    Comma,
+    End,
+}
+
+#[derive(Clone, Debug)]
+struct MaterialToken {
+    kind: MaterialTokenKind,
+    text: String,
+    line: usize,
+    column: usize,
+}
+
+struct MaterialLexer<'a> {
+    source: &'a str,
+    source_path: String,
+    position: usize,
+    line: usize,
+    column: usize,
+    diagnostics: Vec<AssetCookDiagnostic>,
+}
+
+impl<'a> MaterialLexer<'a> {
+    fn new(source: &'a str, source_path: &Path) -> Self {
+        Self {
+            source,
+            source_path: source_path.to_string_lossy().replace('\\', "/"),
+            position: 0,
+            line: 1,
+            column: 1,
+            diagnostics: Vec::new(),
         }
-        if let Some(rest) = line.strip_prefix("material ") {
-            parsed.id = rest
-                .split_whitespace()
-                .next()
-                .unwrap_or(fallback_id)
-                .trim_matches('{')
-                .to_string();
+    }
+
+    fn next(&mut self) -> MaterialToken {
+        self.skip_trivia();
+        let line = self.line;
+        let column = self.column;
+        let Some(ch) = self.peek_char() else {
+            return MaterialToken {
+                kind: MaterialTokenKind::End,
+                text: String::new(),
+                line,
+                column,
+            };
+        };
+        match ch {
+            '{' => return self.single(MaterialTokenKind::LeftBrace, "{"),
+            '}' => return self.single(MaterialTokenKind::RightBrace, "}"),
+            '(' => return self.single(MaterialTokenKind::LeftParen, "("),
+            ')' => return self.single(MaterialTokenKind::RightParen, ")"),
+            ':' => return self.single(MaterialTokenKind::Colon, ":"),
+            ',' => return self.single(MaterialTokenKind::Comma, ","),
+            '"' => return self.string_token(),
+            _ => {}
+        }
+        if ch.is_ascii_digit() || ch == '-' || ch == '+' {
+            return self.number_token();
+        }
+        if ch.is_ascii_alphabetic() || ch == '_' {
+            return self.identifier_token();
+        }
+        self.diagnostics.push(cook_error_at(
+            self.source_path.clone(),
+            line,
+            column,
+            format!("unexpected character '{ch}'"),
+        ));
+        self.advance_char();
+        self.next()
+    }
+
+    fn single(&mut self, kind: MaterialTokenKind, text: &str) -> MaterialToken {
+        let token = MaterialToken {
+            kind,
+            text: text.to_string(),
+            line: self.line,
+            column: self.column,
+        };
+        self.advance_char();
+        token
+    }
+
+    fn identifier_token(&mut self) -> MaterialToken {
+        let line = self.line;
+        let column = self.column;
+        let mut text = String::new();
+        while let Some(ch) = self.peek_char() {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.' {
+                text.push(ch);
+                self.advance_char();
+            } else {
+                break;
+            }
+        }
+        MaterialToken {
+            kind: MaterialTokenKind::Identifier,
+            text,
+            line,
+            column,
+        }
+    }
+
+    fn number_token(&mut self) -> MaterialToken {
+        let line = self.line;
+        let column = self.column;
+        let mut text = String::new();
+        if let Some(ch) = self.peek_char() {
+            if ch == '-' || ch == '+' {
+                text.push(ch);
+                self.advance_char();
+            }
+        }
+        while let Some(ch) = self.peek_char() {
+            if ch.is_ascii_digit() || ch == '.' || ch == 'e' || ch == 'E' || ch == '-' || ch == '+'
+            {
+                text.push(ch);
+                self.advance_char();
+                if (ch == '-' || ch == '+')
+                    && text.len() > 1
+                    && !text[..text.len() - 1].ends_with('e')
+                    && !text[..text.len() - 1].ends_with('E')
+                {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        MaterialToken {
+            kind: MaterialTokenKind::Number,
+            text,
+            line,
+            column,
+        }
+    }
+
+    fn string_token(&mut self) -> MaterialToken {
+        let line = self.line;
+        let column = self.column;
+        let mut text = String::new();
+        self.advance_char();
+        while let Some(ch) = self.peek_char() {
+            if ch == '"' {
+                self.advance_char();
+                return MaterialToken {
+                    kind: MaterialTokenKind::String,
+                    text,
+                    line,
+                    column,
+                };
+            }
+            if ch == '\\' {
+                self.advance_char();
+                let Some(escaped) = self.peek_char() else {
+                    break;
+                };
+                text.push(match escaped {
+                    '"' | '\\' | '/' => escaped,
+                    'n' => '\n',
+                    't' => '\t',
+                    other => other,
+                });
+                self.advance_char();
+                continue;
+            }
+            text.push(ch);
+            self.advance_char();
+        }
+        self.diagnostics.push(cook_error_at(
+            self.source_path.clone(),
+            line,
+            column,
+            "unterminated string literal",
+        ));
+        MaterialToken {
+            kind: MaterialTokenKind::String,
+            text,
+            line,
+            column,
+        }
+    }
+
+    fn skip_trivia(&mut self) {
+        loop {
+            while self.peek_char().is_some_and(|ch| ch.is_whitespace()) {
+                self.advance_char();
+            }
+            if self.source[self.position..].starts_with("//")
+                || self.source[self.position..].starts_with('#')
+            {
+                while self.peek_char().is_some_and(|ch| ch != '\n') {
+                    self.advance_char();
+                }
+                continue;
+            }
+            break;
+        }
+    }
+
+    fn peek_char(&self) -> Option<char> {
+        self.source[self.position..].chars().next()
+    }
+
+    fn advance_char(&mut self) {
+        let Some(ch) = self.peek_char() else {
+            return;
+        };
+        self.position += ch.len_utf8();
+        if ch == '\n' {
+            self.line += 1;
+            self.column = 1;
+        } else {
+            self.column += 1;
+        }
+    }
+}
+
+struct MaterialParser<'a> {
+    lexer: MaterialLexer<'a>,
+    current: MaterialToken,
+}
+
+impl<'a> MaterialParser<'a> {
+    fn new(source: &'a str, source_path: &Path) -> Self {
+        let mut lexer = MaterialLexer::new(source, source_path);
+        let current = lexer.next();
+        Self { lexer, current }
+    }
+
+    fn parse(mut self, fallback_id: &str, source_path: &Path) -> ParsedMaterialSource {
+        let mut parsed = ParsedMaterialSource {
+            schema_version: 1,
+            id: fallback_id.to_string(),
+            name: fallback_id.to_string(),
+            shading_model: "LitPBR".to_string(),
+            blend_mode: "Opaque".to_string(),
+            cull_mode: "Back".to_string(),
+            surface_profile: "Auto".to_string(),
+            receives_shadows: true,
+            ..ParsedMaterialSource::default()
+        };
+        self.expect_identifier("material");
+        if self.current.kind == MaterialTokenKind::Identifier {
+            parsed.id = self.current.text.clone();
             parsed.name = parsed.id.clone();
-            continue;
+            self.advance();
+        } else {
+            self.add_error_current("expected material identifier");
         }
-        match line {
-            "textures {" => {
-                block = "textures";
-                continue;
+        self.expect(
+            MaterialTokenKind::LeftBrace,
+            "expected '{' after material name",
+        );
+        while self.current.kind != MaterialTokenKind::RightBrace
+            && self.current.kind != MaterialTokenKind::End
+        {
+            self.parse_top_level(&mut parsed);
+        }
+        self.expect(
+            MaterialTokenKind::RightBrace,
+            "expected '}' after material body",
+        );
+        if self.current.kind != MaterialTokenKind::End {
+            self.add_error_current("unexpected tokens after material body");
+        }
+        parsed.diagnostics = self.lexer.diagnostics;
+        validate_parsed_material(&mut parsed, source_path);
+        parsed
+    }
+
+    fn advance(&mut self) {
+        self.current = self.lexer.next();
+    }
+
+    fn expect(&mut self, kind: MaterialTokenKind, message: &str) -> bool {
+        if self.current.kind == kind {
+            self.advance();
+            true
+        } else {
+            self.add_error_current(message);
+            false
+        }
+    }
+
+    fn expect_identifier(&mut self, value: &str) -> bool {
+        if self.current.kind == MaterialTokenKind::Identifier && self.current.text == value {
+            self.advance();
+            true
+        } else {
+            self.add_error_current(format!("expected '{value}'"));
+            false
+        }
+    }
+
+    fn read_value_text(&mut self) -> String {
+        if self.current.kind == MaterialTokenKind::Identifier
+            || self.current.kind == MaterialTokenKind::String
+            || self.current.kind == MaterialTokenKind::Number
+        {
+            let out = self.current.text.clone();
+            self.advance();
+            out
+        } else {
+            self.add_error_current("expected value");
+            String::new()
+        }
+    }
+
+    fn parse_top_level(&mut self, parsed: &mut ParsedMaterialSource) {
+        if self.current.kind != MaterialTokenKind::Identifier {
+            self.add_error_current("expected material field");
+            self.advance();
+            return;
+        }
+        let field = self.current.clone();
+        self.advance();
+        match field.text.as_str() {
+            "textures" => {
+                self.parse_texture_block(parsed);
+                return;
             }
-            "params {" => {
-                block = "params";
-                continue;
+            "params" => {
+                self.parse_param_block(parsed);
+                return;
             }
-            "features {" => {
-                block = "features";
-                continue;
+            "features" => {
+                self.parse_feature_block(parsed);
+                return;
             }
-            "layers {" => {
-                block = "layers";
-                continue;
-            }
-            "}" => {
-                block = "";
-                continue;
+            "layers" => {
+                self.parse_layer_block(parsed);
+                return;
             }
             _ => {}
         }
-        if block == "textures" {
-            if let Some((role, value)) = split_key_value(line) {
-                parsed
-                    .textures
-                    .insert(role.to_string(), unquote(value).to_string());
-            }
-            continue;
-        }
-        if block == "params" {
-            if let Some((key, value)) = split_key_value(line) {
-                if let Ok(value) = value.parse::<f32>() {
-                    parsed.params.insert(key.to_string(), value);
+        self.expect(
+            MaterialTokenKind::Colon,
+            "expected ':' after material field",
+        );
+        let value = self.read_value_text();
+        match field.text.as_str() {
+            "schema_version" => match value.parse::<u32>() {
+                Ok(value) => parsed.schema_version = value,
+                Err(_) => self.add_error_at(&field, "invalid schema_version value"),
+            },
+            "name" => parsed.name = value,
+            "shading_model" => {
+                if matches!(
+                    value.as_str(),
+                    "LitPBR" | "lit_pbr" | "Unlit" | "unlit" | "Emissive" | "emissive"
+                ) {
+                    parsed.shading_model = value;
                 } else {
-                    parsed.diagnostics.push(AssetCookDiagnostic {
-                        severity: "warning".to_string(),
-                        message: format!("ignored non-numeric material parameter '{key}'"),
-                    });
+                    self.add_error_at(&field, format!("unknown shading_model '{value}'"));
                 }
             }
-            continue;
-        }
-        if block == "features" {
-            if let Some((key, value)) = split_key_value(line) {
-                parsed.features.insert(key.to_string(), value == "true");
-            }
-            continue;
-        }
-        if block.is_empty() {
-            if let Some((key, value)) = split_key_value(line) {
-                let value = unquote(value);
-                match key {
-                    "name" => parsed.name = value.to_string(),
-                    "shading_model" => parsed.shading_model = value.to_string(),
-                    "blend_mode" => parsed.blend_mode = value.to_string(),
-                    "cull_mode" => parsed.cull_mode = value.to_string(),
-                    "surface_profile" => parsed.surface_profile = value.to_string(),
-                    "receives_shadows" => parsed.receives_shadows = value != "false",
-                    _ => {}
+            "surface_profile" => parsed.surface_profile = value,
+            "blend_mode" => {
+                if matches!(
+                    value.as_str(),
+                    "Opaque" | "opaque" | "Masked" | "masked" | "AlphaClip" | "Blend" | "blend"
+                ) {
+                    parsed.blend_mode = if value == "AlphaClip" {
+                        "Masked".to_string()
+                    } else {
+                        value
+                    };
+                } else {
+                    self.add_error_at(&field, format!("unknown blend_mode '{value}'"));
                 }
             }
+            "cull_mode" => {
+                if matches!(
+                    value.as_str(),
+                    "Back" | "back" | "Front" | "front" | "None" | "none"
+                ) {
+                    parsed.cull_mode = value;
+                } else {
+                    self.add_error_at(&field, format!("unknown cull_mode '{value}'"));
+                }
+            }
+            "receives_shadows" => parsed.receives_shadows = value != "false",
+            "receives_decals" | "depth_layer" | "depth_bias" | "slope_depth_bias"
+            | "normal_offset" => {}
+            _ => self.add_error_at(&field, format!("unknown material field '{}'", field.text)),
         }
     }
-    parsed
+
+    fn parse_texture_block(&mut self, parsed: &mut ParsedMaterialSource) {
+        self.expect(MaterialTokenKind::LeftBrace, "expected '{' after textures");
+        while self.current.kind != MaterialTokenKind::RightBrace
+            && self.current.kind != MaterialTokenKind::End
+        {
+            if self.current.kind != MaterialTokenKind::Identifier {
+                self.add_error_current("expected texture slot name");
+                self.advance();
+                continue;
+            }
+            let role_token = self.current.clone();
+            self.advance();
+            self.expect(MaterialTokenKind::Colon, "expected ':' after texture slot");
+            let uri = self.read_value_text();
+            if let Some(role) = canonical_material_texture_role(&role_token.text) {
+                if parsed.textures.contains_key(&role) {
+                    self.add_error_at(&role_token, format!("duplicate texture role '{role}'"));
+                } else {
+                    parsed.textures.insert(role, uri);
+                }
+            } else {
+                self.add_error_at(
+                    &role_token,
+                    format!("unsupported texture role '{}'", role_token.text),
+                );
+            }
+        }
+        self.expect(MaterialTokenKind::RightBrace, "expected '}' after textures");
+    }
+
+    fn parse_param_block(&mut self, parsed: &mut ParsedMaterialSource) {
+        self.expect(MaterialTokenKind::LeftBrace, "expected '{' after params");
+        while self.current.kind != MaterialTokenKind::RightBrace
+            && self.current.kind != MaterialTokenKind::End
+        {
+            if self.current.kind != MaterialTokenKind::Identifier {
+                self.add_error_current("expected parameter name");
+                self.advance();
+                continue;
+            }
+            let name = self.current.text.clone();
+            self.advance();
+            self.expect(
+                MaterialTokenKind::Colon,
+                "expected ':' after parameter name",
+            );
+            if self.current.kind != MaterialTokenKind::Number {
+                self.add_error_current("expected numeric value");
+                self.advance();
+                continue;
+            }
+            match self.current.text.parse::<f32>() {
+                Ok(value) => {
+                    parsed.params.insert(name, value);
+                }
+                Err(_) => self.add_error_current("invalid numeric value"),
+            }
+            self.advance();
+        }
+        self.expect(MaterialTokenKind::RightBrace, "expected '}' after params");
+    }
+
+    fn parse_feature_block(&mut self, parsed: &mut ParsedMaterialSource) {
+        self.expect(MaterialTokenKind::LeftBrace, "expected '{' after features");
+        while self.current.kind != MaterialTokenKind::RightBrace
+            && self.current.kind != MaterialTokenKind::End
+        {
+            if self.current.kind != MaterialTokenKind::Identifier {
+                self.add_error_current("expected feature name");
+                self.advance();
+                continue;
+            }
+            let name = self.current.text.clone();
+            self.advance();
+            self.expect(MaterialTokenKind::Colon, "expected ':' after feature name");
+            let value = self.read_value_text();
+            match value.as_str() {
+                "true" => {
+                    parsed.features.insert(name, true);
+                }
+                "false" => {
+                    parsed.features.insert(name, false);
+                }
+                _ => self.add_error_current("expected boolean value"),
+            }
+        }
+        self.expect(MaterialTokenKind::RightBrace, "expected '}' after features");
+    }
+
+    fn parse_layer_block(&mut self, parsed: &mut ParsedMaterialSource) {
+        self.expect(MaterialTokenKind::LeftBrace, "expected '{' after layers");
+        while self.current.kind != MaterialTokenKind::RightBrace
+            && self.current.kind != MaterialTokenKind::End
+        {
+            if self.current.kind != MaterialTokenKind::Identifier {
+                self.add_error_current("expected layer name");
+                self.advance();
+                continue;
+            }
+            let mut layer = ParsedMaterialLayer {
+                name: self.current.text.clone(),
+                ..ParsedMaterialLayer::default()
+            };
+            self.advance();
+            self.expect(MaterialTokenKind::Colon, "expected ':' after layer name");
+            if self.current.kind == MaterialTokenKind::Identifier {
+                layer.operation = self.current.text.clone();
+                layer.raw = layer.operation.clone();
+                self.advance();
+            } else {
+                self.add_error_current("expected layer operation");
+            }
+            self.expect(
+                MaterialTokenKind::LeftParen,
+                "expected '(' after layer operation",
+            );
+            layer.raw.push('(');
+            while self.current.kind != MaterialTokenKind::RightParen
+                && self.current.kind != MaterialTokenKind::End
+            {
+                if self.current.kind == MaterialTokenKind::Comma {
+                    layer.raw.push(',');
+                    self.advance();
+                    continue;
+                }
+                let argument = self.read_value_text();
+                if !argument.is_empty() {
+                    if !layer.arguments.is_empty() && !layer.raw.ends_with(',') {
+                        layer.raw.push(',');
+                    }
+                    layer.raw.push_str(&argument);
+                    layer.arguments.push(argument);
+                }
+            }
+            self.expect(
+                MaterialTokenKind::RightParen,
+                "expected ')' after layer expression",
+            );
+            layer.raw.push(')');
+            parsed.layers.push(layer);
+        }
+        self.expect(MaterialTokenKind::RightBrace, "expected '}' after layers");
+    }
+
+    fn add_error_current(&mut self, message: impl Into<String>) {
+        let token = self.current.clone();
+        self.add_error_at(&token, message);
+    }
+
+    fn add_error_at(&mut self, token: &MaterialToken, message: impl Into<String>) {
+        self.lexer.diagnostics.push(cook_error_at(
+            self.lexer.source_path.clone(),
+            token.line,
+            token.column,
+            message,
+        ));
+    }
 }
 
-fn split_key_value(line: &str) -> Option<(&str, &str)> {
-    let (key, value) = line.split_once(':')?;
-    Some((key.trim(), value.trim().trim_end_matches(',')))
+fn parse_astermat_source(
+    source: &str,
+    fallback_id: &str,
+    source_path: &Path,
+) -> ParsedMaterialSource {
+    MaterialParser::new(source, source_path).parse(fallback_id, source_path)
 }
 
-fn unquote(value: &str) -> &str {
-    value.trim().trim_matches('"')
+fn canonical_material_texture_role(role: &str) -> Option<String> {
+    match role {
+        "albedo" | "base_color" | "baseColor" | "diffuse" => Some("albedo".to_string()),
+        "normal" => Some("normal".to_string()),
+        "orm" => Some("orm".to_string()),
+        "roughness" => Some("roughness".to_string()),
+        "metallic" => Some("metallic".to_string()),
+        "ao" | "occlusion" | "ambient_occlusion" => Some("ao".to_string()),
+        "height" | "displacement" => Some("height".to_string()),
+        "emissive" => Some("emissive".to_string()),
+        "wetness" => Some("wetness".to_string()),
+        "opacity" | "alpha" => Some("opacity".to_string()),
+        "mask" | "moss" | "crack" => Some("mask".to_string()),
+        _ if role.contains("mask") => Some("mask".to_string()),
+        _ => None,
+    }
+}
+
+fn validate_parsed_material(parsed: &mut ParsedMaterialSource, source_path: &Path) {
+    if parsed.id.is_empty() {
+        parsed
+            .diagnostics
+            .push(cook_error("material asset is missing an id"));
+    }
+    for layer in &parsed.layers {
+        if !matches!(
+            layer.operation.as_str(),
+            "triplanar" | "height_blend" | "slope_blend" | "wetness" | "moss"
+        ) {
+            parsed.diagnostics.push(cook_error(format!(
+                "unsupported layer operation '{}' in layer '{}'",
+                layer.operation, layer.name
+            )));
+        }
+    }
+    if !parsed.shading_model.eq_ignore_ascii_case("LitPBR") {
+        return;
+    }
+    for role in ["albedo", "normal"] {
+        if !parsed.textures.contains_key(role) {
+            parsed.diagnostics.push(cook_error(format!(
+                "LitPBR material '{}' requires '{}' texture",
+                parsed.id, role
+            )));
+        }
+    }
+    const SPLIT_ORM_ROLES: [&str; 3] = ["roughness", "metallic", "ao"];
+    let has_orm = parsed.textures.contains_key("orm");
+    let split_count = SPLIT_ORM_ROLES
+        .iter()
+        .filter(|role| parsed.textures.contains_key(**role))
+        .count();
+    if !has_orm && split_count == 0 {
+        parsed.diagnostics.push(cook_error(format!(
+            "LitPBR material '{}' requires 'orm' texture or complete roughness/metallic/ao sources",
+            parsed.id
+        )));
+    } else if !has_orm && split_count != SPLIT_ORM_ROLES.len() {
+        let missing = SPLIT_ORM_ROLES
+            .iter()
+            .filter(|role| !parsed.textures.contains_key(**role))
+            .copied()
+            .collect::<Vec<_>>()
+            .join(", ");
+        parsed.diagnostics.push(cook_error(format!(
+            "LitPBR material '{}' has incomplete split ORM sources; missing {}",
+            parsed.id, missing
+        )));
+    }
+    let _ = source_path;
 }
 
 fn param_or(parsed: &ParsedMaterialSource, name: &str, fallback: f32) -> f32 {
@@ -1661,7 +2773,7 @@ fn material_feature_mask(parsed: &ParsedMaterialSource) -> u64 {
     if parsed.textures.contains_key("normal") || parsed.features.get("normal_map") == Some(&true) {
         mask |= 1 << 1;
     }
-    if parsed.textures.contains_key("orm") {
+    if parsed.textures.contains_key("orm") || parsed_requires_split_orm_pack(parsed) {
         mask |= 1 << 2;
     }
     if parsed.textures.contains_key("height") {
@@ -1670,7 +2782,12 @@ fn material_feature_mask(parsed: &ParsedMaterialSource) -> u64 {
     if parsed.features.get("parallax") == Some(&true) {
         mask |= 1 << 4;
     }
-    if parsed.features.get("triplanar") == Some(&true) {
+    if parsed.features.get("triplanar") == Some(&true)
+        || parsed
+            .layers
+            .iter()
+            .any(|layer| layer.operation == "triplanar")
+    {
         mask |= 1 << 5;
     }
     if parsed.blend_mode != "Opaque" {
@@ -1909,7 +3026,7 @@ fn inspect_texture_header(bytes: &[u8]) -> (String, u32, u32, u32, Vec<String>) 
             0,
             0,
             1,
-            vec!["jpeg header was present but SOF dimensions were not found".to_string()],
+            vec!["error: jpeg header was present but SOF dimensions were not found".to_string()],
         );
     }
     if bytes.len() >= 4 && bytes.starts_with(&[0x76, 0x2f, 0x31, 0x01]) {
@@ -1918,7 +3035,7 @@ fn inspect_texture_header(bytes: &[u8]) -> (String, u32, u32, u32, Vec<String>) 
             0,
             0,
             1,
-            vec!["EXR payload detected; full dataWindow decode is deferred".to_string()],
+            vec!["error: EXR payload detected; full dataWindow decode is deferred".to_string()],
         );
     }
     (
@@ -1926,7 +3043,7 @@ fn inspect_texture_header(bytes: &[u8]) -> (String, u32, u32, u32, Vec<String>) 
         0,
         0,
         1,
-        vec!["unsupported texture header".to_string()],
+        vec!["error: unsupported texture header".to_string()],
     )
 }
 
@@ -4193,15 +5310,8 @@ mod tests {
     fn inspects_and_bakes_texture_metadata() {
         let dir = fixture_dir("texture");
         fs::create_dir_all(&dir).expect("texture dir");
-        let texture = dir.join("albedo.png");
-        let mut png = Vec::new();
-        png.extend_from_slice(&[0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n']);
-        png.extend_from_slice(&13u32.to_be_bytes());
-        png.extend_from_slice(b"IHDR");
-        png.extend_from_slice(&32u32.to_be_bytes());
-        png.extend_from_slice(&16u32.to_be_bytes());
-        png.extend_from_slice(&[8, 6, 0, 0, 0]);
-        fs::write(&texture, png).expect("png");
+        let texture = dir.join("albedo.ktx2");
+        write_ktx2_header(&texture, 32, 16, 6, 43);
 
         let summary = inspect_texture(&texture, "albedo").expect("inspect");
         assert_eq!(summary.kind, TextureImportKind::Albedo);
@@ -4210,14 +5320,11 @@ mod tests {
         assert_eq!(summary.height, 16);
         assert_eq!(summary.mip_count, texture_mip_count(32, 16));
 
-        let baked = dir.join("albedo.ktx2");
+        let baked = dir.join("cooked_albedo.ktx2");
         let baked_summary = bake_texture_to_ktx2(&texture, &baked, "albedo").expect("bake");
         assert_eq!(baked_summary.source_hash, summary.source_hash);
         let baked_bytes = fs::read(&baked).expect("baked bytes");
-        assert!(baked_bytes
-            .windows(b"ASTER_MIP_PAYLOADS_V1".len())
-            .any(|window| { window == b"ASTER_MIP_PAYLOADS_V1" }));
-        assert!(baked_bytes.len() > 96);
+        assert!(baked_bytes.starts_with(&[0xab, b'K', b'T', b'X', b' ', b'2', b'0', 0xbb]));
         let baked_read = inspect_texture(&baked, "albedo").expect("inspect baked");
         assert_eq!(baked_read.format, "ktx2");
         assert_eq!(baked_read.width, 32);
@@ -4236,13 +5343,31 @@ mod tests {
         fs::write(path, png).expect("png");
     }
 
+    fn write_ktx2_header(path: &Path, width: u32, height: u32, mip_count: u32, vk_format: u32) {
+        let mut ktx2 = Vec::new();
+        ktx2.extend_from_slice(&[0xab, b'K', b'T', b'X', b' ', b'2', b'0', 0xbb]);
+        ktx2.extend_from_slice(&[b'\r', b'\n', 0x1a, b'\n']);
+        ktx2.extend_from_slice(&vk_format.to_le_bytes());
+        ktx2.extend_from_slice(&1u32.to_le_bytes());
+        ktx2.extend_from_slice(&width.to_le_bytes());
+        ktx2.extend_from_slice(&height.to_le_bytes());
+        ktx2.extend_from_slice(&0u32.to_le_bytes());
+        ktx2.extend_from_slice(&0u32.to_le_bytes());
+        ktx2.extend_from_slice(&1u32.to_le_bytes());
+        ktx2.extend_from_slice(&mip_count.to_le_bytes());
+        ktx2.extend_from_slice(&1u32.to_le_bytes());
+        ktx2.extend_from_slice(b"ASTER_TEST_KTX2_PAYLOAD");
+        fs::write(path, ktx2).expect("ktx2");
+    }
+
     fn write_material_project(name: &str, missing_texture: bool) -> PathBuf {
         let dir = fixture_dir(name);
         fs::create_dir_all(dir.join("materials")).expect("materials dir");
         fs::create_dir_all(dir.join("textures")).expect("textures dir");
         if !missing_texture {
-            write_png_header(&dir.join("textures/wet_albedo.png"), 16, 8);
-            write_png_header(&dir.join("textures/wet_normal.png"), 16, 8);
+            write_ktx2_header(&dir.join("textures/wet_albedo.ktx2"), 16, 8, 4, 43);
+            write_ktx2_header(&dir.join("textures/wet_normal.ktx2"), 16, 8, 4, 37);
+            write_ktx2_header(&dir.join("textures/wet_orm.ktx2"), 16, 8, 4, 37);
         }
         fs::write(
             dir.join("materials/wet_rock.astermat"),
@@ -4256,8 +5381,9 @@ mod tests {
   receives_shadows: true
 
   textures {
-    albedo: "../textures/wet_albedo.png"
-    normal: "../textures/wet_normal.png"
+    albedo: "../textures/wet_albedo.ktx2"
+    normal: "../textures/wet_normal.ktx2"
+    orm: "../textures/wet_orm.ktx2"
   }
 
   params {
@@ -4318,7 +5444,10 @@ mod tests {
         )
         .expect("materialbin json");
         assert_eq!(material_bin.id, "WetRock");
-        assert_eq!(material_bin.textures.len(), 2);
+        assert_eq!(material_bin.textures.len(), 3);
+        assert_eq!(material_bin.textures[0].runtime_format, "ktx2");
+        assert!(material_bin.textures[0].byte_cost > 0);
+        assert_eq!(material_bin.textures[0].encoder, "passthrough-ktx2");
         assert!(material_bin.feature_mask & (1 << 0) != 0);
         assert!(material_bin.shader_variant_key != 0);
         assert!(report_asset_database(&db).contains("assets=1"));
@@ -4338,7 +5467,86 @@ mod tests {
             .dependencies
             .iter()
             .any(|dependency| !dependency.present));
+        assert!(result.database.records[0].outputs.is_empty());
+        assert!(!output.join("materials").exists());
+        assert!(!output.join("previews").exists());
+        assert!(!output.join("textures").exists());
         fs::remove_dir_all(project.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn cook_rejects_source_images_without_encoder() {
+        let project = write_material_project("cook_png_without_encoder", false);
+        let dir = project.parent().unwrap().to_path_buf();
+        write_png_header(&dir.join("textures/wet_albedo.ktx2"), 16, 8);
+        let output = dir.join("cooked/desktop");
+        let result = cook_project(&project, "desktop", &output).expect("cook");
+        assert!(result.error_count > 0);
+        assert!(result.database.records[0]
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("requires KTX2 source")));
+        assert!(result.database.records[0].outputs.is_empty());
+        assert!(!output.join("materials").exists());
+        assert!(!output.join("previews").exists());
+        assert!(!output.join("textures").exists());
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn cook_rejects_bad_material_roles_and_texture_color_space() {
+        let dir = fixture_dir("cook_bad_roles");
+        fs::create_dir_all(dir.join("materials")).expect("materials dir");
+        fs::create_dir_all(dir.join("textures")).expect("textures dir");
+        write_ktx2_header(&dir.join("textures/albedo.ktx2"), 16, 8, 4, 43);
+        write_ktx2_header(&dir.join("textures/normal.ktx2"), 16, 8, 4, 43);
+        write_ktx2_header(&dir.join("textures/orm.ktx2"), 16, 8, 4, 37);
+        fs::write(
+            dir.join("materials/bad.astermat"),
+            r#"material BadRoles {
+  shading_model: LitPBR
+  textures {
+    albedo: "../textures/albedo.ktx2"
+    normal: "../textures/normal.ktx2"
+    orm: "../textures/orm.ktx2"
+    banana: "../textures/orm.ktx2"
+  }
+}
+"#,
+        )
+        .expect("material");
+        fs::write(
+            dir.join("project.asterproj"),
+            r#"{
+  "schema_version": 1,
+  "name": "Bad Roles",
+  "assets": [
+    { "id": "material.bad_roles", "kind": "material", "path": "materials/bad.astermat" }
+  ]
+}
+"#,
+        )
+        .expect("project");
+        let result = cook_project(
+            &dir.join("project.asterproj"),
+            "desktop",
+            dir.join("cooked"),
+        )
+        .expect("cook");
+        assert!(result.error_count >= 2);
+        let messages = result.database.records[0]
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(messages.contains("unsupported texture role 'banana'"));
+        assert!(messages.contains("expects linear KTX2 VkFormat 37"));
+        assert!(result.database.records[0].outputs.is_empty());
+        assert!(!dir.join("cooked/materials").exists());
+        assert!(!dir.join("cooked/previews").exists());
+        assert!(!dir.join("cooked/textures").exists());
+        fs::remove_dir_all(dir).ok();
     }
 
     fn write_glb_fixture() -> PathBuf {
