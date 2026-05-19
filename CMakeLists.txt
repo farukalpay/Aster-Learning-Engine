@@ -32,6 +32,9 @@ endif()
 find_package(Threads REQUIRED)
 find_program(CARGO_EXECUTABLE cargo REQUIRED)
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+set(ASTER_KERNEL_PACKAGE_VERSION "5.0.0")
 
 if(WIN32)
   set(ASTER_RUST_STATICLIB_NAME "aster_runtime.lib")
@@ -450,8 +453,23 @@ install(TARGETS aster_game_sdk
 install(DIRECTORY include/aster/kernel DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aster)
 install(DIRECTORY include/aster/game_sdk DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aster)
 install(FILES abi/aster_kernel.symbols DESTINATION ${CMAKE_INSTALL_DATADIR}/aster/abi)
+configure_package_config_file(
+  "${PROJECT_SOURCE_DIR}/cmake/AsterKernelConfig.cmake.in"
+  "${PROJECT_BINARY_DIR}/AsterKernelConfig.cmake"
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AsterKernel
+)
+write_basic_package_version_file(
+  "${PROJECT_BINARY_DIR}/AsterKernelConfigVersion.cmake"
+  VERSION ${ASTER_KERNEL_PACKAGE_VERSION}
+  COMPATIBILITY SameMajorVersion
+)
 install(EXPORT AsterKernelTargets
   NAMESPACE aster::
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AsterKernel
+)
+install(FILES
+  "${PROJECT_BINARY_DIR}/AsterKernelConfig.cmake"
+  "${PROJECT_BINARY_DIR}/AsterKernelConfigVersion.cmake"
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AsterKernel
 )
 install(EXPORT AsterGameSdkTargets
@@ -527,6 +545,16 @@ if(ASTER_BUILD_TESTS)
     ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
   )
   add_test(NAME aster_kernel_contract_tests COMMAND aster_kernel_contract_tests)
+
+  add_test(NAME aster_external_app_minimal_install_tree
+    COMMAND ${CMAKE_COMMAND}
+      -DASTER_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+      -DASTER_BINARY_DIR=${PROJECT_BINARY_DIR}
+      -DASTER_INSTALL_DIR=${PROJECT_BINARY_DIR}/external_app_minimal_install
+      -DASTER_EXTERNAL_BUILD_DIR=${PROJECT_BINARY_DIR}/external_app_minimal_build
+      -DASTER_CONFIG=$<CONFIG>
+      -P ${PROJECT_SOURCE_DIR}/tools/check_external_app_minimal.cmake
+  )
 
   find_program(ASTER_NM_EXECUTABLE NAMES llvm-nm nm)
   if(ASTER_NM_EXECUTABLE AND NOT WIN32)

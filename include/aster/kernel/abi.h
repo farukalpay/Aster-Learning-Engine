@@ -23,8 +23,8 @@
 extern "C" {
 #endif
 
-#define ASTER_KERNEL_ABI_MAJOR 4u
-#define ASTER_KERNEL_ABI_MINOR 1u
+#define ASTER_KERNEL_ABI_MAJOR 5u
+#define ASTER_KERNEL_ABI_MINOR 0u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -41,7 +41,10 @@ enum {
   ASTER_STATUS_UNSUPPORTED = 2,
   ASTER_STATUS_OUT_OF_MEMORY = 3,
   ASTER_STATUS_INTERNAL_ERROR = 4,
-  ASTER_STATUS_ABI_MISMATCH = 5
+  ASTER_STATUS_ABI_MISMATCH = 5,
+  ASTER_STATUS_VALIDATION_ERROR = 6,
+  ASTER_STATUS_CAPABILITY_MISMATCH = 7,
+  ASTER_STATUS_LIFETIME_ERROR = 8
 };
 
 typedef struct AsterStatus {
@@ -73,6 +76,13 @@ typedef struct AsterSystemWorldHandle__ *AsterSystemWorldHandle;
 typedef struct AsterSampleAppHandle__ *AsterSampleAppHandle;
 typedef struct AsterShaderArtifactHandle__ *AsterShaderArtifactHandle;
 typedef struct AsterRenderPipelineHandle__ *AsterRenderPipelineHandle;
+typedef struct AsterTextureHandle__ *AsterTextureHandle;
+typedef struct AsterRenderTargetHandle__ *AsterRenderTargetHandle;
+typedef struct AsterBufferHandle__ *AsterBufferHandle;
+typedef struct AsterDescriptorHeapHandle__ *AsterDescriptorHeapHandle;
+typedef struct AsterDescriptorSetHandle__ *AsterDescriptorSetHandle;
+typedef struct AsterPipelineCacheHandle__ *AsterPipelineCacheHandle;
+typedef struct AsterFrameScheduleHandle__ *AsterFrameScheduleHandle;
 
 typedef enum AsterKernelBackendKind {
   ASTER_KERNEL_BACKEND_SOFTWARE_REFERENCE = 0,
@@ -259,6 +269,48 @@ typedef enum AsterKernelFrameDiagnosticKind {
   ASTER_KERNEL_FRAME_DIAGNOSTIC_BACKEND_PROJECTION_DRIFT = 13,
   ASTER_KERNEL_FRAME_DIAGNOSTIC_PREDICATE_UNCERTAINTY = 14
 } AsterKernelFrameDiagnosticKind;
+
+typedef enum AsterValidationKind {
+  ASTER_VALIDATION_UNKNOWN = 0,
+  ASTER_VALIDATION_TEXTURE_ROLE_MISMATCH = 1,
+  ASTER_VALIDATION_TEXTURE_COLOR_SPACE_MISMATCH = 2,
+  ASTER_VALIDATION_TEXTURE_NORMAL_CONVENTION_MISMATCH = 3,
+  ASTER_VALIDATION_MISSING_REQUIRED_TEXTURE = 4,
+  ASTER_VALIDATION_INVALID_TRANSFORM = 5,
+  ASTER_VALIDATION_INVALID_MESH = 6,
+  ASTER_VALIDATION_DESTROYED_HANDLE_USE = 7,
+  ASTER_VALIDATION_UNSUPPORTED_BACKEND_RESOURCE = 8,
+  ASTER_VALIDATION_RENDER_TARGET_MISMATCH = 9,
+  ASTER_VALIDATION_CAPTURE_BEFORE_RENDER = 10,
+  ASTER_VALIDATION_BACKEND_CAPABILITY_MISMATCH = 11,
+  ASTER_VALIDATION_LIFETIME_ERROR = 12
+} AsterValidationKind;
+
+typedef enum AsterTextureRole {
+  ASTER_TEXTURE_ROLE_ALBEDO = 0,
+  ASTER_TEXTURE_ROLE_NORMAL = 1,
+  ASTER_TEXTURE_ROLE_ORM = 2,
+  ASTER_TEXTURE_ROLE_ROUGHNESS = 3,
+  ASTER_TEXTURE_ROLE_METALLIC = 4,
+  ASTER_TEXTURE_ROLE_AO = 5,
+  ASTER_TEXTURE_ROLE_HEIGHT = 6,
+  ASTER_TEXTURE_ROLE_EMISSIVE = 7,
+  ASTER_TEXTURE_ROLE_WETNESS = 8,
+  ASTER_TEXTURE_ROLE_OPACITY = 9,
+  ASTER_TEXTURE_ROLE_MASK = 10,
+  ASTER_TEXTURE_ROLE_UNKNOWN = 255
+} AsterTextureRole;
+
+typedef enum AsterTextureColorSpace {
+  ASTER_TEXTURE_COLOR_SPACE_LINEAR = 0,
+  ASTER_TEXTURE_COLOR_SPACE_SRGB = 1
+} AsterTextureColorSpace;
+
+typedef enum AsterTextureNormalConvention {
+  ASTER_TEXTURE_NORMAL_CONVENTION_NONE = 0,
+  ASTER_TEXTURE_NORMAL_CONVENTION_OPENGL = 1,
+  ASTER_TEXTURE_NORMAL_CONVENTION_DIRECTX = 2
+} AsterTextureNormalConvention;
 
 typedef enum AsterMathError {
   ASTER_MATH_ERROR_NONE = 0,
@@ -527,6 +579,17 @@ typedef struct AsterBackendCapabilityTable {
   uint32_t max_dynamic_uniform_bytes;
 } AsterBackendCapabilityTable;
 
+typedef struct AsterValidationEvent {
+  size_t size;
+  uint32_t version;
+  AsterValidationKind kind;
+  AsterKernelFrameDiagnosticSeverity severity;
+  AsterStringView source;
+  AsterStringView label;
+  AsterStringView message;
+  uint64_t value;
+} AsterValidationEvent;
+
 typedef struct AsterShaderModuleSource {
   AsterStringView name;
   AsterStringView source;
@@ -567,6 +630,138 @@ typedef struct AsterRenderPipelineDesc {
   AsterStringView debug_label;
 } AsterRenderPipelineDesc;
 
+typedef struct AsterTextureDesc {
+  size_t size;
+  uint32_t version;
+  AsterTextureRole role;
+  AsterTextureColorSpace color_space;
+  AsterTextureNormalConvention normal_convention;
+  AsterKernelBackendFormat format;
+  uint32_t width;
+  uint32_t height;
+  uint32_t mip_count;
+  AsterSpan data;
+  AsterStringView debug_label;
+} AsterTextureDesc;
+
+typedef struct AsterMaterialTextureBinding {
+  size_t size;
+  uint32_t version;
+  AsterTextureRole role;
+  AsterTextureHandle texture;
+} AsterMaterialTextureBinding;
+
+typedef struct AsterRenderTargetDesc {
+  size_t size;
+  uint32_t version;
+  AsterKernelBackendFormat color_format;
+  AsterKernelBackendFormat depth_format;
+  uint32_t width;
+  uint32_t height;
+  uint32_t sample_count;
+  AsterStringView debug_label;
+} AsterRenderTargetDesc;
+
+typedef struct AsterBufferDesc {
+  size_t size;
+  uint32_t version;
+  uint64_t byte_size;
+  uint32_t usage;
+  AsterStringView debug_label;
+} AsterBufferDesc;
+
+typedef struct AsterDescriptorHeapDesc {
+  size_t size;
+  uint32_t version;
+  uint32_t descriptor_capacity;
+  uint32_t shader_visible;
+  AsterStringView debug_label;
+} AsterDescriptorHeapDesc;
+
+typedef struct AsterDescriptorSetDesc {
+  size_t size;
+  uint32_t version;
+  AsterDescriptorHeapHandle heap;
+  uint32_t descriptor_count;
+  AsterStringView debug_label;
+} AsterDescriptorSetDesc;
+
+typedef struct AsterPipelineCacheDesc {
+  size_t size;
+  uint32_t version;
+  uint64_t seed;
+  AsterStringView debug_label;
+} AsterPipelineCacheDesc;
+
+typedef struct AsterFrameScheduleCounts {
+  size_t size;
+  uint32_t version;
+  size_t pass_count;
+  size_t transition_count;
+  size_t descriptor_layout_count;
+  size_t pipeline_count;
+  size_t transient_allocation_count;
+  size_t timeline_count;
+  size_t validation_event_count;
+} AsterFrameScheduleCounts;
+
+typedef struct AsterFrameSchedulePassInfo {
+  size_t size;
+  uint32_t version;
+  AsterKernelRenderGraphPass pass;
+  AsterKernelRhiQueueKind queue;
+  AsterStringView name;
+  size_t command_buffer_count;
+  uint64_t signal_fence_value;
+  uint64_t pipeline_cache_key;
+  uint64_t descriptor_layout_hash;
+} AsterFrameSchedulePassInfo;
+
+typedef struct AsterFrameScheduleMemoryReport {
+  size_t size;
+  uint32_t version;
+  uint64_t budget_bytes;
+  uint64_t resident_bytes;
+  uint64_t transient_bytes;
+  uint64_t aliased_bytes_saved;
+} AsterFrameScheduleMemoryReport;
+
+typedef struct AsterFrameScheduleDescriptorInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView label;
+  uint64_t layout_hash;
+  size_t range_count;
+} AsterFrameScheduleDescriptorInfo;
+
+typedef struct AsterFrameSchedulePipelineInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView label;
+  uint64_t cache_key;
+  uint64_t descriptor_layout_hash;
+} AsterFrameSchedulePipelineInfo;
+
+typedef struct AsterFrameScheduleTransientAllocationInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView label;
+  size_t physical_allocation_id;
+  size_t first_pass;
+  size_t last_pass;
+  uint64_t byte_size;
+  size_t resource_count;
+} AsterFrameScheduleTransientAllocationInfo;
+
+typedef struct AsterFrameScheduleTimelineInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView label;
+  AsterKernelRhiQueueKind queue;
+  uint64_t submitted_value;
+  uint64_t completed_value;
+} AsterFrameScheduleTimelineInfo;
+
 typedef struct AsterFrameGraphDesc {
   size_t size;
   uint32_t version;
@@ -603,6 +798,7 @@ typedef struct AsterMaterialDesc {
   AsterKernelMaterialAlphaMode alpha_mode;
   uint32_t double_sided;
   AsterStringView debug_label;
+  AsterSpan texture_bindings;
 } AsterMaterialDesc;
 
 typedef struct AsterSceneObjectDesc {
@@ -639,6 +835,7 @@ typedef struct AsterRendererSettings {
   uint32_t framebuffer_width;
   uint32_t framebuffer_height;
   uint32_t flags;
+  AsterRenderTargetHandle render_target;
 } AsterRendererSettings;
 
 typedef struct AsterFrameStats {
@@ -884,6 +1081,10 @@ ASTER_KERNEL_API AsterStatus aster_kernel_engine_create(const AsterEngineDesc *d
                                                         AsterEngineHandle *out_engine);
 ASTER_KERNEL_API AsterStatus aster_kernel_engine_destroy(AsterEngineHandle engine);
 ASTER_KERNEL_API AsterStatus aster_kernel_engine_last_status(AsterEngineHandle engine);
+ASTER_KERNEL_API AsterStatus aster_kernel_engine_validation_event_count(
+    AsterEngineHandle engine, size_t *out_count);
+ASTER_KERNEL_API AsterStatus aster_kernel_engine_validation_event(
+    AsterEngineHandle engine, size_t index, AsterValidationEvent *out_event);
 
 ASTER_KERNEL_API AsterStatus aster_kernel_window_create(const AsterWindowDesc *desc,
                                                         AsterWindowHandle *out_window);
@@ -913,12 +1114,21 @@ ASTER_KERNEL_API AsterStatus aster_kernel_renderer_get_backend_capability_table(
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_render_frame(
     AsterRendererHandle renderer, AsterSceneHandle scene, const AsterCameraDesc *camera,
     const AsterRendererSettings *settings);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_render_frame_to_target(
+    AsterRendererHandle renderer, AsterSceneHandle scene, AsterRenderTargetHandle target,
+    const AsterCameraDesc *camera, const AsterRendererSettings *settings);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_present(AsterRendererHandle renderer,
                                                            AsterWindowHandle window);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_capture(AsterRendererHandle renderer,
                                                            const AsterCaptureDesc *desc);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_capture_render_target(
+    AsterRendererHandle renderer, AsterRenderTargetHandle target, const AsterCaptureDesc *desc);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_last_stats(AsterRendererHandle renderer,
                                                               AsterFrameStats *out_stats);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_validation_event_count(
+    AsterRendererHandle renderer, size_t *out_count);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_validation_event(
+    AsterRendererHandle renderer, size_t index, AsterValidationEvent *out_event);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_forensics_counts(
     AsterRendererHandle renderer, AsterFrameForensicsCounts *out_counts);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
@@ -950,6 +1160,8 @@ aster_kernel_renderer_timestamp_sample(AsterRendererHandle renderer, size_t inde
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_backend_feature_proof(AsterRendererHandle renderer, size_t index,
                                             AsterBackendFeatureProof *out_proof);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_get_last_frame_schedule(
+    AsterRendererHandle renderer, AsterFrameScheduleHandle *out_schedule);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_destroy(AsterRendererHandle renderer);
 
 ASTER_KERNEL_API AsterStatus aster_kernel_mesh_create(AsterEngineHandle engine,
@@ -961,6 +1173,56 @@ ASTER_KERNEL_API AsterStatus aster_kernel_material_create(AsterEngineHandle engi
                                                           const AsterMaterialDesc *desc,
                                                           AsterMaterialHandle *out_material);
 ASTER_KERNEL_API AsterStatus aster_kernel_material_destroy(AsterMaterialHandle material);
+
+ASTER_KERNEL_API AsterStatus aster_kernel_texture_create(AsterEngineHandle engine,
+                                                         const AsterTextureDesc *desc,
+                                                         AsterTextureHandle *out_texture);
+ASTER_KERNEL_API AsterStatus aster_kernel_texture_destroy(AsterTextureHandle texture);
+
+ASTER_KERNEL_API AsterStatus
+aster_kernel_render_target_create(AsterEngineHandle engine, const AsterRenderTargetDesc *desc,
+                                  AsterRenderTargetHandle *out_target);
+ASTER_KERNEL_API AsterStatus aster_kernel_render_target_destroy(AsterRenderTargetHandle target);
+
+ASTER_KERNEL_API AsterStatus aster_kernel_buffer_create(AsterEngineHandle engine,
+                                                        const AsterBufferDesc *desc,
+                                                        AsterBufferHandle *out_buffer);
+ASTER_KERNEL_API AsterStatus aster_kernel_buffer_destroy(AsterBufferHandle buffer);
+
+ASTER_KERNEL_API AsterStatus aster_kernel_descriptor_heap_create(
+    AsterEngineHandle engine, const AsterDescriptorHeapDesc *desc,
+    AsterDescriptorHeapHandle *out_heap);
+ASTER_KERNEL_API AsterStatus aster_kernel_descriptor_heap_destroy(AsterDescriptorHeapHandle heap);
+
+ASTER_KERNEL_API AsterStatus aster_kernel_descriptor_set_create(
+    AsterEngineHandle engine, const AsterDescriptorSetDesc *desc,
+    AsterDescriptorSetHandle *out_set);
+ASTER_KERNEL_API AsterStatus aster_kernel_descriptor_set_destroy(AsterDescriptorSetHandle set);
+
+ASTER_KERNEL_API AsterStatus aster_kernel_pipeline_cache_create(
+    AsterEngineHandle engine, const AsterPipelineCacheDesc *desc,
+    AsterPipelineCacheHandle *out_cache);
+ASTER_KERNEL_API AsterStatus aster_kernel_pipeline_cache_destroy(AsterPipelineCacheHandle cache);
+
+ASTER_KERNEL_API AsterStatus aster_kernel_frame_schedule_counts(
+    AsterFrameScheduleHandle schedule, AsterFrameScheduleCounts *out_counts);
+ASTER_KERNEL_API AsterStatus aster_kernel_frame_schedule_pass(
+    AsterFrameScheduleHandle schedule, size_t index, AsterFrameSchedulePassInfo *out_pass);
+ASTER_KERNEL_API AsterStatus aster_kernel_frame_schedule_memory_report(
+    AsterFrameScheduleHandle schedule, AsterFrameScheduleMemoryReport *out_report);
+ASTER_KERNEL_API AsterStatus aster_kernel_frame_schedule_descriptor_layout(
+    AsterFrameScheduleHandle schedule, size_t index, AsterFrameScheduleDescriptorInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_frame_schedule_pipeline(
+    AsterFrameScheduleHandle schedule, size_t index, AsterFrameSchedulePipelineInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_frame_schedule_transient_allocation(
+    AsterFrameScheduleHandle schedule, size_t index,
+    AsterFrameScheduleTransientAllocationInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_frame_schedule_timeline(
+    AsterFrameScheduleHandle schedule, size_t index, AsterFrameScheduleTimelineInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_frame_schedule_validation_event(
+    AsterFrameScheduleHandle schedule, size_t index, AsterValidationEvent *out_event);
+ASTER_KERNEL_API AsterStatus aster_kernel_frame_schedule_destroy(
+    AsterFrameScheduleHandle schedule);
 
 ASTER_KERNEL_API AsterStatus
 aster_kernel_shader_compile(AsterEngineHandle engine, const AsterShaderCompileDesc *desc,

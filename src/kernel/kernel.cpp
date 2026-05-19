@@ -15,7 +15,9 @@
 #include "aster/shader/shader_compiler.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -37,11 +39,29 @@ constexpr std::uint32_t kMeshMagic = 0x41544d45u;
 constexpr std::uint32_t kMaterialMagic = 0x41544d41u;
 constexpr std::uint32_t kShaderMagic = 0x41545348u;
 constexpr std::uint32_t kPipelineMagic = 0x41545049u;
+constexpr std::uint32_t kTextureMagic = 0x41545458u;
+constexpr std::uint32_t kRenderTargetMagic = 0x41545254u;
+constexpr std::uint32_t kBufferMagic = 0x41544246u;
+constexpr std::uint32_t kDescriptorHeapMagic = 0x41544448u;
+constexpr std::uint32_t kDescriptorSetMagic = 0x41544453u;
+constexpr std::uint32_t kPipelineCacheMagic = 0x41545043u;
+constexpr std::uint32_t kFrameScheduleMagic = 0x41544653u;
+constexpr std::uint32_t kRetiredMagic = 0xDEAD5A5Au;
+
+struct KernelValidationRecord {
+  AsterValidationKind kind = ASTER_VALIDATION_UNKNOWN;
+  AsterKernelFrameDiagnosticSeverity severity = ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR;
+  std::string source;
+  std::string label;
+  std::string message;
+  std::uint64_t value = 0u;
+};
 
 struct AsterEngineHandle__ {
   std::uint32_t magic = kEngineMagic;
   AsterStatus last_status{sizeof(AsterStatus), ASTER_KERNEL_STRUCT_VERSION_1, ASTER_STATUS_OK,
                           "ok"};
+  std::vector<KernelValidationRecord> validation_events;
 };
 
 struct AsterWindowHandle__ {
@@ -56,6 +76,7 @@ struct AsterWindowHandle__ {
 
 struct AsterSceneHandle__ {
   std::uint32_t magic = kSceneMagic;
+  AsterEngineHandle owner = nullptr;
   aster::Scene scene;
 };
 
@@ -70,6 +91,7 @@ struct AsterMaterialHandle__ {
   std::uint32_t magic = kMaterialMagic;
   aster::Material material;
   std::string label;
+  std::vector<AsterTextureRole> texture_roles;
 };
 
 struct AsterRendererHandle__ {
@@ -78,6 +100,9 @@ struct AsterRendererHandle__ {
   AsterWindowHandle bound_window = nullptr;
   AsterFrameStats last_stats{};
   std::vector<std::string> string_scratch;
+  std::vector<KernelValidationRecord> validation_events;
+  AsterRenderTargetHandle active_target = nullptr;
+  bool has_rendered_frame = false;
   std::chrono::steady_clock::time_point started_at = std::chrono::steady_clock::now();
 
   AsterRendererHandle__() {
@@ -97,6 +122,62 @@ struct AsterRenderPipelineHandle__ {
   std::uint32_t magic = kPipelineMagic;
   AsterShaderArtifactHandle shader = nullptr;
   std::string label;
+};
+
+struct AsterTextureHandle__ {
+  std::uint32_t magic = kTextureMagic;
+  AsterTextureRole role = ASTER_TEXTURE_ROLE_UNKNOWN;
+  AsterTextureColorSpace color_space = ASTER_TEXTURE_COLOR_SPACE_LINEAR;
+  AsterTextureNormalConvention normal_convention = ASTER_TEXTURE_NORMAL_CONVENTION_NONE;
+  AsterKernelBackendFormat format = ASTER_KERNEL_BACKEND_FORMAT_UNKNOWN;
+  std::uint32_t width = 1u;
+  std::uint32_t height = 1u;
+  std::uint32_t mip_count = 1u;
+  std::string label;
+};
+
+struct AsterRenderTargetHandle__ {
+  std::uint32_t magic = kRenderTargetMagic;
+  AsterKernelBackendFormat color_format = ASTER_KERNEL_BACKEND_FORMAT_BGRA8_UNORM;
+  AsterKernelBackendFormat depth_format = ASTER_KERNEL_BACKEND_FORMAT_DEPTH32_FLOAT;
+  std::uint32_t width = 1u;
+  std::uint32_t height = 1u;
+  std::uint32_t sample_count = 1u;
+  std::string label;
+};
+
+struct AsterBufferHandle__ {
+  std::uint32_t magic = kBufferMagic;
+  std::uint64_t byte_size = 0u;
+  std::uint32_t usage = 0u;
+  std::string label;
+};
+
+struct AsterDescriptorHeapHandle__ {
+  std::uint32_t magic = kDescriptorHeapMagic;
+  std::uint32_t descriptor_capacity = 0u;
+  bool shader_visible = true;
+  std::string label;
+};
+
+struct AsterDescriptorSetHandle__ {
+  std::uint32_t magic = kDescriptorSetMagic;
+  AsterDescriptorHeapHandle heap = nullptr;
+  std::uint32_t descriptor_count = 0u;
+  std::string label;
+};
+
+struct AsterPipelineCacheHandle__ {
+  std::uint32_t magic = kPipelineCacheMagic;
+  std::uint64_t seed = 0u;
+  std::string label;
+};
+
+struct AsterFrameScheduleHandle__ {
+  std::uint32_t magic = kFrameScheduleMagic;
+  std::vector<aster::FramePassStats> passes;
+  aster::rhi::FrameTrace trace;
+  std::vector<KernelValidationRecord> validation_events;
 };
 
 namespace {
@@ -175,10 +256,163 @@ bool validShader(const AsterShaderArtifactHandle shader) {
   return shader != nullptr && shader->magic == kShaderMagic;
 }
 
+bool validPipeline(const AsterRenderPipelineHandle pipeline) {
+  return pipeline != nullptr && pipeline->magic == kPipelineMagic;
+}
+
+bool validTexture(const AsterTextureHandle texture) {
+  return texture != nullptr && texture->magic == kTextureMagic;
+}
+
+bool retiredTexture(const AsterTextureHandle texture) {
+  return texture != nullptr && texture->magic == kRetiredMagic;
+}
+
+bool validRenderTarget(const AsterRenderTargetHandle target) {
+  return target != nullptr && target->magic == kRenderTargetMagic;
+}
+
+bool retiredRenderTarget(const AsterRenderTargetHandle target) {
+  return target != nullptr && target->magic == kRetiredMagic;
+}
+
+bool validDescriptorHeap(const AsterDescriptorHeapHandle heap) {
+  return heap != nullptr && heap->magic == kDescriptorHeapMagic;
+}
+
+bool retiredDescriptorHeap(const AsterDescriptorHeapHandle heap) {
+  return heap != nullptr && heap->magic == kRetiredMagic;
+}
+
+bool validFrameSchedule(const AsterFrameScheduleHandle schedule) {
+  return schedule != nullptr && schedule->magic == kFrameScheduleMagic;
+}
+
+bool finiteValue(const float value) {
+  return std::isfinite(value);
+}
+
+bool finiteVec2(const AsterVec2 value) {
+  return finiteValue(value.x) && finiteValue(value.y);
+}
+
+bool finiteVec3(const AsterVec3 value) {
+  return finiteValue(value.x) && finiteValue(value.y) && finiteValue(value.z);
+}
+
+bool finiteVec4(const AsterVec4 value) {
+  return finiteValue(value.x) && finiteValue(value.y) && finiteValue(value.z) &&
+         finiteValue(value.w);
+}
+
+bool srgbFormat(const AsterKernelBackendFormat format) {
+  switch (format) {
+  case ASTER_KERNEL_BACKEND_FORMAT_RGBA8_SRGB:
+  case ASTER_KERNEL_BACKEND_FORMAT_BGRA8_SRGB:
+  case ASTER_KERNEL_BACKEND_FORMAT_BC1_RGBA_SRGB:
+  case ASTER_KERNEL_BACKEND_FORMAT_BC3_RGBA_SRGB:
+  case ASTER_KERNEL_BACKEND_FORMAT_BC7_RGBA_SRGB:
+  case ASTER_KERNEL_BACKEND_FORMAT_ASTC4X4_RGBA_SRGB:
+    return true;
+  default:
+    return false;
+  }
+}
+
+bool colorSpaceRequiresSrgb(const AsterTextureRole role) {
+  return role == ASTER_TEXTURE_ROLE_ALBEDO || role == ASTER_TEXTURE_ROLE_EMISSIVE;
+}
+
+const char *textureRoleName(const AsterTextureRole role) {
+  switch (role) {
+  case ASTER_TEXTURE_ROLE_ALBEDO:
+    return "albedo";
+  case ASTER_TEXTURE_ROLE_NORMAL:
+    return "normal";
+  case ASTER_TEXTURE_ROLE_ORM:
+    return "orm";
+  case ASTER_TEXTURE_ROLE_ROUGHNESS:
+    return "roughness";
+  case ASTER_TEXTURE_ROLE_METALLIC:
+    return "metallic";
+  case ASTER_TEXTURE_ROLE_AO:
+    return "ao";
+  case ASTER_TEXTURE_ROLE_HEIGHT:
+    return "height";
+  case ASTER_TEXTURE_ROLE_EMISSIVE:
+    return "emissive";
+  case ASTER_TEXTURE_ROLE_WETNESS:
+    return "wetness";
+  case ASTER_TEXTURE_ROLE_OPACITY:
+    return "opacity";
+  case ASTER_TEXTURE_ROLE_MASK:
+    return "mask";
+  case ASTER_TEXTURE_ROLE_UNKNOWN:
+  default:
+    return "unknown";
+  }
+}
+
+bool hasFormatBit(const std::uint64_t mask, const AsterKernelBackendFormat format) {
+  const std::uint32_t bit = static_cast<std::uint32_t>(format);
+  return bit < 64u && (mask & (1ull << bit)) != 0ull;
+}
+
+bool hasSampleCountBit(const std::uint64_t mask, const std::uint32_t sample_count) {
+  return sample_count < 64u && (mask & (1ull << sample_count)) != 0ull;
+}
+
 void setLastStatus(const AsterEngineHandle engine, const AsterStatus status) {
   if (validEngine(engine)) {
     engine->last_status = status;
   }
+}
+
+void appendValidation(std::vector<KernelValidationRecord> &events, const AsterValidationKind kind,
+                      const AsterKernelFrameDiagnosticSeverity severity, std::string source,
+                      std::string label, std::string message, const std::uint64_t value = 0u) {
+  events.push_back({kind, severity, std::move(source), std::move(label), std::move(message), value});
+}
+
+AsterStatus failWithValidation(const AsterEngineHandle engine, const AsterStatusCode code,
+                               const char *message, const AsterValidationKind kind,
+                               std::string source, std::string label,
+                               const std::uint64_t value = 0u) {
+  const AsterStatus status = makeStatus(code, message);
+  if (validEngine(engine)) {
+    setLastStatus(engine, status);
+    appendValidation(engine->validation_events, kind, ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR,
+                     std::move(source), std::move(label), message, value);
+  }
+  return status;
+}
+
+void appendRendererValidation(const AsterRendererHandle renderer, const AsterValidationKind kind,
+                              const AsterKernelFrameDiagnosticSeverity severity,
+                              std::string source, std::string label, std::string message,
+                              const std::uint64_t value = 0u) {
+  if (renderer != nullptr && renderer->magic == kRendererMagic) {
+    appendValidation(renderer->validation_events, kind, severity, std::move(source),
+                     std::move(label), std::move(message), value);
+  }
+}
+
+AsterStatus validationEventAt(const std::vector<KernelValidationRecord> &events,
+                              const std::size_t index, AsterValidationEvent *out_event) {
+  if (!validStruct(out_event)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "validation event struct version is not supported");
+  }
+  if (index >= events.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "validation event index is out of range");
+  }
+  const KernelValidationRecord &event = events[index];
+  out_event->kind = event.kind;
+  out_event->severity = event.severity;
+  out_event->source = viewFromString(event.source);
+  out_event->label = viewFromString(event.label);
+  out_event->message = viewFromString(event.message);
+  out_event->value = event.value;
+  return aster_kernel_status_ok();
 }
 
 template <typename Handle> AsterStatus destroyHandle(Handle handle, const std::uint32_t magic) {
@@ -187,6 +421,14 @@ template <typename Handle> AsterStatus destroyHandle(Handle handle, const std::u
   }
   handle->magic = 0u;
   delete handle;
+  return makeStatus(ASTER_STATUS_OK, "ok");
+}
+
+template <typename Handle> AsterStatus retireHandle(Handle handle, const std::uint32_t magic) {
+  if (handle == nullptr || handle->magic != magic) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "handle is invalid");
+  }
+  handle->magic = kRetiredMagic;
   return makeStatus(ASTER_STATUS_OK, "ok");
 }
 
@@ -770,6 +1012,12 @@ AsterStatus aster_kernel_status_from_code(const AsterStatusCode code) {
     return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "out of memory");
   case ASTER_STATUS_ABI_MISMATCH:
     return makeStatus(ASTER_STATUS_ABI_MISMATCH, "ABI mismatch");
+  case ASTER_STATUS_VALIDATION_ERROR:
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR, "validation error");
+  case ASTER_STATUS_CAPABILITY_MISMATCH:
+    return makeStatus(ASTER_STATUS_CAPABILITY_MISMATCH, "capability mismatch");
+  case ASTER_STATUS_LIFETIME_ERROR:
+    return makeStatus(ASTER_STATUS_LIFETIME_ERROR, "lifetime error");
   case ASTER_STATUS_INTERNAL_ERROR:
   default:
     return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "internal error");
@@ -1164,6 +1412,27 @@ AsterStatus aster_kernel_engine_last_status(const AsterEngineHandle engine) {
   return engine->last_status;
 }
 
+AsterStatus aster_kernel_engine_validation_event_count(const AsterEngineHandle engine,
+                                                       std::size_t *out_count) {
+  if (!validEngine(engine)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "engine handle is invalid");
+  }
+  if (out_count == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_count is null");
+  }
+  *out_count = engine->validation_events.size();
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_engine_validation_event(const AsterEngineHandle engine,
+                                                 const std::size_t index,
+                                                 AsterValidationEvent *out_event) {
+  if (!validEngine(engine)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "engine handle is invalid");
+  }
+  return validationEventAt(engine->validation_events, index, out_event);
+}
+
 AsterStatus aster_kernel_window_create(const AsterWindowDesc *desc,
                                        AsterWindowHandle *out_window) {
   if (out_window == nullptr) {
@@ -1257,7 +1526,9 @@ AsterStatus aster_kernel_scene_create(const AsterEngineHandle engine, AsterScene
   }
   *out_scene = nullptr;
   try {
-    *out_scene = new AsterSceneHandle__();
+    auto *scene = new AsterSceneHandle__();
+    scene->owner = engine;
+    *out_scene = scene;
   } catch (const std::bad_alloc &) {
     return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "scene allocation failed");
   }
@@ -1283,23 +1554,36 @@ AsterStatus aster_kernel_scene_add_object(const AsterSceneHandle scene,
   if (!validStringView(desc->debug_label)) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "scene object label has a size but no data");
   }
+  const std::string label = stringFromView(desc->debug_label);
+  if (!finiteVec3(desc->position) || !finiteVec3(desc->rotation) || !finiteVec3(desc->scale) ||
+      desc->scale.x == 0.0f || desc->scale.y == 0.0f || desc->scale.z == 0.0f) {
+    return failWithValidation(scene->owner, ASTER_STATUS_VALIDATION_ERROR,
+                              "scene object transform is invalid",
+                              ASTER_VALIDATION_INVALID_TRANSFORM, "scene.add_object", label);
+  }
+  if (desc->mesh != nullptr && !validMesh(desc->mesh)) {
+    return failWithValidation(scene->owner, ASTER_STATUS_LIFETIME_ERROR,
+                              "scene object mesh handle is invalid",
+                              ASTER_VALIDATION_DESTROYED_HANDLE_USE, "scene.add_object", label);
+  }
+  if (!validMaterial(desc->material)) {
+    return failWithValidation(scene->owner, ASTER_STATUS_VALIDATION_ERROR,
+                              "scene object requires a valid material",
+                              ASTER_VALIDATION_MISSING_REQUIRED_TEXTURE, "scene.add_object", label);
+  }
+  if (desc->pipeline != nullptr && !validPipeline(desc->pipeline)) {
+    return failWithValidation(scene->owner, ASTER_STATUS_LIFETIME_ERROR,
+                              "scene object pipeline handle is invalid",
+                              ASTER_VALIDATION_DESTROYED_HANDLE_USE, "scene.add_object", label);
+  }
   aster::RenderObject object;
-  object.name = stringFromView(desc->debug_label);
+  object.name = label;
   object.primitive = validMesh(desc->mesh) ? desc->mesh->primitive : meshPrimitive(desc->primitive);
   object.custom_mesh = validMesh(desc->mesh) ? desc->mesh->custom_mesh : nullptr;
-  if (validMaterial(desc->material)) {
-    object.material = desc->material->material;
-  } else {
-    object.material =
-        aster::makeMaterial({.base_color = aster::LinearRgb{0.8f, 0.82f, 0.86f}});
-  }
+  object.material = desc->material->material;
   object.transform.position = vec(desc->position);
   object.transform.rotation = aster::quatFromEulerXyz(vec(desc->rotation));
   object.transform.scale = vec(desc->scale);
-  if (object.transform.scale.x == 0.0f && object.transform.scale.y == 0.0f &&
-      object.transform.scale.z == 0.0f) {
-    object.transform.scale = {1.0f, 1.0f, 1.0f};
-  }
   scene->scene.objects().push_back(std::move(object));
   return aster_kernel_status_ok();
 }
@@ -1402,6 +1686,10 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
   if (!validStruct(camera) || !validStruct(settings)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH, "render frame struct version is not supported");
   }
+  if (settings->render_target != nullptr) {
+    return aster_kernel_renderer_render_frame_to_target(renderer, scene, settings->render_target,
+                                                        camera, settings);
+  }
   try {
     auto [width, height] = framebufferSizeFor(renderer->bound_window);
     if (settings->framebuffer_width > 0u) {
@@ -1436,10 +1724,72 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
         renderer->renderer->render(scene->scene, orbit, render_settings, static_cast<int>(width),
                                    static_cast<int>(height), frame_seconds);
     renderer->last_stats = abiFrameStats(stats);
+    renderer->active_target = nullptr;
+    renderer->has_rendered_frame = true;
   } catch (...) {
     return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "render frame failed");
   }
   return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_render_frame_to_target(
+    const AsterRendererHandle renderer, const AsterSceneHandle scene,
+    const AsterRenderTargetHandle target, const AsterCameraDesc *camera,
+    const AsterRendererSettings *settings) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validScene(scene)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "scene handle is invalid");
+  }
+  if (!validStruct(camera) || !validStruct(settings)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "render target frame struct version is not supported");
+  }
+  if (retiredRenderTarget(target)) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_DESTROYED_HANDLE_USE,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR, "renderer.render_frame",
+                             "render-target", "render target has been destroyed");
+    return makeStatus(ASTER_STATUS_LIFETIME_ERROR, "render target has been destroyed");
+  }
+  if (!validRenderTarget(target)) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_RENDER_TARGET_MISMATCH,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR, "renderer.render_frame",
+                             "render-target", "render target handle is invalid");
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR, "render target handle is invalid");
+  }
+  if ((settings->framebuffer_width > 0u && settings->framebuffer_width != target->width) ||
+      (settings->framebuffer_height > 0u && settings->framebuffer_height != target->height)) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_RENDER_TARGET_MISMATCH,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR, "renderer.render_frame",
+                             target->label, "render target dimensions do not match settings");
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                      "render target dimensions do not match settings");
+  }
+  const aster::RenderBackendCapabilities capabilities = renderer->renderer->backendCapabilities();
+  const aster::rhi::DeviceCapabilities &table = capabilities.capability_table;
+  if (capabilities.kind != aster::RenderBackendKind::Null &&
+      ((!hasFormatBit(table.color_format_mask, target->color_format)) ||
+       (target->depth_format != ASTER_KERNEL_BACKEND_FORMAT_UNKNOWN &&
+        !hasFormatBit(table.depth_format_mask, target->depth_format)) ||
+       !hasSampleCountBit(table.sample_count_mask, target->sample_count))) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_BACKEND_CAPABILITY_MISMATCH,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR, "renderer.render_frame",
+                             target->label, "render target exceeds backend capability table");
+    return makeStatus(ASTER_STATUS_CAPABILITY_MISMATCH,
+                      "render target exceeds backend capability table");
+  }
+
+  AsterRendererSettings target_settings = *settings;
+  target_settings.render_target = nullptr;
+  target_settings.framebuffer_width = target->width;
+  target_settings.framebuffer_height = target->height;
+  const AsterStatus status =
+      aster_kernel_renderer_render_frame(renderer, scene, camera, &target_settings);
+  if (status.code == ASTER_STATUS_OK) {
+    renderer->active_target = target;
+  }
+  return status;
 }
 
 AsterStatus aster_kernel_renderer_present(const AsterRendererHandle renderer,
@@ -1461,6 +1811,13 @@ AsterStatus aster_kernel_renderer_capture(const AsterRendererHandle renderer,
   if (!validStringView(desc->path) || desc->path.size == 0u) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "capture path is invalid");
   }
+  if (!renderer->has_rendered_frame) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_CAPTURE_BEFORE_RENDER,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR, "renderer.capture", "frame",
+                             "capture requires a completed rendered frame");
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                      "capture requires a completed rendered frame");
+  }
   try {
     const std::uint32_t width =
         desc->width > 0u ? desc->width : std::max(renderer->last_stats.framebuffer_width, 1u);
@@ -1474,6 +1831,34 @@ AsterStatus aster_kernel_renderer_capture(const AsterRendererHandle renderer,
   return aster_kernel_status_ok();
 }
 
+AsterStatus aster_kernel_renderer_capture_render_target(const AsterRendererHandle renderer,
+                                                        const AsterRenderTargetHandle target,
+                                                        const AsterCaptureDesc *desc) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (retiredRenderTarget(target)) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_DESTROYED_HANDLE_USE,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR, "renderer.capture",
+                             "render-target", "render target has been destroyed");
+    return makeStatus(ASTER_STATUS_LIFETIME_ERROR, "render target has been destroyed");
+  }
+  if (!validRenderTarget(target)) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_RENDER_TARGET_MISMATCH,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR, "renderer.capture",
+                             "render-target", "render target handle is invalid");
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR, "render target handle is invalid");
+  }
+  if (renderer->active_target != target) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_RENDER_TARGET_MISMATCH,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR, "renderer.capture",
+                             target->label, "render target was not the last rendered target");
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                      "render target was not the last rendered target");
+  }
+  return aster_kernel_renderer_capture(renderer, desc);
+}
+
 AsterStatus aster_kernel_renderer_last_stats(const AsterRendererHandle renderer,
                                              AsterFrameStats *out_stats) {
   if (!validRenderer(renderer)) {
@@ -1484,6 +1869,27 @@ AsterStatus aster_kernel_renderer_last_stats(const AsterRendererHandle renderer,
   }
   *out_stats = renderer->last_stats;
   return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_validation_event_count(const AsterRendererHandle renderer,
+                                                         std::size_t *out_count) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (out_count == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_count is null");
+  }
+  *out_count = renderer->validation_events.size();
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_validation_event(const AsterRendererHandle renderer,
+                                                   const std::size_t index,
+                                                   AsterValidationEvent *out_event) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  return validationEventAt(renderer->validation_events, index, out_event);
 }
 
 AsterStatus aster_kernel_renderer_frame_forensics_counts(
@@ -1771,6 +2177,219 @@ AsterStatus aster_kernel_renderer_backend_feature_proof(
   return aster_kernel_status_ok();
 }
 
+AsterStatus aster_kernel_renderer_get_last_frame_schedule(
+    const AsterRendererHandle renderer, AsterFrameScheduleHandle *out_schedule) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (out_schedule == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_schedule is null");
+  }
+  *out_schedule = nullptr;
+  if (!renderer->has_rendered_frame) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_CAPTURE_BEFORE_RENDER,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR, "renderer.frame_schedule",
+                             "frame", "frame schedule requires a completed rendered frame");
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                      "frame schedule requires a completed rendered frame");
+  }
+  try {
+    const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+    auto *schedule = new AsterFrameScheduleHandle__();
+    schedule->passes = forensics.passes;
+    schedule->trace = forensics.rhi_trace;
+    schedule->validation_events = renderer->validation_events;
+    for (const aster::BackendFeatureProof &proof : forensics.backend_feature_proofs) {
+      if (proof.status == aster::BackendFeatureProofStatus::Unsupported ||
+          proof.status == aster::BackendFeatureProofStatus::MissingProof) {
+        appendValidation(schedule->validation_events, ASTER_VALIDATION_UNSUPPORTED_BACKEND_RESOURCE,
+                         ASTER_KERNEL_FRAME_DIAGNOSTIC_WARNING, "backend.proof", proof.label,
+                         proof.message, proof.evidence_hash);
+      }
+    }
+    *out_schedule = schedule;
+  } catch (const std::bad_alloc &) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "frame schedule allocation failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_frame_schedule_counts(const AsterFrameScheduleHandle schedule,
+                                               AsterFrameScheduleCounts *out_counts) {
+  if (!validFrameSchedule(schedule)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame schedule handle is invalid");
+  }
+  if (!validStruct(out_counts)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame schedule counts struct version is not supported");
+  }
+  out_counts->pass_count = schedule->passes.size();
+  out_counts->transition_count = schedule->trace.transitions.size();
+  out_counts->descriptor_layout_count = schedule->trace.descriptor_layouts.size();
+  out_counts->pipeline_count = schedule->trace.pipelines.size();
+  out_counts->transient_allocation_count = schedule->trace.transient_allocations.size();
+  out_counts->timeline_count = schedule->trace.queue_submits.size();
+  out_counts->validation_event_count = schedule->validation_events.size();
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_frame_schedule_pass(const AsterFrameScheduleHandle schedule,
+                                             const std::size_t index,
+                                             AsterFrameSchedulePassInfo *out_pass) {
+  if (!validFrameSchedule(schedule)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame schedule handle is invalid");
+  }
+  if (!validStruct(out_pass)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame schedule pass struct version is not supported");
+  }
+  if (index >= schedule->passes.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame schedule pass index is out of range");
+  }
+  const aster::FramePassStats &pass = schedule->passes[index];
+  out_pass->pass = renderGraphPass(pass.pass);
+  out_pass->queue = ASTER_KERNEL_RHI_QUEUE_GRAPHICS;
+  out_pass->name = viewFromString(pass.name);
+  out_pass->command_buffer_count = 0u;
+  out_pass->signal_fence_value = 0u;
+  if (index < schedule->trace.queue_submits.size()) {
+    const aster::rhi::QueueSubmitTrace &submit = schedule->trace.queue_submits[index];
+    out_pass->queue = rhiQueueKind(submit.queue);
+    out_pass->command_buffer_count = submit.command_buffer_count;
+    out_pass->signal_fence_value = submit.signal_fence_value;
+  }
+  out_pass->pipeline_cache_key = 0u;
+  out_pass->descriptor_layout_hash = 0u;
+  for (const aster::rhi::PipelineStateTrace &pipeline : schedule->trace.pipelines) {
+    if (pipeline.label == pass.name) {
+      out_pass->pipeline_cache_key = pipeline.cache_key;
+      out_pass->descriptor_layout_hash = pipeline.descriptor_layout_hash;
+      break;
+    }
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_frame_schedule_memory_report(
+    const AsterFrameScheduleHandle schedule, AsterFrameScheduleMemoryReport *out_report) {
+  if (!validFrameSchedule(schedule)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame schedule handle is invalid");
+  }
+  if (!validStruct(out_report)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame schedule memory report struct version is not supported");
+  }
+  out_report->budget_bytes = schedule->trace.memory.budget_bytes;
+  out_report->resident_bytes = schedule->trace.memory.resident_bytes;
+  out_report->transient_bytes = schedule->trace.memory.transient_bytes;
+  out_report->aliased_bytes_saved = schedule->trace.memory.aliased_bytes_saved;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_frame_schedule_descriptor_layout(
+    const AsterFrameScheduleHandle schedule, const std::size_t index,
+    AsterFrameScheduleDescriptorInfo *out_info) {
+  if (!validFrameSchedule(schedule)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame schedule handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame schedule descriptor struct version is not supported");
+  }
+  if (index >= schedule->trace.descriptor_layouts.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame schedule descriptor index is out of range");
+  }
+  const aster::rhi::DescriptorLayoutTrace &layout = schedule->trace.descriptor_layouts[index];
+  out_info->label = viewFromString(layout.label);
+  out_info->layout_hash = layout.layout_hash;
+  out_info->range_count = layout.ranges.size();
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_frame_schedule_pipeline(
+    const AsterFrameScheduleHandle schedule, const std::size_t index,
+    AsterFrameSchedulePipelineInfo *out_info) {
+  if (!validFrameSchedule(schedule)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame schedule handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame schedule pipeline struct version is not supported");
+  }
+  if (index >= schedule->trace.pipelines.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame schedule pipeline index is out of range");
+  }
+  const aster::rhi::PipelineStateTrace &pipeline = schedule->trace.pipelines[index];
+  out_info->label = viewFromString(pipeline.label);
+  out_info->cache_key = pipeline.cache_key;
+  out_info->descriptor_layout_hash = pipeline.descriptor_layout_hash;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_frame_schedule_transient_allocation(
+    const AsterFrameScheduleHandle schedule, const std::size_t index,
+    AsterFrameScheduleTransientAllocationInfo *out_info) {
+  if (!validFrameSchedule(schedule)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame schedule handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame schedule transient allocation struct version is not supported");
+  }
+  if (index >= schedule->trace.transient_allocations.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame schedule transient allocation index is out of range");
+  }
+  const aster::rhi::TransientAllocationTrace &allocation =
+      schedule->trace.transient_allocations[index];
+  out_info->label = viewFromString(allocation.label);
+  out_info->physical_allocation_id = allocation.physical_allocation_id;
+  out_info->first_pass = allocation.first_pass;
+  out_info->last_pass = allocation.last_pass;
+  out_info->byte_size = allocation.byte_size;
+  out_info->resource_count = allocation.resources.size();
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_frame_schedule_timeline(
+    const AsterFrameScheduleHandle schedule, const std::size_t index,
+    AsterFrameScheduleTimelineInfo *out_info) {
+  if (!validFrameSchedule(schedule)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame schedule handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame schedule timeline struct version is not supported");
+  }
+  if (index >= schedule->trace.queue_submits.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame schedule timeline index is out of range");
+  }
+  const aster::rhi::QueueSubmitTrace &submit = schedule->trace.queue_submits[index];
+  out_info->label = viewFromString(submit.label);
+  out_info->queue = rhiQueueKind(submit.queue);
+  out_info->submitted_value = submit.signal_fence_value;
+  out_info->completed_value =
+      index < schedule->trace.fences.size() ? schedule->trace.fences[index].completed_value
+                                            : submit.signal_fence_value;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_frame_schedule_validation_event(
+    const AsterFrameScheduleHandle schedule, const std::size_t index,
+    AsterValidationEvent *out_event) {
+  if (!validFrameSchedule(schedule)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame schedule handle is invalid");
+  }
+  return validationEventAt(schedule->validation_events, index, out_event);
+}
+
+AsterStatus aster_kernel_frame_schedule_destroy(const AsterFrameScheduleHandle schedule) {
+  return destroyHandle(schedule, kFrameScheduleMagic);
+}
+
 AsterStatus aster_kernel_renderer_destroy(const AsterRendererHandle renderer) {
   return destroyHandle(renderer, kRendererMagic);
 }
@@ -1787,10 +2406,57 @@ AsterStatus aster_kernel_mesh_create(const AsterEngineHandle engine, const Aster
   if (!validStruct(desc)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH, "mesh descriptor version is not supported");
   }
+  if (!validStringView(desc->debug_label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "mesh label has a size but no data");
+  }
+  const std::string label = stringFromView(desc->debug_label);
+  if (desc->vertices.size > 0u) {
+    if (desc->vertices.data == nullptr || desc->vertices.stride < sizeof(AsterVertex)) {
+      return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                                "custom mesh vertex span is invalid",
+                                ASTER_VALIDATION_INVALID_MESH, "mesh.create", label);
+    }
+    if (desc->indices.data == nullptr || desc->indices.size == 0u ||
+        desc->indices.stride < sizeof(std::uint32_t) || (desc->indices.size % 3u) != 0u) {
+      return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                                "custom mesh index span must contain triangles",
+                                ASTER_VALIDATION_INVALID_MESH, "mesh.create", label);
+    }
+    const auto *vertices = static_cast<const unsigned char *>(desc->vertices.data);
+    for (std::size_t i = 0; i < desc->vertices.size; ++i) {
+      const auto *vertex =
+          reinterpret_cast<const AsterVertex *>(vertices + i * desc->vertices.stride);
+      const float normal_len_sq = vertex->normal.x * vertex->normal.x +
+                                  vertex->normal.y * vertex->normal.y +
+                                  vertex->normal.z * vertex->normal.z;
+      if (!finiteVec3(vertex->position) || !finiteVec3(vertex->normal) ||
+          !finiteVec2(vertex->uv) || !finiteVec4(vertex->tangent) ||
+          !finiteValue(vertex->ambient_occlusion) || normal_len_sq < 0.25f ||
+          normal_len_sq > 2.25f) {
+        return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                                  "custom mesh vertices require finite attributes and normals",
+                                  ASTER_VALIDATION_INVALID_MESH, "mesh.create", label, i);
+      }
+    }
+    const auto *indices = static_cast<const unsigned char *>(desc->indices.data);
+    for (std::size_t i = 0; i < desc->indices.size; ++i) {
+      const auto *index =
+          reinterpret_cast<const std::uint32_t *>(indices + i * desc->indices.stride);
+      if (*index >= desc->vertices.size) {
+        return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                                  "custom mesh index references a missing vertex",
+                                  ASTER_VALIDATION_INVALID_MESH, "mesh.create", label, i);
+      }
+    }
+  } else if (desc->indices.size > 0u) {
+    return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                              "custom mesh indices require vertices",
+                              ASTER_VALIDATION_INVALID_MESH, "mesh.create", label);
+  }
   try {
     auto *mesh = new AsterMeshHandle__();
     mesh->primitive = meshPrimitive(desc->primitive);
-    mesh->label = stringFromView(desc->debug_label);
+    mesh->label = label;
     aster::CpuMesh custom = customMeshFromDesc(*desc);
     if (!custom.vertices.empty() && !custom.indices.empty()) {
       mesh->custom_mesh = std::make_shared<aster::CpuMesh>(std::move(custom));
@@ -1819,9 +2485,68 @@ AsterStatus aster_kernel_material_create(const AsterEngineHandle engine,
   if (!validStruct(desc)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH, "material descriptor version is not supported");
   }
+  if (!validStringView(desc->debug_label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "material label has a size but no data");
+  }
+  const std::string label = stringFromView(desc->debug_label);
+  std::vector<AsterTextureRole> texture_roles;
+  if (desc->texture_bindings.size > 0u) {
+    if (desc->texture_bindings.data == nullptr ||
+        desc->texture_bindings.stride < sizeof(AsterMaterialTextureBinding)) {
+      return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                                "material texture binding span is invalid",
+                                ASTER_VALIDATION_LIFETIME_ERROR, "material.create", label);
+    }
+    const auto *bindings = static_cast<const unsigned char *>(desc->texture_bindings.data);
+    texture_roles.reserve(desc->texture_bindings.size);
+    for (std::size_t i = 0; i < desc->texture_bindings.size; ++i) {
+      const auto *binding = reinterpret_cast<const AsterMaterialTextureBinding *>(
+          bindings + i * desc->texture_bindings.stride);
+      if (!validStruct(binding)) {
+        return failWithValidation(engine, ASTER_STATUS_ABI_MISMATCH,
+                                  "material texture binding version is not supported",
+                                  ASTER_VALIDATION_LIFETIME_ERROR, "material.create", label, i);
+      }
+      if (retiredTexture(binding->texture)) {
+        return failWithValidation(engine, ASTER_STATUS_LIFETIME_ERROR,
+                                  "material references a destroyed texture",
+                                  ASTER_VALIDATION_DESTROYED_HANDLE_USE, "material.create", label,
+                                  i);
+      }
+      if (!validTexture(binding->texture)) {
+        return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                                  "material texture handle is invalid",
+                                  ASTER_VALIDATION_LIFETIME_ERROR, "material.create", label, i);
+      }
+      if (binding->role != binding->texture->role) {
+        return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                                  "material texture binding role does not match texture role",
+                                  ASTER_VALIDATION_TEXTURE_ROLE_MISMATCH, "material.create",
+                                  label, i);
+      }
+      if (binding->role == ASTER_TEXTURE_ROLE_NORMAL &&
+          binding->texture->normal_convention != ASTER_TEXTURE_NORMAL_CONVENTION_OPENGL) {
+        return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                                  "normal texture convention must be OpenGL for ABI 5 LitPBR",
+                                  ASTER_VALIDATION_TEXTURE_NORMAL_CONVENTION_MISMATCH,
+                                  "material.create", label, i);
+      }
+      texture_roles.push_back(binding->role);
+    }
+    const auto has_role = [&texture_roles](const AsterTextureRole role) {
+      return std::find(texture_roles.begin(), texture_roles.end(), role) != texture_roles.end();
+    };
+    if (!has_role(ASTER_TEXTURE_ROLE_ALBEDO) || !has_role(ASTER_TEXTURE_ROLE_NORMAL) ||
+        !has_role(ASTER_TEXTURE_ROLE_ORM)) {
+      return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                                "LitPBR texture binding requires albedo, normal, and ORM roles",
+                                ASTER_VALIDATION_MISSING_REQUIRED_TEXTURE, "material.create",
+                                label);
+    }
+  }
   try {
     auto *material = new AsterMaterialHandle__();
-    material->label = stringFromView(desc->debug_label);
+    material->label = label;
     material->material = aster::makeMaterial({.base_color = aster::LinearRgb{vec(desc->base_color)},
                                               .emission_color =
                                                   aster::EmissionColor{vec(desc->emission_color)},
@@ -1831,6 +2556,7 @@ AsterStatus aster_kernel_material_create(const AsterEngineHandle engine,
                                               .opacity = desc->opacity > 0.0f ? desc->opacity : 1.0f,
                                               .double_sided = desc->double_sided != 0u,
                                               .alpha_mode = alphaMode(desc->alpha_mode)});
+    material->texture_roles = std::move(texture_roles);
     *out_material = material;
   } catch (const std::bad_alloc &) {
     return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "material allocation failed");
@@ -1840,6 +2566,282 @@ AsterStatus aster_kernel_material_create(const AsterEngineHandle engine,
 
 AsterStatus aster_kernel_material_destroy(const AsterMaterialHandle material) {
   return destroyHandle(material, kMaterialMagic);
+}
+
+AsterStatus aster_kernel_texture_create(const AsterEngineHandle engine,
+                                        const AsterTextureDesc *desc,
+                                        AsterTextureHandle *out_texture) {
+  if (!validEngine(engine)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "engine handle is invalid");
+  }
+  if (out_texture == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_texture is null");
+  }
+  *out_texture = nullptr;
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "texture descriptor version is not supported");
+  }
+  if (!validStringView(desc->debug_label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "texture label has a size but no data");
+  }
+  const std::string label = stringFromView(desc->debug_label);
+  if (desc->width == 0u || desc->height == 0u || desc->mip_count == 0u ||
+      desc->format == ASTER_KERNEL_BACKEND_FORMAT_UNKNOWN ||
+      desc->role == ASTER_TEXTURE_ROLE_UNKNOWN) {
+    return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                              "texture descriptor dimensions, format, and role must be explicit",
+                              ASTER_VALIDATION_TEXTURE_ROLE_MISMATCH, "texture.create", label);
+  }
+  const bool expected_srgb = colorSpaceRequiresSrgb(desc->role);
+  if ((expected_srgb && desc->color_space != ASTER_TEXTURE_COLOR_SPACE_SRGB) ||
+      (!expected_srgb && desc->color_space != ASTER_TEXTURE_COLOR_SPACE_LINEAR)) {
+    return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                              "texture role does not match declared color space",
+                              ASTER_VALIDATION_TEXTURE_COLOR_SPACE_MISMATCH, "texture.create",
+                              label, static_cast<std::uint64_t>(desc->role));
+  }
+  if (srgbFormat(desc->format) != (desc->color_space == ASTER_TEXTURE_COLOR_SPACE_SRGB)) {
+    return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                              "texture format sRGB flag does not match declared color space",
+                              ASTER_VALIDATION_TEXTURE_COLOR_SPACE_MISMATCH, "texture.create",
+                              label, static_cast<std::uint64_t>(desc->format));
+  }
+  if (desc->role == ASTER_TEXTURE_ROLE_NORMAL &&
+      desc->normal_convention != ASTER_TEXTURE_NORMAL_CONVENTION_OPENGL) {
+    return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                              "normal textures must declare the OpenGL normal convention",
+                              ASTER_VALIDATION_TEXTURE_NORMAL_CONVENTION_MISMATCH,
+                              "texture.create", label);
+  }
+  if (desc->role != ASTER_TEXTURE_ROLE_NORMAL &&
+      desc->normal_convention != ASTER_TEXTURE_NORMAL_CONVENTION_NONE) {
+    return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                              "only normal textures may declare a normal map convention",
+                              ASTER_VALIDATION_TEXTURE_NORMAL_CONVENTION_MISMATCH,
+                              "texture.create", label);
+  }
+  if (desc->data.size > 0u && (desc->data.data == nullptr || desc->data.stride == 0u)) {
+    return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                              "texture payload span is invalid",
+                              ASTER_VALIDATION_LIFETIME_ERROR, "texture.create", label);
+  }
+  try {
+    auto *texture = new AsterTextureHandle__();
+    texture->role = desc->role;
+    texture->color_space = desc->color_space;
+    texture->normal_convention = desc->normal_convention;
+    texture->format = desc->format;
+    texture->width = desc->width;
+    texture->height = desc->height;
+    texture->mip_count = desc->mip_count;
+    texture->label = label.empty() ? textureRoleName(desc->role) : label;
+    *out_texture = texture;
+  } catch (const std::bad_alloc &) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "texture allocation failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_texture_destroy(const AsterTextureHandle texture) {
+  return retireHandle(texture, kTextureMagic);
+}
+
+AsterStatus aster_kernel_render_target_create(const AsterEngineHandle engine,
+                                              const AsterRenderTargetDesc *desc,
+                                              AsterRenderTargetHandle *out_target) {
+  if (!validEngine(engine)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "engine handle is invalid");
+  }
+  if (out_target == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_target is null");
+  }
+  *out_target = nullptr;
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "render target descriptor version is not supported");
+  }
+  if (!validStringView(desc->debug_label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "render target label has a size but no data");
+  }
+  const std::string label = stringFromView(desc->debug_label);
+  if (desc->width == 0u || desc->height == 0u || desc->sample_count == 0u ||
+      desc->color_format == ASTER_KERNEL_BACKEND_FORMAT_UNKNOWN) {
+    return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                              "render target dimensions, samples, and color format must be explicit",
+                              ASTER_VALIDATION_RENDER_TARGET_MISMATCH, "render_target.create",
+                              label);
+  }
+  try {
+    auto *target = new AsterRenderTargetHandle__();
+    target->color_format = desc->color_format;
+    target->depth_format = desc->depth_format;
+    target->width = desc->width;
+    target->height = desc->height;
+    target->sample_count = desc->sample_count;
+    target->label = label;
+    *out_target = target;
+  } catch (const std::bad_alloc &) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "render target allocation failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_render_target_destroy(const AsterRenderTargetHandle target) {
+  return retireHandle(target, kRenderTargetMagic);
+}
+
+AsterStatus aster_kernel_buffer_create(const AsterEngineHandle engine,
+                                       const AsterBufferDesc *desc,
+                                       AsterBufferHandle *out_buffer) {
+  if (!validEngine(engine)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "engine handle is invalid");
+  }
+  if (out_buffer == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_buffer is null");
+  }
+  *out_buffer = nullptr;
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "buffer descriptor version is not supported");
+  }
+  if (!validStringView(desc->debug_label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "buffer label has a size but no data");
+  }
+  if (desc->byte_size == 0u) {
+    return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                              "buffer byte_size must be non-zero",
+                              ASTER_VALIDATION_LIFETIME_ERROR, "buffer.create",
+                              stringFromView(desc->debug_label));
+  }
+  try {
+    auto *buffer = new AsterBufferHandle__();
+    buffer->byte_size = desc->byte_size;
+    buffer->usage = desc->usage;
+    buffer->label = stringFromView(desc->debug_label);
+    *out_buffer = buffer;
+  } catch (const std::bad_alloc &) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "buffer allocation failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_buffer_destroy(const AsterBufferHandle buffer) {
+  return retireHandle(buffer, kBufferMagic);
+}
+
+AsterStatus aster_kernel_descriptor_heap_create(const AsterEngineHandle engine,
+                                                const AsterDescriptorHeapDesc *desc,
+                                                AsterDescriptorHeapHandle *out_heap) {
+  if (!validEngine(engine)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "engine handle is invalid");
+  }
+  if (out_heap == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_heap is null");
+  }
+  *out_heap = nullptr;
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "descriptor heap descriptor version is not supported");
+  }
+  if (!validStringView(desc->debug_label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "descriptor heap label has a size but no data");
+  }
+  if (desc->descriptor_capacity == 0u) {
+    return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                              "descriptor heap capacity must be non-zero",
+                              ASTER_VALIDATION_LIFETIME_ERROR, "descriptor_heap.create",
+                              stringFromView(desc->debug_label));
+  }
+  try {
+    auto *heap = new AsterDescriptorHeapHandle__();
+    heap->descriptor_capacity = desc->descriptor_capacity;
+    heap->shader_visible = desc->shader_visible != 0u;
+    heap->label = stringFromView(desc->debug_label);
+    *out_heap = heap;
+  } catch (const std::bad_alloc &) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "descriptor heap allocation failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_descriptor_heap_destroy(const AsterDescriptorHeapHandle heap) {
+  return retireHandle(heap, kDescriptorHeapMagic);
+}
+
+AsterStatus aster_kernel_descriptor_set_create(const AsterEngineHandle engine,
+                                               const AsterDescriptorSetDesc *desc,
+                                               AsterDescriptorSetHandle *out_set) {
+  if (!validEngine(engine)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "engine handle is invalid");
+  }
+  if (out_set == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_set is null");
+  }
+  *out_set = nullptr;
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "descriptor set descriptor version is not supported");
+  }
+  if (!validStringView(desc->debug_label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "descriptor set label has a size but no data");
+  }
+  const std::string label = stringFromView(desc->debug_label);
+  if (retiredDescriptorHeap(desc->heap)) {
+    return failWithValidation(engine, ASTER_STATUS_LIFETIME_ERROR,
+                              "descriptor set references a destroyed descriptor heap",
+                              ASTER_VALIDATION_DESTROYED_HANDLE_USE, "descriptor_set.create",
+                              label);
+  }
+  if (!validDescriptorHeap(desc->heap) || desc->descriptor_count == 0u ||
+      desc->descriptor_count > desc->heap->descriptor_capacity) {
+    return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
+                              "descriptor set requires a valid heap and in-capacity descriptor count",
+                              ASTER_VALIDATION_LIFETIME_ERROR, "descriptor_set.create", label);
+  }
+  try {
+    auto *set = new AsterDescriptorSetHandle__();
+    set->heap = desc->heap;
+    set->descriptor_count = desc->descriptor_count;
+    set->label = label;
+    *out_set = set;
+  } catch (const std::bad_alloc &) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "descriptor set allocation failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_descriptor_set_destroy(const AsterDescriptorSetHandle set) {
+  return retireHandle(set, kDescriptorSetMagic);
+}
+
+AsterStatus aster_kernel_pipeline_cache_create(const AsterEngineHandle engine,
+                                               const AsterPipelineCacheDesc *desc,
+                                               AsterPipelineCacheHandle *out_cache) {
+  if (!validEngine(engine)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "engine handle is invalid");
+  }
+  if (out_cache == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_cache is null");
+  }
+  *out_cache = nullptr;
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "pipeline cache descriptor version is not supported");
+  }
+  if (!validStringView(desc->debug_label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "pipeline cache label has a size but no data");
+  }
+  try {
+    auto *cache = new AsterPipelineCacheHandle__();
+    cache->seed = desc->seed;
+    cache->label = stringFromView(desc->debug_label);
+    *out_cache = cache;
+  } catch (const std::bad_alloc &) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "pipeline cache allocation failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_pipeline_cache_destroy(const AsterPipelineCacheHandle cache) {
+  return retireHandle(cache, kPipelineCacheMagic);
 }
 
 AsterStatus aster_kernel_shader_compile(const AsterEngineHandle engine,

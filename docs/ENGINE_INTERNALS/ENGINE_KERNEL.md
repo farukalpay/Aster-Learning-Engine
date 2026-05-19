@@ -43,7 +43,14 @@ The kernel does not promise binary stability for the existing rich C++ engine
 headers. Cross-compiler stability is obtained by keeping the binary boundary in
 plain C and compiling C++ wrappers in the consuming toolchain.
 
-ABI 4 promotes spatial math through typed fixed-layout structs:
+ABI 5 keeps the spatial math contracts from ABI 4 and promotes explicit GPU
+resource lifecycle to the public surface. Textures, render targets, buffers,
+descriptor heaps/sets, pipeline caches, and frame schedules are opaque kernel
+handles with fixed-layout descriptors and queryable validation events. The
+installed contract is proven by `external_app_minimal/`, which is configured
+only with `find_package(AsterKernel CONFIG REQUIRED)` from an install prefix.
+
+ABI 4 promoted spatial math through typed fixed-layout structs:
 `AsterWorldPoint`, `AsterScreenPoint`, `AsterWorldRay`, `AsterViewport`, and
 `AsterProjectionConvention`. The old ambiguous math projection calls were
 replaced by `aster_kernel_math_world_to_screen`,
@@ -59,11 +66,12 @@ robust predicate uncertainty.
 
 Kernel resources are opaque handles. A handle returned by a kernel creation
 function is owned by the caller until it is passed to the matching destroy
-function. ABI 4 makes the renderer path constructible and inspectable through
-the public kernel: engine, window, scene, mesh, material, renderer, shader
-artifact, and render pipeline handles can be created and destroyed through
-fixed-layout C descriptors, with additive frame-forensics and backend capability
-table queries for the last rendered frame:
+function. ABI 5 makes the renderer and explicit RHI lifecycle constructible and
+inspectable through the public kernel: engine, window, scene, mesh, material,
+texture, render target, buffer, descriptor heap/set, pipeline cache, renderer,
+shader artifact, render pipeline, and frame schedule handles are created and
+destroyed through fixed-layout C descriptors, with frame-forensics, schedule,
+validation, and backend capability queries for the last rendered frame:
 
 - `AsterEngineHandle` -> `aster_kernel_engine_destroy`
 - `AsterWindowHandle` -> `aster_kernel_window_destroy`
@@ -71,8 +79,15 @@ table queries for the last rendered frame:
 - `AsterRendererHandle` -> `aster_kernel_renderer_destroy`
 - `AsterMeshHandle` -> `aster_kernel_mesh_destroy`
 - `AsterMaterialHandle` -> `aster_kernel_material_destroy`
+- `AsterTextureHandle` -> `aster_kernel_texture_destroy`
+- `AsterRenderTargetHandle` -> `aster_kernel_render_target_destroy`
+- `AsterBufferHandle` -> `aster_kernel_buffer_destroy`
+- `AsterDescriptorHeapHandle` -> `aster_kernel_descriptor_heap_destroy`
+- `AsterDescriptorSetHandle` -> `aster_kernel_descriptor_set_destroy`
+- `AsterPipelineCacheHandle` -> `aster_kernel_pipeline_cache_destroy`
 - `AsterShaderArtifactHandle` -> `aster_kernel_shader_destroy`
 - `AsterRenderPipelineHandle` -> `aster_kernel_render_pipeline_destroy`
+- `AsterFrameScheduleHandle` -> `aster_kernel_frame_schedule_destroy`
 
 The remaining declared subsystem families reject uncreated handles with
 `ASTER_STATUS_UNSUPPORTED` until their matching create APIs land:
@@ -91,6 +106,16 @@ Kernel ABI functions return `AsterStatus`. Exceptions never cross the public ABI
 boundary. Internal exceptions are caught at the boundary and converted to
 `AsterStatusCode` values. Assertions remain for tests and unreachable internal
 invariants, not for recoverable public input failures.
+
+ABI 5 makes strict validation the default for public misuse. Non-finite or
+zero-scale transforms, invalid custom mesh spans, bad texture role/color-space
+declarations, DirectX normal convention in ABI 5 LitPBR bindings, missing
+required albedo/normal/ORM roles, destroyed public handles, render-target
+format/sample mismatches, unsupported backend resources, and capture before a
+rendered frame return `ASTER_STATUS_VALIDATION_ERROR`,
+`ASTER_STATUS_CAPABILITY_MISMATCH`, or `ASTER_STATUS_LIFETIME_ERROR`. The caller
+can inspect structured `AsterValidationEvent` records through engine, renderer,
+or frame-schedule accessors after the failed call.
 
 C++ wrappers return `aster::kernel::Status` or `aster::kernel::Result<T>`.
 Callers inspect status explicitly; no kernel wrapper throws as part of normal
@@ -124,7 +149,10 @@ is enforced at the build/export level first: `aster_kernel` installs only
 `include/aster/kernel`, while `aster_game_sdk` installs only
 `include/aster/game_sdk`. `aster_kernel` links the shared renderer/window
 implementation internally, while public consumers still see only opaque handles,
-status values, fixed-layout descriptors, shader compiler artifacts, and frame
-stats. Future subsystem work should either stay internal, be re-exposed through
-the source SDK as authoring/runtime data contracts, or be promoted through
-versioned opaque handles and fixed-layout kernel contracts.
+status values, fixed-layout descriptors, shader compiler artifacts, validation
+events, render targets/captures, frame stats, and frame schedules. The
+install-tree smoke test builds `external_app_minimal/` from the installed
+`aster::kernel` target and verifies private implementation header directories
+are not installed. Future subsystem work should either stay internal, be
+re-exposed through the source SDK as authoring/runtime data contracts, or be
+promoted through versioned opaque handles and fixed-layout kernel contracts.

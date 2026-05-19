@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstddef>
+#include <filesystem>
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -28,10 +29,25 @@ static_assert(std::is_standard_layout_v<AsterWindowDesc>);
 static_assert(std::is_standard_layout_v<AsterRendererDesc>);
 static_assert(std::is_standard_layout_v<AsterBackendCapabilities>);
 static_assert(std::is_standard_layout_v<AsterBackendCapabilityTable>);
+static_assert(std::is_standard_layout_v<AsterValidationEvent>);
 static_assert(std::is_standard_layout_v<AsterShaderCompileDesc>);
 static_assert(std::is_standard_layout_v<AsterShaderCompileResult>);
 static_assert(std::is_standard_layout_v<AsterShaderReflectionBinding>);
 static_assert(std::is_standard_layout_v<AsterRenderPipelineDesc>);
+static_assert(std::is_standard_layout_v<AsterTextureDesc>);
+static_assert(std::is_standard_layout_v<AsterMaterialTextureBinding>);
+static_assert(std::is_standard_layout_v<AsterRenderTargetDesc>);
+static_assert(std::is_standard_layout_v<AsterBufferDesc>);
+static_assert(std::is_standard_layout_v<AsterDescriptorHeapDesc>);
+static_assert(std::is_standard_layout_v<AsterDescriptorSetDesc>);
+static_assert(std::is_standard_layout_v<AsterPipelineCacheDesc>);
+static_assert(std::is_standard_layout_v<AsterFrameScheduleCounts>);
+static_assert(std::is_standard_layout_v<AsterFrameSchedulePassInfo>);
+static_assert(std::is_standard_layout_v<AsterFrameScheduleMemoryReport>);
+static_assert(std::is_standard_layout_v<AsterFrameScheduleDescriptorInfo>);
+static_assert(std::is_standard_layout_v<AsterFrameSchedulePipelineInfo>);
+static_assert(std::is_standard_layout_v<AsterFrameScheduleTransientAllocationInfo>);
+static_assert(std::is_standard_layout_v<AsterFrameScheduleTimelineInfo>);
 static_assert(std::is_standard_layout_v<AsterFrameGraphDesc>);
 static_assert(std::is_standard_layout_v<AsterMeshDesc>);
 static_assert(std::is_standard_layout_v<AsterMaterialDesc>);
@@ -132,6 +148,8 @@ void testPublicApiBoundaryIsFrozen() {
          std::string::npos);
   assert(cmake.find("install(DIRECTORY include/aster/game_sdk DESTINATION") !=
          std::string::npos);
+  assert(cmake.find("AsterKernelConfig.cmake") != std::string::npos);
+  assert(cmake.find("aster_external_app_minimal_install_tree") != std::string::npos);
   assert(cmake.find("install(DIRECTORY include/aster DESTINATION") == std::string::npos);
   assert(cmake.find("install(DIRECTORY include/aster/render") == std::string::npos);
   assert(cmake.find("install(DIRECTORY include/aster/rhi") == std::string::npos);
@@ -143,9 +161,9 @@ void testPublicApiBoundaryIsFrozen() {
 void testStatusAndEngineLifecycle() {
   const AsterAbiVersion version = aster_kernel_abi_version();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
-  assert(version.major == 4u);
+  assert(version.major == 5u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 1u);
+  assert(version.minor == 0u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -167,7 +185,7 @@ void testStatusAndEngineLifecycle() {
   assert(engine == nullptr);
 }
 
-void testMathAbi3Contracts() {
+void testMathAbi5Contracts() {
   const AsterMathPolicy policy = aster_kernel_math_default_policy();
   assert(policy.size == sizeof(AsterMathPolicy));
   assert(policy.version == ASTER_KERNEL_STRUCT_VERSION_1);
@@ -261,7 +279,7 @@ void testMathAbi3Contracts() {
   assert(world_ray.direction.z < -0.99f);
 }
 
-void testRendererAbi3Lifecycle() {
+void testRendererAbi5Lifecycle() {
   AsterEngineHandle engine = nullptr;
   const AsterEngineDesc engine_desc{sizeof(AsterEngineDesc),
                                     ASTER_KERNEL_STRUCT_VERSION_1,
@@ -307,6 +325,59 @@ void testRendererAbi3Lifecycle() {
          table.backend == ASTER_KERNEL_BACKEND_NULL);
   assert(table.presentation == ASTER_KERNEL_BACKEND_PRESENTATION_SOFTWARE_FRAMEBUFFER ||
          table.backend == ASTER_KERNEL_BACKEND_NULL);
+
+  const std::filesystem::path early_capture_path =
+      std::filesystem::temp_directory_path() / "aster_kernel_capture_before_render.ppm";
+  const std::string early_capture_string = early_capture_path.string();
+  const AsterCaptureDesc early_capture{sizeof(AsterCaptureDesc),
+                                       ASTER_KERNEL_STRUCT_VERSION_1,
+                                       {early_capture_string.data(), early_capture_string.size()},
+                                       64u,
+                                       48u};
+  assert(aster_kernel_renderer_capture(renderer, &early_capture).code ==
+         ASTER_STATUS_VALIDATION_ERROR);
+  size_t renderer_validation_count = 0u;
+  assert(aster_kernel_renderer_validation_event_count(renderer, &renderer_validation_count).code ==
+         ASTER_STATUS_OK);
+  assert(renderer_validation_count >= 1u);
+  AsterValidationEvent renderer_validation{sizeof(AsterValidationEvent),
+                                           ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_validation_event(renderer, renderer_validation_count - 1u,
+                                                &renderer_validation)
+             .code == ASTER_STATUS_OK);
+  assert(renderer_validation.kind == ASTER_VALIDATION_CAPTURE_BEFORE_RENDER);
+
+  AsterBufferHandle frame_buffer = nullptr;
+  const AsterBufferDesc frame_buffer_desc{sizeof(AsterBufferDesc),
+                                          ASTER_KERNEL_STRUCT_VERSION_1,
+                                          4096u,
+                                          1u,
+                                          {"frame-constants", 15u}};
+  assert(aster_kernel_buffer_create(engine, &frame_buffer_desc, &frame_buffer).code ==
+         ASTER_STATUS_OK);
+  AsterDescriptorHeapHandle descriptor_heap = nullptr;
+  const AsterDescriptorHeapDesc descriptor_heap_desc{sizeof(AsterDescriptorHeapDesc),
+                                                    ASTER_KERNEL_STRUCT_VERSION_1,
+                                                    16u,
+                                                    1u,
+                                                    {"frame-heap", 10u}};
+  assert(aster_kernel_descriptor_heap_create(engine, &descriptor_heap_desc, &descriptor_heap)
+             .code == ASTER_STATUS_OK);
+  AsterDescriptorSetHandle descriptor_set = nullptr;
+  const AsterDescriptorSetDesc descriptor_set_desc{sizeof(AsterDescriptorSetDesc),
+                                                  ASTER_KERNEL_STRUCT_VERSION_1,
+                                                  descriptor_heap,
+                                                  3u,
+                                                  {"frame-set", 9u}};
+  assert(aster_kernel_descriptor_set_create(engine, &descriptor_set_desc, &descriptor_set).code ==
+         ASTER_STATUS_OK);
+  AsterPipelineCacheHandle pipeline_cache = nullptr;
+  const AsterPipelineCacheDesc pipeline_cache_desc{sizeof(AsterPipelineCacheDesc),
+                                                  ASTER_KERNEL_STRUCT_VERSION_1,
+                                                  0xA57E5005ull,
+                                                  {"frame-pipelines", 15u}};
+  assert(aster_kernel_pipeline_cache_create(engine, &pipeline_cache_desc, &pipeline_cache).code ==
+         ASTER_STATUS_OK);
 
   AsterSceneHandle scene = nullptr;
   assert(aster_kernel_scene_create(engine, &scene).code == ASTER_STATUS_OK);
@@ -364,7 +435,19 @@ void testRendererAbi3Lifecycle() {
                                        64u,
                                        48u,
                                        0u};
-  assert(aster_kernel_renderer_render_frame(renderer, scene, &camera, &settings).code ==
+  AsterRenderTargetHandle target = nullptr;
+  const AsterRenderTargetDesc target_desc{sizeof(AsterRenderTargetDesc),
+                                          ASTER_KERNEL_STRUCT_VERSION_1,
+                                          ASTER_KERNEL_BACKEND_FORMAT_BGRA8_UNORM,
+                                          ASTER_KERNEL_BACKEND_FORMAT_DEPTH32_FLOAT,
+                                          64u,
+                                          48u,
+                                          1u,
+                                          {"offscreen-main", 14u}};
+  assert(aster_kernel_render_target_create(engine, &target_desc, &target).code ==
+         ASTER_STATUS_OK);
+  assert(aster_kernel_renderer_render_frame_to_target(renderer, scene, target, &camera, &settings)
+             .code ==
          ASTER_STATUS_OK);
   AsterFrameStats stats{sizeof(AsterFrameStats), ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_renderer_last_stats(renderer, &stats).code == ASTER_STATUS_OK);
@@ -429,19 +512,72 @@ void testRendererAbi3Lifecycle() {
          ASTER_STATUS_OK);
   assert(proof.feature.size > 0u);
 
+  AsterFrameScheduleHandle schedule = nullptr;
+  assert(aster_kernel_renderer_get_last_frame_schedule(renderer, &schedule).code ==
+         ASTER_STATUS_OK);
+  AsterFrameScheduleCounts schedule_counts{sizeof(AsterFrameScheduleCounts),
+                                           ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_frame_schedule_counts(schedule, &schedule_counts).code ==
+         ASTER_STATUS_OK);
+  assert(schedule_counts.pass_count >= 1u);
+  assert(schedule_counts.transition_count >= 1u);
+  assert(schedule_counts.descriptor_layout_count >= 1u);
+  assert(schedule_counts.pipeline_count >= 1u);
+  assert(schedule_counts.transient_allocation_count >= 1u);
+  assert(schedule_counts.timeline_count >= 1u);
+  AsterFrameSchedulePassInfo schedule_pass{sizeof(AsterFrameSchedulePassInfo),
+                                           ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_frame_schedule_pass(schedule, 0u, &schedule_pass).code ==
+         ASTER_STATUS_OK);
+  assert(schedule_pass.name.size > 0u);
+  assert(schedule_pass.command_buffer_count >= 1u);
+  assert(schedule_pass.signal_fence_value >= 1u);
+  AsterFrameScheduleMemoryReport memory_report{sizeof(AsterFrameScheduleMemoryReport),
+                                               ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_frame_schedule_memory_report(schedule, &memory_report).code ==
+         ASTER_STATUS_OK);
+  assert(memory_report.resident_bytes >= memory_report.transient_bytes);
+  AsterFrameScheduleDescriptorInfo descriptor_info{sizeof(AsterFrameScheduleDescriptorInfo),
+                                                  ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_frame_schedule_descriptor_layout(schedule, 0u, &descriptor_info).code ==
+         ASTER_STATUS_OK);
+  assert(descriptor_info.layout_hash != 0u);
+  AsterFrameSchedulePipelineInfo pipeline_info{sizeof(AsterFrameSchedulePipelineInfo),
+                                              ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_frame_schedule_pipeline(schedule, 0u, &pipeline_info).code ==
+         ASTER_STATUS_OK);
+  assert(pipeline_info.cache_key != 0u);
+  AsterFrameScheduleTransientAllocationInfo transient_info{
+      sizeof(AsterFrameScheduleTransientAllocationInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_frame_schedule_transient_allocation(schedule, 0u, &transient_info).code ==
+         ASTER_STATUS_OK);
+  assert(transient_info.byte_size > 0u);
+  AsterFrameScheduleTimelineInfo timeline_info{sizeof(AsterFrameScheduleTimelineInfo),
+                                               ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_frame_schedule_timeline(schedule, 0u, &timeline_info).code ==
+         ASTER_STATUS_OK);
+  assert(timeline_info.submitted_value >= 1u);
+
   const std::filesystem::path capture_path =
-      std::filesystem::temp_directory_path() / "aster_kernel_renderer_abi4.ppm";
+      std::filesystem::temp_directory_path() / "aster_kernel_renderer_abi5.ppm";
   const std::string capture_string = capture_path.string();
   const AsterCaptureDesc capture{sizeof(AsterCaptureDesc),
                                  ASTER_KERNEL_STRUCT_VERSION_1,
                                  {capture_string.data(), capture_string.size()},
                                  64u,
                                  48u};
-  assert(aster_kernel_renderer_capture(renderer, &capture).code == ASTER_STATUS_OK);
+  assert(aster_kernel_renderer_capture_render_target(renderer, target, &capture).code ==
+         ASTER_STATUS_OK);
   assert(std::filesystem::exists(capture_path));
   std::filesystem::remove(capture_path);
 
   assert(aster_kernel_renderer_present(renderer, window).code == ASTER_STATUS_OK);
+  assert(aster_kernel_frame_schedule_destroy(schedule).code == ASTER_STATUS_OK);
+  assert(aster_kernel_render_target_destroy(target).code == ASTER_STATUS_OK);
+  assert(aster_kernel_pipeline_cache_destroy(pipeline_cache).code == ASTER_STATUS_OK);
+  assert(aster_kernel_descriptor_set_destroy(descriptor_set).code == ASTER_STATUS_OK);
+  assert(aster_kernel_descriptor_heap_destroy(descriptor_heap).code == ASTER_STATUS_OK);
+  assert(aster_kernel_buffer_destroy(frame_buffer).code == ASTER_STATUS_OK);
   assert(aster_kernel_material_destroy(material).code == ASTER_STATUS_OK);
   assert(aster_kernel_mesh_destroy(mesh).code == ASTER_STATUS_OK);
   assert(aster_kernel_scene_destroy(scene).code == ASTER_STATUS_OK);
@@ -450,7 +586,261 @@ void testRendererAbi3Lifecycle() {
   assert(aster_kernel_engine_destroy(engine).code == ASTER_STATUS_OK);
 }
 
-void testShaderCompilerAbi3() {
+void testAbi5ExplicitValidationContracts() {
+  AsterEngineHandle engine = nullptr;
+  const AsterEngineDesc engine_desc{sizeof(AsterEngineDesc),
+                                    ASTER_KERNEL_STRUCT_VERSION_1,
+                                    {"kernel-validation-test", 22u},
+                                    0u};
+  assert(aster_kernel_engine_create(&engine_desc, &engine).code == ASTER_STATUS_OK);
+
+  AsterTextureHandle bad_albedo = nullptr;
+  const AsterTextureDesc bad_albedo_desc{sizeof(AsterTextureDesc),
+                                         ASTER_KERNEL_STRUCT_VERSION_1,
+                                         ASTER_TEXTURE_ROLE_ALBEDO,
+                                         ASTER_TEXTURE_COLOR_SPACE_LINEAR,
+                                         ASTER_TEXTURE_NORMAL_CONVENTION_NONE,
+                                         ASTER_KERNEL_BACKEND_FORMAT_RGBA8_UNORM,
+                                         4u,
+                                         4u,
+                                         1u,
+                                         {},
+                                         {"bad-albedo", 10u}};
+  assert(aster_kernel_texture_create(engine, &bad_albedo_desc, &bad_albedo).code ==
+         ASTER_STATUS_VALIDATION_ERROR);
+  size_t engine_validation_count = 0u;
+  assert(aster_kernel_engine_validation_event_count(engine, &engine_validation_count).code ==
+         ASTER_STATUS_OK);
+  assert(engine_validation_count >= 1u);
+  AsterValidationEvent validation{sizeof(AsterValidationEvent),
+                                  ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_engine_validation_event(engine, engine_validation_count - 1u,
+                                             &validation)
+             .code == ASTER_STATUS_OK);
+  assert(validation.kind == ASTER_VALIDATION_TEXTURE_COLOR_SPACE_MISMATCH);
+
+  AsterTextureHandle bad_normal = nullptr;
+  const AsterTextureDesc bad_normal_desc{sizeof(AsterTextureDesc),
+                                        ASTER_KERNEL_STRUCT_VERSION_1,
+                                        ASTER_TEXTURE_ROLE_NORMAL,
+                                        ASTER_TEXTURE_COLOR_SPACE_LINEAR,
+                                        ASTER_TEXTURE_NORMAL_CONVENTION_DIRECTX,
+                                        ASTER_KERNEL_BACKEND_FORMAT_RGBA8_UNORM,
+                                        4u,
+                                        4u,
+                                        1u,
+                                        {},
+                                        {"bad-normal", 10u}};
+  assert(aster_kernel_texture_create(engine, &bad_normal_desc, &bad_normal).code ==
+         ASTER_STATUS_VALIDATION_ERROR);
+
+  AsterTextureHandle albedo = nullptr;
+  const AsterTextureDesc albedo_desc{sizeof(AsterTextureDesc),
+                                     ASTER_KERNEL_STRUCT_VERSION_1,
+                                     ASTER_TEXTURE_ROLE_ALBEDO,
+                                     ASTER_TEXTURE_COLOR_SPACE_SRGB,
+                                     ASTER_TEXTURE_NORMAL_CONVENTION_NONE,
+                                     ASTER_KERNEL_BACKEND_FORMAT_RGBA8_SRGB,
+                                     4u,
+                                     4u,
+                                     1u,
+                                     {},
+                                     {"albedo", 6u}};
+  assert(aster_kernel_texture_create(engine, &albedo_desc, &albedo).code == ASTER_STATUS_OK);
+  AsterTextureHandle normal = nullptr;
+  const AsterTextureDesc normal_desc{sizeof(AsterTextureDesc),
+                                     ASTER_KERNEL_STRUCT_VERSION_1,
+                                     ASTER_TEXTURE_ROLE_NORMAL,
+                                     ASTER_TEXTURE_COLOR_SPACE_LINEAR,
+                                     ASTER_TEXTURE_NORMAL_CONVENTION_OPENGL,
+                                     ASTER_KERNEL_BACKEND_FORMAT_RGBA8_UNORM,
+                                     4u,
+                                     4u,
+                                     1u,
+                                     {},
+                                     {"normal", 6u}};
+  assert(aster_kernel_texture_create(engine, &normal_desc, &normal).code == ASTER_STATUS_OK);
+  AsterTextureHandle orm = nullptr;
+  const AsterTextureDesc orm_desc{sizeof(AsterTextureDesc),
+                                  ASTER_KERNEL_STRUCT_VERSION_1,
+                                  ASTER_TEXTURE_ROLE_ORM,
+                                  ASTER_TEXTURE_COLOR_SPACE_LINEAR,
+                                  ASTER_TEXTURE_NORMAL_CONVENTION_NONE,
+                                  ASTER_KERNEL_BACKEND_FORMAT_RGBA8_UNORM,
+                                  4u,
+                                  4u,
+                                  1u,
+                                  {},
+                                  {"orm", 3u}};
+  assert(aster_kernel_texture_create(engine, &orm_desc, &orm).code == ASTER_STATUS_OK);
+
+  const AsterMaterialTextureBinding missing_bindings[] = {
+      {sizeof(AsterMaterialTextureBinding), ASTER_KERNEL_STRUCT_VERSION_1,
+       ASTER_TEXTURE_ROLE_ALBEDO, albedo},
+      {sizeof(AsterMaterialTextureBinding), ASTER_KERNEL_STRUCT_VERSION_1,
+       ASTER_TEXTURE_ROLE_NORMAL, normal},
+  };
+  const AsterMaterialDesc missing_orm_desc{sizeof(AsterMaterialDesc),
+                                           ASTER_KERNEL_STRUCT_VERSION_1,
+                                           {1.0f, 1.0f, 1.0f},
+                                           {0.0f, 0.0f, 0.0f},
+                                           0.5f,
+                                           0.0f,
+                                           0.0f,
+                                           1.0f,
+                                           ASTER_KERNEL_MATERIAL_ALPHA_OPAQUE,
+                                           0u,
+                                           {"missing-orm", 11u},
+                                           {missing_bindings, 2u,
+                                            sizeof(AsterMaterialTextureBinding)}};
+  AsterMaterialHandle material = nullptr;
+  assert(aster_kernel_material_create(engine, &missing_orm_desc, &material).code ==
+         ASTER_STATUS_VALIDATION_ERROR);
+
+  const AsterMaterialTextureBinding pbr_bindings[] = {
+      {sizeof(AsterMaterialTextureBinding), ASTER_KERNEL_STRUCT_VERSION_1,
+       ASTER_TEXTURE_ROLE_ALBEDO, albedo},
+      {sizeof(AsterMaterialTextureBinding), ASTER_KERNEL_STRUCT_VERSION_1,
+       ASTER_TEXTURE_ROLE_NORMAL, normal},
+      {sizeof(AsterMaterialTextureBinding), ASTER_KERNEL_STRUCT_VERSION_1, ASTER_TEXTURE_ROLE_ORM,
+       orm},
+  };
+  const AsterMaterialDesc pbr_desc{sizeof(AsterMaterialDesc),
+                                   ASTER_KERNEL_STRUCT_VERSION_1,
+                                   {1.0f, 1.0f, 1.0f},
+                                   {0.0f, 0.0f, 0.0f},
+                                   0.5f,
+                                   0.0f,
+                                   0.0f,
+                                   1.0f,
+                                   ASTER_KERNEL_MATERIAL_ALPHA_OPAQUE,
+                                   0u,
+                                   {"lit-pbr", 7u},
+                                   {pbr_bindings, 3u,
+                                    sizeof(AsterMaterialTextureBinding)}};
+  assert(aster_kernel_material_create(engine, &pbr_desc, &material).code == ASTER_STATUS_OK);
+  assert(aster_kernel_material_destroy(material).code == ASTER_STATUS_OK);
+
+  assert(aster_kernel_texture_destroy(orm).code == ASTER_STATUS_OK);
+  material = nullptr;
+  assert(aster_kernel_material_create(engine, &pbr_desc, &material).code ==
+         ASTER_STATUS_LIFETIME_ERROR);
+
+  const AsterVertex bad_vertices[] = {
+      {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, 1.0f},
+      {{1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, 1.0f},
+      {{0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, 1.0f},
+  };
+  const std::uint32_t bad_indices[] = {0u, 1u, 2u};
+  const AsterMeshDesc bad_mesh_desc{sizeof(AsterMeshDesc),
+                                    ASTER_KERNEL_STRUCT_VERSION_1,
+                                    ASTER_KERNEL_MESH_PRIMITIVE_BOX,
+                                    {bad_vertices, 3u, sizeof(AsterVertex)},
+                                    {bad_indices, 3u, sizeof(std::uint32_t)},
+                                    {"bad-mesh", 8u}};
+  AsterMeshHandle bad_mesh = nullptr;
+  assert(aster_kernel_mesh_create(engine, &bad_mesh_desc, &bad_mesh).code ==
+         ASTER_STATUS_VALIDATION_ERROR);
+
+  AsterMaterialHandle plain_material = nullptr;
+  const AsterMaterialDesc plain_desc{sizeof(AsterMaterialDesc),
+                                     ASTER_KERNEL_STRUCT_VERSION_1,
+                                     {0.8f, 0.8f, 0.8f},
+                                     {0.0f, 0.0f, 0.0f},
+                                     0.55f,
+                                     0.0f,
+                                     0.0f,
+                                     1.0f,
+                                     ASTER_KERNEL_MATERIAL_ALPHA_OPAQUE,
+                                     0u,
+                                     {"plain", 5u}};
+  assert(aster_kernel_material_create(engine, &plain_desc, &plain_material).code ==
+         ASTER_STATUS_OK);
+  AsterSceneHandle scene = nullptr;
+  assert(aster_kernel_scene_create(engine, &scene).code == ASTER_STATUS_OK);
+  const AsterSceneObjectDesc zero_scale_object{sizeof(AsterSceneObjectDesc),
+                                               ASTER_KERNEL_STRUCT_VERSION_1,
+                                               nullptr,
+                                               plain_material,
+                                               nullptr,
+                                               ASTER_KERNEL_MESH_PRIMITIVE_BOX,
+                                               {0.0f, 0.0f, 0.0f},
+                                               {0.0f, 0.0f, 0.0f},
+                                               {0.0f, 1.0f, 1.0f},
+                                               {"zero-scale", 10u}};
+  assert(aster_kernel_scene_add_object(scene, &zero_scale_object).code ==
+         ASTER_STATUS_VALIDATION_ERROR);
+
+  AsterWindowHandle window = nullptr;
+  const AsterWindowDesc window_desc{sizeof(AsterWindowDesc),
+                                    ASTER_KERNEL_STRUCT_VERSION_1,
+                                    {"headless", 8u},
+                                    32u,
+                                    24u,
+                                    ASTER_KERNEL_WINDOW_FLAG_HEADLESS,
+                                    0u};
+  assert(aster_kernel_window_create(&window_desc, &window).code == ASTER_STATUS_OK);
+  AsterRendererHandle renderer = nullptr;
+  const AsterRendererDesc renderer_desc{sizeof(AsterRendererDesc),
+                                        ASTER_KERNEL_STRUCT_VERSION_1,
+                                        window,
+                                        ASTER_KERNEL_BACKEND_SOFTWARE_REFERENCE,
+                                        ASTER_KERNEL_RENDERER_FLAG_FORCE_SOFTWARE};
+  assert(aster_kernel_renderer_create(engine, &renderer_desc, &renderer).code == ASTER_STATUS_OK);
+  const AsterSceneObjectDesc valid_object{sizeof(AsterSceneObjectDesc),
+                                          ASTER_KERNEL_STRUCT_VERSION_1,
+                                          nullptr,
+                                          plain_material,
+                                          nullptr,
+                                          ASTER_KERNEL_MESH_PRIMITIVE_BOX,
+                                          {0.0f, 0.0f, 0.0f},
+                                          {0.0f, 0.0f, 0.0f},
+                                          {1.0f, 1.0f, 1.0f},
+                                          {"valid-object", 12u}};
+  assert(aster_kernel_scene_add_object(scene, &valid_object).code == ASTER_STATUS_OK);
+  AsterRenderTargetHandle bad_target = nullptr;
+  const AsterRenderTargetDesc bad_target_desc{sizeof(AsterRenderTargetDesc),
+                                              ASTER_KERNEL_STRUCT_VERSION_1,
+                                              ASTER_KERNEL_BACKEND_FORMAT_DEPTH32_FLOAT,
+                                              ASTER_KERNEL_BACKEND_FORMAT_DEPTH32_FLOAT,
+                                              32u,
+                                              24u,
+                                              1u,
+                                              {"bad-target", 10u}};
+  assert(aster_kernel_render_target_create(engine, &bad_target_desc, &bad_target).code ==
+         ASTER_STATUS_OK);
+  const AsterCameraDesc camera{sizeof(AsterCameraDesc),
+                               ASTER_KERNEL_STRUCT_VERSION_1,
+                               {0.0f, 0.0f, 0.0f},
+                               0.0f,
+                               0.2f,
+                               4.0f,
+                               0.9f,
+                               0.01f,
+                               50.0f};
+  const AsterRendererSettings settings{sizeof(AsterRendererSettings),
+                                       ASTER_KERNEL_STRUCT_VERSION_1,
+                                       {0.0f, 0.0f, 0.0f},
+                                       1.0f,
+                                       0.2f,
+                                       32u,
+                                       24u,
+                                       0u};
+  assert(aster_kernel_renderer_render_frame_to_target(renderer, scene, bad_target, &camera,
+                                                      &settings)
+             .code == ASTER_STATUS_CAPABILITY_MISMATCH);
+
+  assert(aster_kernel_render_target_destroy(bad_target).code == ASTER_STATUS_OK);
+  assert(aster_kernel_renderer_destroy(renderer).code == ASTER_STATUS_OK);
+  assert(aster_kernel_window_destroy(window).code == ASTER_STATUS_OK);
+  assert(aster_kernel_scene_destroy(scene).code == ASTER_STATUS_OK);
+  assert(aster_kernel_material_destroy(plain_material).code == ASTER_STATUS_OK);
+  assert(aster_kernel_texture_destroy(normal).code == ASTER_STATUS_OK);
+  assert(aster_kernel_texture_destroy(albedo).code == ASTER_STATUS_OK);
+  assert(aster_kernel_engine_destroy(engine).code == ASTER_STATUS_OK);
+}
+
+void testShaderCompilerAbi5() {
   AsterEngineHandle engine = nullptr;
   const AsterEngineDesc engine_desc{sizeof(AsterEngineDesc),
                                     ASTER_KERNEL_STRUCT_VERSION_1,
@@ -465,7 +855,7 @@ void testShaderCompilerAbi3() {
                                             ASTER_KERNEL_SHADER_BACKEND_D3D12_HLSL,
                                             {modules, 1u, sizeof(AsterShaderModuleSource)},
                                             {"fs_main", 7u},
-                                            {"abi4-test", 9u},
+                                            {"abi5-test", 9u},
                                             1ull};
   AsterShaderArtifactHandle shader = nullptr;
   assert(aster_kernel_shader_compile(engine, &compile_desc, &shader).code == ASTER_STATUS_OK);
@@ -531,6 +921,8 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_engine_create",
       "aster_kernel_engine_destroy",
       "aster_kernel_engine_last_status",
+      "aster_kernel_engine_validation_event_count",
+      "aster_kernel_engine_validation_event",
       "aster_kernel_window_create",
       "aster_kernel_window_poll",
       "aster_kernel_window_swap",
@@ -545,9 +937,13 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_renderer_get_capabilities",
       "aster_kernel_renderer_get_backend_capability_table",
       "aster_kernel_renderer_render_frame",
+      "aster_kernel_renderer_render_frame_to_target",
       "aster_kernel_renderer_present",
       "aster_kernel_renderer_capture",
+      "aster_kernel_renderer_capture_render_target",
       "aster_kernel_renderer_last_stats",
+      "aster_kernel_renderer_validation_event_count",
+      "aster_kernel_renderer_validation_event",
       "aster_kernel_renderer_frame_forensics_counts",
       "aster_kernel_renderer_frame_forensics_detail_counts",
       "aster_kernel_renderer_frame_pass_stats",
@@ -558,11 +954,33 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_renderer_rhi_validation_event",
       "aster_kernel_renderer_timestamp_sample",
       "aster_kernel_renderer_backend_feature_proof",
+      "aster_kernel_renderer_get_last_frame_schedule",
       "aster_kernel_renderer_destroy",
       "aster_kernel_mesh_create",
       "aster_kernel_mesh_destroy",
       "aster_kernel_material_create",
       "aster_kernel_material_destroy",
+      "aster_kernel_texture_create",
+      "aster_kernel_texture_destroy",
+      "aster_kernel_render_target_create",
+      "aster_kernel_render_target_destroy",
+      "aster_kernel_buffer_create",
+      "aster_kernel_buffer_destroy",
+      "aster_kernel_descriptor_heap_create",
+      "aster_kernel_descriptor_heap_destroy",
+      "aster_kernel_descriptor_set_create",
+      "aster_kernel_descriptor_set_destroy",
+      "aster_kernel_pipeline_cache_create",
+      "aster_kernel_pipeline_cache_destroy",
+      "aster_kernel_frame_schedule_counts",
+      "aster_kernel_frame_schedule_pass",
+      "aster_kernel_frame_schedule_memory_report",
+      "aster_kernel_frame_schedule_descriptor_layout",
+      "aster_kernel_frame_schedule_pipeline",
+      "aster_kernel_frame_schedule_transient_allocation",
+      "aster_kernel_frame_schedule_timeline",
+      "aster_kernel_frame_schedule_validation_event",
+      "aster_kernel_frame_schedule_destroy",
       "aster_kernel_shader_compile",
       "aster_kernel_shader_get_result",
       "aster_kernel_shader_get_source",
@@ -607,6 +1025,8 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_engine_create;
   (void)&aster_kernel_engine_destroy;
   (void)&aster_kernel_engine_last_status;
+  (void)&aster_kernel_engine_validation_event_count;
+  (void)&aster_kernel_engine_validation_event;
   (void)&aster_kernel_window_create;
   (void)&aster_kernel_window_poll;
   (void)&aster_kernel_window_swap;
@@ -621,9 +1041,13 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_renderer_get_capabilities;
   (void)&aster_kernel_renderer_get_backend_capability_table;
   (void)&aster_kernel_renderer_render_frame;
+  (void)&aster_kernel_renderer_render_frame_to_target;
   (void)&aster_kernel_renderer_present;
   (void)&aster_kernel_renderer_capture;
+  (void)&aster_kernel_renderer_capture_render_target;
   (void)&aster_kernel_renderer_last_stats;
+  (void)&aster_kernel_renderer_validation_event_count;
+  (void)&aster_kernel_renderer_validation_event;
   (void)&aster_kernel_renderer_frame_forensics_counts;
   (void)&aster_kernel_renderer_frame_forensics_detail_counts;
   (void)&aster_kernel_renderer_frame_pass_stats;
@@ -634,11 +1058,33 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_renderer_rhi_validation_event;
   (void)&aster_kernel_renderer_timestamp_sample;
   (void)&aster_kernel_renderer_backend_feature_proof;
+  (void)&aster_kernel_renderer_get_last_frame_schedule;
   (void)&aster_kernel_renderer_destroy;
   (void)&aster_kernel_mesh_create;
   (void)&aster_kernel_mesh_destroy;
   (void)&aster_kernel_material_create;
   (void)&aster_kernel_material_destroy;
+  (void)&aster_kernel_texture_create;
+  (void)&aster_kernel_texture_destroy;
+  (void)&aster_kernel_render_target_create;
+  (void)&aster_kernel_render_target_destroy;
+  (void)&aster_kernel_buffer_create;
+  (void)&aster_kernel_buffer_destroy;
+  (void)&aster_kernel_descriptor_heap_create;
+  (void)&aster_kernel_descriptor_heap_destroy;
+  (void)&aster_kernel_descriptor_set_create;
+  (void)&aster_kernel_descriptor_set_destroy;
+  (void)&aster_kernel_pipeline_cache_create;
+  (void)&aster_kernel_pipeline_cache_destroy;
+  (void)&aster_kernel_frame_schedule_counts;
+  (void)&aster_kernel_frame_schedule_pass;
+  (void)&aster_kernel_frame_schedule_memory_report;
+  (void)&aster_kernel_frame_schedule_descriptor_layout;
+  (void)&aster_kernel_frame_schedule_pipeline;
+  (void)&aster_kernel_frame_schedule_transient_allocation;
+  (void)&aster_kernel_frame_schedule_timeline;
+  (void)&aster_kernel_frame_schedule_validation_event;
+  (void)&aster_kernel_frame_schedule_destroy;
   (void)&aster_kernel_shader_compile;
   (void)&aster_kernel_shader_get_result;
   (void)&aster_kernel_shader_get_source;
@@ -658,9 +1104,10 @@ int main() {
   testAbiHeaderStaysPlainC();
   testPublicApiBoundaryIsFrozen();
   testStatusAndEngineLifecycle();
-  testMathAbi3Contracts();
-  testRendererAbi3Lifecycle();
-  testShaderCompilerAbi3();
+  testMathAbi5Contracts();
+  testRendererAbi5Lifecycle();
+  testAbi5ExplicitValidationContracts();
+  testShaderCompilerAbi5();
   testCppWrapperUsesResultStatus();
   testManifestNamesMatchLinkedApi();
   return 0;

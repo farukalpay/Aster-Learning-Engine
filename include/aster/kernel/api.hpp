@@ -171,6 +171,24 @@ public:
     return Status(aster_kernel_engine_last_status(handle_));
   }
 
+  [[nodiscard]] Result<size_t> validationEventCount() const noexcept {
+    size_t count = 0u;
+    const Status status(aster_kernel_engine_validation_event_count(handle_, &count));
+    if (!status) {
+      return Result<size_t>(status);
+    }
+    return Result<size_t>(std::move(count));
+  }
+
+  [[nodiscard]] Result<AsterValidationEvent> validationEvent(const size_t index) const noexcept {
+    AsterValidationEvent event{sizeof(AsterValidationEvent), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_engine_validation_event(handle_, index, &event));
+    if (!status) {
+      return Result<AsterValidationEvent>(status);
+    }
+    return Result<AsterValidationEvent>(std::move(event));
+  }
+
   void reset() noexcept {
     if (handle_ != nullptr) {
       (void)aster_kernel_engine_destroy(handle_);
@@ -536,6 +554,381 @@ private:
   AsterRenderPipelineHandle handle_ = nullptr;
 };
 
+class Texture {
+public:
+  Texture() = default;
+  explicit Texture(AsterTextureHandle handle) noexcept : handle_(handle) {}
+  Texture(Texture &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  Texture &operator=(Texture &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+  Texture(const Texture &) = delete;
+  Texture &operator=(const Texture &) = delete;
+  ~Texture() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<Texture> create(const Engine &engine,
+                                              const AsterTextureDesc &desc) noexcept {
+    AsterTextureHandle handle = nullptr;
+    const Status status(aster_kernel_texture_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<Texture>(status);
+    }
+    return Result<Texture>(Texture(handle));
+  }
+
+  [[nodiscard]] AsterTextureHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_texture_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterTextureHandle handle_ = nullptr;
+};
+
+class RenderTarget {
+public:
+  RenderTarget() = default;
+  explicit RenderTarget(AsterRenderTargetHandle handle) noexcept : handle_(handle) {}
+  RenderTarget(RenderTarget &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  RenderTarget &operator=(RenderTarget &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+  RenderTarget(const RenderTarget &) = delete;
+  RenderTarget &operator=(const RenderTarget &) = delete;
+  ~RenderTarget() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<RenderTarget> create(const Engine &engine,
+                                                   const AsterRenderTargetDesc &desc) noexcept {
+    AsterRenderTargetHandle handle = nullptr;
+    const Status status(aster_kernel_render_target_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<RenderTarget>(status);
+    }
+    return Result<RenderTarget>(RenderTarget(handle));
+  }
+
+  [[nodiscard]] AsterRenderTargetHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_render_target_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterRenderTargetHandle handle_ = nullptr;
+};
+
+class Buffer {
+public:
+  Buffer() = default;
+  explicit Buffer(AsterBufferHandle handle) noexcept : handle_(handle) {}
+  Buffer(Buffer &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  Buffer &operator=(Buffer &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+  Buffer(const Buffer &) = delete;
+  Buffer &operator=(const Buffer &) = delete;
+  ~Buffer() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<Buffer> create(const Engine &engine,
+                                             const AsterBufferDesc &desc) noexcept {
+    AsterBufferHandle handle = nullptr;
+    const Status status(aster_kernel_buffer_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<Buffer>(status);
+    }
+    return Result<Buffer>(Buffer(handle));
+  }
+
+  [[nodiscard]] AsterBufferHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_buffer_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterBufferHandle handle_ = nullptr;
+};
+
+class DescriptorHeap {
+public:
+  DescriptorHeap() = default;
+  explicit DescriptorHeap(AsterDescriptorHeapHandle handle) noexcept : handle_(handle) {}
+  DescriptorHeap(DescriptorHeap &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  DescriptorHeap &operator=(DescriptorHeap &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+  DescriptorHeap(const DescriptorHeap &) = delete;
+  DescriptorHeap &operator=(const DescriptorHeap &) = delete;
+  ~DescriptorHeap() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<DescriptorHeap>
+  create(const Engine &engine, const AsterDescriptorHeapDesc &desc) noexcept {
+    AsterDescriptorHeapHandle handle = nullptr;
+    const Status status(aster_kernel_descriptor_heap_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<DescriptorHeap>(status);
+    }
+    return Result<DescriptorHeap>(DescriptorHeap(handle));
+  }
+
+  [[nodiscard]] AsterDescriptorHeapHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_descriptor_heap_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterDescriptorHeapHandle handle_ = nullptr;
+};
+
+class DescriptorSet {
+public:
+  DescriptorSet() = default;
+  explicit DescriptorSet(AsterDescriptorSetHandle handle) noexcept : handle_(handle) {}
+  DescriptorSet(DescriptorSet &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  DescriptorSet &operator=(DescriptorSet &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+  DescriptorSet(const DescriptorSet &) = delete;
+  DescriptorSet &operator=(const DescriptorSet &) = delete;
+  ~DescriptorSet() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<DescriptorSet>
+  create(const Engine &engine, const AsterDescriptorSetDesc &desc) noexcept {
+    AsterDescriptorSetHandle handle = nullptr;
+    const Status status(aster_kernel_descriptor_set_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<DescriptorSet>(status);
+    }
+    return Result<DescriptorSet>(DescriptorSet(handle));
+  }
+
+  [[nodiscard]] AsterDescriptorSetHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_descriptor_set_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterDescriptorSetHandle handle_ = nullptr;
+};
+
+class PipelineCache {
+public:
+  PipelineCache() = default;
+  explicit PipelineCache(AsterPipelineCacheHandle handle) noexcept : handle_(handle) {}
+  PipelineCache(PipelineCache &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  PipelineCache &operator=(PipelineCache &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+  PipelineCache(const PipelineCache &) = delete;
+  PipelineCache &operator=(const PipelineCache &) = delete;
+  ~PipelineCache() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<PipelineCache>
+  create(const Engine &engine, const AsterPipelineCacheDesc &desc) noexcept {
+    AsterPipelineCacheHandle handle = nullptr;
+    const Status status(aster_kernel_pipeline_cache_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<PipelineCache>(status);
+    }
+    return Result<PipelineCache>(PipelineCache(handle));
+  }
+
+  [[nodiscard]] AsterPipelineCacheHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_pipeline_cache_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterPipelineCacheHandle handle_ = nullptr;
+};
+
+class FrameSchedule {
+public:
+  FrameSchedule() = default;
+  explicit FrameSchedule(AsterFrameScheduleHandle handle) noexcept : handle_(handle) {}
+  FrameSchedule(FrameSchedule &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  FrameSchedule &operator=(FrameSchedule &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+  FrameSchedule(const FrameSchedule &) = delete;
+  FrameSchedule &operator=(const FrameSchedule &) = delete;
+  ~FrameSchedule() {
+    reset();
+  }
+
+  [[nodiscard]] Result<AsterFrameScheduleCounts> counts() const noexcept {
+    AsterFrameScheduleCounts value{sizeof(AsterFrameScheduleCounts),
+                                   ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_frame_schedule_counts(handle_, &value));
+    if (!status) {
+      return Result<AsterFrameScheduleCounts>(status);
+    }
+    return Result<AsterFrameScheduleCounts>(std::move(value));
+  }
+
+  [[nodiscard]] Result<AsterFrameSchedulePassInfo> pass(const size_t index) const noexcept {
+    AsterFrameSchedulePassInfo value{sizeof(AsterFrameSchedulePassInfo),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_frame_schedule_pass(handle_, index, &value));
+    if (!status) {
+      return Result<AsterFrameSchedulePassInfo>(status);
+    }
+    return Result<AsterFrameSchedulePassInfo>(std::move(value));
+  }
+
+  [[nodiscard]] Result<AsterFrameScheduleMemoryReport> memoryReport() const noexcept {
+    AsterFrameScheduleMemoryReport value{sizeof(AsterFrameScheduleMemoryReport),
+                                         ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_frame_schedule_memory_report(handle_, &value));
+    if (!status) {
+      return Result<AsterFrameScheduleMemoryReport>(status);
+    }
+    return Result<AsterFrameScheduleMemoryReport>(std::move(value));
+  }
+
+  [[nodiscard]] Result<AsterFrameScheduleDescriptorInfo>
+  descriptorLayout(const size_t index) const noexcept {
+    AsterFrameScheduleDescriptorInfo value{sizeof(AsterFrameScheduleDescriptorInfo),
+                                           ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_frame_schedule_descriptor_layout(handle_, index, &value));
+    if (!status) {
+      return Result<AsterFrameScheduleDescriptorInfo>(status);
+    }
+    return Result<AsterFrameScheduleDescriptorInfo>(std::move(value));
+  }
+
+  [[nodiscard]] Result<AsterFrameSchedulePipelineInfo> pipeline(
+      const size_t index) const noexcept {
+    AsterFrameSchedulePipelineInfo value{sizeof(AsterFrameSchedulePipelineInfo),
+                                         ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_frame_schedule_pipeline(handle_, index, &value));
+    if (!status) {
+      return Result<AsterFrameSchedulePipelineInfo>(status);
+    }
+    return Result<AsterFrameSchedulePipelineInfo>(std::move(value));
+  }
+
+  [[nodiscard]] Result<AsterFrameScheduleTransientAllocationInfo>
+  transientAllocation(const size_t index) const noexcept {
+    AsterFrameScheduleTransientAllocationInfo value{
+        sizeof(AsterFrameScheduleTransientAllocationInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_frame_schedule_transient_allocation(handle_, index, &value));
+    if (!status) {
+      return Result<AsterFrameScheduleTransientAllocationInfo>(status);
+    }
+    return Result<AsterFrameScheduleTransientAllocationInfo>(std::move(value));
+  }
+
+  [[nodiscard]] Result<AsterFrameScheduleTimelineInfo> timeline(
+      const size_t index) const noexcept {
+    AsterFrameScheduleTimelineInfo value{sizeof(AsterFrameScheduleTimelineInfo),
+                                         ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_frame_schedule_timeline(handle_, index, &value));
+    if (!status) {
+      return Result<AsterFrameScheduleTimelineInfo>(status);
+    }
+    return Result<AsterFrameScheduleTimelineInfo>(std::move(value));
+  }
+
+  [[nodiscard]] Result<AsterValidationEvent> validationEvent(
+      const size_t index) const noexcept {
+    AsterValidationEvent value{sizeof(AsterValidationEvent), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_frame_schedule_validation_event(handle_, index, &value));
+    if (!status) {
+      return Result<AsterValidationEvent>(status);
+    }
+    return Result<AsterValidationEvent>(std::move(value));
+  }
+
+  [[nodiscard]] AsterFrameScheduleHandle get() const noexcept {
+    return handle_;
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_frame_schedule_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterFrameScheduleHandle handle_ = nullptr;
+};
+
 class Renderer {
 public:
   Renderer() = default;
@@ -592,12 +985,24 @@ public:
     return Status(aster_kernel_renderer_render_frame(handle_, scene.get(), &camera, &settings));
   }
 
+  [[nodiscard]] Status renderFrameToTarget(const Scene &scene, const RenderTarget &target,
+                                           const AsterCameraDesc &camera,
+                                           const AsterRendererSettings &settings) noexcept {
+    return Status(aster_kernel_renderer_render_frame_to_target(handle_, scene.get(), target.get(),
+                                                               &camera, &settings));
+  }
+
   [[nodiscard]] Status present(Window &window) noexcept {
     return Status(aster_kernel_renderer_present(handle_, window.get()));
   }
 
   [[nodiscard]] Status capture(const AsterCaptureDesc &desc) noexcept {
     return Status(aster_kernel_renderer_capture(handle_, &desc));
+  }
+
+  [[nodiscard]] Status captureRenderTarget(const RenderTarget &target,
+                                           const AsterCaptureDesc &desc) noexcept {
+    return Status(aster_kernel_renderer_capture_render_target(handle_, target.get(), &desc));
   }
 
   [[nodiscard]] Result<AsterFrameStats> lastStats() const noexcept {
@@ -607,6 +1012,33 @@ public:
       return Result<AsterFrameStats>(status);
     }
     return Result<AsterFrameStats>(std::move(stats));
+  }
+
+  [[nodiscard]] Result<size_t> validationEventCount() const noexcept {
+    size_t count = 0u;
+    const Status status(aster_kernel_renderer_validation_event_count(handle_, &count));
+    if (!status) {
+      return Result<size_t>(status);
+    }
+    return Result<size_t>(std::move(count));
+  }
+
+  [[nodiscard]] Result<AsterValidationEvent> validationEvent(const size_t index) const noexcept {
+    AsterValidationEvent event{sizeof(AsterValidationEvent), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_validation_event(handle_, index, &event));
+    if (!status) {
+      return Result<AsterValidationEvent>(status);
+    }
+    return Result<AsterValidationEvent>(std::move(event));
+  }
+
+  [[nodiscard]] Result<FrameSchedule> lastFrameSchedule() const noexcept {
+    AsterFrameScheduleHandle schedule = nullptr;
+    const Status status(aster_kernel_renderer_get_last_frame_schedule(handle_, &schedule));
+    if (!status) {
+      return Result<FrameSchedule>(status);
+    }
+    return Result<FrameSchedule>(FrameSchedule(schedule));
   }
 
   [[nodiscard]] Result<AsterFrameForensicsCounts> frameForensicsCounts() const noexcept {

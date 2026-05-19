@@ -10,7 +10,7 @@
 int main() {
   const AsterAbiVersion version = aster::kernel::abiVersion();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
-  assert(version.major == 4u);
+  assert(version.major == 5u);
 
   const auto normalized = aster::kernel::math::normalize({3.0f, 0.0f, 4.0f});
   assert(normalized);
@@ -47,10 +47,23 @@ int main() {
 
   auto scene = aster::kernel::Scene::create(engine.value());
   assert(scene);
+  const AsterMaterialDesc material_desc{sizeof(AsterMaterialDesc),
+                                        ASTER_KERNEL_STRUCT_VERSION_1,
+                                        {0.7f, 0.62f, 0.52f},
+                                        {0.0f, 0.0f, 0.0f},
+                                        0.55f,
+                                        0.0f,
+                                        0.0f,
+                                        1.0f,
+                                        ASTER_KERNEL_MATERIAL_ALPHA_OPAQUE,
+                                        0u,
+                                        {"public-material", 15u}};
+  auto material = aster::kernel::Material::create(engine.value(), material_desc);
+  assert(material);
   AsterSceneObjectDesc object{sizeof(AsterSceneObjectDesc),
                               ASTER_KERNEL_STRUCT_VERSION_1,
                               nullptr,
-                              nullptr,
+                              material.value().get(),
                               nullptr,
                               ASTER_KERNEL_MESH_PRIMITIVE_BOX,
                               {0.0f, 0.0f, 0.0f},
@@ -76,11 +89,26 @@ int main() {
                                        32u,
                                        24u,
                                        0u};
-  assert(renderer.value().renderFrame(scene.value(), camera, settings));
+  const AsterRenderTargetDesc target_desc{sizeof(AsterRenderTargetDesc),
+                                          ASTER_KERNEL_STRUCT_VERSION_1,
+                                          ASTER_KERNEL_BACKEND_FORMAT_BGRA8_UNORM,
+                                          ASTER_KERNEL_BACKEND_FORMAT_DEPTH32_FLOAT,
+                                          32u,
+                                          24u,
+                                          1u,
+                                          {"public-target", 13u}};
+  auto target = aster::kernel::RenderTarget::create(engine.value(), target_desc);
+  assert(target);
+  assert(renderer.value().renderFrameToTarget(scene.value(), target.value(), camera, settings));
   auto stats = renderer.value().lastStats();
   assert(stats);
   assert(stats.value().framebuffer_width == 32u);
   assert(stats.value().graph_passes > 0u);
+  auto schedule = renderer.value().lastFrameSchedule();
+  assert(schedule);
+  auto schedule_counts = schedule.value().counts();
+  assert(schedule_counts);
+  assert(schedule_counts.value().pass_count > 0u);
 
   const char *source = "float4 fs_main() { return float4(1.0); }\n";
   const AsterShaderModuleSource module{{"material", 8u}, {source, std::strlen(source)}};

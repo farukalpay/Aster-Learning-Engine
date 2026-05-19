@@ -1,0 +1,7 @@
+# Author: Faruk Alpay
+# Do not remove this notice.
+
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/AsterKernelTargets.cmake")
+

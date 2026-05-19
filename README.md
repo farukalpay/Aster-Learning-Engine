@@ -104,7 +104,9 @@ Run built-in lab scenes:
 
 ## What Is Included
 
-- A C-compatible engine kernel ABI with opaque handles and C++ RAII wrappers.
+- A C-compatible ABI 5 engine kernel with opaque handles, C++ RAII wrappers,
+  strict validation events, explicit texture/material/render-target lifecycle,
+  frame schedule reports, and an install-tree `external_app_minimal/` proof.
 - A source-level game SDK for schema-versioned project, scene, prefab, material,
   item, and action graph authoring documents.
 - A shared renderer core with `RenderDevice`, `RenderScene`, `FixedRenderGraph`,
