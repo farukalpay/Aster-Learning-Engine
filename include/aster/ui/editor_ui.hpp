@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "aster/asset/asset_database.hpp"
+#include "aster/asset/asset_factory.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/render_device.hpp"
 #include "aster/ui/ui_canvas.hpp"
@@ -14,6 +16,9 @@ class Scene;
 struct EditorRuntimeModel {
   RenderBackendCapabilities backend{};
   const FixedRenderGraph *render_graph = nullptr;
+  const AssetDatabase *asset_database = nullptr;
+  const AssetLibrary *asset_library = nullptr;
+  const FrameForensics *frame_forensics = nullptr;
 };
 
 class EditorUi {
@@ -39,6 +44,8 @@ private:
   ControlSnapshot input_{};
   float renderer_panel_scroll_ = 0.0f;
   std::size_t selected_graph_pass_ = 0u;
+  std::size_t selected_asset_ = 0u;
+  std::size_t selected_object_fate_ = 0u;
   bool initialized_ = false;
 };
 

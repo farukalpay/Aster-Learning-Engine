@@ -146,9 +146,10 @@ using asset_json::Value;
   return outputs;
 }
 
-[[nodiscard]] std::vector<AssetArtifactRecord> artifactsFrom(const Value &json) {
+[[nodiscard]] std::vector<AssetArtifactRecord> artifactsFromKey(const Value &json,
+                                                                const std::string_view key) {
   std::vector<AssetArtifactRecord> artifacts;
-  if (const Value *values = arrayField(json, "artifacts")) {
+  if (const Value *values = arrayField(json, key)) {
     for (const Value &value : values->array) {
       artifacts.push_back({.role = asset_json::textOr(value, "role"),
                            .kind = asset_json::textOr(value, "kind"),
@@ -158,6 +159,99 @@ using asset_json::Value;
     }
   }
   return artifacts;
+}
+
+[[nodiscard]] std::vector<AssetArtifactRecord> artifactsFrom(const Value &json) {
+  return artifactsFromKey(json, "artifacts");
+}
+
+[[nodiscard]] std::vector<std::string> stringsFrom(const Value &json,
+                                                   const std::string_view key) {
+  std::vector<std::string> strings;
+  if (const Value *values = arrayField(json, key)) {
+    for (const Value &value : values->array) {
+      if (value.kind == Value::Kind::String) {
+        strings.push_back(value.string);
+      }
+    }
+  }
+  return strings;
+}
+
+[[nodiscard]] AssetDerivedHashes derivedHashesFrom(const Value &json) {
+  const Value *hashes = json.find("derived_hashes");
+  if (hashes == nullptr || hashes->kind != Value::Kind::Object) {
+    return {};
+  }
+  return {.source_hash = asset_json::textOr(*hashes, "source_hash"),
+          .options_hash = asset_json::textOr(*hashes, "options_hash"),
+          .dependency_hash = asset_json::textOr(*hashes, "dependency_hash"),
+          .artifact_hash = asset_json::textOr(*hashes, "artifact_hash"),
+          .material_hash = asset_json::textOr(*hashes, "material_hash"),
+          .shader_variant_key = asset_json::textOr(*hashes, "shader_variant_key"),
+          .pipeline_cache_key = asset_json::textOr(*hashes, "pipeline_cache_key"),
+          .vertex_input_contract = asset_json::textOr(*hashes, "vertex_input_contract"),
+          .frame_plan_fingerprint = asset_json::textOr(*hashes, "frame_plan_fingerprint")};
+}
+
+[[nodiscard]] AssetFateReport fateReportFrom(const Value &json) {
+  const Value *report = json.find("fate_report");
+  if (report == nullptr || report->kind != Value::Kind::Object) {
+    report = &json;
+  }
+  return {.asset_id = asset_json::textOr(*report, "asset_id"),
+          .asset_guid = asset_json::textOr(*report, "asset_guid"),
+          .kind = asset_json::textOr(*report, "kind"),
+          .source_path = asset_json::textOr(*report, "source_path"),
+          .production_ready = asset_json::boolOr(*report, "production_ready"),
+          .dependency_count = static_cast<std::size_t>(
+              asset_json::u64Or(*report, "dependency_count")),
+          .output_count = static_cast<std::size_t>(asset_json::u64Or(*report, "output_count")),
+          .diagnostic_count = static_cast<std::size_t>(
+              asset_json::u64Or(*report, "diagnostic_count")),
+          .derived_hashes = derivedHashesFrom(*report),
+          .chain = stringsFrom(*report, "chain"),
+          .render_contract = stringsFrom(*report, "render_contract"),
+          .artifact_provenance = artifactsFromKey(*report, "artifact_provenance")};
+}
+
+[[nodiscard]] std::vector<AssetFateReport> fateReportsFrom(const Value &json) {
+  std::vector<AssetFateReport> reports;
+  if (const Value *values = arrayField(json, "fate_reports")) {
+    for (const Value &value : values->array) {
+      reports.push_back(fateReportFrom(value));
+    }
+  }
+  return reports;
+}
+
+[[nodiscard]] AssetGraph assetGraphFrom(const Value &json) {
+  AssetGraph graph;
+  const Value *graph_json = json.find("asset_graph");
+  if (graph_json == nullptr || graph_json->kind != Value::Kind::Object) {
+    return graph;
+  }
+  graph.schema_version = asset_json::u32Or(*graph_json, "schema_version");
+  graph.project_fingerprint = asset_json::textOr(*graph_json, "project_fingerprint");
+  if (const Value *nodes = arrayField(*graph_json, "nodes")) {
+    for (const Value &node : nodes->array) {
+      graph.nodes.push_back({.guid = asset_json::textOr(node, "guid"),
+                             .id = asset_json::textOr(node, "id"),
+                             .kind = asset_json::textOr(node, "kind"),
+                             .source_path = asset_json::textOr(node, "source_path"),
+                             .production_ready = asset_json::boolOr(node, "production_ready")});
+    }
+  }
+  if (const Value *edges = arrayField(*graph_json, "edges")) {
+    for (const Value &edge : edges->array) {
+      graph.edges.push_back({.from = asset_json::textOr(edge, "from"),
+                             .to = asset_json::textOr(edge, "to"),
+                             .role = asset_json::textOr(edge, "role"),
+                             .present = asset_json::boolOr(edge, "present"),
+                             .hash = asset_json::textOr(edge, "hash")});
+    }
+  }
+  return graph;
 }
 
 void backfillV2Record(AssetDatabaseRecord &record) {
@@ -183,6 +277,29 @@ void backfillV2Record(AssetDatabaseRecord &record) {
                                          .present = dependency.present,
                                          .hash = dependency.hash});
     }
+  }
+  if (record.derived_hashes.source_hash.empty()) {
+    record.derived_hashes.source_hash = record.source_hash;
+  }
+  if (record.derived_hashes.options_hash.empty()) {
+    record.derived_hashes.options_hash = record.options_hash;
+  }
+  if (record.fate_report.asset_id.empty()) {
+    record.fate_report.asset_id = record.id;
+    record.fate_report.asset_guid = record.guid;
+    record.fate_report.kind = record.kind;
+    record.fate_report.source_path = record.source_path;
+    record.fate_report.production_ready =
+        !record.outputs.empty() &&
+        std::none_of(record.diagnostics.begin(), record.diagnostics.end(),
+                     [](const AssetCookDiagnostic &diagnostic) {
+                       return diagnostic.severity == "error";
+                     });
+    record.fate_report.dependency_count = record.dependencies.size();
+    record.fate_report.output_count = record.outputs.size();
+    record.fate_report.diagnostic_count = record.diagnostics.size();
+    record.fate_report.derived_hashes = record.derived_hashes;
+    record.fate_report.artifact_provenance = record.artifacts;
   }
 }
 
@@ -229,6 +346,8 @@ AssetDatabase loadAssetDatabase(const std::filesystem::path &path) {
   database.platform = asset_json::textOr(root, "platform");
   database.artifact_manifest = asset_json::textOr(root, "artifact_manifest");
   database.tool_versions = toolVersionsFrom(root);
+  database.asset_graph = assetGraphFrom(root);
+  database.fate_reports = fateReportsFrom(root);
   const Value &records = asset_json::required(root, "records");
   if (records.kind != Value::Kind::Array) {
     throw asset_json::Error("asset database records must be an array", records.location);
@@ -251,9 +370,34 @@ AssetDatabase loadAssetDatabase(const std::filesystem::path &path) {
     record.outputs = outputsFrom(record_json);
     record.diagnostics = diagnosticsFrom(record_json);
     record.tool_versions = toolVersionsFrom(record_json);
+    record.derived_hashes = derivedHashesFrom(record_json);
+    record.fate_report = fateReportFrom(record_json);
     record.platform = asset_json::textOr(record_json, "platform", database.platform);
     backfillV2Record(record);
     database.records.push_back(std::move(record));
+  }
+  if (database.asset_graph.nodes.empty()) {
+    database.asset_graph.schema_version = database.schema_version;
+    for (const AssetDatabaseRecord &record : database.records) {
+      database.asset_graph.nodes.push_back({.guid = record.guid,
+                                            .id = record.id,
+                                            .kind = record.kind,
+                                            .source_path = record.source_path,
+                                            .production_ready =
+                                                record.fate_report.production_ready});
+      for (const AssetDependencyEdge &edge : record.dependency_edges) {
+        database.asset_graph.edges.push_back({.from = edge.from,
+                                              .to = edge.to,
+                                              .role = edge.role,
+                                              .present = edge.present,
+                                              .hash = edge.hash});
+      }
+    }
+  }
+  if (database.fate_reports.empty()) {
+    for (const AssetDatabaseRecord &record : database.records) {
+      database.fate_reports.push_back(record.fate_report);
+    }
   }
   return database;
 }

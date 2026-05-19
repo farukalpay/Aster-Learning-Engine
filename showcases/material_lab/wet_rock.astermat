@@ -7,6 +7,30 @@ material ShowcaseWetRock {
   receives_decals: true
   receives_shadows: true
 
+  provenance {
+    source: "engine-native-procedural"
+    generator: "aster-material-lab"
+    source_surface: "wet-cave-wall"
+  }
+
+  authoring {
+    texel_density: 2.7
+    mapping_policy: triplanar
+    world_scale_meters: 1.0
+  }
+
+  preview {
+    rig: "normalized-three-point"
+    exposure: 1.0
+    environment: "studio-neutral"
+  }
+
+  quality_profile {
+    mobile_drop_parallax: true
+    mobile_max_texture_size: 1024
+    low_texture_scale: 0.5
+  }
+
   textures {
     albedo: "wet_rock_albedo.ktx2"
     normal: "wet_rock_normal.ktx2"

@@ -1,11 +1,11 @@
 {
-  "schema_version": 1,
-  "asset_guid": "214efdad585479559de59f564c5c0478ce3fcb65535e27bbd54e5ee15233bbd4",
+  "schema_version": 2,
+  "asset_guid": "asset-v2-showcase-wet-rock-0000000001",
   "id": "ShowcaseWetRock",
   "name": "Showcase Wet Rock",
   "source_path": "wet_rock.astermat",
   "feature_mask": 63,
-  "shader_variant_key": 5436732930469767860,
+  "shader_variant_key": 2791067463977671250,
   "shader_variant_tag": "LitPBR.Opaque.textured.normal-map.parallax.triplanar",
   "pipeline_tag": "opaque.depth-write.culled.textured.shader-variant",
   "fallback": {
@@ -41,6 +41,26 @@
     "parallax": true,
     "triplanar": true
   },
+  "provenance": {
+    "generator": "aster-material-lab",
+    "source": "engine-native-procedural",
+    "source_surface": "wet-cave-wall"
+  },
+  "authoring": {
+    "mapping_policy": "triplanar",
+    "texel_density": "2.7",
+    "world_scale_meters": "1.0"
+  },
+  "preview": {
+    "environment": "studio-neutral",
+    "exposure": "1.0",
+    "rig": "normalized-three-point"
+  },
+  "quality_profile": {
+    "low_texture_scale": "0.5",
+    "mobile_drop_parallax": "true",
+    "mobile_max_texture_size": "1024"
+  },
   "textures": [
     {
       "role": "albedo",
@@ -48,11 +68,17 @@
       "cooked_path": "textures/showcasewetrock_albedo.ktx2",
       "kind": "albedo",
       "color_space": "srgb",
+      "source_format": "ktx2",
+      "runtime_format": "ktx2",
       "width": 16,
       "height": 16,
       "mip_count": 5,
+      "byte_cost": 604,
+      "encoder": "passthrough-ktx2",
+      "fallback_reason": "",
+      "platform_compatibility": "desktop:ok",
       "source_hash": "dad0bf0ee88ae31e53b3edf51406ed9a315a01b221f86b3af06b1da52bad4c9a",
-      "cooked_hash": "64d990f3dd0b18b946dd26c069e335a713e016f45b8886f0099e45fd06a160ee",
+      "cooked_hash": "dad0bf0ee88ae31e53b3edf51406ed9a315a01b221f86b3af06b1da52bad4c9a",
       "diagnostics": []
     },
     {
@@ -61,11 +87,17 @@
       "cooked_path": "textures/showcasewetrock_height.ktx2",
       "kind": "height",
       "color_space": "linear",
+      "source_format": "ktx2",
+      "runtime_format": "ktx2",
       "width": 16,
       "height": 16,
       "mip_count": 5,
+      "byte_cost": 606,
+      "encoder": "passthrough-ktx2",
+      "fallback_reason": "",
+      "platform_compatibility": "desktop:ok",
       "source_hash": "e72659a782987071c07f368b976d9a27a52d4a849994d657e78c628b6b36aed9",
-      "cooked_hash": "684f7090bd229b5043e43919c409ad2881f540dc475a7d3b50445f6265cf1321",
+      "cooked_hash": "e72659a782987071c07f368b976d9a27a52d4a849994d657e78c628b6b36aed9",
       "diagnostics": []
     },
     {
@@ -74,11 +106,17 @@
       "cooked_path": "textures/showcasewetrock_normal.ktx2",
       "kind": "normal",
       "color_space": "linear",
+      "source_format": "ktx2",
+      "runtime_format": "ktx2",
       "width": 16,
       "height": 16,
       "mip_count": 5,
+      "byte_cost": 606,
+      "encoder": "passthrough-ktx2",
+      "fallback_reason": "",
+      "platform_compatibility": "desktop:ok",
       "source_hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d",
-      "cooked_hash": "e3624b4d6f17c52610cece61bb08c2276835db93152873d8be61a392fcaf709f",
+      "cooked_hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d",
       "diagnostics": []
     },
     {
@@ -87,11 +125,17 @@
       "cooked_path": "textures/showcasewetrock_orm.ktx2",
       "kind": "orm",
       "color_space": "linear",
+      "source_format": "ktx2",
+      "runtime_format": "ktx2",
       "width": 16,
       "height": 16,
       "mip_count": 5,
+      "byte_cost": 603,
+      "encoder": "passthrough-ktx2",
+      "fallback_reason": "",
+      "platform_compatibility": "desktop:ok",
       "source_hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e",
-      "cooked_hash": "e78f9af1e9a375f2cddf8b10694ba009433924bc6d4d31d0c0c704dc5fd8c5e3",
+      "cooked_hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e",
       "diagnostics": []
     },
     {
@@ -100,11 +144,17 @@
       "cooked_path": "textures/showcasewetrock_wetness.ktx2",
       "kind": "wetness",
       "color_space": "linear",
+      "source_format": "ktx2",
+      "runtime_format": "ktx2",
       "width": 16,
       "height": 16,
       "mip_count": 5,
+      "byte_cost": 607,
+      "encoder": "passthrough-ktx2",
+      "fallback_reason": "",
+      "platform_compatibility": "desktop:ok",
       "source_hash": "cbff6649f809606b43f56ff9eae9b809e40e37c5925ffb89127e0ce2eb5c3422",
-      "cooked_hash": "24275c07487343d61cb79bd28078439b08f3a68311608b6461a51234aad685cb",
+      "cooked_hash": "cbff6649f809606b43f56ff9eae9b809e40e37c5925ffb89127e0ce2eb5c3422",
       "diagnostics": []
     }
   ],
@@ -177,5 +227,19 @@
       "hash": "cbff6649f809606b43f56ff9eae9b809e40e37c5925ffb89127e0ce2eb5c3422"
     }
   ],
-  "diagnostics": []
+  "derived_hashes": {
+    "source_hash": "2b48482a38a2c289bad62396720a9ad9390c885b9727af0099090da56b93ca63",
+    "options_hash": "5e350197b8992100268d7f4607ca116d80dcae5a7551a0eda85a43d9804ce2a4",
+    "dependency_hash": "efa5fe3e0b8d1a094bd3ea48555b7e368997b8caff7cdcc56ad4031810a785f1",
+    "artifact_hash": "2fbd7a29d9a0777b7c65cb897f62959e27e9c02a394267771206e379e6cd66fa",
+    "material_hash": "fd324f8a5b8ce10f35ab769bea3f7ea705b1ad6555f215663aabb1f0d19e2acb",
+    "shader_variant_key": "0x26bbdd121e8a1a52",
+    "pipeline_cache_key": "53d59e8e0006a1a4ae5c90a38c9abf0f034c78c1f5539401bbe846927860f713"
+  },
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "message": "material 'ShowcaseWetRock' will drop parallax on mobile quality profiles"
+    }
+  ]
 }

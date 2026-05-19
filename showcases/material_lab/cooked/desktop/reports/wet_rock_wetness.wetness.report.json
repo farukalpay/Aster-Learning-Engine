@@ -4,11 +4,17 @@
   "kind": "wetness",
   "color_space": "linear",
   "format": "ktx2",
+  "source_format": "ktx2",
+  "runtime_format": "ktx2",
   "width": 16,
   "height": 16,
   "mip_count": 5,
+  "byte_cost": 607,
+  "encoder": "passthrough-ktx2",
+  "fallback_reason": "",
+  "platform_compatibility": "desktop:ok",
   "source_hash": "cbff6649f809606b43f56ff9eae9b809e40e37c5925ffb89127e0ce2eb5c3422",
-  "cooked_hash": "24275c07487343d61cb79bd28078439b08f3a68311608b6461a51234aad685cb",
+  "cooked_hash": "cbff6649f809606b43f56ff9eae9b809e40e37c5925ffb89127e0ce2eb5c3422",
   "cooked_path": "textures/showcasewetrock_wetness.ktx2",
   "diagnostics": []
 }

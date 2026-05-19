@@ -3,6 +3,7 @@
 
 #include "aster/core/clock.hpp"
 #include "aster/asset/asset_database.hpp"
+#include "aster/asset/asset_factory.hpp"
 #include "aster/core/config.hpp"
 #include "aster/core/frame_time_stats.hpp"
 #include "aster/input/control_scheme.hpp"
@@ -192,11 +193,15 @@ int main(int argc, char **argv) {
     aster::Window window(config);
     aster::RenderDevice renderer;
     renderer.initialize();
+    std::optional<aster::AssetDatabase> asset_database;
+    std::optional<aster::AssetLibrary> asset_library;
     if (!asset_db_path.empty() && std::filesystem::exists(asset_db_path)) {
-      const aster::AssetDatabase database = aster::loadAssetDatabase(asset_db_path);
+      asset_database = aster::loadAssetDatabase(asset_db_path);
+      asset_library =
+          aster::AssetLibrary::fromDatabase(*asset_database, asset_db_path.parent_path());
       std::cout << "Studio asset database: " << asset_db_path
-                << " assets=" << database.records.size()
-                << " platform=" << database.platform << '\n';
+                << " assets=" << asset_database->records.size()
+                << " platform=" << asset_database->platform << '\n';
     } else if (!asset_db_path.empty()) {
       std::cerr << "warning: requested asset database is missing: " << asset_db_path << '\n';
     }
@@ -266,7 +271,11 @@ int main(int argc, char **argv) {
       displayed_stats.frame_seconds = dt;
 
       ui.draw(scene, camera, settings, displayed_stats,
-              {.backend = renderer.backendCapabilities(), .render_graph = &renderer.renderGraph()});
+              {.backend = renderer.backendCapabilities(),
+               .render_graph = &renderer.renderGraph(),
+               .asset_database = asset_database ? &*asset_database : nullptr,
+               .asset_library = asset_library ? &*asset_library : nullptr,
+               .frame_forensics = &renderer.lastFrameForensics()});
       ui.endFrame();
       if (collect_frame_sample) {
         ui_times.addSample(clock.now() - ui_start);

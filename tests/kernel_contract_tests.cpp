@@ -46,6 +46,7 @@ static_assert(std::is_standard_layout_v<AsterFrameDiagnosticEvent>);
 static_assert(std::is_standard_layout_v<AsterFrameDebugCaptureInfo>);
 static_assert(std::is_standard_layout_v<AsterFramePassArtifactInfo>);
 static_assert(std::is_standard_layout_v<AsterFrameResourceTransition>);
+static_assert(std::is_standard_layout_v<AsterObjectRenderFate>);
 static_assert(std::is_standard_layout_v<AsterRhiValidationEvent>);
 static_assert(std::is_standard_layout_v<AsterFrameTimestampSample>);
 static_assert(std::is_standard_layout_v<AsterBackendFeatureProof>);
@@ -382,6 +383,7 @@ void testRendererAbi3Lifecycle() {
   assert(detail_counts.pass_count == forensics_counts.pass_count);
   assert(detail_counts.debug_capture_count >= 1u);
   assert(detail_counts.resource_transition_count >= 1u);
+  assert(detail_counts.object_fate_count >= 1u);
   assert(detail_counts.backend_feature_proof_count >= 1u);
   AsterFramePassStats pass_stats{sizeof(AsterFramePassStats), ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_renderer_frame_pass_stats(renderer, 0u, &pass_stats).code ==
@@ -401,6 +403,14 @@ void testRendererAbi3Lifecycle() {
                                           ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_renderer_resource_transition(renderer, 0u, &transition).code ==
          ASTER_STATUS_OK);
+  AsterObjectRenderFate fate{sizeof(AsterObjectRenderFate), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_object_render_fate(renderer, 0u, &fate).code == ASTER_STATUS_OK);
+  assert(fate.object_name.size > 0u);
+  assert(fate.mesh_key.size > 0u);
+  assert(fate.material_key.size > 0u);
+  assert(fate.pass_list.size > 0u);
+  assert(fate.final_contribution.size > 0u);
+  assert(fate.contribution_hash != 0u);
   AsterFrameTimestampSample timestamp{sizeof(AsterFrameTimestampSample),
                                       ASTER_KERNEL_STRUCT_VERSION_1};
   if (detail_counts.timestamp_sample_count > 0u) {

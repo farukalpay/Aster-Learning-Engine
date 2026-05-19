@@ -3092,6 +3092,164 @@ void appendObjectDebuggerTraces(const aster::Scene &scene, const aster::FrameRen
   }
 }
 
+std::uint64_t appendEvidenceText(std::uint64_t hash, const std::string_view value) {
+  for (const char c : value) {
+    hash = appendEvidenceValue(hash, static_cast<std::uint8_t>(c));
+  }
+  return appendEvidenceValue(hash, value.size());
+}
+
+void appendUnique(std::vector<std::string> &values, std::string value) {
+  if (std::find(values.begin(), values.end(), value) == values.end()) {
+    values.push_back(std::move(value));
+  }
+}
+
+std::string materialAssetIdFor(const aster::RenderObject &object) {
+  if (!object.material_asset_id.empty()) {
+    return object.material_asset_id;
+  }
+  return object.material.asset_id;
+}
+
+aster::RenderGraphPass graphPassFor(const aster::FrameRenderPass pass) {
+  return pass == aster::FrameRenderPass::Transparent ? aster::RenderGraphPass::Transparent
+                                                     : aster::RenderGraphPass::Opaque;
+}
+
+std::string textureRoleFate(const aster::MaterialRuntimeResource *runtime_material,
+                            const aster::RenderBackendCapabilities &capabilities,
+                            const std::string_view role) {
+  const aster::RuntimeTexture *texture =
+      runtime_material == nullptr ? nullptr : runtime_material->texture_set.find(role);
+  if (texture == nullptr) {
+    return std::string(role) + ":missing";
+  }
+  if (!texture->valid) {
+    return std::string(role) + ":invalid";
+  }
+  if (texture->fallback) {
+    return std::string(role) + ":fallback";
+  }
+  return std::string(role) + (capabilities.supports_texture_sampling ? ":bound" : ":unsupported");
+}
+
+std::uint64_t objectFateHash(const aster::ObjectRenderFateTrace &fate) {
+  std::uint64_t hash = 1469598103934665603ull;
+  hash = appendEvidenceValue(hash, fate.object_index);
+  hash = appendEvidenceValue(hash, fate.visible ? 1u : 0u);
+  hash = appendEvidenceText(hash, fate.object_name);
+  hash = appendEvidenceText(hash, fate.mesh_key);
+  hash = appendEvidenceText(hash, fate.material_key);
+  hash = appendEvidenceText(hash, fate.material_asset_id);
+  hash = appendEvidenceText(hash, fate.shader_variant_key);
+  hash = appendEvidenceText(hash, fate.pipeline_tag);
+  for (const std::string &value : fate.texture_roles) {
+    hash = appendEvidenceText(hash, value);
+  }
+  for (const std::string &value : fate.pass_list) {
+    hash = appendEvidenceText(hash, value);
+  }
+  for (const std::string &value : fate.resource_transitions) {
+    hash = appendEvidenceText(hash, value);
+  }
+  for (const std::string &value : fate.capture_labels) {
+    hash = appendEvidenceText(hash, value);
+  }
+  for (const std::string &value : fate.feature_proofs) {
+    hash = appendEvidenceText(hash, value);
+  }
+  return appendEvidenceText(hash, fate.final_contribution);
+}
+
+void appendObjectRenderFateTraces(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
+                                  const aster::RendererSettings &settings,
+                                  const aster::MaterialResourceLibrary *library,
+                                  const aster::RenderBackendCapabilities &capabilities,
+                                  aster::FrameForensics &forensics) {
+  forensics.object_fates.clear();
+  forensics.object_fates.reserve(scene.objects().size());
+  for (std::size_t object_index = 0u; object_index < scene.objects().size(); ++object_index) {
+    const aster::RenderObject &object = scene.objects()[object_index];
+    const std::string material_asset_id = materialAssetIdFor(object);
+    const aster::MaterialRuntimeResource *runtime_material =
+        library == nullptr ? nullptr : library->findForMaterialIds(object.material_asset_id,
+                                                                   object.material.asset_id);
+    const aster::CompiledMaterial compiled =
+        aster::compileMaterialForRendering(object.material, runtime_material != nullptr,
+                                           material_asset_id);
+    aster::ObjectRenderFateTrace fate;
+    fate.object_name = objectDiagnosticLabel(object, object_index);
+    fate.object_index = object_index;
+    fate.mesh_key = std::to_string(aster::renderMeshIdForObject(object).value);
+    fate.material_key = std::to_string(aster::renderMaterialKeyForObject(object).value);
+    fate.material_asset_id = material_asset_id;
+    fate.shader_variant_key = std::to_string(object.material.shader_variant_key);
+    fate.pipeline_tag = compiled.pipeline_tag;
+    for (const std::string_view role : aster::materialRuntimeTextureRoles()) {
+      fate.texture_roles.push_back(textureRoleFate(runtime_material, capabilities, role));
+    }
+    for (const aster::FrameRenderDrawGroup &group : plan.groups) {
+      for (std::size_t i = 0u; i < group.instance_count; ++i) {
+        const std::size_t plan_index = group.first_instance + i;
+        if (plan_index >= plan.instances.size()) {
+          break;
+        }
+        const aster::FrameRenderInstance &instance = plan.instances[plan_index];
+        if (instance.object_index != object_index) {
+          continue;
+        }
+        fate.visible = true;
+        appendUnique(fate.pass_list,
+                     std::string(aster::renderGraphPassName(graphPassFor(group.pass))));
+      }
+    }
+    if (settings.shadows.enabled && object.material.receives_shadows &&
+        aster::renderObjectCastsShadows(object)) {
+      appendUnique(fate.pass_list, std::string(aster::renderGraphPassName(
+                                       aster::RenderGraphPass::ShadowAtlas)));
+    }
+    for (const aster::FrameResourceTrace &trace : forensics.resource_traces) {
+      const std::string label = trace.pass_name + ":" + trace.resource_name + ":" +
+                                (trace.write ? "write" : "read");
+      appendUnique(fate.resource_transitions, label);
+    }
+    fate.final_contribution = fate.visible ? "planned" : "culled";
+    fate.contribution_hash = objectFateHash(fate);
+    forensics.object_fates.push_back(std::move(fate));
+  }
+}
+
+void finalizeObjectRenderFates(aster::FrameForensics &forensics) {
+  std::vector<std::string> capture_labels;
+  for (const aster::FrameDebugCapture &capture : forensics.captures) {
+    capture_labels.push_back(capture.label + (capture.available ? ":available" : ":missing"));
+  }
+  std::vector<std::string> proof_labels;
+  for (const aster::BackendFeatureProof &proof : forensics.backend_feature_proofs) {
+    proof_labels.push_back(proof.label + ":" +
+                           std::string(aster::backendFeatureProofStatusName(proof.status)));
+  }
+  for (aster::ObjectRenderFateTrace &fate : forensics.object_fates) {
+    fate.capture_labels = capture_labels;
+    fate.feature_proofs = proof_labels;
+    if (!fate.visible) {
+      fate.final_contribution = "culled";
+    } else if (std::any_of(forensics.captures.begin(), forensics.captures.end(),
+                           [](const aster::FrameDebugCapture &capture) {
+                             return capture.available &&
+                                    (capture.resource == aster::RenderGraphResource::SceneColor ||
+                                     capture.resource ==
+                                         aster::RenderGraphResource::CaptureReadback);
+                           })) {
+      fate.final_contribution = "contributed";
+    } else {
+      fate.final_contribution = "planned-no-final-capture";
+    }
+    fate.contribution_hash = objectFateHash(fate);
+  }
+}
+
 std::string shaderVariantTagFor(const Material &material) {
   if (!material.asset_id.empty()) {
     return material.asset_id;
@@ -3476,6 +3634,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                                   active_capabilities, last_forensics_.rhi_trace.pipelines);
   appendObjectDebuggerTraces(scene, plan, camera, settings, framebuffer_width, framebuffer_height,
                              last_forensics_);
+  appendObjectRenderFateTraces(scene, plan, settings, material_library_.get(),
+                               active_capabilities, last_forensics_);
   last_forensics_.events.insert(last_forensics_.events.end(),
                                 std::make_move_iterator(material_summary.events.begin()),
                                 std::make_move_iterator(material_summary.events.end()));
@@ -3577,6 +3737,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     }
     certifyBackendFrame(render_graph_, native_backend_->capabilities(), settings, native_stats,
                         last_forensics_);
+    finalizeObjectRenderFates(last_forensics_);
     native_stats.timestamp_query_slots = last_forensics_.timestamp_samples.size();
     native_stats.resource_lifetime_warnings +=
         last_forensics_.certification.validation_error_count;
@@ -3694,6 +3855,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.resource_lifetime_warnings = registry_stats.retired_resources;
   stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
   certifyBackendFrame(render_graph_, softwareCapabilities(), settings, stats, last_forensics_);
+  finalizeObjectRenderFates(last_forensics_);
   stats.timestamp_query_slots = last_forensics_.timestamp_samples.size();
   stats.resource_lifetime_warnings += last_forensics_.certification.validation_error_count;
 

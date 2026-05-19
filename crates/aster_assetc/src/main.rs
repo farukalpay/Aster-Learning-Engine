@@ -2,6 +2,7 @@
 // Do not remove this notice.
 
 use aster_content::{
+    asset_database_diff_json, asset_fate_report_json, asset_graph_report_json,
     bake_texture_to_ktx2, compile_scene_asset_to_cache, cook_project, hex_hash, inspect_cache,
     inspect_texture, material_inspect_report_json, read_asset_database, report_asset_database,
     write_missing_asset_meta, CompileOptions, OriginPolicy,
@@ -80,6 +81,9 @@ fn usage() -> &'static str {
   aster_assetc material-inspect --input <file.astermat> [--asset-root <dir>]
   aster_assetc cook --project <file.asterproj> --platform desktop --output <dir>
   aster_assetc report --db <assetdb.asterdb.json>
+  aster_assetc graph --db <assetdb.asterdb.json>
+  aster_assetc fate --db <assetdb.asterdb.json> --asset <id-or-guid>
+  aster_assetc diff --before <old.assetdb.asterdb.json> --after <new.assetdb.asterdb.json>
   aster_assetc guid-init --project <file.asterproj>"
 }
 
@@ -249,6 +253,43 @@ fn report_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn graph_command(args: &[String]) -> Result<(), String> {
+    let db = value_after(args, "--db")
+        .map(PathBuf::from)
+        .ok_or_else(|| "graph requires --db <assetdb.asterdb.json>".to_string())?;
+    let database = read_asset_database(&db).map_err(|error| error.to_string())?;
+    let report = asset_graph_report_json(&database).map_err(|error| error.to_string())?;
+    println!("{report}");
+    Ok(())
+}
+
+fn fate_command(args: &[String]) -> Result<(), String> {
+    let db = value_after(args, "--db")
+        .map(PathBuf::from)
+        .ok_or_else(|| "fate requires --db <assetdb.asterdb.json>".to_string())?;
+    let asset = value_after(args, "--asset")
+        .ok_or_else(|| "fate requires --asset <id-or-guid>".to_string())?;
+    let database = read_asset_database(&db).map_err(|error| error.to_string())?;
+    let report = asset_fate_report_json(&database, &asset).map_err(|error| error.to_string())?;
+    println!("{report}");
+    Ok(())
+}
+
+fn diff_command(args: &[String]) -> Result<(), String> {
+    let before = value_after(args, "--before")
+        .map(PathBuf::from)
+        .ok_or_else(|| "diff requires --before <old.assetdb.asterdb.json>".to_string())?;
+    let after = value_after(args, "--after")
+        .map(PathBuf::from)
+        .ok_or_else(|| "diff requires --after <new.assetdb.asterdb.json>".to_string())?;
+    let before_database = read_asset_database(&before).map_err(|error| error.to_string())?;
+    let after_database = read_asset_database(&after).map_err(|error| error.to_string())?;
+    let report = asset_database_diff_json(&before_database, &after_database)
+        .map_err(|error| error.to_string())?;
+    println!("{report}");
+    Ok(())
+}
+
 fn guid_init_command(args: &[String]) -> Result<(), String> {
     let project = value_after(args, "--project")
         .map(PathBuf::from)
@@ -276,6 +317,9 @@ fn run() -> Result<(), String> {
         Some("material-inspect") => material_inspect_command(&args[2..]),
         Some("cook") => cook_command(&args[2..]),
         Some("report") => report_command(&args[2..]),
+        Some("graph") => graph_command(&args[2..]),
+        Some("fate") => fate_command(&args[2..]),
+        Some("diff") => diff_command(&args[2..]),
         Some("guid-init") => guid_init_command(&args[2..]),
         Some("--help") | Some("-h") | None => {
             println!("{}", usage());

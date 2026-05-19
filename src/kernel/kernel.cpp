@@ -77,6 +77,7 @@ struct AsterRendererHandle__ {
   std::unique_ptr<aster::RenderDevice> renderer;
   AsterWindowHandle bound_window = nullptr;
   AsterFrameStats last_stats{};
+  std::vector<std::string> string_scratch;
   std::chrono::steady_clock::time_point started_at = std::chrono::steady_clock::now();
 
   AsterRendererHandle__() {
@@ -109,6 +110,12 @@ template <typename Struct> bool validStruct(const Struct *value) {
          value->version == ASTER_KERNEL_STRUCT_VERSION_1;
 }
 
+bool validFrameForensicsDetailCounts(const AsterFrameForensicsDetailCounts *value) {
+  return value != nullptr &&
+         value->size >= offsetof(AsterFrameForensicsDetailCounts, object_fate_count) &&
+         value->version == ASTER_KERNEL_STRUCT_VERSION_1;
+}
+
 bool validStringView(const AsterStringView view) {
   return view.data != nullptr || view.size == 0u;
 }
@@ -122,6 +129,22 @@ std::string stringFromView(const AsterStringView view) {
 
 AsterStringView viewFromString(const std::string &text) {
   return {text.data(), text.size()};
+}
+
+std::string joinStrings(const std::vector<std::string> &values, const std::string_view separator) {
+  std::string out;
+  for (std::size_t index = 0u; index < values.size(); ++index) {
+    if (index > 0u) {
+      out.append(separator);
+    }
+    out.append(values[index]);
+  }
+  return out;
+}
+
+AsterStringView viewFromScratch(const AsterRendererHandle renderer, std::string text) {
+  renderer->string_scratch.push_back(std::move(text));
+  return viewFromString(renderer->string_scratch.back());
 }
 
 bool validEngine(const AsterEngineHandle engine) {
@@ -1483,7 +1506,7 @@ AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
   if (!validRenderer(renderer)) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
   }
-  if (!validStruct(out_counts)) {
+  if (!validFrameForensicsDetailCounts(out_counts)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
                       "frame forensics detail counts struct version is not supported");
   }
@@ -1501,6 +1524,9 @@ AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
       forensics.certification.missing_proof_count;
   out_counts->certification_validation_error_count =
       forensics.certification.validation_error_count;
+  if (out_counts->size >= sizeof(AsterFrameForensicsDetailCounts)) {
+    out_counts->object_fate_count = forensics.object_fates.size();
+  }
   return aster_kernel_status_ok();
 }
 
@@ -1630,6 +1656,42 @@ AsterStatus aster_kernel_renderer_resource_transition(
   out_transition->after = rhiResourceState(trace.after);
   out_transition->queue = rhiQueueKind(trace.queue);
   out_transition->write = trace.write ? 1u : 0u;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_object_render_fate(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterObjectRenderFate *out_fate) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_fate)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "object render fate struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.object_fates.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "object render fate index is out of range");
+  }
+  renderer->string_scratch.clear();
+  renderer->string_scratch.reserve(6u);
+  const aster::ObjectRenderFateTrace &fate = forensics.object_fates[index];
+  out_fate->object_index = fate.object_index;
+  out_fate->visible = fate.visible ? 1u : 0u;
+  out_fate->object_name = viewFromString(fate.object_name);
+  out_fate->mesh_key = viewFromString(fate.mesh_key);
+  out_fate->material_key = viewFromString(fate.material_key);
+  out_fate->material_asset_id = viewFromString(fate.material_asset_id);
+  out_fate->shader_variant_key = viewFromString(fate.shader_variant_key);
+  out_fate->pipeline_tag = viewFromString(fate.pipeline_tag);
+  out_fate->texture_roles = viewFromScratch(renderer, joinStrings(fate.texture_roles, ","));
+  out_fate->pass_list = viewFromScratch(renderer, joinStrings(fate.pass_list, ","));
+  out_fate->resource_transitions =
+      viewFromScratch(renderer, joinStrings(fate.resource_transitions, ","));
+  out_fate->capture_labels = viewFromScratch(renderer, joinStrings(fate.capture_labels, ","));
+  out_fate->feature_proofs = viewFromScratch(renderer, joinStrings(fate.feature_proofs, ","));
+  out_fate->final_contribution = viewFromString(fate.final_contribution);
+  out_fate->contribution_hash = fate.contribution_hash;
   return aster_kernel_status_ok();
 }
 

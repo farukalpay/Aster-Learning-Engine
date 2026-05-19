@@ -77,6 +77,56 @@ struct AssetArtifactRecord {
   bool reused = false;
 };
 
+struct AssetDerivedHashes {
+  std::string source_hash;
+  std::string options_hash;
+  std::string dependency_hash;
+  std::string artifact_hash;
+  std::string material_hash;
+  std::string shader_variant_key;
+  std::string pipeline_cache_key;
+  std::string vertex_input_contract;
+  std::string frame_plan_fingerprint;
+};
+
+struct AssetFateReport {
+  std::string asset_id;
+  std::string asset_guid;
+  std::string kind;
+  std::string source_path;
+  bool production_ready = false;
+  std::size_t dependency_count = 0u;
+  std::size_t output_count = 0u;
+  std::size_t diagnostic_count = 0u;
+  AssetDerivedHashes derived_hashes;
+  std::vector<std::string> chain;
+  std::vector<std::string> render_contract;
+  std::vector<AssetArtifactRecord> artifact_provenance;
+};
+
+struct AssetGraphNode {
+  std::string guid;
+  std::string id;
+  std::string kind;
+  std::string source_path;
+  bool production_ready = false;
+};
+
+struct AssetGraphEdge {
+  std::string from;
+  std::string to;
+  std::string role;
+  bool present = false;
+  std::string hash;
+};
+
+struct AssetGraph {
+  std::uint32_t schema_version = 0u;
+  std::string project_fingerprint;
+  std::vector<AssetGraphNode> nodes;
+  std::vector<AssetGraphEdge> edges;
+};
+
 struct AssetCookDiagnostic {
   std::string severity;
   std::string message;
@@ -108,6 +158,8 @@ struct AssetDatabaseRecord {
   std::vector<AssetCookedOutput> outputs;
   std::vector<AssetCookDiagnostic> diagnostics;
   std::vector<AssetToolVersionRecord> tool_versions;
+  AssetDerivedHashes derived_hashes;
+  AssetFateReport fate_report;
   std::string platform;
 };
 
@@ -117,6 +169,8 @@ struct AssetDatabase {
   std::string artifact_manifest;
   std::vector<AssetToolVersionRecord> tool_versions;
   std::filesystem::path source_path;
+  AssetGraph asset_graph;
+  std::vector<AssetFateReport> fate_reports;
   std::vector<AssetDatabaseRecord> records;
 };
 

@@ -161,6 +161,116 @@ void drawGraphSummary(aster::UiCanvas &canvas, std::size_t &selected_pass,
   textRow(canvas, "Writes", buffer, x, y, width, visible_top, visible_bottom);
 }
 
+std::string clippedValue(const std::string &value, const std::size_t max_size = 44u) {
+  if (value.size() <= max_size) {
+    return value;
+  }
+  return value.substr(0u, max_size - 3u) + "...";
+}
+
+std::string firstOrNone(const std::vector<std::string> &values) {
+  return values.empty() ? std::string("none") : clippedValue(values.front());
+}
+
+void drawAssetFactoryPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
+                           const aster::EditorRuntimeModel &runtime, const float x, float &y,
+                           const float width, const float visible_top,
+                           const float visible_bottom) {
+  section(canvas, "Asset Factory", x, y, width);
+  const aster::AssetDatabase *database = runtime.asset_database;
+  const aster::AssetLibrary *library = runtime.asset_library;
+  if (database == nullptr) {
+    textRow(canvas, "Asset DB", "not loaded", x, y, width, visible_top, visible_bottom);
+    return;
+  }
+  textRow(canvas, "Schema", std::to_string(database->schema_version), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Assets", std::to_string(database->records.size()), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Graph", std::to_string(database->asset_graph.nodes.size()) + " nodes / " +
+                              std::to_string(database->asset_graph.edges.size()) + " edges",
+          x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Fate reports", std::to_string(database->fate_reports.size()), x, y, width,
+          visible_top, visible_bottom);
+  if (library == nullptr || library->assets.empty()) {
+    return;
+  }
+  selected_asset = std::min(selected_asset, library->assets.size() - 1u);
+  const float button_width = std::max((width - 8.0f) * 0.5f, 72.0f);
+  if (y >= visible_top && y + 34.0f <= visible_bottom) {
+    if (canvas.button({x, y, button_width, 30.0f}, "Prev", "asset.prev") &&
+        selected_asset > 0u) {
+      --selected_asset;
+    }
+    if (canvas.button({x + width - button_width, y, button_width, 30.0f}, "Next",
+                      "asset.next") &&
+        selected_asset + 1u < library->assets.size()) {
+      ++selected_asset;
+    }
+  }
+  y += 38.0f;
+  const aster::AssetRepresentation &asset = library->assets[selected_asset];
+  textRow(canvas, "Selected", clippedValue(asset.name), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Kind", asset.kind, x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Ready", yesNo(asset.production_ready), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Source", clippedValue(asset.source_path.generic_string()), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Material hash", clippedValue(asset.derived_hashes.material_hash), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Shader key", clippedValue(asset.derived_hashes.shader_variant_key), x, y, width,
+          visible_top, visible_bottom);
+  if (!asset.diagnostics.empty()) {
+    textRow(canvas, "Diagnostic", clippedValue(asset.diagnostics.front()), x, y, width,
+            visible_top, visible_bottom);
+  }
+}
+
+void drawObjectFatePanel(aster::UiCanvas &canvas, std::size_t &selected_object,
+                         const aster::FrameForensics *forensics, const float x, float &y,
+                         const float width, const float visible_top,
+                         const float visible_bottom) {
+  section(canvas, "Object Fate", x, y, width);
+  if (forensics == nullptr || forensics->object_fates.empty()) {
+    textRow(canvas, "Objects", "0", x, y, width, visible_top, visible_bottom);
+    return;
+  }
+  selected_object = std::min(selected_object, forensics->object_fates.size() - 1u);
+  textRow(canvas, "Records", std::to_string(forensics->object_fates.size()), x, y, width,
+          visible_top, visible_bottom);
+  const float button_width = std::max((width - 8.0f) * 0.5f, 72.0f);
+  if (y >= visible_top && y + 34.0f <= visible_bottom) {
+    if (canvas.button({x, y, button_width, 30.0f}, "Prev", "fate.prev") &&
+        selected_object > 0u) {
+      --selected_object;
+    }
+    if (canvas.button({x + width - button_width, y, button_width, 30.0f}, "Next",
+                      "fate.next") &&
+        selected_object + 1u < forensics->object_fates.size()) {
+      ++selected_object;
+    }
+  }
+  y += 38.0f;
+  const aster::ObjectRenderFateTrace &fate = forensics->object_fates[selected_object];
+  textRow(canvas, "Object", clippedValue(fate.object_name), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Visible", yesNo(fate.visible), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Mesh", clippedValue(fate.mesh_key), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Material", clippedValue(fate.material_asset_id), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Shader", clippedValue(fate.shader_variant_key), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Pass", firstOrNone(fate.pass_list), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Texture", firstOrNone(fate.texture_roles), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Resource", firstOrNone(fate.resource_transitions), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Capture", firstOrNone(fate.capture_labels), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Contribution", fate.final_contribution, x, y, width, visible_top,
+          visible_bottom);
+}
+
 void drawFramePanel(aster::UiCanvas &canvas, const aster::UiRect panel,
                     const aster::FrameStats &stats) {
   drawPanelTexture(canvas, panel);
@@ -318,6 +428,11 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
                    panel_bottom);
   y += 8.0f;
   drawSceneSummary(canvas_, scene, x, y, width, visible_top, panel_bottom);
+  y += 8.0f;
+  drawAssetFactoryPanel(canvas_, selected_asset_, runtime, x, y, width, visible_top, panel_bottom);
+  y += 8.0f;
+  drawObjectFatePanel(canvas_, selected_object_fate_, runtime.frame_forensics, x, y, width,
+                      visible_top, panel_bottom);
   const float content_height = y + kPanelPad + renderer_panel_scroll_ - panel.y;
   const float max_scroll = std::max(0.0f, content_height - panel.height);
   renderer_panel_scroll_ = std::clamp(renderer_panel_scroll_, 0.0f, max_scroll);

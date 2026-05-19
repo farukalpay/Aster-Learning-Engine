@@ -4,11 +4,17 @@
   "kind": "normal",
   "color_space": "linear",
   "format": "ktx2",
+  "source_format": "ktx2",
+  "runtime_format": "ktx2",
   "width": 16,
   "height": 16,
   "mip_count": 5,
+  "byte_cost": 606,
+  "encoder": "passthrough-ktx2",
+  "fallback_reason": "",
+  "platform_compatibility": "desktop:ok",
   "source_hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d",
-  "cooked_hash": "e3624b4d6f17c52610cece61bb08c2276835db93152873d8be61a392fcaf709f",
+  "cooked_hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d",
   "cooked_path": "textures/showcaseweatheredmetal_normal.ktx2",
   "diagnostics": []
 }

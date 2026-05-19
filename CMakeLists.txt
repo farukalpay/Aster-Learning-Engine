@@ -106,6 +106,7 @@ set(ASTER_FRAMEGRAPH_SOURCES
 
 set(ASTER_ASSET_SOURCES
   "${PROJECT_SOURCE_DIR}/src/asset/asset_database.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/asset_factory.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/compiled_scene_asset.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/mesh_pipeline.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/scene_asset_importer.cpp"

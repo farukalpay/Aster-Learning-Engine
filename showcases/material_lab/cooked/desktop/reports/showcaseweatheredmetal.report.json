@@ -1,11 +1,11 @@
 {
-  "schema_version": 1,
-  "asset_guid": "50fb1cb46371210c76ba99753e75ba96b4d114972fc20ec6c4bc1da6f9a3bb07",
+  "schema_version": 2,
+  "asset_guid": "asset-v2-showcase-weathered-metal-0001",
   "id": "ShowcaseWeatheredMetal",
   "name": "Showcase Weathered Metal",
   "source_path": "weathered_metal.astermat",
   "feature_mask": 47,
-  "shader_variant_key": 5952277730379555513,
+  "shader_variant_key": 235714170158108479,
   "shader_variant_tag": "LitPBR.Opaque.textured.normal-map.triplanar",
   "pipeline_tag": "opaque.depth-write.culled.textured.shader-variant",
   "fallback": {
@@ -39,6 +39,26 @@
     "normal_map": true,
     "triplanar": true
   },
+  "provenance": {
+    "generator": "aster-material-lab",
+    "source": "engine-native-procedural",
+    "source_surface": "weathered-metal-pipe"
+  },
+  "authoring": {
+    "mapping_policy": "triplanar",
+    "texel_density": "3.1",
+    "world_scale_meters": "1.0"
+  },
+  "preview": {
+    "environment": "studio-neutral",
+    "exposure": "1.0",
+    "rig": "normalized-three-point"
+  },
+  "quality_profile": {
+    "low_texture_scale": "0.5",
+    "mobile_drop_height": "true",
+    "mobile_max_texture_size": "1024"
+  },
   "textures": [
     {
       "role": "albedo",
@@ -46,11 +66,17 @@
       "cooked_path": "textures/showcaseweatheredmetal_albedo.ktx2",
       "kind": "albedo",
       "color_space": "srgb",
+      "source_format": "ktx2",
+      "runtime_format": "ktx2",
       "width": 16,
       "height": 16,
       "mip_count": 5,
+      "byte_cost": 604,
+      "encoder": "passthrough-ktx2",
+      "fallback_reason": "",
+      "platform_compatibility": "desktop:ok",
       "source_hash": "dad0bf0ee88ae31e53b3edf51406ed9a315a01b221f86b3af06b1da52bad4c9a",
-      "cooked_hash": "64d990f3dd0b18b946dd26c069e335a713e016f45b8886f0099e45fd06a160ee",
+      "cooked_hash": "dad0bf0ee88ae31e53b3edf51406ed9a315a01b221f86b3af06b1da52bad4c9a",
       "diagnostics": []
     },
     {
@@ -59,11 +85,17 @@
       "cooked_path": "textures/showcaseweatheredmetal_height.ktx2",
       "kind": "height",
       "color_space": "linear",
+      "source_format": "ktx2",
+      "runtime_format": "ktx2",
       "width": 16,
       "height": 16,
       "mip_count": 5,
+      "byte_cost": 606,
+      "encoder": "passthrough-ktx2",
+      "fallback_reason": "",
+      "platform_compatibility": "desktop:ok",
       "source_hash": "e72659a782987071c07f368b976d9a27a52d4a849994d657e78c628b6b36aed9",
-      "cooked_hash": "684f7090bd229b5043e43919c409ad2881f540dc475a7d3b50445f6265cf1321",
+      "cooked_hash": "e72659a782987071c07f368b976d9a27a52d4a849994d657e78c628b6b36aed9",
       "diagnostics": []
     },
     {
@@ -72,11 +104,17 @@
       "cooked_path": "textures/showcaseweatheredmetal_normal.ktx2",
       "kind": "normal",
       "color_space": "linear",
+      "source_format": "ktx2",
+      "runtime_format": "ktx2",
       "width": 16,
       "height": 16,
       "mip_count": 5,
+      "byte_cost": 606,
+      "encoder": "passthrough-ktx2",
+      "fallback_reason": "",
+      "platform_compatibility": "desktop:ok",
       "source_hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d",
-      "cooked_hash": "e3624b4d6f17c52610cece61bb08c2276835db93152873d8be61a392fcaf709f",
+      "cooked_hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d",
       "diagnostics": []
     },
     {
@@ -85,11 +123,17 @@
       "cooked_path": "textures/showcaseweatheredmetal_orm.ktx2",
       "kind": "orm",
       "color_space": "linear",
+      "source_format": "ktx2",
+      "runtime_format": "ktx2",
       "width": 16,
       "height": 16,
       "mip_count": 5,
+      "byte_cost": 603,
+      "encoder": "passthrough-ktx2",
+      "fallback_reason": "",
+      "platform_compatibility": "desktop:ok",
       "source_hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e",
-      "cooked_hash": "e78f9af1e9a375f2cddf8b10694ba009433924bc6d4d31d0c0c704dc5fd8c5e3",
+      "cooked_hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e",
       "diagnostics": []
     }
   ],
@@ -151,5 +195,14 @@
       "hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e"
     }
   ],
+  "derived_hashes": {
+    "source_hash": "01d151fb2e0e590fd5e9e6f67a48638f846bd1a0137272176ebde3a9c6cbebed",
+    "options_hash": "5e350197b8992100268d7f4607ca116d80dcae5a7551a0eda85a43d9804ce2a4",
+    "dependency_hash": "c168e23d49460201a650426d434b1c0e9775067bb57004f8dd6551436f40a035",
+    "artifact_hash": "8b7726a5a7bec41e27873914452c3dbd9115965b93cc561fc12b7643766a0cdd",
+    "material_hash": "047da7c58173b93513921756757429599009585118b1564b3de1fcbf2aa57080",
+    "shader_variant_key": "0x03456cc9f4cccf3f",
+    "pipeline_cache_key": "53d59e8e0006a1a4ae5c90a38c9abf0f034c78c1f5539401bbe846927860f713"
+  },
   "diagnostics": []
 }

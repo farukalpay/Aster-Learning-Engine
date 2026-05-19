@@ -683,6 +683,16 @@ public:
     return Result<AsterFrameResourceTransition>(std::move(transition));
   }
 
+  [[nodiscard]] Result<AsterObjectRenderFate> objectRenderFate(
+      const size_t index) const noexcept {
+    AsterObjectRenderFate fate{sizeof(AsterObjectRenderFate), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_object_render_fate(handle_, index, &fate));
+    if (!status) {
+      return Result<AsterObjectRenderFate>(status);
+    }
+    return Result<AsterObjectRenderFate>(std::move(fate));
+  }
+
   [[nodiscard]] Result<AsterRhiValidationEvent> rhiValidationEvent(
       const size_t index) const noexcept {
     AsterRhiValidationEvent event{sizeof(AsterRhiValidationEvent),

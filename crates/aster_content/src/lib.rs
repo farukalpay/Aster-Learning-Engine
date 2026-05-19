@@ -582,6 +582,75 @@ pub struct AssetDependencyEdge {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetDerivedHashes {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source_hash: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub options_hash: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub dependency_hash: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub artifact_hash: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub material_hash: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub shader_variant_key: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub pipeline_cache_key: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub vertex_input_contract: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub frame_plan_fingerprint: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetFateReport {
+    pub asset_id: String,
+    pub asset_guid: String,
+    pub kind: String,
+    pub source_path: String,
+    pub production_ready: bool,
+    pub dependency_count: usize,
+    pub output_count: usize,
+    pub diagnostic_count: usize,
+    #[serde(default)]
+    pub derived_hashes: AssetDerivedHashes,
+    #[serde(default)]
+    pub chain: Vec<String>,
+    #[serde(default)]
+    pub render_contract: Vec<String>,
+    #[serde(default)]
+    pub artifact_provenance: Vec<AssetArtifactRecord>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetGraphNode {
+    pub guid: String,
+    pub id: String,
+    pub kind: String,
+    pub source_path: String,
+    pub production_ready: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetGraphEdge {
+    pub from: String,
+    pub to: String,
+    pub role: String,
+    pub present: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hash: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetGraph {
+    pub schema_version: u32,
+    pub project_fingerprint: String,
+    pub nodes: Vec<AssetGraphNode>,
+    pub edges: Vec<AssetGraphEdge>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AssetArtifactRecord {
     pub role: String,
     pub kind: String,
@@ -651,6 +720,10 @@ pub struct AssetDatabaseRecord {
     pub diagnostics: Vec<AssetCookDiagnostic>,
     #[serde(default)]
     pub tool_versions: Vec<AssetToolVersionRecord>,
+    #[serde(default)]
+    pub derived_hashes: AssetDerivedHashes,
+    #[serde(default)]
+    pub fate_report: AssetFateReport,
     pub platform: String,
 }
 
@@ -662,6 +735,10 @@ pub struct AssetDatabase {
     pub artifact_manifest: String,
     #[serde(default)]
     pub tool_versions: Vec<AssetToolVersionRecord>,
+    #[serde(default)]
+    pub asset_graph: AssetGraph,
+    #[serde(default)]
+    pub fate_reports: Vec<AssetFateReport>,
     pub records: Vec<AssetDatabaseRecord>,
 }
 
@@ -721,9 +798,19 @@ pub struct MaterialBin {
     pub fallback: MaterialBinFallback,
     pub params: BTreeMap<String, f32>,
     pub features: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub provenance: BTreeMap<String, String>,
+    #[serde(default)]
+    pub authoring: BTreeMap<String, String>,
+    #[serde(default)]
+    pub preview: BTreeMap<String, String>,
+    #[serde(default)]
+    pub quality_profile: BTreeMap<String, String>,
     pub textures: Vec<MaterialBinTextureRecord>,
     pub binding_layout: Vec<MaterialBinBinding>,
     pub dependency_hashes: Vec<AssetDependencyRecord>,
+    #[serde(default)]
+    pub derived_hashes: AssetDerivedHashes,
     pub diagnostics: Vec<AssetCookDiagnostic>,
 }
 
@@ -800,6 +887,14 @@ pub struct MaterialInspectReport {
     pub textures: Vec<MaterialInspectTexture>,
     pub dependencies: Vec<AssetDependencyRecord>,
     pub diagnostics: Vec<AssetCookDiagnostic>,
+    #[serde(default)]
+    pub provenance: BTreeMap<String, String>,
+    #[serde(default)]
+    pub authoring: BTreeMap<String, String>,
+    #[serde(default)]
+    pub preview: BTreeMap<String, String>,
+    #[serde(default)]
+    pub quality_profile: BTreeMap<String, String>,
     pub production_ready: bool,
     pub platform_compatibility: String,
 }
@@ -1359,7 +1454,9 @@ pub fn bake_texture_to_ktx2(
 }
 
 pub fn read_asset_database(path: impl AsRef<Path>) -> Result<AssetDatabase> {
-    Ok(serde_json::from_slice(&fs::read(path)?)?)
+    let mut database: AssetDatabase = serde_json::from_slice(&fs::read(path)?)?;
+    refresh_asset_database_truth(&mut database);
+    Ok(database)
 }
 
 fn default_tool_versions() -> Vec<AssetToolVersionRecord> {
@@ -1568,6 +1665,230 @@ fn sync_record_source(record: &mut AssetDatabaseRecord) {
     record.source.hash = record.source_hash.clone();
 }
 
+fn hash_serializable<T: Serialize>(tag: &str, value: &T) -> String {
+    let bytes = serde_json::to_vec(value).unwrap_or_default();
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(tag.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(&bytes);
+    hash_hex_bytes(hasher.finalize().as_bytes())
+}
+
+fn record_has_errors(record: &AssetDatabaseRecord) -> bool {
+    record
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == "error")
+}
+
+fn render_contract_for(record: &AssetDatabaseRecord) -> Vec<String> {
+    let mut contract = Vec::new();
+    match record.kind.as_str() {
+        "material" => {
+            contract.push("material-source".to_string());
+            if !record.derived_hashes.material_hash.is_empty() {
+                contract.push(format!(
+                    "material-hash:{}",
+                    record.derived_hashes.material_hash
+                ));
+            }
+            if !record.derived_hashes.shader_variant_key.is_empty() {
+                contract.push(format!(
+                    "shader-variant:{}",
+                    record.derived_hashes.shader_variant_key
+                ));
+            }
+            if !record.derived_hashes.pipeline_cache_key.is_empty() {
+                contract.push(format!(
+                    "pipeline-cache:{}",
+                    record.derived_hashes.pipeline_cache_key
+                ));
+            }
+        }
+        "scene" => {
+            contract.push("scene-package".to_string());
+            if !record.derived_hashes.vertex_input_contract.is_empty() {
+                contract.push(format!(
+                    "vertex-input:{}",
+                    record.derived_hashes.vertex_input_contract
+                ));
+            }
+            if !record.derived_hashes.frame_plan_fingerprint.is_empty() {
+                contract.push(format!(
+                    "frame-plan:{}",
+                    record.derived_hashes.frame_plan_fingerprint
+                ));
+            }
+        }
+        "texture" => {
+            contract.push("texture-package".to_string());
+            contract.push(format!(
+                "role-policy:{}",
+                record.import_preset.texture_role_policy
+            ));
+        }
+        _ => contract.push("asset-package".to_string()),
+    }
+    contract
+}
+
+fn refresh_record_truth(record: &mut AssetDatabaseRecord) {
+    if record.source.path.is_empty() {
+        record.source.path = record.source_path.clone();
+    }
+    if record.source.hash.is_empty() {
+        record.source.hash = record.source_hash.clone();
+    }
+    if record.artifacts.is_empty() {
+        record.artifacts = record
+            .outputs
+            .iter()
+            .map(|output| AssetArtifactRecord {
+                role: output.role.clone(),
+                kind: output.kind.clone(),
+                path: output.path.clone(),
+                hash: output.hash.clone(),
+                reused: false,
+            })
+            .collect();
+    }
+    if record.dependency_edges.is_empty() {
+        refresh_dependency_edges(record);
+    }
+    record.derived_hashes.source_hash = record.source_hash.clone();
+    record.derived_hashes.options_hash = record.options_hash.clone();
+    record.derived_hashes.dependency_hash =
+        hash_serializable("aster.asset.dependencies.v2", &record.dependencies);
+    record.derived_hashes.artifact_hash =
+        hash_serializable("aster.asset.artifacts.v2", &record.artifacts);
+    if record.kind == "material" && record.derived_hashes.material_hash.is_empty() {
+        record.derived_hashes.material_hash = hash_hex_text(&format!(
+            "material:{}:{}:{}",
+            record.source_hash, record.derived_hashes.dependency_hash, record.options_hash
+        ));
+    }
+    if record.kind == "texture" && record.derived_hashes.material_hash.is_empty() {
+        record.derived_hashes.material_hash = hash_hex_text(&format!(
+            "texture:{}:{}",
+            record.source_hash, record.derived_hashes.artifact_hash
+        ));
+    }
+    if record.kind == "scene" {
+        if record.derived_hashes.vertex_input_contract.is_empty() {
+            record.derived_hashes.vertex_input_contract = hash_hex_text(&format!(
+                "vertex-input:{}:{}",
+                record.source_hash, record.options_hash
+            ));
+        }
+        if record.derived_hashes.frame_plan_fingerprint.is_empty() {
+            record.derived_hashes.frame_plan_fingerprint = hash_hex_text(&format!(
+                "frame-plan:{}:{}:{}",
+                record.source_hash,
+                record.derived_hashes.dependency_hash,
+                record.derived_hashes.artifact_hash
+            ));
+        }
+    }
+    let mut chain = vec![format!("source:{}", record.source_path)];
+    chain.extend(record.dependencies.iter().map(|dependency| {
+        format!(
+            "dependency:{}:{}:{}",
+            dependency.role,
+            dependency.path,
+            if dependency.present {
+                "present"
+            } else {
+                "missing"
+            }
+        )
+    }));
+    chain.extend(
+        record
+            .outputs
+            .iter()
+            .map(|output| format!("output:{}:{}:{}", output.role, output.kind, output.path)),
+    );
+    record.fate_report = AssetFateReport {
+        asset_id: record.id.clone(),
+        asset_guid: record.guid.clone(),
+        kind: record.kind.clone(),
+        source_path: record.source_path.clone(),
+        production_ready: !record_has_errors(record) && !record.outputs.is_empty(),
+        dependency_count: record.dependencies.len(),
+        output_count: record.outputs.len(),
+        diagnostic_count: record.diagnostics.len(),
+        derived_hashes: record.derived_hashes.clone(),
+        chain,
+        render_contract: render_contract_for(record),
+        artifact_provenance: record.artifacts.clone(),
+    };
+}
+
+pub fn refresh_asset_database_truth(database: &mut AssetDatabase) {
+    database.schema_version = ASSET_DATABASE_SCHEMA_VERSION;
+    if database.artifact_manifest.is_empty() {
+        database.artifact_manifest = "asset-manifest.astermanifest.json".to_string();
+    }
+    for record in &mut database.records {
+        refresh_record_truth(record);
+    }
+    database.fate_reports = database
+        .records
+        .iter()
+        .map(|record| record.fate_report.clone())
+        .collect();
+    let nodes = database
+        .records
+        .iter()
+        .map(|record| AssetGraphNode {
+            guid: record.guid.clone(),
+            id: record.id.clone(),
+            kind: record.kind.clone(),
+            source_path: record.source_path.clone(),
+            production_ready: record.fate_report.production_ready,
+        })
+        .collect::<Vec<_>>();
+    let edges = database
+        .records
+        .iter()
+        .flat_map(|record| {
+            record.dependency_edges.iter().map(|edge| AssetGraphEdge {
+                from: if edge.from.is_empty() {
+                    record.guid.clone()
+                } else {
+                    edge.from.clone()
+                },
+                to: edge.to.clone(),
+                role: edge.role.clone(),
+                present: edge.present,
+                hash: edge.hash.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let project_fingerprint = hash_serializable(
+        "aster.asset.graph.v2",
+        &database
+            .records
+            .iter()
+            .map(|record| {
+                (
+                    record.guid.as_str(),
+                    record.source_hash.as_str(),
+                    record.options_hash.as_str(),
+                    record.derived_hashes.dependency_hash.as_str(),
+                    record.derived_hashes.artifact_hash.as_str(),
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
+    database.asset_graph = AssetGraph {
+        schema_version: ASSET_DATABASE_SCHEMA_VERSION,
+        project_fingerprint,
+        nodes,
+        edges,
+    };
+}
+
 fn write_artifact_manifest(path: &Path, database: &AssetDatabase) -> Result<()> {
     let assets = database
         .records
@@ -1641,13 +1962,16 @@ pub fn cook_project(
     }
     records.sort_by(|lhs, rhs| lhs.guid.cmp(&rhs.guid));
     let manifest_name = "asset-manifest.astermanifest.json".to_string();
-    let database = AssetDatabase {
+    let mut database = AssetDatabase {
         schema_version: ASSET_DATABASE_SCHEMA_VERSION,
         platform: platform.to_string(),
         artifact_manifest: manifest_name.clone(),
         tool_versions: default_tool_versions(),
+        asset_graph: AssetGraph::default(),
+        fate_reports: Vec::new(),
         records,
     };
+    refresh_asset_database_truth(&mut database);
     let database_path = output.join("assetdb.asterdb.json");
     write_json(&database_path, &database)?;
     let manifest_path = output.join(&manifest_name);
@@ -1799,6 +2123,9 @@ pub fn cook_asset(
                 "materialbin:{}:{}",
                 MATERIAL_BIN_SCHEMA_VERSION, platform
             ));
+            record.derived_hashes = cooked.material_bin.derived_hashes.clone();
+            record.derived_hashes.source_hash = record.source_hash.clone();
+            record.derived_hashes.options_hash = record.options_hash.clone();
             if cooked.emitted_runtime_outputs {
                 if let Some(material_bin_path) = &cooked.material_bin_path {
                     push_output(
@@ -2190,6 +2517,10 @@ pub fn inspect_material_asset(
         dependencies,
         production_ready: !diagnostics_have_errors(&parsed.diagnostics),
         diagnostics: parsed.diagnostics,
+        provenance: parsed.provenance,
+        authoring: parsed.authoring,
+        preview: parsed.preview,
+        quality_profile: parsed.quality_profile,
         platform_compatibility: "desktop".to_string(),
     })
 }
@@ -2230,6 +2561,104 @@ pub fn report_asset_database(database: &AssetDatabase) -> String {
         error_count,
         warning_count
     )
+}
+
+pub fn asset_graph_report_json(database: &AssetDatabase) -> Result<String> {
+    let mut database = database.clone();
+    refresh_asset_database_truth(&mut database);
+    Ok(serde_json::to_string_pretty(&database.asset_graph)?)
+}
+
+pub fn asset_fate_report_json(database: &AssetDatabase, asset_id: &str) -> Result<String> {
+    let mut database = database.clone();
+    refresh_asset_database_truth(&mut database);
+    let report = database
+        .fate_reports
+        .iter()
+        .find(|report| report.asset_id == asset_id || report.asset_guid == asset_id)
+        .ok_or_else(|| ContentError::new(format!("asset fate '{asset_id}' was not found")))?;
+    Ok(serde_json::to_string_pretty(report)?)
+}
+
+pub fn asset_database_diff_json(before: &AssetDatabase, after: &AssetDatabase) -> Result<String> {
+    let mut before = before.clone();
+    let mut after = after.clone();
+    refresh_asset_database_truth(&mut before);
+    refresh_asset_database_truth(&mut after);
+    let before_records = before
+        .records
+        .iter()
+        .map(|record| (record.id.clone(), record))
+        .collect::<BTreeMap<_, _>>();
+    let after_records = after
+        .records
+        .iter()
+        .map(|record| (record.id.clone(), record))
+        .collect::<BTreeMap<_, _>>();
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut changed = Vec::new();
+    for id in after_records.keys() {
+        if !before_records.contains_key(id) {
+            added.push(id.clone());
+        }
+    }
+    for id in before_records.keys() {
+        if !after_records.contains_key(id) {
+            removed.push(id.clone());
+        }
+    }
+    for (id, after_record) in &after_records {
+        let Some(before_record) = before_records.get(id) else {
+            continue;
+        };
+        let mut reasons = Vec::new();
+        if before_record.source_hash != after_record.source_hash {
+            reasons.push("source_hash");
+        }
+        if before_record.options_hash != after_record.options_hash {
+            reasons.push("options_hash");
+        }
+        if before_record.derived_hashes.dependency_hash
+            != after_record.derived_hashes.dependency_hash
+        {
+            reasons.push("dependency_hash");
+        }
+        if before_record.derived_hashes.artifact_hash != after_record.derived_hashes.artifact_hash {
+            reasons.push("artifact_hash");
+        }
+        if before_record.derived_hashes.material_hash != after_record.derived_hashes.material_hash {
+            reasons.push("material_hash");
+        }
+        if before_record.derived_hashes.shader_variant_key
+            != after_record.derived_hashes.shader_variant_key
+        {
+            reasons.push("shader_variant_key");
+        }
+        if before_record.derived_hashes.pipeline_cache_key
+            != after_record.derived_hashes.pipeline_cache_key
+        {
+            reasons.push("pipeline_cache_key");
+        }
+        if !reasons.is_empty() {
+            changed.push(serde_json::json!({
+                "id": id,
+                "kind": after_record.kind,
+                "reasons": reasons,
+                "before": before_record.derived_hashes,
+                "after": after_record.derived_hashes,
+            }));
+        }
+    }
+    let diff = serde_json::json!({
+        "schema_version": 1,
+        "before_fingerprint": before.asset_graph.project_fingerprint,
+        "after_fingerprint": after.asset_graph.project_fingerprint,
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+    });
+    Ok(serde_json::to_string_pretty(&diff)?)
 }
 
 fn cook_texture_asset_as(
@@ -2505,6 +2934,36 @@ fn build_material_bin(
             binding: binding_layout.len() as u32,
         });
     }
+    let shader_variant_key = material_variant_key(source, &texture_records);
+    let pipeline_tag = material_bin_pipeline_tag(parsed, !texture_records.is_empty());
+    let dependency_hash = hash_serializable("aster.material.dependencies.v2", &dependencies);
+    let artifact_seed = texture_records
+        .iter()
+        .map(|texture| {
+            (
+                texture.role.as_str(),
+                texture.source_hash.as_str(),
+                texture.cooked_hash.as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let derived_hashes = AssetDerivedHashes {
+        source_hash: hash_hex_text(source),
+        options_hash: hash_hex_text(&format!(
+            "materialbin:{}:{}:{}",
+            MATERIAL_BIN_SCHEMA_VERSION, platform, pipeline_tag
+        )),
+        dependency_hash: dependency_hash.clone(),
+        artifact_hash: hash_serializable("aster.material.artifacts.v2", &artifact_seed),
+        material_hash: hash_hex_text(&format!(
+            "material:{}:{}:{}",
+            source, dependency_hash, pipeline_tag
+        )),
+        shader_variant_key: format!("0x{shader_variant_key:016x}"),
+        pipeline_cache_key: hash_hex_text(&pipeline_tag),
+        vertex_input_contract: String::new(),
+        frame_plan_fingerprint: String::new(),
+    };
     MaterialBin {
         schema_version: MATERIAL_BIN_SCHEMA_VERSION,
         asset_guid,
@@ -2512,9 +2971,9 @@ fn build_material_bin(
         name: parsed.name.clone(),
         source_path,
         feature_mask: material_feature_mask(parsed),
-        shader_variant_key: material_variant_key(source, &texture_records),
+        shader_variant_key,
         shader_variant_tag: material_variant_tag(parsed, !texture_records.is_empty()),
-        pipeline_tag: material_bin_pipeline_tag(parsed, !texture_records.is_empty()),
+        pipeline_tag,
         fallback: MaterialBinFallback {
             base_color: [
                 param_or(parsed, "base_color_r", 1.0),
@@ -2541,9 +3000,14 @@ fn build_material_bin(
         },
         params: parsed.params.clone(),
         features: parsed.features.clone(),
+        provenance: parsed.provenance.clone(),
+        authoring: parsed.authoring.clone(),
+        preview: parsed.preview.clone(),
+        quality_profile: parsed.quality_profile.clone(),
         textures: texture_records,
         binding_layout,
         dependency_hashes: dependencies,
+        derived_hashes,
         diagnostics: diagnostics
             .into_iter()
             .chain(if platform == "desktop" {
@@ -2578,6 +3042,10 @@ struct ParsedMaterialSource {
     textures: BTreeMap<String, String>,
     params: BTreeMap<String, f32>,
     features: BTreeMap<String, bool>,
+    provenance: BTreeMap<String, String>,
+    authoring: BTreeMap<String, String>,
+    preview: BTreeMap<String, String>,
+    quality_profile: BTreeMap<String, String>,
     layers: Vec<ParsedMaterialLayer>,
     diagnostics: Vec<AssetCookDiagnostic>,
 }
@@ -2921,6 +3389,22 @@ impl<'a> MaterialParser<'a> {
                 self.parse_feature_block(parsed);
                 return;
             }
+            "provenance" => {
+                parsed.provenance = self.parse_string_map_block("provenance");
+                return;
+            }
+            "authoring" => {
+                parsed.authoring = self.parse_string_map_block("authoring");
+                return;
+            }
+            "preview" => {
+                parsed.preview = self.parse_string_map_block("preview");
+                return;
+            }
+            "quality_profile" => {
+                parsed.quality_profile = self.parse_string_map_block("quality_profile");
+                return;
+            }
             "layers" => {
                 self.parse_layer_block(parsed);
                 return;
@@ -3069,6 +3553,35 @@ impl<'a> MaterialParser<'a> {
         self.expect(MaterialTokenKind::RightBrace, "expected '}' after features");
     }
 
+    fn parse_string_map_block(&mut self, block_name: &str) -> BTreeMap<String, String> {
+        let mut values = BTreeMap::new();
+        self.expect(
+            MaterialTokenKind::LeftBrace,
+            &format!("expected '{{' after {block_name}"),
+        );
+        while self.current.kind != MaterialTokenKind::RightBrace
+            && self.current.kind != MaterialTokenKind::End
+        {
+            if self.current.kind != MaterialTokenKind::Identifier {
+                self.add_error_current(format!("expected {block_name} key"));
+                self.advance();
+                continue;
+            }
+            let key = self.current.text.clone();
+            self.advance();
+            self.expect(
+                MaterialTokenKind::Colon,
+                &format!("expected ':' after {block_name} key"),
+            );
+            values.insert(key, self.read_value_text());
+        }
+        self.expect(
+            MaterialTokenKind::RightBrace,
+            &format!("expected '}}' after {block_name}"),
+        );
+        values
+    }
+
     fn parse_layer_block(&mut self, parsed: &mut ParsedMaterialSource) {
         self.expect(MaterialTokenKind::LeftBrace, "expected '{' after layers");
         while self.current.kind != MaterialTokenKind::RightBrace
@@ -3181,6 +3694,36 @@ fn validate_parsed_material(parsed: &mut ParsedMaterialSource, source_path: &Pat
                 layer.operation, layer.name
             )));
         }
+    }
+    if parsed.features.get("parallax").copied().unwrap_or(false)
+        && !parsed.textures.contains_key("height")
+    {
+        parsed.diagnostics.push(cook_warning(format!(
+            "material '{}' enables parallax without a height texture; authoring preview will downgrade it",
+            parsed.id
+        )));
+    }
+    if parsed
+        .authoring
+        .get("mapping_policy")
+        .is_some_and(|value| value == "uv")
+        && parsed.features.get("triplanar") == Some(&true)
+    {
+        parsed.diagnostics.push(cook_warning(format!(
+            "material '{}' declares uv mapping policy while triplanar is enabled",
+            parsed.id
+        )));
+    }
+    if parsed
+        .quality_profile
+        .get("mobile_drop_parallax")
+        .is_some_and(|value| value == "true")
+        && parsed.features.get("parallax") == Some(&true)
+    {
+        parsed.diagnostics.push(cook_warning(format!(
+            "material '{}' will drop parallax on mobile quality profiles",
+            parsed.id
+        )));
     }
     if !parsed.shading_model.eq_ignore_ascii_case("LitPBR") {
         return;
@@ -3331,6 +3874,8 @@ fn base_asset_record(
         outputs: Vec::new(),
         diagnostics: Vec::new(),
         tool_versions: default_tool_versions(),
+        derived_hashes: AssetDerivedHashes::default(),
+        fate_report: AssetFateReport::default(),
         platform: platform.to_string(),
     }
 }
@@ -5953,6 +6498,26 @@ mod tests {
   cull_mode: Back
   receives_shadows: true
 
+  provenance {
+    source: "procedural-wet-rock"
+    generator: "aster-test"
+  }
+
+  authoring {
+    texel_density: 2.7
+    mapping_policy: triplanar
+  }
+
+  preview {
+    rig: "normalized-three-point"
+    exposure: 1.0
+  }
+
+  quality_profile {
+    mobile_drop_parallax: true
+    low_texture_scale: 0.5
+  }
+
   textures {
     albedo: "../textures/wet_albedo.ktx2"
     normal: "../textures/wet_normal.ktx2"
@@ -6004,7 +6569,20 @@ mod tests {
         assert_eq!(result.database.records.len(), 1);
         assert!(result.database_path.exists());
         let db = read_asset_database(&result.database_path).expect("read db");
+        assert_eq!(db.schema_version, ASSET_DATABASE_SCHEMA_VERSION);
+        assert_eq!(db.asset_graph.nodes.len(), 1);
+        assert_eq!(db.fate_reports.len(), 1);
         assert_eq!(db.records[0].kind, "material");
+        assert!(db.records[0].derived_hashes.material_hash.len() > 8);
+        assert!(db.records[0]
+            .derived_hashes
+            .shader_variant_key
+            .starts_with("0x"));
+        assert!(db.records[0]
+            .fate_report
+            .render_contract
+            .iter()
+            .any(|entry| entry.starts_with("shader-variant:")));
         assert!(db.records[0]
             .outputs
             .iter()
@@ -6029,7 +6607,38 @@ mod tests {
         assert_eq!(material_bin.textures[0].encoder, "passthrough-ktx2");
         assert!(material_bin.feature_mask & (1 << 0) != 0);
         assert!(material_bin.shader_variant_key != 0);
+        assert_eq!(
+            material_bin.provenance.get("generator").map(String::as_str),
+            Some("aster-test")
+        );
+        assert_eq!(
+            material_bin
+                .authoring
+                .get("mapping_policy")
+                .map(String::as_str),
+            Some("triplanar")
+        );
+        assert_eq!(
+            material_bin
+                .quality_profile
+                .get("mobile_drop_parallax")
+                .map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            material_bin.derived_hashes.shader_variant_key,
+            db.records[0].derived_hashes.shader_variant_key
+        );
         assert!(report_asset_database(&db).contains("assets=1"));
+        assert!(asset_graph_report_json(&db)
+            .expect("graph json")
+            .contains("project_fingerprint"));
+        assert!(asset_fate_report_json(&db, "material.wet_rock")
+            .expect("fate json")
+            .contains("material-hash"));
+        assert!(asset_database_diff_json(&db, &db)
+            .expect("diff json")
+            .contains("\"changed\": []"));
         fs::remove_dir_all(project.parent().unwrap()).ok();
     }
 
@@ -6046,6 +6655,13 @@ mod tests {
             .dependencies
             .iter()
             .any(|dependency| !dependency.present));
+        assert!(result
+            .database
+            .asset_graph
+            .edges
+            .iter()
+            .any(|edge| !edge.present));
+        assert!(!result.database.fate_reports[0].production_ready);
         assert!(result.database.records[0].outputs.is_empty());
         assert!(!output.join("materials").exists());
         assert!(!output.join("previews").exists());

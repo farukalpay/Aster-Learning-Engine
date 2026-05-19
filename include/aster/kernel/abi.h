@@ -682,6 +682,7 @@ typedef struct AsterFrameForensicsDetailCounts {
   uint32_t certification_valid;
   size_t certification_missing_proof_count;
   size_t certification_validation_error_count;
+  size_t object_fate_count;
 } AsterFrameForensicsDetailCounts;
 
 typedef struct AsterFramePassStats {
@@ -782,6 +783,26 @@ typedef struct AsterBackendFeatureProof {
   uint32_t native;
   uint64_t evidence_hash;
 } AsterBackendFeatureProof;
+
+typedef struct AsterObjectRenderFate {
+  size_t size;
+  uint32_t version;
+  size_t object_index;
+  uint32_t visible;
+  AsterStringView object_name;
+  AsterStringView mesh_key;
+  AsterStringView material_key;
+  AsterStringView material_asset_id;
+  AsterStringView shader_variant_key;
+  AsterStringView pipeline_tag;
+  AsterStringView texture_roles;
+  AsterStringView pass_list;
+  AsterStringView resource_transitions;
+  AsterStringView capture_labels;
+  AsterStringView feature_proofs;
+  AsterStringView final_contribution;
+  uint64_t contribution_hash;
+} AsterObjectRenderFate;
 
 typedef struct AsterCaptureDesc {
   size_t size;
@@ -917,6 +938,9 @@ aster_kernel_renderer_pass_artifact_info(AsterRendererHandle renderer, size_t in
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_resource_transition(AsterRendererHandle renderer, size_t index,
                                           AsterFrameResourceTransition *out_transition);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_renderer_object_render_fate(AsterRendererHandle renderer, size_t index,
+                                         AsterObjectRenderFate *out_fate);
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_rhi_validation_event(AsterRendererHandle renderer, size_t index,
                                            AsterRhiValidationEvent *out_event);

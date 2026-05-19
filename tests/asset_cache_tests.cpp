@@ -4,6 +4,7 @@
 #include "test_support.hpp"
 
 #include "aster/asset/asset_database.hpp"
+#include "aster/asset/asset_factory.hpp"
 #include "aster/render/material_compiler.hpp"
 #include "aster/texture/runtime_texture.hpp"
 
@@ -15,6 +16,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -212,15 +214,41 @@ void testAssetDatabaseAndMaterialBinLoad() {
   assert(database.schema_version == 2u);
   assert(database.artifact_manifest == "asset-manifest.astermanifest.json");
   assert(database.records.size() == 1u);
+  assert(database.asset_graph.nodes.size() == 1u);
+  assert(!database.asset_graph.project_fingerprint.empty());
+  assert(database.fate_reports.size() == 1u);
   const aster::AssetDatabaseRecord *record =
       aster::findAssetRecord(database, "material.cooked_wet_rock");
   assert(record != nullptr);
   assert(record->kind == "material");
   assert(record->diagnostics.empty());
+  assert(!record->derived_hashes.material_hash.empty());
+  assert(!record->derived_hashes.shader_variant_key.empty());
+  assert(record->fate_report.production_ready);
+  assert(!record->fate_report.render_contract.empty());
   const std::optional<std::filesystem::path> material_bin =
       aster::findAssetOutputPath(*record, output, "materialbin", "materialbin");
   assert(material_bin.has_value());
   assert(std::filesystem::exists(*material_bin));
+
+  const aster::AssetLibrary asset_library = aster::AssetLibrary::fromDatabase(database, output);
+  assert(asset_library.assets.size() == 1u);
+  assert(!asset_library.catalogs.empty());
+  const aster::AssetRepresentation *asset = asset_library.find("material.cooked_wet_rock");
+  assert(asset != nullptr);
+  assert(asset->production_ready);
+  assert(!asset->derived_hashes.material_hash.empty());
+  const aster::DiskFileHashService hash_service(output);
+  const std::string db_hash = hash_service.getHash(output / "assetdb.asterdb.json");
+  assert(!db_hash.empty());
+  assert(hash_service.fileMatches(output / "assetdb.asterdb.json", "fnv1a64", db_hash,
+                                  std::filesystem::file_size(output / "assetdb.asterdb.json")));
+  const std::vector<aster::AssetFileListEntry> file_list = aster::scanAssetFiles(output);
+  assert(!file_list.empty());
+  assert(std::any_of(file_list.begin(), file_list.end(),
+                     [](const aster::AssetFileListEntry &entry) {
+                       return entry.kind == "texture" || entry.kind == "database";
+                     }));
 
   const aster::CookedMaterialAsset cooked = aster::loadCookedMaterialAsset(*material_bin);
   assert(cooked.asset.id == "CookedWetRock");

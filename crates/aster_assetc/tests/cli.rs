@@ -141,6 +141,19 @@ fn write_material_project() -> PathBuf {
   shading_model: LitPBR
   blend_mode: Opaque
   cull_mode: Back
+  provenance {
+    generator: "cli-test"
+  }
+  authoring {
+    texel_density: 2.7
+    mapping_policy: triplanar
+  }
+  preview {
+    rig: "normalized-three-point"
+  }
+  quality_profile {
+    mobile_drop_parallax: true
+  }
   textures {
     albedo: "../textures/albedo.ktx2"
     normal: "../textures/normal.ktx2"
@@ -305,6 +318,42 @@ fn cook_and_report_asset_database() {
     let report_stdout = String::from_utf8_lossy(&report.stdout);
     assert!(report_stdout.contains("material.cli_wet_rock"));
     assert!(report_stdout.contains("outputs="));
+
+    let graph = Command::new(binary)
+        .arg("graph")
+        .arg("--db")
+        .arg(&db)
+        .output()
+        .expect("run graph");
+    assert!(graph.status.success());
+    let graph_stdout = String::from_utf8_lossy(&graph.stdout);
+    assert!(graph_stdout.contains("project_fingerprint"));
+    assert!(graph_stdout.contains("material.cli_wet_rock"));
+
+    let fate = Command::new(binary)
+        .arg("fate")
+        .arg("--db")
+        .arg(&db)
+        .arg("--asset")
+        .arg("material.cli_wet_rock")
+        .output()
+        .expect("run fate");
+    assert!(fate.status.success());
+    let fate_stdout = String::from_utf8_lossy(&fate.stdout);
+    assert!(fate_stdout.contains("shader-variant"));
+    assert!(fate_stdout.contains("material-hash"));
+
+    let diff = Command::new(binary)
+        .arg("diff")
+        .arg("--before")
+        .arg(&db)
+        .arg("--after")
+        .arg(&db)
+        .output()
+        .expect("run diff");
+    assert!(diff.status.success());
+    let diff_stdout = String::from_utf8_lossy(&diff.stdout);
+    assert!(diff_stdout.contains("\"changed\": []"));
     fs::remove_dir_all(project.parent().unwrap()).ok();
 }
 

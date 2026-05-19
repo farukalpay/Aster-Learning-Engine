@@ -12,6 +12,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <span>
+#include <string>
 #include <unordered_set>
 
 #if defined(_WIN32)
@@ -548,6 +549,21 @@ void testFrameDebuggerMaterialBindingTrace() {
   assert(saw_fallback_roughness);
   assert(!forensics.captures.empty());
   assert(!forensics.resource_traces.empty());
+  const auto fate = std::find_if(forensics.object_fates.begin(), forensics.object_fates.end(),
+                                 [](const aster::ObjectRenderFateTrace &trace) {
+                                   return trace.object_name == "material binding probe";
+                                 });
+  assert(fate != forensics.object_fates.end());
+  assert(fate->visible);
+  assert(!fate->mesh_key.empty());
+  assert(fate->material_asset_id == "TraceMaterial");
+  assert(!fate->pass_list.empty());
+  assert(!fate->resource_transitions.empty());
+  assert(fate->contribution_hash != 0u);
+  assert(std::any_of(fate->texture_roles.begin(), fate->texture_roles.end(),
+                     [](const std::string &role) {
+                       return role == "albedo:bound";
+                     }));
   std::filesystem::remove_all(dir);
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
@@ -644,6 +660,13 @@ void testSoftwareReferenceFrameResourceCaptures() {
   assert(final->rgba8.size() == 80u * 56u * 4u);
   assert(forensics.mesh_visibility.size() == scene.objects().size());
   assert(!forensics.object_clusters.empty());
+  assert(forensics.object_fates.size() == scene.objects().size());
+  assert(std::any_of(forensics.object_fates.begin(), forensics.object_fates.end(),
+                     [](const aster::ObjectRenderFateTrace &trace) {
+                       return trace.object_name == "shadow atlas caster" && trace.visible &&
+                              !trace.capture_labels.empty() &&
+                              trace.final_contribution == "contributed";
+                     }));
   bool saw_caster_visibility = false;
   for (const aster::MeshVisibilityTrace &visibility : forensics.mesh_visibility) {
     if (visibility.object_name == "shadow atlas caster") {

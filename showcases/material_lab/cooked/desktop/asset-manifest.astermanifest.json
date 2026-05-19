@@ -1,0 +1,256 @@
+{
+  "asset_database_schema_version": 2,
+  "assets": [
+    {
+      "artifacts": [
+        {
+          "hash": "d61c03d30ea4e289d3b5440323498d1b9e6f9844a13f5d107d0ac3aa1ec2ab91",
+          "kind": "materialbin",
+          "path": "materials/showcaseweatheredmetal.materialbin",
+          "reused": false,
+          "role": "materialbin"
+        },
+        {
+          "hash": "d61c03d30ea4e289d3b5440323498d1b9e6f9844a13f5d107d0ac3aa1ec2ab91",
+          "kind": "json",
+          "path": "reports/showcaseweatheredmetal.report.json",
+          "reused": false,
+          "role": "report"
+        },
+        {
+          "hash": "29a1b6736e0e9d357dff2bbdcca33c0e4f7c16c5eee55acd66fb23adb2c8933b",
+          "kind": "ppm",
+          "path": "previews/showcaseweatheredmetal.preview.ppm",
+          "reused": false,
+          "role": "preview"
+        },
+        {
+          "hash": "dad0bf0ee88ae31e53b3edf51406ed9a315a01b221f86b3af06b1da52bad4c9a",
+          "kind": "ktx2",
+          "path": "textures/showcaseweatheredmetal_albedo.ktx2",
+          "reused": false,
+          "role": "texture:albedo"
+        },
+        {
+          "hash": "e72659a782987071c07f368b976d9a27a52d4a849994d657e78c628b6b36aed9",
+          "kind": "ktx2",
+          "path": "textures/showcaseweatheredmetal_height.ktx2",
+          "reused": false,
+          "role": "texture:height"
+        },
+        {
+          "hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d",
+          "kind": "ktx2",
+          "path": "textures/showcaseweatheredmetal_normal.ktx2",
+          "reused": false,
+          "role": "texture:normal"
+        },
+        {
+          "hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e",
+          "kind": "ktx2",
+          "path": "textures/showcaseweatheredmetal_orm.ktx2",
+          "reused": false,
+          "role": "texture:orm"
+        }
+      ],
+      "dependency_edges": [
+        {
+          "from": "asset-v2-showcase-weathered-metal-0001",
+          "hash": "dad0bf0ee88ae31e53b3edf51406ed9a315a01b221f86b3af06b1da52bad4c9a",
+          "present": true,
+          "role": "albedo",
+          "to": "weathered_metal_albedo.ktx2"
+        },
+        {
+          "from": "asset-v2-showcase-weathered-metal-0001",
+          "hash": "e72659a782987071c07f368b976d9a27a52d4a849994d657e78c628b6b36aed9",
+          "present": true,
+          "role": "height",
+          "to": "weathered_metal_height.ktx2"
+        },
+        {
+          "from": "asset-v2-showcase-weathered-metal-0001",
+          "hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d",
+          "present": true,
+          "role": "normal",
+          "to": "weathered_metal_normal.ktx2"
+        },
+        {
+          "from": "asset-v2-showcase-weathered-metal-0001",
+          "hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e",
+          "present": true,
+          "role": "orm",
+          "to": "weathered_metal_orm.ktx2"
+        }
+      ],
+      "diagnostics": [],
+      "guid": "asset-v2-showcase-weathered-metal-0001",
+      "id": "material.showcase_weathered_metal",
+      "import_preset": {
+        "animation_policy": "import-clips",
+        "collision_policy": "static-triangle-mesh",
+        "lod_policy": "audit-only",
+        "material_slot_policy": "preserve",
+        "meshlet_policy": "deterministic-64-126-audit",
+        "morph_policy": "preserve-and-validate",
+        "name": "default",
+        "origin_policy": "keep",
+        "skeleton_policy": "import-and-validate",
+        "texture_role_policy": "strict-litpbr-v2",
+        "unit_scale": "1.000000000"
+      },
+      "kind": "material",
+      "platform_profile": {
+        "compression": "ktx2-basis",
+        "name": "desktop",
+        "runtime_texture_format": "ktx2",
+        "target": "desktop"
+      },
+      "source": {
+        "hash": "01d151fb2e0e590fd5e9e6f67a48638f846bd1a0137272176ebde3a9c6cbebed",
+        "path": "weathered_metal.astermat"
+      }
+    },
+    {
+      "artifacts": [
+        {
+          "hash": "18a5c75c73b8238d225fe95aec57e4053a882f392b89041546297878d2397adf",
+          "kind": "materialbin",
+          "path": "materials/showcasewetrock.materialbin",
+          "reused": false,
+          "role": "materialbin"
+        },
+        {
+          "hash": "18a5c75c73b8238d225fe95aec57e4053a882f392b89041546297878d2397adf",
+          "kind": "json",
+          "path": "reports/showcasewetrock.report.json",
+          "reused": false,
+          "role": "report"
+        },
+        {
+          "hash": "29a1b6736e0e9d357dff2bbdcca33c0e4f7c16c5eee55acd66fb23adb2c8933b",
+          "kind": "ppm",
+          "path": "previews/showcasewetrock.preview.ppm",
+          "reused": false,
+          "role": "preview"
+        },
+        {
+          "hash": "dad0bf0ee88ae31e53b3edf51406ed9a315a01b221f86b3af06b1da52bad4c9a",
+          "kind": "ktx2",
+          "path": "textures/showcasewetrock_albedo.ktx2",
+          "reused": false,
+          "role": "texture:albedo"
+        },
+        {
+          "hash": "e72659a782987071c07f368b976d9a27a52d4a849994d657e78c628b6b36aed9",
+          "kind": "ktx2",
+          "path": "textures/showcasewetrock_height.ktx2",
+          "reused": false,
+          "role": "texture:height"
+        },
+        {
+          "hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d",
+          "kind": "ktx2",
+          "path": "textures/showcasewetrock_normal.ktx2",
+          "reused": false,
+          "role": "texture:normal"
+        },
+        {
+          "hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e",
+          "kind": "ktx2",
+          "path": "textures/showcasewetrock_orm.ktx2",
+          "reused": false,
+          "role": "texture:orm"
+        },
+        {
+          "hash": "cbff6649f809606b43f56ff9eae9b809e40e37c5925ffb89127e0ce2eb5c3422",
+          "kind": "ktx2",
+          "path": "textures/showcasewetrock_wetness.ktx2",
+          "reused": false,
+          "role": "texture:wetness"
+        }
+      ],
+      "dependency_edges": [
+        {
+          "from": "asset-v2-showcase-wet-rock-0000000001",
+          "hash": "dad0bf0ee88ae31e53b3edf51406ed9a315a01b221f86b3af06b1da52bad4c9a",
+          "present": true,
+          "role": "albedo",
+          "to": "wet_rock_albedo.ktx2"
+        },
+        {
+          "from": "asset-v2-showcase-wet-rock-0000000001",
+          "hash": "e72659a782987071c07f368b976d9a27a52d4a849994d657e78c628b6b36aed9",
+          "present": true,
+          "role": "height",
+          "to": "wet_rock_height.ktx2"
+        },
+        {
+          "from": "asset-v2-showcase-wet-rock-0000000001",
+          "hash": "5c334f9064666beff7603b2205ed0e2f439f147f18cddf7e50c0f9a05663493d",
+          "present": true,
+          "role": "normal",
+          "to": "wet_rock_normal.ktx2"
+        },
+        {
+          "from": "asset-v2-showcase-wet-rock-0000000001",
+          "hash": "0fec8028e6efb459a8a1b92cfe12a0915120d94cf0ee7b1f1a981109db1f288e",
+          "present": true,
+          "role": "orm",
+          "to": "wet_rock_orm.ktx2"
+        },
+        {
+          "from": "asset-v2-showcase-wet-rock-0000000001",
+          "hash": "cbff6649f809606b43f56ff9eae9b809e40e37c5925ffb89127e0ce2eb5c3422",
+          "present": true,
+          "role": "wetness",
+          "to": "wet_rock_wetness.ktx2"
+        }
+      ],
+      "diagnostics": [
+        {
+          "message": "material 'ShowcaseWetRock' will drop parallax on mobile quality profiles",
+          "severity": "warning"
+        }
+      ],
+      "guid": "asset-v2-showcase-wet-rock-0000000001",
+      "id": "material.showcase_wet_rock",
+      "import_preset": {
+        "animation_policy": "import-clips",
+        "collision_policy": "static-triangle-mesh",
+        "lod_policy": "audit-only",
+        "material_slot_policy": "preserve",
+        "meshlet_policy": "deterministic-64-126-audit",
+        "morph_policy": "preserve-and-validate",
+        "name": "default",
+        "origin_policy": "keep",
+        "skeleton_policy": "import-and-validate",
+        "texture_role_policy": "strict-litpbr-v2",
+        "unit_scale": "1.000000000"
+      },
+      "kind": "material",
+      "platform_profile": {
+        "compression": "ktx2-basis",
+        "name": "desktop",
+        "runtime_texture_format": "ktx2",
+        "target": "desktop"
+      },
+      "source": {
+        "hash": "2b48482a38a2c289bad62396720a9ad9390c885b9727af0099090da56b93ca63",
+        "path": "wet_rock.astermat"
+      }
+    }
+  ],
+  "platform": "desktop",
+  "schema_version": 1,
+  "tool_versions": [
+    {
+      "name": "aster_content",
+      "version": "compiler-v1"
+    },
+    {
+      "name": "asset-pipeline",
+      "version": "schema-v2"
+    }
+  ]
+}

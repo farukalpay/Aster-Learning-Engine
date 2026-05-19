@@ -457,6 +457,24 @@ struct ObjectClusterMembershipTrace {
   bool visible = false;
 };
 
+struct ObjectRenderFateTrace {
+  std::string object_name;
+  std::size_t object_index = 0u;
+  bool visible = false;
+  std::string mesh_key;
+  std::string material_key;
+  std::string material_asset_id;
+  std::string shader_variant_key;
+  std::string pipeline_tag;
+  std::vector<std::string> texture_roles;
+  std::vector<std::string> pass_list;
+  std::vector<std::string> resource_transitions;
+  std::vector<std::string> capture_labels;
+  std::vector<std::string> feature_proofs;
+  std::string final_contribution;
+  std::uint64_t contribution_hash = 0u;
+};
+
 enum class FrameDiagnosticSeverity : std::uint32_t {
   Info,
   Warning,
@@ -508,6 +526,7 @@ struct FrameForensics {
   std::vector<MaterialBindingTrace> material_bindings;
   std::vector<MeshVisibilityTrace> mesh_visibility;
   std::vector<ObjectClusterMembershipTrace> object_clusters;
+  std::vector<ObjectRenderFateTrace> object_fates;
   std::vector<rhi::ResourceLifetimeValidationEvent> rhi_validation_events;
   std::vector<BackendFeatureProof> backend_feature_proofs;
   std::vector<rhi::TimestampQueryResult> timestamp_samples;
