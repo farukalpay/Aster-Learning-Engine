@@ -5,8 +5,10 @@
 
 #include "aster/asset/asset_database.hpp"
 #include "aster/asset/asset_factory.hpp"
+#include "aster/asset/asset_production_model.hpp"
 #include "aster/render/material_compiler.hpp"
 #include "aster/texture/runtime_texture.hpp"
+#include "aster/ui/editor_ui.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -129,6 +131,117 @@ std::filesystem::path writeMaterialCookProject() {
 	)json";
   }
   return dir / "project.asterproj";
+}
+
+std::filesystem::path writeMeshDiagnosticSceneProject() {
+  const std::filesystem::path directory =
+      std::filesystem::temp_directory_path() / "aster_mesh_diagnostic_scene_fixture";
+  std::filesystem::remove_all(directory);
+  std::filesystem::create_directories(directory);
+
+  {
+    std::vector<std::uint8_t> bytes;
+    appendBinaryArray(bytes, std::array<float, 12>{-0.5f, 0.0f, -0.5f, 0.5f, 0.0f, -0.5f, 0.5f,
+                                                   0.0f, 0.5f, -0.5f, 0.0f, 0.5f});
+    appendBinaryArray(bytes, std::array<float, 12>{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                                   0.0f, 0.0f, 0.0f, 0.0f, 0.0f});
+    appendBinaryArray(bytes, std::array<float, 8>{0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f,
+                                                  1.0f});
+    appendBinaryArray(bytes, std::array<std::uint16_t, 9>{0u, 1u, 2u, 0u, 2u, 3u, 0u, 0u, 1u});
+    std::ofstream out(directory / "mesh_diagnostic.bin", std::ios::binary);
+    out.write(reinterpret_cast<const char *>(bytes.data()),
+              static_cast<std::streamsize>(bytes.size()));
+    assert(out.good());
+  }
+
+  {
+    std::ofstream scene(directory / "mesh_diagnostic.scene");
+    scene << R"json({
+      "asset": { "generator": "Aster mesh diagnostics fixture", "version": "2.0" },
+      "scene": 0,
+      "scenes": [{ "nodes": [0] }],
+      "nodes": [{ "mesh": 0 }],
+      "meshes": [{
+        "name": "mesh_diagnostic_probe",
+        "primitives": [{
+          "attributes": { "POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2 },
+          "indices": 3,
+          "mode": 4,
+          "material": 0
+        }]
+      }],
+      "materials": [{
+        "name": "diagnostic_material",
+        "pbrMetallicRoughness": {
+          "baseColorFactor": [0.42, 0.58, 0.71, 1.0],
+          "metallicFactor": 0.0,
+          "roughnessFactor": 0.66
+        }
+      }],
+      "buffers": [{ "byteLength": 146, "uri": "mesh_diagnostic.bin" }],
+      "bufferViews": [
+        { "buffer": 0, "byteOffset": 0, "byteLength": 48, "target": 34962 },
+        { "buffer": 0, "byteOffset": 48, "byteLength": 48, "target": 34962 },
+        { "buffer": 0, "byteOffset": 96, "byteLength": 32, "target": 34962 },
+        { "buffer": 0, "byteOffset": 128, "byteLength": 18, "target": 34963 }
+      ],
+      "accessors": [
+        { "bufferView": 0, "byteOffset": 0, "componentType": 5126, "count": 4, "type": "VEC3" },
+        { "bufferView": 1, "byteOffset": 0, "componentType": 5126, "count": 4, "type": "VEC3" },
+        { "bufferView": 2, "byteOffset": 0, "componentType": 5126, "count": 4, "type": "VEC2" },
+        { "bufferView": 3, "byteOffset": 0, "componentType": 5123, "count": 9, "type": "SCALAR" }
+      ]
+    })json";
+    assert(scene.good());
+  }
+
+  {
+    std::ofstream project(directory / "scene_project.asterproj");
+    project << R"json({
+      "schema_version": 2,
+      "name": "Scene Cook Fixture",
+      "assets": [
+        {
+          "id": "scene.mesh_diagnostic_probe",
+          "guid": "asset-v2-mesh-diagnostic-probe-0001",
+          "kind": "scene",
+          "path": "mesh_diagnostic.scene",
+          "import_preset": "default"
+        }
+      ]
+    })json";
+    assert(project.good());
+  }
+
+  return directory / "scene_project.asterproj";
+}
+
+bool framebufferHasVisiblePixel(const aster::SoftwareFrameBuffer &framebuffer) {
+  for (std::size_t i = 0u; i + 3u < framebuffer.rgba8().size(); i += 4u) {
+    if (framebuffer.rgba8()[i + 3u] != 0u) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void drawAssetStudioSmokeFrame(const aster::AssetProductionModel &model, const int width,
+                               const int height) {
+  aster::SoftwareFrameBuffer &framebuffer = aster::activeFrameBuffer();
+  framebuffer.resize(width, height);
+  framebuffer.clearTransparent();
+
+  aster::EditorUi ui;
+  ui.initialize();
+  aster::Scene scene;
+  aster::OrbitCamera camera;
+  aster::RendererSettings settings;
+  aster::FrameStats stats{};
+  ui.beginFrame({static_cast<float>(width), static_cast<float>(height)}, {});
+  ui.draw(scene, camera, settings, stats, {.asset_production_model = &model});
+  ui.endFrame();
+  ui.shutdown();
+  assert(framebufferHasVisiblePixel(framebuffer));
 }
 
 void testCompiledSceneAssetCacheLoad() {
@@ -275,11 +388,81 @@ void testAssetDatabaseAndMaterialBinLoad() {
   std::filesystem::remove_all(project.parent_path());
 }
 
+void testAssetProductionModelMaterialAudit() {
+  const std::filesystem::path project = writeMaterialCookProject();
+  const std::filesystem::path output = project.parent_path() / "cooked" / "desktop";
+  const std::filesystem::path assetc = ASTER_ASSETC_EXECUTABLE;
+  const std::string command = shellQuote(assetc) + " cook --project " + shellQuote(project) +
+                              " --platform desktop --output " + shellQuote(output);
+  const int result = std::system(command.c_str());
+  assert(result == 0);
+
+  const aster::AssetDatabase database = aster::loadAssetDatabase(output / "assetdb.asterdb.json");
+  const aster::AssetProductionModel model =
+      aster::AssetProductionModel::fromDatabase(database, output);
+  assert(model.assets.size() == 1u);
+  const aster::AssetProductionAsset *asset = model.find("material.cooked_wet_rock");
+  assert(asset != nullptr);
+  assert(asset->production_ready);
+  assert(asset->preview.available);
+  assert(asset->preview.width == 8u);
+  assert(asset->preview.height == 8u);
+  assert(asset->material.loaded);
+  assert(asset->material.required_roles.size() == 3u);
+
+  const aster::AssetProductionTextureAudit *albedo = asset->findTexture("albedo");
+  const aster::AssetProductionTextureAudit *normal = asset->findTexture("normal");
+  const aster::AssetProductionTextureAudit *orm = asset->findTexture("orm");
+  assert(albedo != nullptr && albedo->present);
+  assert(normal != nullptr && normal->present);
+  assert(orm != nullptr && orm->present);
+  assert(albedo->color_space == "srgb");
+  assert(normal->color_space == "linear");
+  assert(orm->byte_cost > 0u);
+  assert(!albedo->source_hash.empty());
+  assert(!albedo->cooked_hash.empty());
+  assert(asset->model_diagnostics.empty());
+
+  drawAssetStudioSmokeFrame(model, 960, 640);
+  drawAssetStudioSmokeFrame(model, 420, 640);
+  std::filesystem::remove_all(project.parent_path());
+}
+
+void testAssetProductionModelSceneMeshAudit() {
+  const std::filesystem::path project = writeMeshDiagnosticSceneProject();
+  const std::filesystem::path output = project.parent_path() / "cooked" / "desktop";
+  const std::filesystem::path assetc = ASTER_ASSETC_EXECUTABLE;
+  const std::string command = shellQuote(assetc) + " cook --project " + shellQuote(project) +
+                              " --platform desktop --output " + shellQuote(output);
+  const int result = std::system(command.c_str());
+  assert(result == 0);
+
+  const aster::AssetDatabase database = aster::loadAssetDatabase(output / "assetdb.asterdb.json");
+  const aster::AssetProductionModel model =
+      aster::AssetProductionModel::fromDatabase(database, output);
+  const aster::AssetProductionAsset *asset = model.find("scene.mesh_diagnostic_probe");
+  assert(asset != nullptr);
+  assert(asset->production_ready);
+  assert(asset->mesh.loaded);
+  assert(asset->mesh.mesh_count == 1u);
+  assert(asset->mesh.collision_mesh_count == 1u);
+  assert(asset->mesh.total_vertices == 4u);
+  assert(asset->mesh.total_indices == 6u);
+  assert(asset->mesh.diagnostics.invalid_normals == 4u);
+  assert(asset->mesh.diagnostics.generated_tangents == 6u);
+  assert(asset->mesh.diagnostics.degenerate_triangles == 1u);
+  assert(asset->mesh.diagnostics.remapped_vertices == 2u);
+  assert(asset->model_diagnostics.empty());
+  std::filesystem::remove_all(project.parent_path());
+}
+
 } // namespace
 
 int main() {
   testCompiledSceneAssetCacheLoad();
   testAssetDatabaseAndMaterialBinLoad();
+  testAssetProductionModelMaterialAudit();
+  testAssetProductionModelSceneMeshAudit();
   std::cout << "asset_cache_tests passed.\n";
   return 0;
 }

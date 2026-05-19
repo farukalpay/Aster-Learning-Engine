@@ -1470,8 +1470,10 @@ public:
     stats.render_encode_seconds =
         std::chrono::duration<double>(encode_end - encode_start).count();
     [command_buffer commit];
-    [command_buffer waitUntilCompleted];
-    appendNativeCapturePayloads(forensics);
+    if (settings.forensics.capture_payloads) {
+      [command_buffer waitUntilCompleted];
+      appendNativeCapturePayloads(forensics);
+    }
 
     publishSceneTexture(scene_texture_, command_buffer, framebuffer_width, framebuffer_height);
     return stats;

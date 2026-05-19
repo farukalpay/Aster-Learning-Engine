@@ -7,7 +7,9 @@
 #include "aster/scene/scene.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -226,6 +228,380 @@ void drawAssetFactoryPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
   }
 }
 
+std::string byteCost(const std::uint64_t bytes) {
+  char buffer[64]{};
+  if (bytes >= 1024ull * 1024ull) {
+    std::snprintf(buffer, sizeof(buffer), "%.2f MiB",
+                  static_cast<double>(bytes) / (1024.0 * 1024.0));
+  } else if (bytes >= 1024ull) {
+    std::snprintf(buffer, sizeof(buffer), "%.1f KiB", static_cast<double>(bytes) / 1024.0);
+  } else {
+    std::snprintf(buffer, sizeof(buffer), "%llu B",
+                  static_cast<unsigned long long>(bytes));
+  }
+  return buffer;
+}
+
+std::string hexU64(const std::uint64_t value) {
+  char buffer[32]{};
+  std::snprintf(buffer, sizeof(buffer), "0x%016llx",
+                static_cast<unsigned long long>(value));
+  return buffer;
+}
+
+std::string dimensions(const aster::AssetProductionTextureAudit &texture) {
+  if (texture.width == 0u || texture.height == 0u) {
+    return "unknown";
+  }
+  return std::to_string(texture.width) + "x" + std::to_string(texture.height) + " mips " +
+         std::to_string(texture.mip_count);
+}
+
+std::string textureSummary(const aster::AssetProductionTextureAudit &texture) {
+  std::string summary = texture.present ? "present" : "missing";
+  if (!texture.color_space.empty()) {
+    summary += " " + texture.color_space;
+  }
+  if (!texture.runtime_format.empty()) {
+    summary += " " + texture.runtime_format;
+  }
+  if (texture.width > 0u && texture.height > 0u) {
+    summary += " " + dimensions(texture);
+  }
+  if (texture.byte_cost > 0u) {
+    summary += " " + byteCost(texture.byte_cost);
+  }
+  return summary;
+}
+
+std::string diagnosticSummary(const aster::AssetCookDiagnostic &diagnostic) {
+  std::string summary = diagnostic.severity.empty() ? diagnostic.message
+                                                    : diagnostic.severity + ": " +
+                                                          diagnostic.message;
+  if (!diagnostic.source_path.empty()) {
+    summary += " (" + diagnostic.source_path;
+    if (diagnostic.line > 0u) {
+      summary += ":" + std::to_string(diagnostic.line);
+    }
+    summary += ")";
+  }
+  return summary;
+}
+
+void listRows(aster::UiCanvas &canvas, const std::string_view label,
+              const std::vector<std::string> &values, const std::size_t max_rows, const float x,
+              float &y, const float width, const float visible_top, const float visible_bottom) {
+  if (values.empty()) {
+    textRow(canvas, label, "none", x, y, width, visible_top, visible_bottom);
+    return;
+  }
+  for (std::size_t i = 0u; i < values.size() && i < max_rows; ++i) {
+    textRow(canvas, i == 0u ? label : "", clippedValue(values[i]), x, y, width, visible_top,
+            visible_bottom);
+  }
+  if (values.size() > max_rows) {
+    textRow(canvas, "", "+" + std::to_string(values.size() - max_rows) + " more", x, y, width,
+            visible_top, visible_bottom);
+  }
+}
+
+void drawPreview(aster::UiCanvas &canvas, const aster::AssetPreviewImage &preview, const float x,
+                 float &y, const float width, const float visible_top,
+                 const float visible_bottom) {
+  const float size = std::min(width, 132.0f);
+  const aster::UiRect rect{x, y, size, size};
+  if (y + size >= visible_top && y <= visible_bottom) {
+    canvas.fillRoundRect(rect, 6.0f, {0.055f, 0.075f, 0.078f, 0.96f});
+    if (preview.available) {
+      canvas.image({rect.x + 5.0f, rect.y + 5.0f, rect.width - 10.0f, rect.height - 10.0f},
+                   preview.width, preview.height, preview.rgba8);
+      canvas.strokeRect(rect, {0.86f, 0.64f, 0.32f, 0.48f}, 1.0f);
+    } else {
+      canvas.strokeRect(rect, {0.72f, 0.37f, 0.25f, 0.42f}, 1.0f);
+      canvas.text("No preview", {rect.x + 12.0f, rect.y + rect.height * 0.46f}, kDim, 1.15f);
+    }
+  }
+  y += size + 12.0f;
+}
+
+void drawAssetTabs(aster::UiCanvas &canvas, std::size_t &selected_tab, const float x, float &y,
+                   const float width, const float visible_top, const float visible_bottom) {
+  constexpr std::array<std::string_view, 5> tabs{"Catalog", "Material", "Texture", "Mesh",
+                                                 "Cook"};
+  const std::size_t columns = width < 330.0f ? 3u : tabs.size();
+  const float gap = 6.0f;
+  const float button_width =
+      std::max(52.0f, (width - gap * static_cast<float>(columns - 1u)) /
+                           static_cast<float>(columns));
+  const std::size_t rows = (tabs.size() + columns - 1u) / columns;
+  for (std::size_t row = 0u; row < rows; ++row) {
+    if (y >= visible_top && y + 30.0f <= visible_bottom) {
+      for (std::size_t column = 0u; column < columns; ++column) {
+        const std::size_t index = row * columns + column;
+        if (index >= tabs.size()) {
+          continue;
+        }
+        const std::string label =
+            std::string(tabs[index]) + (selected_tab == index ? "*" : "");
+        if (canvas.button({x + static_cast<float>(column) * (button_width + gap), y,
+                           button_width, 28.0f},
+                          label, "asset.tab." + std::to_string(index))) {
+          selected_tab = index;
+        }
+      }
+    }
+    y += 34.0f;
+  }
+}
+
+void drawCatalogTab(aster::UiCanvas &canvas, const aster::AssetProductionModel &model,
+                    const aster::AssetProductionAsset &asset, const float x, float &y,
+                    const float width, const float visible_top, const float visible_bottom) {
+  section(canvas, "Catalog", x, y, width);
+  textRow(canvas, "Assets", std::to_string(model.assets.size()), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Selected", clippedValue(asset.name.empty() ? asset.id : asset.name), x, y,
+          width, visible_top, visible_bottom);
+  textRow(canvas, "Kind", asset.kind, x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Ready", yesNo(asset.production_ready), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Errors", std::to_string(asset.cook.error_count), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Warnings", std::to_string(asset.cook.warning_count), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Source", clippedValue(asset.source_path.generic_string()), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "GUID", clippedValue(asset.guid), x, y, width, visible_top, visible_bottom);
+  drawPreview(canvas, asset.preview, x, y, width, visible_top, visible_bottom);
+  listRows(canvas, "Inspector", asset.model_diagnostics, 4u, x, y, width, visible_top,
+           visible_bottom);
+}
+
+void drawMaterialTab(aster::UiCanvas &canvas, const aster::AssetProductionAsset &asset,
+                     const float x, float &y, const float width, const float visible_top,
+                     const float visible_bottom) {
+  section(canvas, "Material", x, y, width);
+  if (!asset.material.attempted) {
+    textRow(canvas, "Material", "not applicable", x, y, width, visible_top, visible_bottom);
+    return;
+  }
+  textRow(canvas, "Loaded", yesNo(asset.material.loaded), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Package", clippedValue(asset.material.material_bin_path.filename().string()),
+          x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "ID", clippedValue(asset.material.id), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Variant", clippedValue(asset.material.shader_variant_tag), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Pipeline", clippedValue(asset.material.pipeline_tag), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Feature mask", hexU64(asset.material.feature_mask), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Shader key", hexU64(asset.material.shader_variant_key), x, y, width,
+          visible_top, visible_bottom);
+  for (const std::string &role : asset.material.required_roles) {
+    const aster::AssetProductionTextureAudit *texture = asset.findTexture(role);
+    textRow(canvas, role, texture == nullptr ? "missing" : textureSummary(*texture), x, y, width,
+            visible_top, visible_bottom);
+  }
+  listRows(canvas, "Diagnostic", asset.material.diagnostics, 5u, x, y, width, visible_top,
+           visible_bottom);
+}
+
+void drawTextureTab(aster::UiCanvas &canvas, std::size_t &selected_texture,
+                    const aster::AssetProductionAsset &asset, const float x, float &y,
+                    const float width, const float visible_top, const float visible_bottom) {
+  section(canvas, "Texture", x, y, width);
+  if (asset.textures.empty()) {
+    textRow(canvas, "Textures", "0", x, y, width, visible_top, visible_bottom);
+    return;
+  }
+  selected_texture = std::min(selected_texture, asset.textures.size() - 1u);
+  textRow(canvas, "Textures", std::to_string(asset.textures.size()), x, y, width, visible_top,
+          visible_bottom);
+  const float button_width = std::max((width - 8.0f) * 0.5f, 72.0f);
+  if (y >= visible_top && y + 34.0f <= visible_bottom) {
+    if (canvas.button({x, y, button_width, 30.0f}, "Prev", "texture.prev") &&
+        selected_texture > 0u) {
+      --selected_texture;
+    }
+    if (canvas.button({x + width - button_width, y, button_width, 30.0f}, "Next",
+                      "texture.next") &&
+        selected_texture + 1u < asset.textures.size()) {
+      ++selected_texture;
+    }
+  }
+  y += 38.0f;
+  const aster::AssetProductionTextureAudit &texture = asset.textures[selected_texture];
+  textRow(canvas, "Role", texture.role, x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Present", yesNo(texture.present), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Kind", texture.kind, x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Color", texture.color_space, x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Source fmt", texture.source_format, x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Runtime fmt", texture.runtime_format, x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Dimensions", dimensions(texture), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Byte cost", byteCost(texture.byte_cost), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Source hash", clippedValue(texture.source_hash), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Cooked hash", clippedValue(texture.cooked_hash), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Runtime path", clippedValue(texture.cooked_path.generic_string()), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Fallback",
+          texture.fallback_reason.empty() ? "none" : clippedValue(texture.fallback_reason), x, y,
+          width, visible_top, visible_bottom);
+  listRows(canvas, "Diagnostic", texture.diagnostics, 5u, x, y, width, visible_top,
+           visible_bottom);
+}
+
+void drawMeshTab(aster::UiCanvas &canvas, const aster::AssetProductionAsset &asset, const float x,
+                 float &y, const float width, const float visible_top,
+                 const float visible_bottom) {
+  section(canvas, "Mesh", x, y, width);
+  if (!asset.mesh.attempted) {
+    textRow(canvas, "Mesh", "not applicable", x, y, width, visible_top, visible_bottom);
+    return;
+  }
+  textRow(canvas, "Loaded", yesNo(asset.mesh.loaded), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Cache", clippedValue(asset.mesh.cache_path.filename().string()), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Materials", std::to_string(asset.mesh.material_count), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Meshes", std::to_string(asset.mesh.mesh_count), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Collision", std::to_string(asset.mesh.collision_mesh_count), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Scene nodes", std::to_string(asset.mesh.scene_node_count), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Vertices", std::to_string(asset.mesh.total_vertices), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Indices", std::to_string(asset.mesh.total_indices), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Collision tris", std::to_string(asset.mesh.total_collision_triangles), x, y,
+          width, visible_top, visible_bottom);
+  textRow(canvas, "Invalid normals", std::to_string(asset.mesh.diagnostics.invalid_normals), x, y,
+          width, visible_top, visible_bottom);
+  textRow(canvas, "Tangents gen", std::to_string(asset.mesh.diagnostics.generated_tangents), x, y,
+          width, visible_top, visible_bottom);
+  textRow(canvas, "Degenerate tris",
+          std::to_string(asset.mesh.diagnostics.degenerate_triangles), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Remapped verts", std::to_string(asset.mesh.diagnostics.remapped_vertices), x,
+          y, width, visible_top, visible_bottom);
+  listRows(canvas, "Diagnostic", asset.mesh.messages, 4u, x, y, width, visible_top,
+           visible_bottom);
+}
+
+void drawCookTab(aster::UiCanvas &canvas, const aster::AssetProductionAsset &asset, const float x,
+                 float &y, const float width, const float visible_top,
+                 const float visible_bottom) {
+  section(canvas, "Cook", x, y, width);
+  textRow(canvas, "Ready", yesNo(asset.production_ready), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Errors", std::to_string(asset.cook.error_count), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Warnings", std::to_string(asset.cook.warning_count), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Preset", clippedValue(asset.cook.import_preset.name), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Platform", clippedValue(asset.cook.platform_profile.name), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Runtime fmt", clippedValue(asset.cook.platform_profile.runtime_texture_format),
+          x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Source hash", clippedValue(asset.cook.hashes.source_hash), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Options hash", clippedValue(asset.cook.hashes.options_hash), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Dependency hash", clippedValue(asset.cook.hashes.dependency_hash), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Artifact hash", clippedValue(asset.cook.hashes.artifact_hash), x, y, width,
+          visible_top, visible_bottom);
+
+  std::vector<std::string> outputs;
+  outputs.reserve(asset.cook.outputs.size());
+  for (const aster::AssetCookedOutput &output : asset.cook.outputs) {
+    outputs.push_back(output.role + " -> " + output.path);
+  }
+  listRows(canvas, "Output", outputs, 6u, x, y, width, visible_top, visible_bottom);
+
+  std::vector<std::string> edges;
+  edges.reserve(asset.cook.dependency_edges.size());
+  for (const aster::AssetDependencyEdge &edge : asset.cook.dependency_edges) {
+    edges.push_back(edge.role + " -> " + edge.to + " " + (edge.present ? "present" : "missing"));
+  }
+  listRows(canvas, "Dependency", edges, 6u, x, y, width, visible_top, visible_bottom);
+
+  std::vector<std::string> diagnostics;
+  diagnostics.reserve(asset.cook.diagnostics.size() + asset.model_diagnostics.size());
+  for (const aster::AssetCookDiagnostic &diagnostic : asset.cook.diagnostics) {
+    diagnostics.push_back(diagnosticSummary(diagnostic));
+  }
+  diagnostics.insert(diagnostics.end(), asset.model_diagnostics.begin(),
+                     asset.model_diagnostics.end());
+  listRows(canvas, "Diagnostic", diagnostics, 7u, x, y, width, visible_top, visible_bottom);
+}
+
+void drawAssetStudioPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
+                          std::size_t &selected_tab, std::size_t &selected_texture,
+                          const aster::EditorRuntimeModel &runtime, const float x, float &y,
+                          const float width, const float visible_top,
+                          const float visible_bottom) {
+  const aster::AssetProductionModel *model = runtime.asset_production_model;
+  if (model == nullptr) {
+    drawAssetFactoryPanel(canvas, selected_asset, runtime, x, y, width, visible_top,
+                          visible_bottom);
+    return;
+  }
+  section(canvas, "Asset Studio", x, y, width);
+  if (model->assets.empty()) {
+    textRow(canvas, "Assets", "0", x, y, width, visible_top, visible_bottom);
+    return;
+  }
+  selected_asset = std::min(selected_asset, model->assets.size() - 1u);
+  textRow(canvas, "Database", clippedValue(model->root_path.generic_string()), x, y, width,
+          visible_top, visible_bottom);
+  const float button_width = std::max((width - 8.0f) * 0.5f, 72.0f);
+  if (y >= visible_top && y + 34.0f <= visible_bottom) {
+    if (canvas.button({x, y, button_width, 30.0f}, "Prev", "asset.prev") &&
+        selected_asset > 0u) {
+      --selected_asset;
+      selected_texture = 0u;
+    }
+    if (canvas.button({x + width - button_width, y, button_width, 30.0f}, "Next",
+                      "asset.next") &&
+        selected_asset + 1u < model->assets.size()) {
+      ++selected_asset;
+      selected_texture = 0u;
+    }
+  }
+  y += 38.0f;
+  drawAssetTabs(canvas, selected_tab, x, y, width, visible_top, visible_bottom);
+  y += 2.0f;
+
+  const aster::AssetProductionAsset &asset = model->assets[selected_asset];
+  switch (selected_tab) {
+  case 1u:
+    drawMaterialTab(canvas, asset, x, y, width, visible_top, visible_bottom);
+    break;
+  case 2u:
+    drawTextureTab(canvas, selected_texture, asset, x, y, width, visible_top, visible_bottom);
+    break;
+  case 3u:
+    drawMeshTab(canvas, asset, x, y, width, visible_top, visible_bottom);
+    break;
+  case 4u:
+    drawCookTab(canvas, asset, x, y, width, visible_top, visible_bottom);
+    break;
+  default:
+    selected_tab = 0u;
+    drawCatalogTab(canvas, *model, asset, x, y, width, visible_top, visible_bottom);
+    break;
+  }
+}
+
 void drawObjectFatePanel(aster::UiCanvas &canvas, std::size_t &selected_object,
                          const aster::FrameForensics *forensics, const float x, float &y,
                          const float width, const float visible_top,
@@ -429,7 +805,8 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
   y += 8.0f;
   drawSceneSummary(canvas_, scene, x, y, width, visible_top, panel_bottom);
   y += 8.0f;
-  drawAssetFactoryPanel(canvas_, selected_asset_, runtime, x, y, width, visible_top, panel_bottom);
+  drawAssetStudioPanel(canvas_, selected_asset_, selected_asset_tab_, selected_texture_, runtime,
+                       x, y, width, visible_top, panel_bottom);
   y += 8.0f;
   drawObjectFatePanel(canvas_, selected_object_fate_, runtime.frame_forensics, x, y, width,
                       visible_top, panel_bottom);

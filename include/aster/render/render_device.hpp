@@ -261,6 +261,12 @@ struct RendererReflectionSettings {
   float fallback_intensity = 1.0f;
 };
 
+struct RendererForensicsSettings {
+  bool detailed_traces = true;
+  bool capture_payloads = true;
+  bool backend_certification = true;
+};
+
 struct RendererSettings {
   float exposure = 1.05f;
   float ambient_strength = 0.18f;
@@ -282,6 +288,7 @@ struct RendererSettings {
   RendererPostSettings post{};
   RendererShadowSettings shadows{};
   RendererReflectionSettings reflections{};
+  RendererForensicsSettings forensics{};
   RenderStyleProfile style{};
 };
 

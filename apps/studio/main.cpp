@@ -4,6 +4,7 @@
 #include "aster/core/clock.hpp"
 #include "aster/asset/asset_database.hpp"
 #include "aster/asset/asset_factory.hpp"
+#include "aster/asset/asset_production_model.hpp"
 #include "aster/core/config.hpp"
 #include "aster/core/frame_time_stats.hpp"
 #include "aster/input/control_scheme.hpp"
@@ -195,10 +196,13 @@ int main(int argc, char **argv) {
     renderer.initialize();
     std::optional<aster::AssetDatabase> asset_database;
     std::optional<aster::AssetLibrary> asset_library;
+    std::optional<aster::AssetProductionModel> asset_production_model;
     if (!asset_db_path.empty() && std::filesystem::exists(asset_db_path)) {
       asset_database = aster::loadAssetDatabase(asset_db_path);
       asset_library =
           aster::AssetLibrary::fromDatabase(*asset_database, asset_db_path.parent_path());
+      asset_production_model =
+          aster::AssetProductionModel::fromDatabase(*asset_database, asset_db_path.parent_path());
       std::cout << "Studio asset database: " << asset_db_path
                 << " assets=" << asset_database->records.size()
                 << " platform=" << asset_database->platform << '\n';
@@ -275,6 +279,8 @@ int main(int argc, char **argv) {
                .render_graph = &renderer.renderGraph(),
                .asset_database = asset_database ? &*asset_database : nullptr,
                .asset_library = asset_library ? &*asset_library : nullptr,
+               .asset_production_model =
+                   asset_production_model ? &*asset_production_model : nullptr,
                .frame_forensics = &renderer.lastFrameForensics()});
       ui.endFrame();
       if (collect_frame_sample) {

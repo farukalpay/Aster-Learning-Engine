@@ -6,6 +6,8 @@
 #include "aster/input/control_scheme.hpp"
 #include "aster/math/vec.hpp"
 
+#include <cstdint>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -70,6 +72,8 @@ public:
   void text(std::string_view text, Vec2 position, UiColor color, float scale = 2.0f);
   void wrappedText(std::string_view text, Vec2 position, float width, UiColor color,
                    float scale = 2.0f);
+  void image(UiRect rect, std::uint32_t width, std::uint32_t height,
+             std::span<const std::uint8_t> rgba8);
   void progressBar(UiRect rect, float value, UiColor fill, UiColor track);
 
   bool button(UiRect rect, std::string_view label, std::string_view id = {});

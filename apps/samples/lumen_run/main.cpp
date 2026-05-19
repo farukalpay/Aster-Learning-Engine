@@ -673,6 +673,7 @@ int main(int argc, char **argv) {
     const bool profile_enabled =
         hasArgument(argc, argv, "--profile") || !profile_capture_path.empty();
     const bool frame_report_enabled = hasArgument(argc, argv, "--frame-report");
+    const bool full_frame_forensics = hasArgument(argc, argv, "--full-frame-forensics");
     const std::string frame_report_route =
         argumentString(argc, argv, "--frame-report-route", "interactive");
     const bool startup_report_enabled = hasArgument(argc, argv, "--startup-report");
@@ -864,6 +865,9 @@ int main(int argc, char **argv) {
     float inventory_camera_radius = 2.25f;
 
     aster::RendererSettings settings;
+    settings.forensics.detailed_traces = full_frame_forensics;
+    settings.forensics.capture_payloads = full_frame_forensics;
+    settings.forensics.backend_certification = full_frame_forensics;
     settings.procedural_surface_normals = !hasArgument(argc, argv, "--flat-surface-normals") ||
                                           hasArgument(argc, argv, "--surface-normal-detail");
     settings.exposure = 1.34f;

@@ -3622,25 +3622,34 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                                   static_cast<std::uint32_t>(active_capabilities.kind),
                               .draw_signature_count =
                                   static_cast<std::uint32_t>(plan.groups.size())};
+  const bool detailed_forensics = settings.forensics.detailed_traces;
+  const bool capture_forensics = settings.forensics.capture_payloads;
+  const bool certify_forensics = settings.forensics.backend_certification;
+  const bool graph_forensics =
+      detailed_forensics || capture_forensics || certify_forensics;
   MaterialFrameSummary material_summary =
       analyzeMaterialFrame(scene, plan, active_capabilities, material_artifact_cache_,
                            previous_transparent_order_);
   previous_transparent_order_ = material_summary.transparent_order;
-  frame_debugger_.appendGraphForensics(render_graph_, active_capabilities, framebuffer_width,
-                                       framebuffer_height, last_forensics_);
-  appendMaterialBindingTraces(scene, plan, material_library_.get(), active_capabilities,
-                              last_forensics_.material_bindings);
-  appendMaterialPipelineKeyTraces(scene, plan, settings, material_library_.get(),
-                                  active_capabilities, last_forensics_.rhi_trace.pipelines);
-  appendObjectDebuggerTraces(scene, plan, camera, settings, framebuffer_width, framebuffer_height,
-                             last_forensics_);
-  appendObjectRenderFateTraces(scene, plan, settings, material_library_.get(),
-                               active_capabilities, last_forensics_);
-  last_forensics_.events.insert(last_forensics_.events.end(),
-                                std::make_move_iterator(material_summary.events.begin()),
-                                std::make_move_iterator(material_summary.events.end()));
-  appendRenderMathContractDiagnostics(scene, last_forensics_.events);
-  appendMathDiagnosticsToFrame(last_forensics_.events);
+  if (graph_forensics) {
+    frame_debugger_.appendGraphForensics(render_graph_, active_capabilities, framebuffer_width,
+                                         framebuffer_height, last_forensics_);
+  }
+  if (detailed_forensics) {
+    appendMaterialBindingTraces(scene, plan, material_library_.get(), active_capabilities,
+                                last_forensics_.material_bindings);
+    appendMaterialPipelineKeyTraces(scene, plan, settings, material_library_.get(),
+                                    active_capabilities, last_forensics_.rhi_trace.pipelines);
+    appendObjectDebuggerTraces(scene, plan, camera, settings, framebuffer_width,
+                               framebuffer_height, last_forensics_);
+    appendObjectRenderFateTraces(scene, plan, settings, material_library_.get(),
+                                 active_capabilities, last_forensics_);
+    last_forensics_.events.insert(last_forensics_.events.end(),
+                                  std::make_move_iterator(material_summary.events.begin()),
+                                  std::make_move_iterator(material_summary.events.end()));
+    appendRenderMathContractDiagnostics(scene, last_forensics_.events);
+    appendMathDiagnosticsToFrame(last_forensics_.events);
+  }
   stats.visible_objects = plan.diagnostics.visible_objects;
   stats.culled_objects = plan.diagnostics.culled_objects;
   stats.instance_groups = plan.diagnostics.instance_groups;
@@ -3732,12 +3741,16 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     native_stats.backend_kind_value =
         static_cast<std::uint32_t>(native_backend_->capabilities().kind);
     native_stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
-    if (native_backend_->capabilities().supports_capture) {
+    if (capture_forensics && native_backend_->capabilities().supports_capture) {
       appendFramebufferCapturePayloads(framebuffer, last_forensics_);
     }
-    certifyBackendFrame(render_graph_, native_backend_->capabilities(), settings, native_stats,
-                        last_forensics_);
-    finalizeObjectRenderFates(last_forensics_);
+    if (certify_forensics) {
+      certifyBackendFrame(render_graph_, native_backend_->capabilities(), settings, native_stats,
+                          last_forensics_);
+    }
+    if (detailed_forensics) {
+      finalizeObjectRenderFates(last_forensics_);
+    }
     native_stats.timestamp_query_slots = last_forensics_.timestamp_samples.size();
     native_stats.resource_lifetime_warnings +=
         last_forensics_.certification.validation_error_count;
@@ -3844,7 +3857,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
          .encode_seconds = std::chrono::duration<double>(pass_end - pass_start).count()});
   });
   applySoftwarePostProcess(framebuffer, settings);
-  appendSoftwareCapturePayloads(software_resources, framebuffer, last_forensics_);
+  if (capture_forensics) {
+    appendSoftwareCapturePayloads(software_resources, framebuffer, last_forensics_);
+  }
   const auto encode_end = std::chrono::steady_clock::now();
   stats.render_encode_seconds = std::chrono::duration<double>(encode_end - encode_start).count();
   stats.backend_feature_mask = softwareCapabilities().graph_resource_mask;
@@ -3854,8 +3869,12 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.registry_retired_resources = registry_stats.retired_resources;
   stats.resource_lifetime_warnings = registry_stats.retired_resources;
   stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
-  certifyBackendFrame(render_graph_, softwareCapabilities(), settings, stats, last_forensics_);
-  finalizeObjectRenderFates(last_forensics_);
+  if (certify_forensics) {
+    certifyBackendFrame(render_graph_, softwareCapabilities(), settings, stats, last_forensics_);
+  }
+  if (detailed_forensics) {
+    finalizeObjectRenderFates(last_forensics_);
+  }
   stats.timestamp_query_slots = last_forensics_.timestamp_samples.size();
   stats.resource_lifetime_warnings += last_forensics_.certification.validation_error_count;
 

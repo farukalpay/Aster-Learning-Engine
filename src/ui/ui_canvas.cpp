@@ -439,6 +439,45 @@ void UiCanvas::wrappedText(const std::string_view text_value, Vec2 position, con
   }
 }
 
+void UiCanvas::image(const UiRect rect, const std::uint32_t width, const std::uint32_t height,
+                     const std::span<const std::uint8_t> rgba8) {
+  if (rect.width <= 0.0f || rect.height <= 0.0f || width == 0u || height == 0u) {
+    return;
+  }
+  const std::size_t expected_size =
+      static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u;
+  if (rgba8.size() < expected_size) {
+    return;
+  }
+
+  const std::uint32_t columns = std::min<std::uint32_t>(width, 64u);
+  const std::uint32_t rows = std::min<std::uint32_t>(height, 64u);
+  for (std::uint32_t row = 0u; row < rows; ++row) {
+    const std::uint32_t source_y =
+        std::min<std::uint32_t>(height - 1u, (row * height) / rows);
+    const float y0 = rect.y + rect.height * static_cast<float>(row) / static_cast<float>(rows);
+    const float y1 =
+        rect.y + rect.height * static_cast<float>(row + 1u) / static_cast<float>(rows);
+    for (std::uint32_t column = 0u; column < columns; ++column) {
+      const std::uint32_t source_x =
+          std::min<std::uint32_t>(width - 1u, (column * width) / columns);
+      const std::size_t base =
+          (static_cast<std::size_t>(source_y) * width + source_x) * 4u;
+      const UiColor color{
+          static_cast<float>(rgba8[base + 0u]) / 255.0f,
+          static_cast<float>(rgba8[base + 1u]) / 255.0f,
+          static_cast<float>(rgba8[base + 2u]) / 255.0f,
+          static_cast<float>(rgba8[base + 3u]) / 255.0f,
+      };
+      const float x0 =
+          rect.x + rect.width * static_cast<float>(column) / static_cast<float>(columns);
+      const float x1 =
+          rect.x + rect.width * static_cast<float>(column + 1u) / static_cast<float>(columns);
+      fillRect({x0, y0, x1 - x0, y1 - y0}, color);
+    }
+  }
+}
+
 void UiCanvas::progressBar(const UiRect rect, const float value, const UiColor fill,
                            const UiColor track) {
   fillRoundRect(rect, 5.0f, track);
