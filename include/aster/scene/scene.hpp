@@ -55,6 +55,7 @@ enum class SurfacePattern {
   CaveSkitterEye,
   WeatheredMetal,
   WeldBead,
+  BiologicalIntegument,
 };
 
 enum class MaterialSurfaceProfile : std::uint32_t {
@@ -77,6 +78,7 @@ enum class MaterialSurfaceProfile : std::uint32_t {
   EmissiveLens = 16,
   CorrodedMetal = 17,
   WeldBead = 18,
+  BiologicalIntegument = 19,
 };
 
 enum class FaceCullMode {

@@ -9,6 +9,7 @@
 #include "aster/shader/shader_compiler.hpp"
 #include "aster/shader/shader_hot_reload.hpp"
 #include "aster/render/render_quality.hpp"
+#include "aster/scene/scene.hpp"
 #include "aster/texture/texture_atlas.hpp"
 #include "aster/texture/texture_debug.hpp"
 #include "aster/texture/texture_importer.hpp"
@@ -179,6 +180,96 @@ void testMaterialAssetParserAndCompiler() {
   assert(graph.nodes.front().op == aster::MaterialGraphOperation::TriplanarSample);
   assert(graph.nodes.front().value_type == aster::MaterialGraphValueType::MaterialLayer);
   assert(aster::materialGraphOperationName(graph.nodes.back().op) == "height-blend");
+}
+
+void testBiologicalIntegumentMaterialAliases() {
+  const aster::MaterialAssetLoadResult loaded = aster::parseMaterialAsset(R"mat(
+material SkinFurAlias {
+  schema_version: 1
+  name: "Skin Fur Alias"
+  shading_model: LitPBR
+  surface_profile: skin-fur
+  blend_mode: Opaque
+  cull_mode: Back
+
+  params {
+    base_color_r: 0.36
+    base_color_g: 0.28
+    base_color_b: 0.19
+    roughness: 0.86
+    macro_variation: 0.42
+    micro_normal_strength: 0.34
+  }
+}
+)mat",
+                                                          "skin_fur_alias.astermat");
+  assert(loaded.ok());
+  assert(loaded.value.surface_profile == aster::MaterialSurfaceProfile::BiologicalIntegument);
+  const std::string serialized = aster::serializeMaterialAsset(loaded.value);
+  assert(serialized.find("surface_profile: biological-integument") != std::string::npos);
+
+  const aster::CompiledMaterialAsset compiled =
+      aster::compileMaterialAssetForRendering(loaded.value);
+  assert(compiled.fallback_material.material.surface_profile ==
+         aster::MaterialSurfaceProfile::BiologicalIntegument);
+  assert(aster::resolveMaterialSurfaceProfile(compiled.fallback_material.material) ==
+         aster::MaterialSurfaceProfile::BiologicalIntegument);
+
+  const aster::Material patterned =
+      aster::makeMaterial({.surface_pattern = aster::SurfacePattern::BiologicalIntegument});
+  assert(aster::resolveMaterialSurfaceProfile(patterned) ==
+         aster::MaterialSurfaceProfile::BiologicalIntegument);
+
+  const std::filesystem::path dir = tempDir();
+  const std::filesystem::path path = dir / "integument.assetgraphbin";
+  writeText(path, R"json({
+  "schema_version": 1,
+  "asset_guid": "graph-guid-integument",
+  "id": "asset_graph.integument",
+  "name": "Graph Integument",
+  "kind": "asset_graph",
+  "source_path": "integument.astergraph",
+  "runtime_model": "runtime-procedural",
+  "material": {
+    "id": "material.graph_integument",
+    "surface_profile": "biological-integument",
+    "feature_mask": 1,
+    "shader_variant_key": 19,
+    "shader_variant_tag": "AssetGraph.material.graph_integument.runtime-procedural",
+    "pipeline_tag": "material:material.graph_integument:biological-integument:runtime-procedural",
+    "fallback": {
+      "base_color": [0.36, 0.28, 0.19],
+      "emission_color": [0.0, 0.0, 0.0],
+      "roughness": 0.86,
+      "metallic": 0.0,
+      "emission_strength": 0.0,
+      "opacity": 1.0,
+      "double_sided": false,
+      "alpha_mode": "Opaque",
+      "receives_shadows": true,
+      "surface_profile": "dermal-fur"
+    },
+    "params": { "macro_variation": 0.42, "micro_normal_strength": 0.34 },
+    "features": { "triplanar": true }
+  },
+  "mesh": {
+    "primitive": "cercopithecidae",
+    "uv_policy": "anatomical-triplanar",
+    "tangent_policy": "validate-or-generate",
+    "collision_proxy": "anatomical-bounds",
+    "lod_policy": "inspection-single-lod"
+  },
+  "nodes": [],
+  "edges": [],
+  "quality": { "score": 92, "production_ready": true, "issues": [] },
+  "derived_hashes": { "pipeline_cache_key": "0x0000000000000013" },
+  "diagnostics": []
+})json");
+  const aster::ProceduralAssetGraphPackage package =
+      aster::loadProceduralAssetGraphPackage(path);
+  assert(package.material.surface_profile == aster::MaterialSurfaceProfile::BiologicalIntegument);
+  assert(aster::resolveMaterialSurfaceProfile(aster::proceduralAssetGraphMaterial(package)) ==
+         aster::MaterialSurfaceProfile::BiologicalIntegument);
 }
 
 void testMaterialAssetMetadataRoundTrip() {
@@ -578,9 +669,13 @@ void testNativeRenderStyleShaderContracts() {
   assert(metal.find("style_params") != std::string::npos);
   assert(metal.find("style_sample_world") != std::string::npos);
   assert(metal.find("style_fog") != std::string::npos);
+  assert(metal.find("biological_integument") != std::string::npos);
+  assert(metal.find("is_pattern(pattern, 19.0)") != std::string::npos);
   assert(d3d12.find("scene_style_params") != std::string::npos);
   assert(d3d12.find("style_sample_world") != std::string::npos);
   assert(d3d12.find("style_fog") != std::string::npos);
+  assert(d3d12.find("biological_integument") != std::string::npos);
+  assert(d3d12.find("is_pattern(pattern, 19.0)") != std::string::npos);
 }
 
 void testHotReloadSnapshot() {
@@ -705,6 +800,7 @@ struct TestCase {
 
 constexpr TestCase kTestCases[] = {
     {"material_asset_parser_and_compiler", testMaterialAssetParserAndCompiler},
+    {"biological_integument_material_aliases", testBiologicalIntegumentMaterialAliases},
     {"material_asset_metadata_round_trip", testMaterialAssetMetadataRoundTrip},
     {"material_authoring_graph_and_lab_audit", testMaterialAuthoringGraphAndLabAudit},
     {"material_lab_preview_debug_views", testMaterialLabPreviewRendersDebugViews},

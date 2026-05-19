@@ -525,6 +525,49 @@ aster::Vec3 organicFiberAlbedo(const aster::Material &material, const aster::Vec
   return mixVec(dark, light, strand_mask * (0.56f + material.pattern_contrast * 0.28f));
 }
 
+aster::Vec3 biologicalIntegumentAlbedo(const aster::Material &material,
+                                       const aster::Vec3 world_position,
+                                       const aster::Vec3 normal, const aster::Vec2 uv) {
+  const float pigment =
+      projectedFbm(material, world_position + normal * 0.035f, normal, 0.36f, 451.0f);
+  const float capillary =
+      projectedFbm(material, world_position + aster::Vec3{0.07f, 0.13f, -0.05f}, normal, 0.82f,
+                   467.0f);
+  const float pore = ridge(projectedFbm(material, world_position, normal, 2.20f, 479.0f));
+  const float abrasion =
+      ridge(projectedFbm(material, world_position + normal * 0.09f, normal, 1.48f, 491.0f));
+  const float follicle =
+      0.5f + 0.5f * std::sin((world_position.z * material.pattern_scale.y +
+                               world_position.x * material.pattern_scale.x * 0.32f +
+                               uv.x * 7.0f) *
+                                  3.35f +
+                              pigment * 4.0f);
+  const float follicle_mask = smoothstep(0.50f, 0.94f, follicle) *
+                              smoothstep(0.16f, 0.84f, pore + material.pattern_depth);
+  const float low_pelage = smoothstep(0.60f, 0.94f, normal.y) *
+                           smoothstep(0.42f, 0.98f, std::abs(world_position.z) * 0.35f +
+                                                       std::abs(world_position.x) * 0.20f);
+  const float vascular_weight =
+      smoothstep(0.48f, 0.96f, capillary) *
+      saturate(0.20f + material.pattern_depth * 1.50f + material.procedural.wetness * 0.75f);
+  const float pigment_gain = 0.35f + material.pattern_contrast * 0.65f +
+                             material.procedural.macro_variation * 0.20f;
+
+  const aster::Vec3 basal = material.base_color * aster::Vec3{0.72f, 0.63f, 0.52f};
+  const aster::Vec3 melanin = material.base_color * aster::Vec3{0.46f, 0.38f, 0.28f};
+  const aster::Vec3 warm_dermis{0.58f, 0.23f, 0.17f};
+  const aster::Vec3 guard_hair = material.base_color * aster::Vec3{1.15f, 1.03f, 0.78f};
+  const aster::Vec3 dust{0.20f, 0.18f, 0.15f};
+
+  aster::Vec3 color = mixVec(basal, melanin, pigment * pigment_gain);
+  color = mixVec(color, warm_dermis, vascular_weight * (0.32f + low_pelage * 0.28f));
+  color = mixVec(color, guard_hair, follicle_mask * (0.30f + material.detail_strength * 0.16f));
+  color = mixVec(color, color * aster::Vec3{0.72f, 0.68f, 0.60f},
+                 smoothstep(0.74f, 0.98f, abrasion) * (0.10f + material.edge_wear * 0.38f));
+  color = mixVec(color, dust, smoothstep(0.82f, 0.99f, pore) * 0.10f);
+  return aster::clamp(color * (0.92f + pore * 0.10f), 0.0f, 4.0f);
+}
+
 aster::Vec3 filamentWebAlbedo(const aster::Material &material, const aster::Vec3 world_position,
                           const aster::Vec3 normal, const aster::Vec2 uv) {
   const float along = uv.x * std::max(material.pattern_scale.y, 0.001f);
@@ -824,6 +867,9 @@ aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 wo
         organicFiberAlbedo(material, world_position, normal, uv, pattern_id + 151.0f);
     return aster::clamp(fiber, 0.0f, 4.0f);
   }
+  case aster::MaterialSurfaceProfile::BiologicalIntegument:
+    return applyProceduralLayer(material, world_position, normal,
+                                biologicalIntegumentAlbedo(material, world_position, normal, uv));
   case aster::MaterialSurfaceProfile::FilamentWeb:
     return applyProceduralLayer(material, world_position, normal,
                                 filamentWebAlbedo(material, world_position, normal, uv));

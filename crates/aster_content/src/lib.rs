@@ -1900,6 +1900,15 @@ fn graph_node_capability_status(kind: &str) -> &'static str {
         | "rib_cage"
         | "suture_curve"
         | "fur_guide"
+        | "epidermal_strata"
+        | "dermal_lattice"
+        | "hypodermal_vascular_field"
+        | "follicle_distribution"
+        | "pigment_mask"
+        | "gland_cluster"
+        | "capillary_translucency"
+        | "surface_tension_line"
+        | "micro_abrasion"
         | "surface_displacement"
         | "anatomical_texture"
         | "measurement_probe"
@@ -2162,6 +2171,15 @@ fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
             "fur_guide" => set(27),
             "surface_displacement" => set(28),
             "anatomical_texture" => set(29),
+            "epidermal_strata" => set(30),
+            "dermal_lattice" => set(31),
+            "hypodermal_vascular_field" => set(32),
+            "follicle_distribution" => set(33),
+            "pigment_mask" => set(34),
+            "gland_cluster" => set(35),
+            "capillary_translucency" => set(36),
+            "surface_tension_line" => set(37),
+            "micro_abrasion" => set(38),
             _ => {}
         }
     }
@@ -2205,6 +2223,10 @@ fn asset_graph_quality_report(
         });
     };
     let has_kind = |kind: &str| parsed.nodes.iter().any(|node| node.kind == kind);
+    let normalized_surface_profile = parsed
+        .surface_profile
+        .replace('_', "-")
+        .to_ascii_lowercase();
     for required in [
         "mesh_primitive",
         "uv_policy",
@@ -2222,6 +2244,31 @@ fn asset_graph_quality_report(
                 required,
                 "full asset graph v1 expects this node family to be represented",
             );
+        }
+    }
+    if matches!(
+        normalized_surface_profile.as_str(),
+        "biological-integument" | "integument" | "skin-fur" | "fur-skin" | "dermal-fur"
+    ) {
+        for required in [
+            "epidermal_strata",
+            "dermal_lattice",
+            "hypodermal_vascular_field",
+            "follicle_distribution",
+            "pigment_mask",
+            "gland_cluster",
+            "capillary_translucency",
+            "surface_tension_line",
+            "micro_abrasion",
+        ] {
+            if !has_kind(required) {
+                push_issue(
+                    "warning",
+                    "integument",
+                    required,
+                    "biological integument graphs should expose this runtime-supported node family",
+                );
+            }
         }
     }
     if parsed

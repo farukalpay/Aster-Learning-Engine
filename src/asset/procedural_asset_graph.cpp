@@ -75,6 +75,10 @@ using asset_json::Value;
   if (profile == "moss" || profile == "foliage") {
     return MaterialSurfaceProfile::Foliage;
   }
+  if (profile == "biological-integument" || profile == "integument" ||
+      profile == "skin-fur" || profile == "fur-skin" || profile == "dermal-fur") {
+    return MaterialSurfaceProfile::BiologicalIntegument;
+  }
   if (profile == "plain" || profile == "none") {
     return MaterialSurfaceProfile::Plain;
   }
@@ -299,7 +303,15 @@ CpuMesh proceduralAssetGraphMesh(const ProceduralAssetGraphPackage &package) {
                                     .include_surface_pads = true,
                                     .include_surface_detail = true,
                                     .fur_strand_guides = 96,
-                                    .surface_detail_strength = 1.0f});
+                                    .surface_detail_strength = 1.0f,
+                                    .include_integument = true,
+                                    .integument_epidermal_layers = 3,
+                                    .integument_shell_offset = 0.022f,
+                                    .pigment_heterogeneity = 0.68f,
+                                    .vascular_translucency = 0.42f,
+                                    .follicle_density = 1.22f,
+                                    .gland_cluster_count = 36,
+                                    .tension_line_strength = 1.15f});
   }
   if (primitive == "sphere" || primitive == "uv-sphere") {
     return makeUvSphere(32, 16, 1.0f);

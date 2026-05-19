@@ -62,9 +62,25 @@ struct CercopithecidaePostcranialMetrics {
   int fur_strand_guides = 0;
 };
 
+struct CercopithecidaeIntegumentMetrics {
+  int epidermal_layer_count = 0;
+  float epidermal_thickness_proxy = 0.0f;
+  float dermal_elasticity = 0.0f;
+  float hypodermal_vascularity = 0.0f;
+  float pigment_heterogeneity = 0.0f;
+  int follicle_guide_count = 0;
+  int gland_cluster_count = 0;
+  float capillary_translucency = 0.0f;
+  float micro_abrasion_density = 0.0f;
+  int dynamic_tension_line_count = 0;
+  float low_pelage_zone_ratio = 0.0f;
+  float plantar_integument_thickening = 0.0f;
+};
+
 struct CercopithecidaeMorphologyReport {
   CercopithecidaeCraniofacialMetrics craniofacial;
   CercopithecidaePostcranialMetrics postcranial;
+  CercopithecidaeIntegumentMetrics integument;
   std::vector<AnatomicalLandmark> landmarks;
 };
 
@@ -78,6 +94,14 @@ struct CercopithecidaeMorphologySpec {
   bool include_surface_detail = true;
   int fur_strand_guides = 72;
   float surface_detail_strength = 1.0f;
+  bool include_integument = true;
+  int integument_epidermal_layers = 3;
+  float integument_shell_offset = 0.018f;
+  float pigment_heterogeneity = 0.62f;
+  float vascular_translucency = 0.34f;
+  float follicle_density = 1.0f;
+  int gland_cluster_count = 28;
+  float tension_line_strength = 1.0f;
 };
 
 struct AnatomicalModel {

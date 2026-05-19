@@ -75,6 +75,10 @@ std::optional<MaterialSurfaceProfile> surfaceProfileForName(const std::string &r
       value == "twig-nest") {
     return MaterialSurfaceProfile::OrganicFiber;
   }
+  if (value == "biological-integument" || value == "integument" || value == "skin-fur" ||
+      value == "fur-skin" || value == "dermal-fur") {
+    return MaterialSurfaceProfile::BiologicalIntegument;
+  }
   if (value == "terrain-layer" || value == "grass-soil" || value == "soil-path" ||
       value == "terrain-blend" || value == "layered-terrain") {
     return MaterialSurfaceProfile::TerrainLayer;
@@ -744,6 +748,8 @@ std::string_view materialSurfaceProfileAssetName(const MaterialSurfaceProfile pr
     return "corroded-metal";
   case MaterialSurfaceProfile::WeldBead:
     return "weld-bead";
+  case MaterialSurfaceProfile::BiologicalIntegument:
+    return "biological-integument";
   }
   return "auto";
 }

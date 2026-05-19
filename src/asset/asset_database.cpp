@@ -320,6 +320,11 @@ void backfillV2Record(AssetDatabaseRecord &record) {
   if (normalized == "emissivelens" || normalized == "emissive-lens") {
     return MaterialSurfaceProfile::EmissiveLens;
   }
+  if (normalized == "biologicalintegument" || normalized == "biological-integument" ||
+      normalized == "integument" || normalized == "skin-fur" || normalized == "fur-skin" ||
+      normalized == "dermal-fur") {
+    return MaterialSurfaceProfile::BiologicalIntegument;
+  }
   if (normalized == "plain" || normalized == "none") {
     return MaterialSurfaceProfile::Plain;
   }

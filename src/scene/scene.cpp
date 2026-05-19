@@ -82,6 +82,8 @@ MaterialSurfaceProfile surfaceProfileForPattern(const SurfacePattern pattern) {
     return MaterialSurfaceProfile::CorrodedMetal;
   case SurfacePattern::WeldBead:
     return MaterialSurfaceProfile::WeldBead;
+  case SurfacePattern::BiologicalIntegument:
+    return MaterialSurfaceProfile::BiologicalIntegument;
   case SurfacePattern::None:
     return MaterialSurfaceProfile::Plain;
   }
@@ -140,6 +142,8 @@ std::string_view materialSurfaceProfileName(const MaterialSurfaceProfile profile
     return "corroded-metal";
   case MaterialSurfaceProfile::WeldBead:
     return "weld-bead";
+  case MaterialSurfaceProfile::BiologicalIntegument:
+    return "biological-integument";
   }
   return "plain";
 }

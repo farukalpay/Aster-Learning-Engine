@@ -171,13 +171,18 @@ Material cercopithecidaeMaterialFor(const AnatomicalTissue tissue) {
   case AnatomicalTissue::PlantarPad:
     return material({0.20f, 0.17f, 0.14f}, {}, 0.84f, 0.0f, 0.0f, 0.30f, 3.4f, 0.06f,
                     0.70f, SurfacePattern::FiberStrands, {2.4f, 1.6f}, 0.035f, 0.20f);
-  case AnatomicalTissue::FurSkin:
-    return material({0.34f, 0.29f, 0.22f}, {}, 0.82f, 0.0f, 0.0f, 0.58f, 9.0f, 0.12f,
-                    0.70f, SurfacePattern::FurFibers, {8.0f, 4.0f}, 0.10f, 0.34f,
-                    0.08f, {.macro_variation = 0.28f,
-                            .micro_normal_strength = 0.26f,
-                            .roughness_variation = 0.20f,
-                            .height_shading = 0.08f});
+  case AnatomicalTissue::FurSkin: {
+    Material integument =
+        material({0.36f, 0.28f, 0.19f}, {}, 0.86f, 0.0f, 0.0f, 0.68f, 10.5f, 0.18f,
+                 0.72f, SurfacePattern::BiologicalIntegument, {10.0f, 5.2f}, 0.18f,
+                 0.62f, 0.08f, {.macro_variation = 0.42f,
+                                 .micro_normal_strength = 0.34f,
+                                 .roughness_variation = 0.26f,
+                                 .wetness = 0.04f,
+                                 .height_shading = 0.14f});
+    integument.surface_profile = MaterialSurfaceProfile::BiologicalIntegument;
+    return integument;
+  }
   }
   return material({0.65f, 0.62f, 0.56f}, {}, 0.70f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
 }
@@ -768,7 +773,15 @@ Scene makeCercopithecidaeShowcaseScene() {
                                                           .include_surface_pads = true,
                                                           .include_surface_detail = true,
                                                           .fur_strand_guides = 96,
-                                                          .surface_detail_strength = 1.0f});
+                                                          .surface_detail_strength = 1.0f,
+                                                          .include_integument = true,
+                                                          .integument_epidermal_layers = 3,
+                                                          .integument_shell_offset = 0.022f,
+                                                          .pigment_heterogeneity = 0.68f,
+                                                          .vascular_translucency = 0.42f,
+                                                          .follicle_density = 1.22f,
+                                                          .gland_cluster_count = 36,
+                                                          .tension_line_strength = 1.15f});
   for (const AnatomicalModelPart &part : model.parts) {
     RenderObject object;
     object.name = "Cercopithecidae " + part.name;

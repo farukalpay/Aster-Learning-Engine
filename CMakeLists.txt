@@ -668,6 +668,7 @@ if(ASTER_BUILD_TESTS)
   )
   foreach(material_shader_case
       material_asset_parser_and_compiler
+      biological_integument_material_aliases
       material_asset_metadata_round_trip
       material_authoring_graph_and_lab_audit
       material_lab_preview_debug_views

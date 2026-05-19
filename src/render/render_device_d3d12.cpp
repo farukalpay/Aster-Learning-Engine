@@ -392,6 +392,24 @@ float3 stratified_rock(float3 base, Object object, float3 world, float3 normal) 
   albedo = lerp(albedo, albedo * 0.50, smooth1(0.68, 0.96, crack) * (0.35 + object.pattern_params.w * 1.8));
   return clamp(albedo * (0.82 + fine * 0.22), 0.0, 4.0);
 }
+float3 biological_integument(float3 base, Object object, float3 world, float3 normal, float2 uv) {
+  float detail = max(object.material_params.w, 0.001);
+  float pigment = projected_fbm(world + normal * 0.035, normal, detail * 0.36, 451.0);
+  float capillary = projected_fbm(world + float3(0.07, 0.13, -0.05), normal, detail * 0.82, 467.0);
+  float pore = ridge1(projected_fbm(world, normal, detail * 2.20, 479.0));
+  float abrasion = ridge1(projected_fbm(world + normal * 0.09, normal, detail * 1.48, 491.0));
+  float follicle = 0.5 + 0.5 * sin((world.z * object.pattern_params.z + world.x * object.pattern_params.y * 0.32 + uv.x * 7.0) * 3.35 + pigment * 4.0);
+  float follicle_mask = smooth1(0.50, 0.94, follicle) * smooth1(0.16, 0.84, pore + object.pattern_params.w);
+  float low_pelage = smooth1(0.60, 0.94, normal.y) * smooth1(0.42, 0.98, abs(world.z) * 0.35 + abs(world.x) * 0.20);
+  float vascular = smooth1(0.48, 0.96, capillary) * saturate(0.20 + object.pattern_params.w * 1.50 + object.procedural_params.w * 0.75);
+  float pigment_gain = 0.35 + object.pattern_params2.x * 0.65 + object.procedural_params.x * 0.20;
+  float3 color = lerp(base * float3(0.72, 0.63, 0.52), base * float3(0.46, 0.38, 0.28), pigment * pigment_gain);
+  color = lerp(color, float3(0.58, 0.23, 0.17), vascular * (0.32 + low_pelage * 0.28));
+  color = lerp(color, base * float3(1.15, 1.03, 0.78), follicle_mask * (0.30 + object.material_params.z * 0.16));
+  color = lerp(color, color * float3(0.72, 0.68, 0.60), smooth1(0.74, 0.98, abrasion) * (0.10 + object.pattern_params2.x * 0.38));
+  color = lerp(color, float3(0.20, 0.18, 0.15), smooth1(0.82, 0.99, pore) * 0.10);
+  return clamp(color * (0.92 + pore * 0.10), 0.0, 4.0);
+}
 float3 material_albedo(Object object, float3 world, float3 normal, float2 uv) {
   float pattern = object.pattern_params.x;
   float detail = max(object.material_params.w, 0.001);
@@ -411,6 +429,7 @@ float3 material_albedo(Object object, float3 world, float3 normal, float2 uv) {
     float slope = 1.0 - smooth1(0.54, 0.92, normalize(normal).y);
     return base * (0.78 + n * 0.22 + slope * 0.10);
   }
+  if (is_pattern(pattern, 19.0) > 0.5) return biological_integument(base, object, world, normal, uv);
   float macro = noise3(world * (0.16 * detail) + float3(pattern * 0.7, 0.0, pattern * 0.31));
   return base * (0.86 + macro * 0.22 + object.pattern_params2.x * 0.08);
 }

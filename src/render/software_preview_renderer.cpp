@@ -453,6 +453,45 @@ Vec3 weldBeadAlbedo(const Hit &hit) {
   return clamp(color, 0.0f, 4.0f);
 }
 
+Vec3 biologicalIntegumentPreviewAlbedo(const Hit &hit) {
+  const float detail = std::max(hit.material.detail_scale, 0.001f);
+  const float pigment = projectedFbm(hit.position + hit.normal * 0.035f, hit.normal,
+                                     detail * 0.36f, 451.0f);
+  const float capillary =
+      projectedFbm(hit.position + Vec3{0.07f, 0.13f, -0.05f}, hit.normal, detail * 0.82f,
+                   467.0f);
+  const float pore = ridge(projectedFbm(hit.position, hit.normal, detail * 2.20f, 479.0f));
+  const float abrasion =
+      ridge(projectedFbm(hit.position + hit.normal * 0.09f, hit.normal, detail * 1.48f, 491.0f));
+  const float follicle =
+      0.5f + 0.5f * std::sin((hit.position.z * hit.material.pattern_scale.y +
+                               hit.position.x * hit.material.pattern_scale.x * 0.32f +
+                               hit.uv.x * 7.0f) *
+                                  3.35f +
+                              pigment * 4.0f);
+  const float follicle_mask =
+      smoothstep(0.50f, 0.94f, follicle) * smoothstep(0.16f, 0.84f, pore + hit.material.pattern_depth);
+  const float low_pelage =
+      smoothstep(0.60f, 0.94f, hit.normal.y) *
+      smoothstep(0.42f, 0.98f, std::abs(hit.position.z) * 0.35f +
+                              std::abs(hit.position.x) * 0.20f);
+  const float vascular_weight =
+      smoothstep(0.48f, 0.96f, capillary) *
+      saturate(0.20f + hit.material.pattern_depth * 1.50f + hit.material.procedural.wetness * 0.75f);
+  const float pigment_gain = 0.35f + hit.material.pattern_contrast * 0.65f +
+                             hit.material.procedural.macro_variation * 0.20f;
+
+  Vec3 color = mixVec(hit.material.base_color * Vec3{0.72f, 0.63f, 0.52f},
+                      hit.material.base_color * Vec3{0.46f, 0.38f, 0.28f},
+                      pigment * pigment_gain);
+  color = mixVec(color, {0.58f, 0.23f, 0.17f}, vascular_weight * (0.32f + low_pelage * 0.28f));
+  color = mixVec(color, hit.material.base_color * Vec3{1.15f, 1.03f, 0.78f},
+                 follicle_mask * (0.30f + hit.material.detail_strength * 0.16f));
+  color = mixVec(color, color * Vec3{0.72f, 0.68f, 0.60f},
+                 smoothstep(0.74f, 0.98f, abrasion) * (0.10f + hit.material.edge_wear * 0.38f));
+  return clamp(color * (0.92f + pore * 0.10f), 0.0f, 4.0f);
+}
+
 Vec3 previewAlbedo(const Hit &hit) {
   switch (resolveMaterialSurfaceProfile(hit.material)) {
   case MaterialSurfaceProfile::Masonry:
@@ -461,6 +500,8 @@ Vec3 previewAlbedo(const Hit &hit) {
     return corrodedMetalAlbedo(hit);
   case MaterialSurfaceProfile::WeldBead:
     return weldBeadAlbedo(hit);
+  case MaterialSurfaceProfile::BiologicalIntegument:
+    return biologicalIntegumentPreviewAlbedo(hit);
   case MaterialSurfaceProfile::Auto:
   case MaterialSurfaceProfile::Plain:
   case MaterialSurfaceProfile::OrganicFiber:

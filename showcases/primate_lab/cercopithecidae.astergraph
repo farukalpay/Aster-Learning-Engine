@@ -2,20 +2,26 @@ astergraph asset_graph.primate_lab.cercopithecidae
 schema_version 1
 name "Cercopithecidae Procedural Anatomy"
 material_id material.graph_cercopithecidae_anatomy
-surface_profile plain
+surface_profile biological-integument
 primitive cercopithecidae
 uv_policy anatomical-triplanar
 tangent_policy validate-or-generate
 collision_proxy anatomical-bounds
 lod_policy inspection-single-lod
-base_color 0.62 0.53 0.42
-roughness 0.74
+base_color 0.36 0.28 0.19
+roughness 0.86
 metallic 0.0
 param wetness 0.0
-param macro_variation 0.30
-param micro_normal_strength 0.24
-param roughness_variation 0.18
-param height_shading 0.10
+param macro_variation 0.42
+param micro_normal_strength 0.34
+param roughness_variation 0.26
+param height_shading 0.14
+param pigment_heterogeneity 0.68
+param vascular_translucency 0.42
+param follicle_density 1.22
+param capillary_translucency 0.42
+param micro_abrasion_density 0.50
+param tension_line_strength 1.15
 feature triplanar true
 feature normal_map true
 preview environment anatomy-neutral
@@ -23,7 +29,7 @@ preview rig primate-lab-three-point
 node mesh.cercopithecidae mesh_primitive role=mesh primitive=cercopithecidae
 node uv.anatomical uv_policy role=uv mapping=anatomical-triplanar texel_density=3.1
 node tangent.validate tangent_validation role=tangent policy=validate-or-generate
-node material.assign material_assignment role=material surface_profile=plain
+node material.assign material_assignment role=material surface_profile=biological-integument
 node anatomy.cranium ellipsoid_section role=anatomy label="expanded neurocranium" radius=0.34,0.31,0.39
 node anatomy.brow anatomy_landmark role=landmark label="supraorbital ridge" projection=0.082
 node anatomy.maxilla anatomy_landmark role=landmark label="prognathic maxilla" prognathism=0.29
@@ -43,6 +49,15 @@ node anatomy.crus muscle_volume role=hindlimb gastrocnemius=0.13 digitigrade=tru
 node anatomy.pes surface_pad role=pes plantar_pad=0.052 phalanx_elongation=1.22
 node anatomy.tendons tendon_band role=tendon label="flexor extensor achilles bands" bands=24
 node anatomy.fur fur_guide role=surface guides=96 shell=offset
+node integument.epidermis epidermal_strata role=integument layers=3 thickness=0.014 porosity=0.31
+node integument.dermis dermal_lattice role=integument collagen_bias=0.62 elastin=0.72 facial_compliance=0.66
+node integument.hypodermis hypodermal_vascular_field role=integument vascularity=0.49 translucency=0.42
+node integument.follicles follicle_distribution role=surface guides=117 anisotropy=dorsal-caudal density=1.22
+node integument.pigment pigment_mask role=material melanin_heterogeneity=0.68 uv_dispersion=0.24
+node integument.glands gland_cluster role=surface count=36 nazolabial=true axillary=true
+node integument.capillary capillary_translucency role=material periorbital=0.58 rhinarium=0.63 auricular=0.46
+node integument.tension surface_tension_line role=geometry count=6 orbicularis_oris=true masseter=true frontalis=true
+node integument.abrasion micro_abrasion role=material density=0.50 dust=0.12 uv_scatter=0.20
 node anatomy.surface_detail surface_displacement role=geometry amplitude=0.010 frequency=12 ridge=0.82
 node texture.bone anatomical_texture role=material channel=bone_ao_detail source=procedural
 node texture.enamel anatomical_texture role=material channel=enamel_gloss source=procedural
@@ -60,6 +75,15 @@ edge anatomy.dentition material.assign enamel_surface
 edge anatomy.surface_detail mesh.cercopithecidae displacement
 edge anatomy.ribs anatomy.axial thoracic_structure
 edge anatomy.fur material.assign fur_surface
+edge integument.epidermis material.assign epidermal_surface
+edge integument.dermis integument.epidermis elastic_support
+edge integument.hypodermis integument.dermis vascular_support
+edge integument.follicles material.assign pelage_guides
+edge integument.pigment material.assign melanin_mask
+edge integument.glands material.assign glandular_pores
+edge integument.capillary material.assign vascular_translucency
+edge integument.tension mesh.cercopithecidae facial_tension_ribbons
+edge integument.abrasion material.assign epidermal_microtexture
 edge texture.bone material.assign bone_texture
 edge texture.enamel material.assign enamel_texture
 edge texture.muscle material.assign muscle_texture
