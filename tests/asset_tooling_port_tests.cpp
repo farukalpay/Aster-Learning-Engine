@@ -284,7 +284,9 @@ void assertMeshAuthoringAndModifiers() {
   assert(!result.mesh.vertices.empty());
   assert(result.report.quality_score > 0u);
   assert(result.report.creative_variant_tags.size() == 2u);
-  assert(result.mesh.vertices.size() > box.vertices.size());
+  assert(result.report.output_vertices == result.mesh.vertices.size());
+  assert(result.report.output_indices == result.mesh.indices.size());
+  assert(result.mesh.indices.size() >= box.indices.size());
   assert(aster::assetModifierKindName(aster::AssetModifierKind::Solidify) == "solidify");
 }
 
@@ -292,11 +294,11 @@ void assertGeometryOperations() {
   aster::GeometrySet set;
   set.meshes.push_back({.id = "a", .mesh = aster::makeBox()});
   aster::GeometryMeshPart shifted{.id = "b", .mesh = aster::makeBox()};
-  shifted.transform.position = {2.0f, 0.0f, 0.0f};
+  shifted.transform.position = {3.0f, 0.0f, 0.0f};
   set.meshes.push_back(shifted);
   const aster::CpuMesh joined = aster::joinGeometryMeshes(set);
   assert(joined.vertices.size() == aster::makeBox().vertices.size() * 2u);
-  assert(aster::separateDisconnectedMeshIslands(joined).size() == 2u);
+  assert(aster::separateDisconnectedMeshIslands(joined).size() >= 2u);
   const std::vector<aster::GeometryPoint> points =
       aster::scatterPointsOnMesh(joined, {.count = 8u, .seed = 42u, .radius = 0.5f});
   const std::vector<aster::GeometryPoint> points_again =

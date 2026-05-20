@@ -172,6 +172,7 @@ set(ASTER_ASSET_SOURCES
   "${PROJECT_SOURCE_DIR}/src/asset/asset_production_model.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_registry.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/compiled_scene_asset.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/content_pack.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/derived_asset_cache.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/legacy_lump_archive.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/mesh_pipeline.cpp"
@@ -722,6 +723,24 @@ if(ASTER_BUILD_TESTS)
     ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
   )
   add_test(NAME aster_asset_tooling_port_tests COMMAND aster_asset_tooling_port_tests)
+  add_executable(aster_engine_contract_port_tests tests/engine_contract_port_tests.cpp)
+  target_link_libraries(aster_engine_contract_port_tests PRIVATE aster_engine_internal)
+  target_include_directories(aster_engine_contract_port_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  aster_configure_test_target(aster_engine_contract_port_tests)
+  target_compile_definitions(aster_engine_contract_port_tests PRIVATE
+    ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+  )
+  add_test(NAME aster_engine_contract_port_tests COMMAND aster_engine_contract_port_tests)
+  foreach(engine_contract_case
+      asset_path_index_registry_and_queue
+      derived_asset_cache_policy_and_rollup
+      content_pack_overlay
+      job_graph_trace
+      artifact_writer
+  )
+    add_test(NAME aster_engine_contract_port_tests.${engine_contract_case}
+             COMMAND aster_engine_contract_port_tests ${engine_contract_case})
+  endforeach()
   add_executable(aster_kernel_public_consumer tests/kernel_public_consumer.cpp)
   target_link_libraries(aster_kernel_public_consumer PRIVATE aster_kernel)
   aster_configure_test_target(aster_kernel_public_consumer)

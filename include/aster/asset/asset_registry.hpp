@@ -8,8 +8,10 @@
 #include "aster/core/signal.hpp"
 
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -21,6 +23,56 @@ enum class AssetRegistryChangeKind {
   Updated,
   Removed,
   Scanned,
+};
+
+enum class AssetPathIndexEventKind {
+  Added,
+  Removed,
+};
+
+struct AssetPathIndexEvent {
+  AssetPathIndexEventKind kind = AssetPathIndexEventKind::Added;
+  std::string path;
+  std::string parent_path;
+  std::size_t path_count = 0u;
+};
+
+class AssetPathIndex {
+public:
+  [[nodiscard]] static std::string normalize(std::string_view path);
+
+  bool addPath(std::string_view path);
+  bool removePath(std::string_view path);
+  void clear();
+
+  [[nodiscard]] bool contains(std::string_view path) const;
+  [[nodiscard]] std::vector<std::string> allPaths() const;
+  [[nodiscard]] std::vector<std::string> subPaths(std::string_view base_path,
+                                                  bool recursive = true) const;
+  [[nodiscard]] std::string parentPath(std::string_view path) const;
+  [[nodiscard]] std::size_t size() const noexcept;
+
+  [[nodiscard]] Signal<const AssetPathIndexEvent &> &changes() {
+    return changes_;
+  }
+
+private:
+  bool addNormalizedPath(const std::string &path, bool emit_event);
+  void collectSubPaths(const std::string &base_path, bool recursive,
+                       std::set<std::string> &out) const;
+
+  std::map<std::string, std::set<std::string>> parent_to_children_;
+  std::map<std::string, std::string> child_to_parent_;
+  Signal<const AssetPathIndexEvent &> changes_;
+};
+
+enum class AssetDependencyKind {
+  Hard,
+  Soft,
+  SearchableName,
+  SoftManage,
+  HardManage,
+  Unknown,
 };
 
 struct AssetRegistryRecord {
@@ -45,14 +97,19 @@ struct AssetRegistryDependency {
   std::string role;
   bool present = false;
   std::string hash;
+  AssetDependencyKind kind = AssetDependencyKind::Hard;
 };
 
 struct AssetRegistryQuery {
   std::vector<std::string> ids;
+  std::vector<std::string> names;
   std::vector<std::string> kinds;
   std::vector<std::string> catalog_paths;
+  std::vector<std::filesystem::path> source_paths;
   std::vector<std::string> tags;
+  std::vector<std::string> tags_any;
   std::map<std::string, std::string> metadata_equals;
+  std::map<std::string, std::string> metadata_contains;
   std::optional<bool> production_ready;
   bool recursive_paths = false;
 };
@@ -99,7 +156,38 @@ private:
   Signal<const AssetRegistryChangeEvent &> changes_;
 };
 
+struct AssetGatherItem {
+  std::string id;
+  std::filesystem::path source_path;
+  std::string kind;
+  std::string catalog_path;
+  int priority = 0;
+  std::map<std::string, std::string> metadata;
+};
+
+class AssetGatherQueue {
+public:
+  void push(AssetGatherItem item);
+  void append(std::vector<AssetGatherItem> items);
+  [[nodiscard]] AssetGatherItem pop();
+  void trim();
+  void reset();
+  void prioritize(const std::function<bool(const AssetGatherItem &)> &predicate);
+
+  [[nodiscard]] const AssetGatherItem &operator[](std::size_t index) const;
+  [[nodiscard]] AssetGatherItem &operator[](std::size_t index);
+  [[nodiscard]] std::size_t size() const noexcept;
+  [[nodiscard]] bool empty() const noexcept;
+
+private:
+  std::vector<AssetGatherItem> items_;
+  std::size_t popped_count_ = 0u;
+};
+
 [[nodiscard]] AssetRegistryRecord makeAssetRegistryRecord(const AssetRepresentation &asset);
 [[nodiscard]] const char *assetRegistryChangeKindName(AssetRegistryChangeKind kind);
+[[nodiscard]] const char *assetPathIndexEventKindName(AssetPathIndexEventKind kind);
+[[nodiscard]] const char *assetDependencyKindName(AssetDependencyKind kind);
+[[nodiscard]] AssetDependencyKind assetDependencyKindFromRole(std::string_view role);
 
 } // namespace aster

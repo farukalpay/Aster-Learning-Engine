@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -19,6 +20,14 @@ enum class JobPriority : std::uint32_t {
   Background = 0u,
   Normal = 1u,
   High = 2u,
+};
+
+enum class JobLane : std::uint32_t {
+  Main,
+  Render,
+  Io,
+  Background,
+  Worker,
 };
 
 enum class JobStatus : std::uint32_t {
@@ -39,6 +48,7 @@ struct JobContext {
 struct JobDesc {
   std::string name;
   JobPriority priority = JobPriority::Normal;
+  JobLane lane = JobLane::Worker;
   std::vector<JobId> dependencies;
   std::function<void(JobContext &)> run;
 };
@@ -47,8 +57,28 @@ struct JobRecord {
   JobId id = 0u;
   std::string name;
   JobPriority priority = JobPriority::Normal;
+  JobLane lane = JobLane::Worker;
   JobStatus status = JobStatus::Pending;
   std::vector<JobId> dependencies;
+  std::string diagnostic;
+};
+
+enum class JobTraceEventKind : std::uint32_t {
+  Queued,
+  Running,
+  Completed,
+  Failed,
+  Skipped,
+};
+
+struct JobTraceEvent {
+  JobTraceEventKind kind = JobTraceEventKind::Queued;
+  JobId id = 0u;
+  std::string name;
+  JobLane lane = JobLane::Worker;
+  JobStatus status = JobStatus::Pending;
+  std::uint32_t worker_index = 0u;
+  std::uint64_t sequence = 0u;
   std::string diagnostic;
 };
 
@@ -77,6 +107,8 @@ public:
   [[nodiscard]] bool empty() const noexcept;
   [[nodiscard]] const JobRecord *record(JobId id) const;
   [[nodiscard]] std::vector<JobRecord> records() const;
+  [[nodiscard]] std::vector<JobTraceEvent> traceEvents() const;
+  void clearTrace();
 
   JobGraphDiagnostics run();
   void clear();
@@ -113,14 +145,19 @@ private:
   [[nodiscard]] bool dependencyComplete(JobId id) const;
   [[nodiscard]] bool dependencyFailed(JobId id) const;
   [[nodiscard]] std::optional<std::size_t> indexOf(JobId id) const;
+  void appendTrace(JobTraceEvent event) const;
 
   JobGraphOptions options_{};
   std::vector<JobNode> jobs_;
   JobId next_id_ = 1u;
   std::uint64_t next_sequence_ = 1u;
+  mutable std::mutex trace_mutex_;
+  mutable std::vector<JobTraceEvent> trace_events_;
 };
 
 [[nodiscard]] const char *jobPriorityName(JobPriority priority);
+[[nodiscard]] const char *jobLaneName(JobLane lane);
 [[nodiscard]] const char *jobStatusName(JobStatus status);
+[[nodiscard]] const char *jobTraceEventKindName(JobTraceEventKind kind);
 
 } // namespace aster

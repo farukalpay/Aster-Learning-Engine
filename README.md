@@ -52,6 +52,9 @@ hashes, shader variant keys, and the frame-forensics timeline.
 
 ![Clean cave material showcase](assets/screenshots/clean_cave_showcase.png)
 
+Engine contract batch visuals live in
+[tests/artifacts/engine_contract_batch1](tests/artifacts/engine_contract_batch1/README.md).
+
 ## First Scene
 
 Aster scenes are plain engine data: create a scene, assign a material, attach a

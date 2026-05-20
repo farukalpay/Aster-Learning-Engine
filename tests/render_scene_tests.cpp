@@ -1089,6 +1089,60 @@ void testSoftwareReferenceFrameResourceCaptures() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
 
+void testVisualRegressionArtifacts() {
+  const int width = 24;
+  const int height = 16;
+  std::vector<std::uint8_t> approved(static_cast<std::size_t>(width * height * 4), 255u);
+  std::vector<std::uint8_t> incoming = approved;
+  const auto set_pixel = [&](std::vector<std::uint8_t> &rgba, const int x, const int y,
+                             const std::uint8_t r, const std::uint8_t g,
+                             const std::uint8_t b) {
+    const std::size_t offset =
+        (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
+         static_cast<std::size_t>(x)) *
+        4u;
+    rgba[offset + 0u] = r;
+    rgba[offset + 1u] = g;
+    rgba[offset + 2u] = b;
+    rgba[offset + 3u] = 255u;
+  };
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      set_pixel(approved, x, y, 28u, 32u, 40u);
+      set_pixel(incoming, x, y, 28u, 32u, 40u);
+    }
+  }
+  for (int y = 4; y < 12; ++y) {
+    for (int x = 5; x < 13; ++x) {
+      set_pixel(approved, x, y, 72u, 180u, 132u);
+    }
+    for (int x = 8; x < 16; ++x) {
+      set_pixel(incoming, x, y, 82u, 150u, 214u);
+    }
+  }
+
+  const aster::VisualDiffResult diff = aster::compareRgbaImages(
+      {.width = width, .height = height, .rgba = approved},
+      {.width = width, .height = height, .rgba = incoming},
+      aster::previewVisualDiffTolerance());
+  assert(diff.pixel_count == static_cast<std::size_t>(width * height));
+  assert(!diff.delta_rgba.empty());
+
+  const std::filesystem::path output =
+      std::filesystem::temp_directory_path() / "aster_visual_regression_artifacts_case";
+  std::filesystem::remove_all(output);
+  const aster::VisualDiffArtifactPaths paths =
+      aster::writeVisualDiffArtifactSet(output, "contract_probe",
+                                        {.width = width, .height = height, .rgba = approved},
+                                        {.width = width, .height = height, .rgba = incoming},
+                                        diff);
+  assert(std::filesystem::exists(paths.approved));
+  assert(std::filesystem::exists(paths.incoming));
+  assert(std::filesystem::exists(paths.delta));
+  assert(std::filesystem::exists(paths.contact_sheet));
+  std::filesystem::remove_all(output);
+}
+
 aster::OrbitCamera retroStyleTestCamera() {
   aster::OrbitCamera camera;
   camera.target = {0.0f, 0.55f, 0.0f};
@@ -2218,6 +2272,7 @@ constexpr TestCase kTestCases[] = {
     {"frame_debugger_evidence_timeline_and_regression_lab",
      testFrameDebuggerEvidenceTimelineAndRegressionLab},
     {"software_reference_frame_resource_captures", testSoftwareReferenceFrameResourceCaptures},
+    {"visual_regression_artifacts", testVisualRegressionArtifacts},
     {"retro_style_neutral_preview", testRetroStyleNeutralSoftwarePreviewMatchesDefault},
     {"retro_style_preview_effects", testRetroStyleSoftwarePreviewEffects},
     {"retro_style_emissive_gain", testRetroStyleEmissiveSoftwarePreviewGain},

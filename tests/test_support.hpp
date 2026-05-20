@@ -4,6 +4,7 @@
 #pragma once
 
 #include "aster/asset/mesh_pipeline.hpp"
+#include "aster/asset/content_pack.hpp"
 #include "aster/asset/legacy_lump_archive.hpp"
 #include "aster/asset/scene_asset_importer.hpp"
 #include "aster/core/deterministic_sim.hpp"

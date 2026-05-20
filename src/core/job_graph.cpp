@@ -9,6 +9,7 @@
 #include <exception>
 #include <future>
 #include <thread>
+#include <utility>
 
 namespace aster {
 
@@ -38,10 +39,13 @@ JobId JobGraph::add(JobDesc desc) {
   node.record.id = id;
   node.record.name = std::move(desc.name);
   node.record.priority = desc.priority;
+  node.record.lane = desc.lane;
   node.record.dependencies = std::move(desc.dependencies);
   node.run = std::move(desc.run);
   node.sequence = next_sequence_++;
   jobs_.push_back(std::move(node));
+  appendTrace({JobTraceEventKind::Queued, id, jobs_.back().record.name, jobs_.back().record.lane,
+               jobs_.back().record.status, 0u, jobs_.back().sequence, {}});
   return id;
 }
 
@@ -65,6 +69,16 @@ std::vector<JobRecord> JobGraph::records() const {
     result.push_back(job.record);
   }
   return result;
+}
+
+std::vector<JobTraceEvent> JobGraph::traceEvents() const {
+  std::lock_guard<std::mutex> lock(trace_mutex_);
+  return trace_events_;
+}
+
+void JobGraph::clearTrace() {
+  std::lock_guard<std::mutex> lock(trace_mutex_);
+  trace_events_.clear();
 }
 
 JobGraphDiagnostics JobGraph::run() {
@@ -96,6 +110,8 @@ JobGraphDiagnostics JobGraph::run() {
       if (failed_dependency) {
         job.record.status = JobStatus::Skipped;
         job.record.diagnostic = "dependency failed";
+        appendTrace({JobTraceEventKind::Skipped, job.record.id, job.record.name, job.record.lane,
+                     job.record.status, 0u, job.sequence, job.record.diagnostic});
         ++diagnostics.skipped_jobs;
         continue;
       }
@@ -114,6 +130,8 @@ JobGraphDiagnostics JobGraph::run() {
         if (job.record.status == JobStatus::Pending) {
           job.record.status = JobStatus::Skipped;
           job.record.diagnostic = "unresolved dependency cycle";
+          appendTrace({JobTraceEventKind::Skipped, job.record.id, job.record.name, job.record.lane,
+                       job.record.status, 0u, job.sequence, job.record.diagnostic});
           ++diagnostics.skipped_jobs;
         }
       }
@@ -132,6 +150,8 @@ JobGraphDiagnostics JobGraph::run() {
     const auto execute_job = [&](const std::size_t index, const std::uint32_t worker_index) {
       JobNode &job = jobs_[index];
       job.record.status = JobStatus::Running;
+      appendTrace({JobTraceEventKind::Running, job.record.id, job.record.name, job.record.lane,
+                   job.record.status, worker_index, job.sequence, {}});
       JobContext context{job.record.id, job.record.name, worker_index, options_.deterministic};
       try {
         if (options_.profile_jobs) {
@@ -143,12 +163,18 @@ JobGraphDiagnostics JobGraph::run() {
           job.run(context);
         }
         job.record.status = JobStatus::Complete;
+        appendTrace({JobTraceEventKind::Completed, job.record.id, job.record.name,
+                     job.record.lane, job.record.status, worker_index, job.sequence, {}});
       } catch (const std::exception &error) {
         job.record.status = JobStatus::Failed;
         job.record.diagnostic = error.what();
+        appendTrace({JobTraceEventKind::Failed, job.record.id, job.record.name, job.record.lane,
+                     job.record.status, worker_index, job.sequence, job.record.diagnostic});
       } catch (...) {
         job.record.status = JobStatus::Failed;
         job.record.diagnostic = "job threw an unknown exception";
+        appendTrace({JobTraceEventKind::Failed, job.record.id, job.record.name, job.record.lane,
+                     job.record.status, worker_index, job.sequence, job.record.diagnostic});
       }
     };
 
@@ -185,6 +211,7 @@ void JobGraph::clear() {
   jobs_.clear();
   next_id_ = 1u;
   next_sequence_ = 1u;
+  clearTrace();
 }
 
 bool JobGraph::dependencyComplete(const JobId id) const {
@@ -210,6 +237,11 @@ std::optional<std::size_t> JobGraph::indexOf(const JobId id) const {
   return std::nullopt;
 }
 
+void JobGraph::appendTrace(JobTraceEvent event) const {
+  std::lock_guard<std::mutex> lock(trace_mutex_);
+  trace_events_.push_back(std::move(event));
+}
+
 const char *jobPriorityName(const JobPriority priority) {
   switch (priority) {
   case JobPriority::Background:
@@ -218,6 +250,22 @@ const char *jobPriorityName(const JobPriority priority) {
     return "normal";
   case JobPriority::High:
     return "high";
+  }
+  return "unknown";
+}
+
+const char *jobLaneName(const JobLane lane) {
+  switch (lane) {
+  case JobLane::Main:
+    return "main";
+  case JobLane::Render:
+    return "render";
+  case JobLane::Io:
+    return "io";
+  case JobLane::Background:
+    return "background";
+  case JobLane::Worker:
+    return "worker";
   }
   return "unknown";
 }
@@ -233,6 +281,22 @@ const char *jobStatusName(const JobStatus status) {
   case JobStatus::Failed:
     return "failed";
   case JobStatus::Skipped:
+    return "skipped";
+  }
+  return "unknown";
+}
+
+const char *jobTraceEventKindName(const JobTraceEventKind kind) {
+  switch (kind) {
+  case JobTraceEventKind::Queued:
+    return "queued";
+  case JobTraceEventKind::Running:
+    return "running";
+  case JobTraceEventKind::Completed:
+    return "completed";
+  case JobTraceEventKind::Failed:
+    return "failed";
+  case JobTraceEventKind::Skipped:
     return "skipped";
   }
   return "unknown";
