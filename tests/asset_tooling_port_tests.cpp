@@ -6,9 +6,12 @@
 #include "aster/asset/asset_io.hpp"
 #include "aster/asset/asset_library.hpp"
 #include "aster/asset/asset_modifier_stack.hpp"
+#include "aster/asset/asset_registry.hpp"
+#include "aster/asset/derived_asset_cache.hpp"
 #include "aster/asset/procedural_graph_runtime.hpp"
 #include "aster/geometry/geometry_operations.hpp"
 #include "aster/geometry/mesh_authoring.hpp"
+#include "aster/physics/xpbd_authoring.hpp"
 #include "aster/physics/xpbd_constraints.hpp"
 #include "aster/render/preview_compositor.hpp"
 
@@ -34,13 +37,21 @@ void assertUserFacingOwnershipLanguageIsClean() {
       root / "README.md",
       root / "docs",
       root / "include" / "aster",
-      root / "src" / "ui",
+      root / "src",
+      root / "apps",
   };
   const std::vector<std::string> banned{
       std::string("Asset") + "Factory",
       std::string("FarukAlpay") + "Asset" + "Factory",
       std::string("Asset") + " Factory",
       std::string("Asset") + "Factory-inspired",
+      "FarukAlpayEngine",
+      "UObject",
+      "UCLASS",
+      "UPROPERTY",
+      "UFUNCTION",
+      "ThirdPartyNot",
+      "Third Party Notices",
   };
   for (const std::filesystem::path &path : paths) {
     if (std::filesystem::is_regular_file(path)) {
@@ -97,6 +108,131 @@ void assertAssetLibrary() {
   assert(library.catalog_tree.findChild("Assets") != nullptr);
   assert(!library.assets.front().tags.empty());
   assert(!library.assets.front().dependency_ids.empty());
+  assert(!library.assets.front().catalog_path.empty());
+  assert(!library.assets.front().metadata.empty());
+
+  aster::AssetCatalogPath dirty_path(" Assets//Material:Runtime ");
+  const aster::AssetCatalogPath clean_path = dirty_path.cleanup();
+  assert(clean_path.str() == "Assets/Material-Runtime");
+  assert(clean_path.simpleName() == "Material-Runtime");
+  assert(clean_path.isContainedIn(aster::AssetCatalogPath("Assets")));
+  assert(clean_path.rebase(aster::AssetCatalogPath("Assets"),
+                           aster::AssetCatalogPath("Library")).str() ==
+         "Library/Material-Runtime");
+
+  aster::AssetCatalogStore store = aster::makeAssetCatalogStoreFromLibrary(library);
+  assert(store.catalogs.size() == 1u);
+  assert(store.findByPath(aster::AssetCatalogPath("Assets/Material")) != nullptr);
+  assert(store.buildTree().findChild("Assets") != nullptr);
+  aster::AssetCatalogRecord extra;
+  extra.path = aster::AssetCatalogPath("Assets/Generated");
+  extra.tags = {"generated"};
+  store.upsert(extra);
+  assert(store.findByPath(aster::AssetCatalogPath("Assets/Generated")) != nullptr);
+  assert(!aster::stableAssetCatalogId(aster::AssetCatalogPath("Assets/Generated")).empty());
+  const aster::AssetLibraryManifest manifest = aster::buildAssetLibraryManifest(library);
+  assert(!manifest.catalogs.empty());
+}
+
+void assertAssetRegistryAndDerivedCache() {
+  const aster::AssetDatabase database = makeTinyDatabase();
+  const aster::AssetLibrary library =
+      aster::AssetLibrary::fromDatabase(database, std::filesystem::temp_directory_path());
+
+  aster::AssetRegistry registry;
+  std::vector<std::string> registry_events;
+  aster::SignalConnection registry_connection =
+      registry.changes().connect([&](const aster::AssetRegistryChangeEvent &event) {
+        registry_events.push_back(aster::assetRegistryChangeKindName(event.kind));
+      });
+  registry.scanLibrary(library);
+  assert(registry.records().size() == 1u);
+  assert(!registry_events.empty());
+  assert(registry.find("material.wet") != nullptr);
+  assert(registry.find("asset-guid-1") != nullptr);
+  assert(registry.assetsByKind("material").size() == 1u);
+  assert(registry.assetsByCatalogPath("Assets", true).size() == 1u);
+  assert(registry.query({.tags = {"material", "production-ready"}}).size() == 1u);
+  assert(registry.query({.metadata_equals = {{"kind", "material"}}}).size() == 1u);
+  const std::vector<std::string> dependencies = registry.dependencies("material.wet");
+  assert(dependencies.size() == 1u);
+  assert(dependencies.front() == "texture.albedo");
+  const std::vector<std::string> referencers = registry.referencers("texture.albedo");
+  assert(referencers.size() == 1u);
+  assert(referencers.front() == "material.wet");
+
+  aster::AssetRegistryRecord texture;
+  texture.id = "texture.albedo";
+  texture.guid = "texture-guid-1";
+  texture.name = "Wet Albedo";
+  texture.kind = "texture";
+  texture.catalog_path = "Assets/Texture";
+  texture.tags = {"texture", "runtime"};
+  assert(registry.upsert(texture));
+  assert(registry.records().size() == 2u);
+  assert(registry.assetsByKind("texture").size() == 1u);
+  assert(registry.catalogPaths().size() == 2u);
+  assert(registry.remove("texture-guid-1"));
+  assert(registry.records().size() == 1u);
+  registry_connection.disconnect();
+
+  const std::filesystem::path cache_root =
+      std::filesystem::temp_directory_path() / "aster_derived_asset_cache_test";
+  std::filesystem::remove_all(cache_root);
+  aster::DerivedAssetCache cache(cache_root, aster::DerivedAssetCacheBackend::MemoryAndFilesystem,
+                                 {.worker_count = 1u, .deterministic = true});
+  std::vector<std::string> cache_events;
+  aster::SignalConnection cache_connection =
+      cache.events().connect([&](const aster::DerivedAssetCacheEvent &event) {
+        cache_events.push_back(aster::derivedAssetCacheEventKindName(event.kind));
+      });
+  const std::string key =
+      aster::DerivedAssetCache::buildCacheKey("mesh bake", "v1", "materials/wet:rock");
+  assert(key.find('/') == std::string::npos);
+  assert(key.find(':') == std::string::npos);
+  aster::DerivedAssetBytes bytes;
+  assert(!cache.get(key, bytes));
+
+  const aster::DerivedAssetAsyncHandle handle =
+      cache.buildAsync({.plugin_name = "mesh bake",
+                        .version = "v1",
+                        .key_suffix = "materials/wet:rock",
+                        .build = []() {
+                          return aster::DerivedAssetBytes{1u, 2u, 3u, 5u, 8u};
+                        }});
+  assert(!cache.pollAsyncCompletion(handle));
+  cache.waitForIdle();
+  assert(cache.pollAsyncCompletion(handle));
+  bool data_was_built = false;
+  assert(cache.getAsyncResult(handle, bytes, &data_was_built));
+  assert(data_was_built);
+  assert(bytes.size() == 5u);
+  assert(std::filesystem::exists(cache.filePathForKey(key)));
+
+  cache.clearMemory();
+  aster::DerivedAssetBytes from_disk;
+  assert(cache.get(key, from_disk));
+  assert(from_disk == bytes);
+  const aster::DerivedAssetAsyncHandle cached_handle =
+      cache.buildAsync({.plugin_name = "mesh bake",
+                        .version = "v1",
+                        .key_suffix = "materials/wet:rock",
+                        .build = []() {
+                          return aster::DerivedAssetBytes{99u};
+                        }});
+  assert(cache.pollAsyncCompletion(cached_handle));
+  aster::DerivedAssetBytes cached_bytes;
+  bool cached_was_built = true;
+  assert(cache.getAsyncResult(cached_handle, cached_bytes, &cached_was_built));
+  assert(!cached_was_built);
+  assert(cached_bytes == bytes);
+  const aster::DerivedAssetCacheStats stats = cache.stats();
+  assert(stats.builds == 1u);
+  assert(stats.hits >= 2u);
+  assert(stats.misses >= 1u);
+  assert(!cache_events.empty());
+  cache_connection.disconnect();
+  std::filesystem::remove_all(cache_root);
 }
 
 void assertMeshAuthoringAndModifiers() {
@@ -125,11 +261,31 @@ void assertMeshAuthoringAndModifiers() {
                              .kind = aster::AssetModifierKind::Weld,
                              .epsilon = 0.0001f,
                              .creative_variant_tags = {"wear:clean"}});
+  stack.modifiers.push_back({.id = "array",
+                             .kind = aster::AssetModifierKind::Array,
+                             .transform = {.position = {1.4f, 0.0f, 0.0f}},
+                             .count = 2u,
+                             .creative_variant_tags = {"layout:paired"}});
+  stack.modifiers.push_back({.id = "solidify",
+                             .kind = aster::AssetModifierKind::Solidify,
+                             .amount = 0.02f});
+  stack.modifiers.push_back({.id = "smooth",
+                             .kind = aster::AssetModifierKind::Smooth,
+                             .amount = 0.12f,
+                             .count = 1u});
+  stack.modifiers.push_back({.id = "weighted",
+                             .kind = aster::AssetModifierKind::WeightedNormal});
+  stack.modifiers.push_back({.id = "decimate",
+                             .kind = aster::AssetModifierKind::Decimate,
+                             .amount = 0.85f,
+                             .seed = 7u});
   const aster::AssetModifierStackResult result = aster::applyAssetModifierStack(box, stack);
   assert(!result.report.stable_provenance_id.empty());
   assert(!result.mesh.vertices.empty());
   assert(result.report.quality_score > 0u);
-  assert(result.report.creative_variant_tags.size() == 1u);
+  assert(result.report.creative_variant_tags.size() == 2u);
+  assert(result.mesh.vertices.size() > box.vertices.size());
+  assert(aster::assetModifierKindName(aster::AssetModifierKind::Solidify) == "solidify");
 }
 
 void assertGeometryOperations() {
@@ -168,6 +324,18 @@ void assertMeshIo() {
       aster::exportMeshAssetObj(imported.mesh, dir / "tri_export.obj");
   assert(exported.ok);
   assert(!exported.stable_source_hash.empty());
+  const aster::AssetMeshIoReport exported_ply =
+      aster::exportMeshAssetPly(imported.mesh, dir / "tri_export.ply");
+  const aster::AssetMeshIoReport exported_stl =
+      aster::exportMeshAssetStl(imported.mesh, dir / "tri_export.stl");
+  assert(exported_ply.ok);
+  assert(exported_stl.ok);
+  assert(aster::importMeshAsset(dir / "tri_export.ply").report.ok);
+  assert(aster::importMeshAsset(dir / "tri_export.stl").report.ok);
+  const aster::AssetMeshImportResult unsupported =
+      aster::importMeshAsset(dir / "not_vendored.fbx", aster::AssetMeshFormat::Fbx);
+  assert(!unsupported.report.ok);
+  assert(!unsupported.report.diagnostics.empty());
 }
 
 void assertProceduralRuntime() {
@@ -183,6 +351,11 @@ void assertProceduralRuntime() {
                            .role = "mesh",
                            .params = {{"primitive", "sphere"}},
                            .capability_status = "runtime-reference"});
+  package.nodes.push_back({.id = "modifier.bevel",
+                           .kind = "bevel_modifier",
+                           .role = "modifier",
+                           .params = {{"width", "0.02"}},
+                           .capability_status = "runtime-procedural-reference"});
   const aster::ProceduralGraphEvaluationResult result =
       aster::evaluateProceduralAssetGraph(package);
   assert(result.production_ready);
@@ -215,15 +388,75 @@ void assertPreviewAndSimulation() {
   assert(std::abs(aster::length(particles[1].position - particles[0].position) - 1.0f) < 0.1f);
 }
 
+void assertXpbdAuthoringSourceEdit() {
+  const std::filesystem::path dir =
+      std::filesystem::temp_directory_path() / "aster_xpbd_authoring_test";
+  std::filesystem::remove_all(dir);
+  std::filesystem::create_directories(dir);
+  const std::filesystem::path obj = dir / "cloth_patch.obj";
+  {
+    std::ofstream file(obj);
+    file << "v 0 0 0\nv 1 0 0\nv 0 1 0\n";
+    file << "vt 0 0\nvt 1 0\nvt 0 1\n";
+    file << "f 1/1 2/2 3/3\n";
+  }
+
+  aster::XpbdMeshAuthoringSettings settings;
+  settings.frames = 6u;
+  settings.simulation.dt = 1.0f / 30.0f;
+  settings.simulation.iterations = 12;
+  settings.simulation.gravity = {0.0f, -18.0f, 0.0f};
+  settings.compliance = 0.001f;
+  settings.damping = 0.02f;
+  settings.linear_damping = 0.03f;
+  settings.pin_rule.axis = aster::XpbdPinAxis::Y;
+  settings.pin_rule.threshold = 0.9f;
+  settings.pin_rule.pin_greater_equal = true;
+
+  const aster::AssetMeshImportResult before = aster::importMeshAsset(obj);
+  assert(before.report.ok);
+  aster::XpbdMeshAuthoringSession session =
+      aster::makeXpbdMeshAuthoringSession(before.mesh, settings);
+  assert(session.source_loaded);
+  assert(session.pinned_particles == 1u);
+  const aster::XpbdSimulationReport sim = aster::simulateXpbdMeshAuthoringSession(session);
+  assert(sim.stable);
+  assert(sim.constraints_solved > 0u);
+  bool moved = false;
+  for (std::size_t i = 0u; i < before.mesh.vertices.size(); ++i) {
+    moved = moved || aster::length(session.preview_mesh.vertices[i].position -
+                                   before.mesh.vertices[i].position) > 0.00001f;
+  }
+  assert(moved);
+
+  const aster::XpbdSourceEditReport edit =
+      aster::simulateXpbdMeshSourceEdit(obj, settings);
+  assert(edit.ok);
+  assert(edit.applied);
+  assert(edit.editable_source);
+  assert(std::filesystem::exists(edit.backup_path));
+  const aster::AssetMeshImportResult after = aster::importMeshAsset(obj);
+  assert(after.report.ok);
+  assert(after.mesh.vertices.size() == before.mesh.vertices.size());
+  bool source_changed = false;
+  for (std::size_t i = 0u; i < before.mesh.vertices.size(); ++i) {
+    source_changed = source_changed || aster::length(after.mesh.vertices[i].position -
+                                                     before.mesh.vertices[i].position) > 0.00001f;
+  }
+  assert(source_changed);
+}
+
 } // namespace
 
 int main() {
   assertUserFacingOwnershipLanguageIsClean();
   assertAssetLibrary();
+  assertAssetRegistryAndDerivedCache();
   assertMeshAuthoringAndModifiers();
   assertGeometryOperations();
   assertMeshIo();
   assertProceduralRuntime();
   assertPreviewAndSimulation();
+  assertXpbdAuthoringSourceEdit();
   return 0;
 }

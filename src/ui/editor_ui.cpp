@@ -6,6 +6,7 @@
 #include "aster/asset/procedural_asset_graph.hpp"
 #include "aster/material/material_graph.hpp"
 #include "aster/platform/window.hpp"
+#include "aster/physics/xpbd_authoring.hpp"
 #include "aster/scene/scene.hpp"
 #include "aster/texture/texture_importer.hpp"
 
@@ -545,9 +546,9 @@ void drawSegmentedButtons(aster::UiCanvas &canvas, const std::vector<std::string
 
 void drawAssetTabs(aster::UiCanvas &canvas, std::size_t &selected_tab, const float x, float &y,
                    const float width, const float visible_top, const float visible_bottom) {
-  constexpr std::array<std::string_view, 6> tabs{"Catalog", "Material", "Texture", "Mesh",
-                                                 "Cook", "Lab"};
-  const std::size_t columns = width < 330.0f ? 3u : tabs.size();
+  constexpr std::array<std::string_view, 7> tabs{"Catalog", "Material", "Texture", "Mesh",
+                                                 "Cook", "Lab", "XPBD"};
+  const std::size_t columns = width < 330.0f ? 3u : (width < 430.0f ? 4u : tabs.size());
   const float gap = 6.0f;
   const float button_width =
       std::max(52.0f, (width - gap * static_cast<float>(columns - 1u)) /
@@ -1004,11 +1005,268 @@ void drawMaterialLabTab(aster::UiCanvas &canvas, const aster::AssetProductionMod
   y += 38.0f;
 }
 
+void applyXpbdPreset(const std::size_t index, aster::XpbdMeshAuthoringSettings &settings) {
+  settings = {};
+  settings.pin_rule.axis = aster::XpbdPinAxis::Y;
+  settings.pin_rule.pin_greater_equal = true;
+  switch (index) {
+  case 1u:
+    settings.frames = 18u;
+    settings.simulation.iterations = 12;
+    settings.simulation.dt = 1.0f / 60.0f;
+    settings.simulation.gravity = {0.0f, -6.4f, 0.0f};
+    settings.compliance = 0.00008f;
+    settings.damping = 0.10f;
+    settings.linear_damping = 0.08f;
+    settings.pin_rule.threshold = 0.65f;
+    break;
+  case 2u:
+    settings.frames = 10u;
+    settings.simulation.iterations = 8;
+    settings.simulation.dt = 1.0f / 50.0f;
+    settings.simulation.gravity = {0.0f, -3.0f, 0.0f};
+    settings.compliance = 0.0006f;
+    settings.damping = 0.18f;
+    settings.linear_damping = 0.16f;
+    settings.pin_rule.threshold = 0.45f;
+    break;
+  case 0u:
+  default:
+    settings.frames = 12u;
+    settings.simulation.iterations = 10;
+    settings.simulation.dt = 1.0f / 60.0f;
+    settings.simulation.gravity = {0.0f, -9.81f, 0.0f};
+    settings.compliance = 0.00025f;
+    settings.damping = 0.04f;
+    settings.linear_damping = 0.03f;
+    settings.pin_rule.threshold = 0.55f;
+    break;
+  }
+}
+
+bool xpbdSettingsEqual(const aster::XpbdMeshAuthoringSettings &lhs,
+                       const aster::XpbdMeshAuthoringSettings &rhs) {
+  constexpr float kEpsilon = 0.000001f;
+  return lhs.frames == rhs.frames && lhs.simulation.iterations == rhs.simulation.iterations &&
+         std::abs(lhs.simulation.dt - rhs.simulation.dt) <= kEpsilon &&
+         aster::length(lhs.simulation.gravity - rhs.simulation.gravity) <= kEpsilon &&
+         std::abs(lhs.compliance - rhs.compliance) <= kEpsilon &&
+         std::abs(lhs.damping - rhs.damping) <= kEpsilon &&
+         std::abs(lhs.linear_damping - rhs.linear_damping) <= kEpsilon &&
+         lhs.pin_rule.axis == rhs.pin_rule.axis &&
+         std::abs(lhs.pin_rule.threshold - rhs.pin_rule.threshold) <= kEpsilon &&
+         lhs.pin_rule.pin_greater_equal == rhs.pin_rule.pin_greater_equal &&
+         lhs.pin_rule.enabled == rhs.pin_rule.enabled;
+}
+
+void appendXpbdReport(std::vector<std::string> &diagnostics,
+                      const aster::XpbdSourceEditReport &report) {
+  diagnostics.insert(diagnostics.end(), report.diagnostics.begin(), report.diagnostics.end());
+  diagnostics.insert(diagnostics.end(), report.import_report.diagnostics.begin(),
+                     report.import_report.diagnostics.end());
+  diagnostics.insert(diagnostics.end(), report.export_report.diagnostics.begin(),
+                     report.export_report.diagnostics.end());
+  if (report.applied) {
+    diagnostics.push_back("saved: " + report.source_path.generic_string());
+  }
+  if (!report.backup_path.empty()) {
+    diagnostics.push_back("backup: " + report.backup_path.generic_string());
+  }
+}
+
+void loadXpbdSelection(const aster::AssetProductionModel &model,
+                       const aster::AssetProductionAsset &asset,
+                       const aster::XpbdMeshAuthoringSettings &settings,
+                       aster::XpbdMeshAuthoringSession &session,
+                       std::filesystem::path &source_path,
+                       std::vector<std::string> &diagnostics, bool &preview_ready) {
+  source_path = resolveProjectPath(model, asset.source_path);
+  diagnostics.clear();
+  preview_ready = false;
+  session = {};
+  if (source_path.empty()) {
+    diagnostics.push_back("error: asset has no source path");
+    return;
+  }
+  if (!aster::isXpbdEditableMeshSource(source_path)) {
+    diagnostics.push_back("warning: source is preview-only for XPBD edits");
+    diagnostics.push_back("source: " + source_path.generic_string());
+    return;
+  }
+  if (!std::filesystem::exists(source_path)) {
+    diagnostics.push_back("error: source OBJ is missing: " + source_path.generic_string());
+    return;
+  }
+  const aster::AssetMeshImportResult imported =
+      aster::importMeshAsset(source_path, aster::AssetMeshFormat::Obj);
+  diagnostics.insert(diagnostics.end(), imported.report.diagnostics.begin(),
+                     imported.report.diagnostics.end());
+  if (!imported.report.ok) {
+    diagnostics.push_back("error: could not load source OBJ for XPBD");
+    return;
+  }
+  session = aster::makeXpbdMeshAuthoringSession(imported.mesh, settings);
+  diagnostics.insert(diagnostics.end(), session.diagnostics.begin(), session.diagnostics.end());
+}
+
+void rebuildXpbdSessionForCurrentSettings(aster::XpbdMeshAuthoringSession &session,
+                                          const aster::XpbdMeshAuthoringSettings &settings,
+                                          std::vector<std::string> &diagnostics) {
+  if (!session.source_loaded) {
+    diagnostics.push_back("error: no editable XPBD mesh is loaded");
+    return;
+  }
+  const aster::CpuMesh source = session.source_mesh;
+  session = aster::makeXpbdMeshAuthoringSession(source, settings);
+  diagnostics.insert(diagnostics.end(), session.diagnostics.begin(), session.diagnostics.end());
+}
+
+void drawXpbdScalarControls(aster::UiCanvas &canvas,
+                            aster::XpbdMeshAuthoringSettings &settings, const float x,
+                            float &y, const float width, const float visible_top,
+                            const float visible_bottom) {
+  section(canvas, "Solver", x, y, width);
+  float frames = static_cast<float>(settings.frames);
+  sliderRow(canvas, "Frames", frames, 1.0f, 60.0f, x, y, width, "xpbd.frames", visible_top,
+            visible_bottom);
+  settings.frames = static_cast<std::uint32_t>(std::round(frames));
+  float iterations = static_cast<float>(settings.simulation.iterations);
+  sliderRow(canvas, "Iterations", iterations, 1.0f, 32.0f, x, y, width, "xpbd.iterations",
+            visible_top, visible_bottom);
+  settings.simulation.iterations = static_cast<int>(std::round(iterations));
+  sliderRow(canvas, "Delta time", settings.simulation.dt, 0.004f, 0.05f, x, y, width, "xpbd.dt",
+            visible_top, visible_bottom);
+  sliderRow(canvas, "Compliance", settings.compliance, 0.0f, 0.004f, x, y, width,
+            "xpbd.compliance", visible_top, visible_bottom);
+  sliderRow(canvas, "Constraint damp", settings.damping, 0.0f, 0.7f, x, y, width,
+            "xpbd.damping", visible_top, visible_bottom);
+  sliderRow(canvas, "Linear damp", settings.linear_damping, 0.0f, 0.7f, x, y, width,
+            "xpbd.linear_damping", visible_top, visible_bottom);
+  sliderRow(canvas, "Gravity Y", settings.simulation.gravity.y, -20.0f, 5.0f, x, y, width,
+            "xpbd.gravity_y", visible_top, visible_bottom);
+
+  section(canvas, "Pins", x, y, width);
+  checkboxRow(canvas, "Pin enabled", settings.pin_rule.enabled, x, y, width,
+              "xpbd.pin_enabled", visible_top, visible_bottom);
+  std::size_t axis = settings.pin_rule.axis == aster::XpbdPinAxis::X
+                         ? 0u
+                         : (settings.pin_rule.axis == aster::XpbdPinAxis::Y ? 1u : 2u);
+  drawSegmentedButtons(canvas, {"X", "Y", "Z"}, axis, x, y, width, "xpbd.pin_axis",
+                       visible_top, visible_bottom);
+  settings.pin_rule.axis = axis == 0u ? aster::XpbdPinAxis::X
+                                      : (axis == 1u ? aster::XpbdPinAxis::Y
+                                                    : aster::XpbdPinAxis::Z);
+  std::size_t side = settings.pin_rule.pin_greater_equal ? 0u : 1u;
+  drawSegmentedButtons(canvas, {"Above", "Below"}, side, x, y, width, "xpbd.pin_side",
+                       visible_top, visible_bottom);
+  settings.pin_rule.pin_greater_equal = side == 0u;
+  sliderRow(canvas, "Pin threshold", settings.pin_rule.threshold, -4.0f, 4.0f, x, y, width,
+            "xpbd.pin_threshold", visible_top, visible_bottom);
+}
+
+void drawXpbdTab(aster::UiCanvas &canvas, const aster::AssetProductionModel &model,
+                 const aster::AssetProductionAsset &asset, std::size_t &selected_preset,
+                 aster::XpbdMeshAuthoringSettings &settings,
+                 aster::XpbdMeshAuthoringSession &session, std::string &loaded_asset_id,
+                 std::filesystem::path &source_path, std::vector<std::string> &diagnostics,
+                 bool &preview_ready, const float x, float &y, const float width,
+                 const float visible_top, const float visible_bottom) {
+  section(canvas, "XPBD", x, y, width);
+  if (loaded_asset_id != asset.id) {
+    loaded_asset_id = asset.id;
+    loadXpbdSelection(model, asset, settings, session, source_path, diagnostics, preview_ready);
+  }
+  textRow(canvas, "Asset", clippedValue(asset.id), x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Source", clippedValue(source_path.generic_string()), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Editable", aster::isXpbdEditableMeshSource(source_path) ? "yes" : "no", x, y,
+          width, visible_top, visible_bottom);
+
+  const std::size_t previous_preset = selected_preset;
+  drawSegmentedButtons(canvas, {"Cloth", "Cable", "Settle"}, selected_preset, x, y, width,
+                       "xpbd.preset", visible_top, visible_bottom);
+  if (selected_preset != previous_preset) {
+    applyXpbdPreset(selected_preset, settings);
+    if (session.source_loaded) {
+      diagnostics.clear();
+      rebuildXpbdSessionForCurrentSettings(session, settings, diagnostics);
+      preview_ready = false;
+    }
+  }
+
+  const aster::XpbdMeshAuthoringSettings before_controls = settings;
+  drawXpbdScalarControls(canvas, settings, x, y, width, visible_top, visible_bottom);
+  if (!xpbdSettingsEqual(before_controls, settings)) {
+    preview_ready = false;
+  }
+
+  section(canvas, "Mesh", x, y, width);
+  textRow(canvas, "Vertices", std::to_string(session.source_mesh.vertices.size()), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Edges", std::to_string(session.constraints.size()), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Pinned", std::to_string(session.pinned_particles), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Preview", preview_ready ? "ready" : "stale", x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Solved", std::to_string(session.last_simulation.constraints_solved), x, y,
+          width, visible_top, visible_bottom);
+  textRow(canvas, "Error", std::to_string(session.last_simulation.max_distance_error), x, y,
+          width, visible_top, visible_bottom);
+
+  section(canvas, "Actions", x, y, width);
+  const float button_width = std::max((width - 8.0f) * 0.5f, 82.0f);
+  if (y >= visible_top && y + 34.0f <= visible_bottom) {
+    if (canvas.button({x, y, button_width, 30.0f}, "Reset", "xpbd.reset")) {
+      loadXpbdSelection(model, asset, settings, session, source_path, diagnostics, preview_ready);
+    }
+    if (canvas.button({x + width - button_width, y, button_width, 30.0f}, "Simulate",
+                      "xpbd.simulate")) {
+      diagnostics.clear();
+      rebuildXpbdSessionForCurrentSettings(session, settings, diagnostics);
+      const aster::XpbdSimulationReport report =
+          aster::simulateXpbdMeshAuthoringSession(session);
+      if (!report.stable) {
+        diagnostics.push_back("error: XPBD simulation did not remain stable");
+      }
+      preview_ready = report.stable;
+    }
+  }
+  y += 38.0f;
+  if (y >= visible_top && y + 34.0f <= visible_bottom) {
+    if (canvas.button({x, y, width, 30.0f}, "Apply to source", "xpbd.apply")) {
+      diagnostics.clear();
+      if (!preview_ready) {
+        rebuildXpbdSessionForCurrentSettings(session, settings, diagnostics);
+        const aster::XpbdSimulationReport report =
+            aster::simulateXpbdMeshAuthoringSession(session);
+        preview_ready = report.stable;
+        if (!report.stable) {
+          diagnostics.push_back("error: XPBD simulation did not remain stable");
+        }
+      }
+      if (preview_ready) {
+        const aster::XpbdSourceEditReport edit_report =
+            aster::writeXpbdMeshSourceEdit(source_path, session.preview_mesh);
+        appendXpbdReport(diagnostics, edit_report);
+        if (edit_report.ok) {
+          session.source_mesh = session.preview_mesh;
+          session = aster::makeXpbdMeshAuthoringSession(session.source_mesh, settings);
+          preview_ready = false;
+        }
+      }
+    }
+  }
+  y += 38.0f;
+  listRows(canvas, "Status", diagnostics, 7u, x, y, width, visible_top, visible_bottom);
+}
+
 void drawAssetStudioPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
                           std::size_t &selected_tab, std::size_t &selected_texture,
                           std::size_t &selected_material_lab_node,
                           std::size_t &selected_material_lab_mesh,
                           std::size_t &selected_material_lab_environment,
+                          std::size_t &selected_xpbd_preset,
                           aster::MaterialAsset &material_lab_asset,
                           aster::MaterialAuthoringGraph &material_lab_graph,
                           std::string &material_lab_loaded_asset_id,
@@ -1017,6 +1275,12 @@ void drawAssetStudioPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
                           std::string &material_lab_cache_key,
                           std::vector<aster::MaterialLabPreviewImage> &material_lab_previews,
                           std::vector<std::string> &material_lab_diagnostics,
+                          aster::XpbdMeshAuthoringSettings &xpbd_settings,
+                          aster::XpbdMeshAuthoringSession &xpbd_session,
+                          std::string &xpbd_loaded_asset_id,
+                          std::filesystem::path &xpbd_source_path,
+                          std::vector<std::string> &xpbd_diagnostics,
+                          bool &xpbd_preview_ready,
                           const aster::EditorRuntimeModel &runtime, const float x, float &y,
                           const float width, const float visible_top,
                           const float visible_bottom) {
@@ -1041,6 +1305,7 @@ void drawAssetStudioPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
       --selected_asset;
       selected_texture = 0u;
       material_lab_loaded_asset_id.clear();
+      xpbd_loaded_asset_id.clear();
     }
     if (canvas.button({x + width - button_width, y, button_width, 30.0f}, "Next",
                       "asset.next") &&
@@ -1048,6 +1313,7 @@ void drawAssetStudioPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
       ++selected_asset;
       selected_texture = 0u;
       material_lab_loaded_asset_id.clear();
+      xpbd_loaded_asset_id.clear();
     }
   }
   y += 38.0f;
@@ -1076,6 +1342,11 @@ void drawAssetStudioPanel(aster::UiCanvas &canvas, std::size_t &selected_asset,
                        selected_material_lab_environment, material_lab_cache_key,
                        material_lab_previews, material_lab_diagnostics, x, y, width, visible_top,
                        visible_bottom);
+    break;
+  case 6u:
+    drawXpbdTab(canvas, *model, asset, selected_xpbd_preset, xpbd_settings, xpbd_session,
+                xpbd_loaded_asset_id, xpbd_source_path, xpbd_diagnostics, xpbd_preview_ready, x, y,
+                width, visible_top, visible_bottom);
     break;
   default:
     selected_tab = 0u;
@@ -1374,12 +1645,14 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
   y += 8.0f;
   drawAssetStudioPanel(canvas_, selected_asset_, selected_asset_tab_, selected_texture_,
                        selected_material_lab_node_, selected_material_lab_mesh_,
-                       selected_material_lab_environment_, material_lab_asset_,
-                       material_lab_graph_, material_lab_loaded_asset_id_,
-                       material_lab_save_path_, material_lab_save_supported_,
-                       material_lab_dirty_, material_lab_cache_key_, material_lab_previews_,
-                       material_lab_diagnostics_, runtime, x, y, width, visible_top,
-                       panel_bottom);
+                       selected_material_lab_environment_, selected_xpbd_preset_,
+                       material_lab_asset_, material_lab_graph_,
+                       material_lab_loaded_asset_id_, material_lab_save_path_,
+                       material_lab_save_supported_, material_lab_dirty_,
+                       material_lab_cache_key_, material_lab_previews_,
+                       material_lab_diagnostics_, xpbd_settings_, xpbd_session_,
+                       xpbd_loaded_asset_id_, xpbd_source_path_, xpbd_diagnostics_,
+                       xpbd_preview_ready_, runtime, x, y, width, visible_top, panel_bottom);
   y += 8.0f;
   drawObjectFatePanel(canvas_, selected_object_fate_, runtime.frame_forensics, x, y, width,
                       visible_top, panel_bottom);

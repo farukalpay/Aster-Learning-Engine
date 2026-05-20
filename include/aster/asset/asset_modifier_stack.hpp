@@ -22,6 +22,12 @@ enum class AssetModifierKind {
   Inset,
   Extrude,
   Bevel,
+  Array,
+  Solidify,
+  Displace,
+  WeightedNormal,
+  Smooth,
+  Decimate,
 };
 
 struct AssetModifierDesc {
@@ -33,6 +39,7 @@ struct AssetModifierDesc {
   float epsilon = 0.0001f;
   bool enabled = true;
   std::uint32_t seed = 1u;
+  std::uint32_t count = 1u;
   std::vector<std::string> creative_variant_tags;
 };
 

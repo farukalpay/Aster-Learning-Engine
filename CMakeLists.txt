@@ -20,6 +20,15 @@ option(ASTER_BUILD_PREVIEW "Build the headless preview renderer." ON)
 option(ASTER_BUILD_NETWORK "Build the loopback TCP networking target." ON)
 option(ASTER_BUILD_TESTS "Build unit tests." ON)
 option(ASTER_ENABLE_PROFILING "Enable Aster's lightweight CPU profiling sink." ON)
+option(ASTER_ENABLE_D3D12 "Build the Direct3D 12 native renderer when the toolchain supports it." ON)
+set(ASTER_ENABLE_WAYLAND "AUTO" CACHE STRING "Wayland backend selection: AUTO, ON, or OFF.")
+set_property(CACHE ASTER_ENABLE_WAYLAND PROPERTY STRINGS AUTO ON OFF)
+string(TOUPPER "${ASTER_ENABLE_WAYLAND}" ASTER_ENABLE_WAYLAND_MODE)
+if(NOT ASTER_ENABLE_WAYLAND_MODE STREQUAL "AUTO" AND
+   NOT ASTER_ENABLE_WAYLAND_MODE STREQUAL "ON" AND
+   NOT ASTER_ENABLE_WAYLAND_MODE STREQUAL "OFF")
+  message(FATAL_ERROR "ASTER_ENABLE_WAYLAND must be AUTO, ON, or OFF.")
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,35 +40,72 @@ endif()
 
 find_package(Threads REQUIRED)
 find_program(CARGO_EXECUTABLE cargo REQUIRED)
+include(CheckIncludeFileCXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 set(ASTER_KERNEL_PACKAGE_VERSION "5.0.0")
 
-if(WIN32)
+if(WIN32 AND NOT MINGW)
   set(ASTER_RUST_STATICLIB_NAME "aster_runtime.lib")
 else()
   set(ASTER_RUST_STATICLIB_NAME "libaster_runtime.a")
 endif()
 
+set(ASTER_RUST_TARGET "" CACHE STRING "Cargo target triple used for cross-compiling Rust artifacts.")
+if(NOT ASTER_RUST_TARGET AND MINGW)
+  if(CMAKE_CXX_COMPILER MATCHES "x86_64.*mingw")
+    set(ASTER_RUST_TARGET "x86_64-pc-windows-gnu")
+  elseif(CMAKE_CXX_COMPILER MATCHES "i[3-6]86.*mingw")
+    set(ASTER_RUST_TARGET "i686-pc-windows-gnu")
+  endif()
+endif()
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(ASTER_CARGO_FLAGS "")
   set(ASTER_CARGO_PROFILE "debug")
-  set(ASTER_RUST_LIBRARY "${PROJECT_SOURCE_DIR}/target/debug/${ASTER_RUST_STATICLIB_NAME}")
 else()
   set(ASTER_CARGO_FLAGS "--release")
   set(ASTER_CARGO_PROFILE "release")
-  set(ASTER_RUST_LIBRARY "${PROJECT_SOURCE_DIR}/target/release/${ASTER_RUST_STATICLIB_NAME}")
 endif()
-if(WIN32)
-  set(ASTER_ASSETC_EXECUTABLE "${PROJECT_SOURCE_DIR}/target/${ASTER_CARGO_PROFILE}/aster_assetc.exe")
+set(ASTER_CARGO_TARGET_ARGS)
+if(ASTER_RUST_TARGET)
+  list(APPEND ASTER_CARGO_TARGET_ARGS "--target" "${ASTER_RUST_TARGET}")
+  set(ASTER_RUST_ARTIFACT_DIR "${PROJECT_SOURCE_DIR}/target/${ASTER_RUST_TARGET}/${ASTER_CARGO_PROFILE}")
 else()
-  set(ASTER_ASSETC_EXECUTABLE "${PROJECT_SOURCE_DIR}/target/${ASTER_CARGO_PROFILE}/aster_assetc")
+  set(ASTER_RUST_ARTIFACT_DIR "${PROJECT_SOURCE_DIR}/target/${ASTER_CARGO_PROFILE}")
+endif()
+set(ASTER_RUST_LIBRARY "${ASTER_RUST_ARTIFACT_DIR}/${ASTER_RUST_STATICLIB_NAME}")
+if(WIN32)
+  set(ASTER_CARGO_EXECUTABLE_SUFFIX ".exe")
+else()
+  set(ASTER_CARGO_EXECUTABLE_SUFFIX "")
+endif()
+set(ASTER_ASSETC_EXECUTABLE "${ASTER_RUST_ARTIFACT_DIR}/aster_assetc${ASTER_CARGO_EXECUTABLE_SUFFIX}")
+set(ASTER_MATERIALC_EXECUTABLE "${ASTER_RUST_ARTIFACT_DIR}/aster_materialc${ASTER_CARGO_EXECUTABLE_SUFFIX}")
+set(ASTER_TEXTUREC_EXECUTABLE "${ASTER_RUST_ARTIFACT_DIR}/aster_texturec${ASTER_CARGO_EXECUTABLE_SUFFIX}")
+if(ASTER_RUST_TARGET)
+  string(REPLACE "-" "_" ASTER_RUST_STAMP_TARGET "${ASTER_RUST_TARGET}")
+else()
+  set(ASTER_RUST_STAMP_TARGET "host")
+endif()
+set(ASTER_RUST_STAMP_DIR "${PROJECT_BINARY_DIR}/cargo/${ASTER_RUST_STAMP_TARGET}/${ASTER_CARGO_PROFILE}")
+set(ASTER_RUST_STAMP "${ASTER_RUST_STAMP_DIR}/aster_rust_runtime.stamp")
+set(ASTER_CARGO_ENV)
+if(UNIX AND NOT APPLE)
+  list(APPEND ASTER_CARGO_ENV "RUSTFLAGS=$ENV{RUSTFLAGS} -C relocation-model=pic")
 endif()
 
 add_custom_command(
-  OUTPUT "${ASTER_RUST_LIBRARY}"
-  COMMAND "${CARGO_EXECUTABLE}" build --workspace ${ASTER_CARGO_FLAGS}
+  OUTPUT "${ASTER_RUST_STAMP}"
+  BYPRODUCTS
+    "${ASTER_RUST_LIBRARY}"
+    "${ASTER_ASSETC_EXECUTABLE}"
+    "${ASTER_MATERIALC_EXECUTABLE}"
+    "${ASTER_TEXTUREC_EXECUTABLE}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${ASTER_RUST_STAMP_DIR}"
+  COMMAND "${CMAKE_COMMAND}" -E env ${ASTER_CARGO_ENV} "${CARGO_EXECUTABLE}" build --workspace ${ASTER_CARGO_TARGET_ARGS} ${ASTER_CARGO_FLAGS}
+  COMMAND "${CMAKE_COMMAND}" -E touch "${ASTER_RUST_STAMP}"
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   DEPENDS
     "${PROJECT_SOURCE_DIR}/Cargo.toml"
@@ -73,12 +119,20 @@ add_custom_command(
     "${PROJECT_SOURCE_DIR}/crates/aster_assetc/src/bin/aster_texturec.rs"
   VERBATIM
 )
-add_custom_target(aster_rust_runtime DEPENDS "${ASTER_RUST_LIBRARY}")
+add_custom_target(aster_rust_runtime DEPENDS "${ASTER_RUST_STAMP}")
 add_library(aster_runtime STATIC IMPORTED GLOBAL)
 set_target_properties(aster_runtime PROPERTIES IMPORTED_LOCATION "${ASTER_RUST_LIBRARY}")
 if(WIN32)
   set_target_properties(aster_runtime PROPERTIES
     INTERFACE_LINK_LIBRARIES "Advapi32;Bcrypt;Ntdll;Userenv;Ws2_32"
+  )
+elseif(UNIX AND NOT APPLE)
+  set(ASTER_RUST_NATIVE_LIBS Threads::Threads ${CMAKE_DL_LIBS} m)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND ASTER_RUST_NATIVE_LIBS rt util)
+  endif()
+  set_target_properties(aster_runtime PROPERTIES
+    INTERFACE_LINK_LIBRARIES "${ASTER_RUST_NATIVE_LIBS}"
   )
 endif()
 add_dependencies(aster_runtime aster_rust_runtime)
@@ -92,6 +146,8 @@ set(ASTER_CORE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/deterministic_sim.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/fixed_timestep.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/frame_time_stats.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/job_graph.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/module_registry.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/profiler.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/work_budget.cpp"
   "${PROJECT_SOURCE_DIR}/src/math/transform.cpp"
@@ -114,7 +170,9 @@ set(ASTER_ASSET_SOURCES
   "${PROJECT_SOURCE_DIR}/src/asset/asset_library.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_modifier_stack.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_production_model.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/asset_registry.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/compiled_scene_asset.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/derived_asset_cache.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/legacy_lump_archive.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/mesh_pipeline.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/pipe_runtime_asset.cpp"
@@ -143,11 +201,18 @@ set(ASTER_TEXTURE_SOURCES
 )
 
 set(ASTER_SHADER_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/shader/shader_archive.cpp"
   "${PROJECT_SOURCE_DIR}/src/shader/shader_compiler.cpp"
   "${PROJECT_SOURCE_DIR}/src/shader/shader_hot_reload.cpp"
   "${PROJECT_SOURCE_DIR}/src/shader/shader_library.cpp"
+  "${PROJECT_SOURCE_DIR}/src/shader/shader_preprocessor.cpp"
   "${PROJECT_SOURCE_DIR}/src/shader/shader_reflection.cpp"
   "${PROJECT_SOURCE_DIR}/src/shader/shader_variant.cpp"
+)
+
+set(ASTER_GAMEPLAY_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/gameplay/action_scheduler.cpp"
+  "${PROJECT_SOURCE_DIR}/src/gameplay/feature_labels.cpp"
 )
 
 set(ASTER_RENDER_SOURCES
@@ -165,13 +230,31 @@ set(ASTER_RENDER_SOURCES
   "${PROJECT_SOURCE_DIR}/src/render/preview_compositor.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/software_framebuffer.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/software_preview_renderer.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/visual_regression.cpp"
 )
+
+set(ASTER_HAS_D3D12_BACKEND OFF)
+if(WIN32 AND MSVC AND ASTER_ENABLE_D3D12)
+  check_include_file_cxx(d3d12.h ASTER_HAS_D3D12_HEADER)
+  check_include_file_cxx(dxgi1_6.h ASTER_HAS_DXGI_HEADER)
+  check_include_file_cxx(d3dcompiler.h ASTER_HAS_D3DCOMPILER_HEADER)
+  if(ASTER_HAS_D3D12_HEADER AND ASTER_HAS_DXGI_HEADER AND ASTER_HAS_D3DCOMPILER_HEADER)
+    set(ASTER_HAS_D3D12_BACKEND ON)
+    set(ASTER_D3D12_LIBRARIES
+      d3d12
+      dxgi
+      d3dcompiler
+    )
+  else()
+    message(STATUS "Direct3D 12 backend disabled because the Windows SDK Direct3D headers were not found; native stub renderer remains available.")
+  endif()
+endif()
 
 if(APPLE)
   list(APPEND ASTER_RENDER_SOURCES
     "${PROJECT_SOURCE_DIR}/src/render/render_device_metal.mm"
   )
-elseif(WIN32)
+elseif(ASTER_HAS_D3D12_BACKEND)
   list(APPEND ASTER_RENDER_SOURCES
     "${PROJECT_SOURCE_DIR}/src/render/render_device_d3d12.cpp"
   )
@@ -224,6 +307,7 @@ set(ASTER_PHYSICS_SOURCES
   "${PROJECT_SOURCE_DIR}/src/physics/placement_validation.cpp"
   "${PROJECT_SOURCE_DIR}/src/physics/surface_support.cpp"
   "${PROJECT_SOURCE_DIR}/src/physics/terrain_contact.cpp"
+  "${PROJECT_SOURCE_DIR}/src/physics/xpbd_authoring.cpp"
   "${PROJECT_SOURCE_DIR}/src/physics/xpbd_constraints.cpp"
 )
 
@@ -281,6 +365,7 @@ set(ASTER_SAMPLES_SOURCES
 )
 
 set(ASTER_PLATFORM_SOURCES)
+set(ASTER_HAS_WAYLAND_BACKEND OFF)
 
 if(APPLE)
   list(APPEND ASTER_PLATFORM_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_macos.mm")
@@ -289,64 +374,95 @@ elseif(WIN32)
 else()
   list(APPEND ASTER_PLATFORM_SOURCES "${PROJECT_SOURCE_DIR}/src/platform/window_linux.cpp")
 
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
-  pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols)
-  pkg_get_variable(WAYLAND_PROTOCOLS_PKGDATADIR wayland-protocols pkgdatadir)
-  find_program(WAYLAND_SCANNER_EXECUTABLE wayland-scanner REQUIRED)
-  if(NOT WAYLAND_PROTOCOLS_PKGDATADIR)
-    message(FATAL_ERROR "wayland-protocols did not report a pkgdatadir.")
+  if(NOT ASTER_ENABLE_WAYLAND_MODE STREQUAL "OFF")
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+      pkg_check_modules(WAYLAND_CLIENT QUIET IMPORTED_TARGET wayland-client)
+      pkg_check_modules(WAYLAND_PROTOCOLS QUIET wayland-protocols)
+      if(WAYLAND_PROTOCOLS_FOUND)
+        pkg_get_variable(WAYLAND_PROTOCOLS_PKGDATADIR wayland-protocols pkgdatadir)
+      endif()
+    endif()
+    find_program(WAYLAND_SCANNER_EXECUTABLE wayland-scanner)
   endif()
 
-  set(ASTER_WAYLAND_PROTOCOL_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/wayland")
-  file(MAKE_DIRECTORY "${ASTER_WAYLAND_PROTOCOL_DIR}")
+  set(ASTER_WAYLAND_PROTOCOLS_AVAILABLE OFF)
+  set(ASTER_WAYLAND_MISSING_REASON "pkg-config module wayland-client (Ubuntu: libwayland-dev), wayland-protocols, or wayland-scanner was not found")
+  if(WAYLAND_CLIENT_FOUND AND WAYLAND_PROTOCOLS_FOUND AND WAYLAND_PROTOCOLS_PKGDATADIR AND
+     WAYLAND_SCANNER_EXECUTABLE)
+    set(ASTER_WAYLAND_XDG_SHELL_XML
+      "${WAYLAND_PROTOCOLS_PKGDATADIR}/stable/xdg-shell/xdg-shell.xml")
+    set(ASTER_WAYLAND_RELATIVE_POINTER_XML
+      "${WAYLAND_PROTOCOLS_PKGDATADIR}/unstable/relative-pointer/relative-pointer-unstable-v1.xml")
+    set(ASTER_WAYLAND_POINTER_CONSTRAINTS_XML
+      "${WAYLAND_PROTOCOLS_PKGDATADIR}/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml")
+    set(ASTER_WAYLAND_PROTOCOLS_AVAILABLE ON)
+    foreach(wayland_protocol_xml IN ITEMS
+        "${ASTER_WAYLAND_XDG_SHELL_XML}"
+        "${ASTER_WAYLAND_RELATIVE_POINTER_XML}"
+        "${ASTER_WAYLAND_POINTER_CONSTRAINTS_XML}")
+      if(NOT EXISTS "${wayland_protocol_xml}")
+        set(ASTER_WAYLAND_PROTOCOLS_AVAILABLE OFF)
+        set(ASTER_WAYLAND_MISSING_REASON "missing Wayland protocol XML: ${wayland_protocol_xml}")
+      endif()
+    endforeach()
+  endif()
 
-  function(aster_generate_wayland_protocol protocol_name protocol_xml)
-    if(NOT EXISTS "${protocol_xml}")
-      message(FATAL_ERROR "Missing Wayland protocol XML: ${protocol_xml}")
-    endif()
-    set(protocol_header "${ASTER_WAYLAND_PROTOCOL_DIR}/${protocol_name}-client-protocol.h")
-    set(protocol_code "${ASTER_WAYLAND_PROTOCOL_DIR}/${protocol_name}-protocol.c")
-    add_custom_command(
-      OUTPUT "${protocol_header}"
-      COMMAND "${WAYLAND_SCANNER_EXECUTABLE}" client-header "${protocol_xml}" "${protocol_header}"
-      DEPENDS "${protocol_xml}"
-      VERBATIM
-    )
-    add_custom_command(
-      OUTPUT "${protocol_code}"
-      COMMAND "${WAYLAND_SCANNER_EXECUTABLE}" private-code "${protocol_xml}" "${protocol_code}"
-      DEPENDS "${protocol_xml}"
-      VERBATIM
-    )
-    list(APPEND ASTER_PLATFORM_SOURCES "${protocol_code}" "${protocol_header}")
-    set(ASTER_PLATFORM_SOURCES "${ASTER_PLATFORM_SOURCES}" PARENT_SCOPE)
-  endfunction()
+  if(ASTER_WAYLAND_PROTOCOLS_AVAILABLE)
+    set(ASTER_HAS_WAYLAND_BACKEND ON)
+    set(ASTER_WAYLAND_PROTOCOL_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/wayland")
+    file(MAKE_DIRECTORY "${ASTER_WAYLAND_PROTOCOL_DIR}")
 
-  aster_generate_wayland_protocol(
-    xdg-shell
-    "${WAYLAND_PROTOCOLS_PKGDATADIR}/stable/xdg-shell/xdg-shell.xml"
-  )
-  aster_generate_wayland_protocol(
-    relative-pointer-unstable-v1
-    "${WAYLAND_PROTOCOLS_PKGDATADIR}/unstable/relative-pointer/relative-pointer-unstable-v1.xml"
-  )
-  aster_generate_wayland_protocol(
-    pointer-constraints-unstable-v1
-    "${WAYLAND_PROTOCOLS_PKGDATADIR}/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml"
-  )
+    function(aster_generate_wayland_protocol protocol_name protocol_xml)
+      set(protocol_header "${ASTER_WAYLAND_PROTOCOL_DIR}/${protocol_name}-client-protocol.h")
+      set(protocol_code "${ASTER_WAYLAND_PROTOCOL_DIR}/${protocol_name}-protocol.c")
+      add_custom_command(
+        OUTPUT "${protocol_header}"
+        COMMAND "${WAYLAND_SCANNER_EXECUTABLE}" client-header "${protocol_xml}" "${protocol_header}"
+        DEPENDS "${protocol_xml}"
+        VERBATIM
+      )
+      add_custom_command(
+        OUTPUT "${protocol_code}"
+        COMMAND "${WAYLAND_SCANNER_EXECUTABLE}" private-code "${protocol_xml}" "${protocol_code}"
+        DEPENDS "${protocol_xml}"
+        VERBATIM
+      )
+      list(APPEND ASTER_PLATFORM_SOURCES "${protocol_code}" "${protocol_header}")
+      set(ASTER_PLATFORM_SOURCES "${ASTER_PLATFORM_SOURCES}" PARENT_SCOPE)
+    endfunction()
+
+    aster_generate_wayland_protocol(
+      xdg-shell
+      "${ASTER_WAYLAND_XDG_SHELL_XML}"
+    )
+    aster_generate_wayland_protocol(
+      relative-pointer-unstable-v1
+      "${ASTER_WAYLAND_RELATIVE_POINTER_XML}"
+    )
+    aster_generate_wayland_protocol(
+      pointer-constraints-unstable-v1
+      "${ASTER_WAYLAND_POINTER_CONSTRAINTS_XML}"
+    )
+  elseif(ASTER_ENABLE_WAYLAND_MODE STREQUAL "ON")
+    message(FATAL_ERROR "Wayland backend requested but ${ASTER_WAYLAND_MISSING_REASON}.")
+  elseif(ASTER_ENABLE_WAYLAND_MODE STREQUAL "AUTO")
+    message(STATUS "Wayland backend disabled (${ASTER_WAYLAND_MISSING_REASON}); raw X11 fallback remains available.")
+  endif()
 endif()
 
 set(ASTER_ENGINE_COMPILE_DEFINITIONS
   ASTER_HAS_PROFILING_RUNTIME=$<IF:$<BOOL:${ASTER_ENABLE_PROFILING}>,1,0>
   ASTER_HAS_NETWORK_TRANSPORT=$<IF:$<BOOL:${ASTER_BUILD_NETWORK}>,1,0>
+  ASTER_HAS_WAYLAND_BACKEND=$<IF:$<BOOL:${ASTER_HAS_WAYLAND_BACKEND}>,1,0>
+  ASTER_HAS_D3D12_BACKEND=$<IF:$<BOOL:${ASTER_HAS_D3D12_BACKEND}>,1,0>
 )
 
 function(aster_configure_engine_compile_target target_name)
   target_include_directories(${target_name} PUBLIC
     ${PROJECT_SOURCE_DIR}/include
   )
-  if(UNIX AND NOT APPLE)
+  if(UNIX AND NOT APPLE AND ASTER_HAS_WAYLAND_BACKEND)
     target_include_directories(${target_name} PRIVATE ${ASTER_WAYLAND_PROTOCOL_DIR})
     target_link_libraries(${target_name} PRIVATE PkgConfig::WAYLAND_CLIENT)
   endif()
@@ -374,6 +490,7 @@ aster_add_engine_object_library(aster_asset_objects ${ASTER_ASSET_SOURCES})
 aster_add_engine_object_library(aster_material_objects ${ASTER_MATERIAL_SOURCES})
 aster_add_engine_object_library(aster_texture_objects ${ASTER_TEXTURE_SOURCES})
 aster_add_engine_object_library(aster_shader_objects ${ASTER_SHADER_SOURCES})
+aster_add_engine_object_library(aster_gameplay_objects ${ASTER_GAMEPLAY_SOURCES})
 aster_add_engine_object_library(aster_render_objects ${ASTER_RENDER_SOURCES})
 aster_add_engine_object_library(aster_geometry_objects ${ASTER_GEOMETRY_SOURCES})
 aster_add_engine_object_library(aster_scene_objects ${ASTER_SCENE_SOURCES})
@@ -388,6 +505,7 @@ aster_add_engine_object_library(aster_platform_objects ${ASTER_PLATFORM_SOURCES}
 
 add_library(aster_game_sdk STATIC ${ASTER_GAME_SDK_SOURCES})
 add_library(aster::game_sdk ALIAS aster_game_sdk)
+target_compile_features(aster_game_sdk PUBLIC cxx_std_20)
 target_include_directories(aster_game_sdk PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
@@ -414,12 +532,12 @@ set_target_properties(aster_engine_internal PROPERTIES
 target_include_directories(aster_engine_internal PUBLIC
   ${PROJECT_SOURCE_DIR}/include
 )
-if(UNIX AND NOT APPLE)
+if(UNIX AND NOT APPLE AND ASTER_HAS_WAYLAND_BACKEND)
   target_include_directories(aster_engine_internal PRIVATE ${ASTER_WAYLAND_PROTOCOL_DIR})
 endif()
 
 target_link_libraries(aster_engine_internal PUBLIC Threads::Threads aster_runtime)
-if(UNIX AND NOT APPLE)
+if(UNIX AND NOT APPLE AND ASTER_HAS_WAYLAND_BACKEND)
   target_link_libraries(aster_engine_internal PRIVATE PkgConfig::WAYLAND_CLIENT)
 endif()
 
@@ -431,7 +549,10 @@ if(APPLE)
     "-framework QuartzCore"
   )
 elseif(WIN32)
-  target_link_libraries(aster_engine_internal PUBLIC User32 Gdi32 Ws2_32 D3D12 DXGI D3DCompiler)
+  target_link_libraries(aster_engine_internal PUBLIC User32 Gdi32 Ws2_32)
+  if(ASTER_HAS_D3D12_BACKEND)
+    target_link_libraries(aster_engine_internal PUBLIC ${ASTER_D3D12_LIBRARIES})
+  endif()
 endif()
 
 target_compile_definitions(aster_engine_internal PUBLIC
@@ -440,6 +561,7 @@ target_compile_definitions(aster_engine_internal PUBLIC
 
 add_library(aster_kernel SHARED src/kernel/kernel.cpp)
 add_library(aster::kernel ALIAS aster_kernel)
+target_compile_features(aster_kernel PUBLIC cxx_std_20)
 target_include_directories(aster_kernel PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
@@ -473,15 +595,26 @@ install(TARGETS aster_game_sdk
 )
 install(DIRECTORY include/aster/kernel DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aster)
 install(DIRECTORY include/aster/game_sdk DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aster)
+install(DIRECTORY include/aster/math DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aster)
 install(FILES abi/aster_kernel.symbols DESTINATION ${CMAKE_INSTALL_DATADIR}/aster/abi)
 configure_package_config_file(
   "${PROJECT_SOURCE_DIR}/cmake/AsterKernelConfig.cmake.in"
   "${PROJECT_BINARY_DIR}/AsterKernelConfig.cmake"
   INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AsterKernel
 )
+configure_package_config_file(
+  "${PROJECT_SOURCE_DIR}/cmake/AsterGameSdkConfig.cmake.in"
+  "${PROJECT_BINARY_DIR}/AsterGameSdkConfig.cmake"
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AsterGameSdk
+)
 write_basic_package_version_file(
   "${PROJECT_BINARY_DIR}/AsterKernelConfigVersion.cmake"
   VERSION ${ASTER_KERNEL_PACKAGE_VERSION}
+  COMPATIBILITY SameMajorVersion
+)
+write_basic_package_version_file(
+  "${PROJECT_BINARY_DIR}/AsterGameSdkConfigVersion.cmake"
+  VERSION ${PROJECT_VERSION}
   COMPATIBILITY SameMajorVersion
 )
 install(EXPORT AsterKernelTargets
@@ -495,6 +628,11 @@ install(FILES
 )
 install(EXPORT AsterGameSdkTargets
   NAMESPACE aster::
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AsterGameSdk
+)
+install(FILES
+  "${PROJECT_BINARY_DIR}/AsterGameSdkConfig.cmake"
+  "${PROJECT_BINARY_DIR}/AsterGameSdkConfigVersion.cmake"
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/AsterGameSdk
 )
 
@@ -524,10 +662,19 @@ endif()
 
 if(ASTER_BUILD_TESTS)
   enable_testing()
+  function(aster_configure_test_target test_name)
+    if(MSVC)
+      target_compile_options(${test_name} PRIVATE /UNDEBUG)
+    else()
+      target_compile_options(${test_name} PRIVATE -UNDEBUG)
+    endif()
+  endfunction()
+
   function(aster_add_test test_name test_source)
     add_executable(${test_name} ${test_source})
     target_link_libraries(${test_name} PRIVATE aster_engine_internal)
     target_include_directories(${test_name} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+    aster_configure_test_target(${test_name})
     add_test(NAME ${test_name} COMMAND ${test_name})
   endfunction()
 
@@ -540,6 +687,7 @@ if(ASTER_BUILD_TESTS)
   target_link_libraries(aster_cercopithecidae_modeling_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_cercopithecidae_modeling_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/tests)
+  aster_configure_test_target(aster_cercopithecidae_modeling_tests)
   target_compile_definitions(aster_cercopithecidae_modeling_tests PRIVATE
     ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     ASTER_ASSETC_EXECUTABLE="${ASTER_ASSETC_EXECUTABLE}"
@@ -550,6 +698,7 @@ if(ASTER_BUILD_TESTS)
   add_executable(aster_pipe_runtime_asset_tests tests/pipe_runtime_asset_tests.cpp)
   target_link_libraries(aster_pipe_runtime_asset_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_pipe_runtime_asset_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  aster_configure_test_target(aster_pipe_runtime_asset_tests)
   target_compile_definitions(aster_pipe_runtime_asset_tests PRIVATE
     ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     ASTER_ASSETC_EXECUTABLE="${ASTER_ASSETC_EXECUTABLE}"
@@ -559,6 +708,7 @@ if(ASTER_BUILD_TESTS)
   add_executable(aster_asset_cache_tests tests/asset_cache_tests.cpp)
   target_link_libraries(aster_asset_cache_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_asset_cache_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  aster_configure_test_target(aster_asset_cache_tests)
   target_compile_definitions(aster_asset_cache_tests PRIVATE
     ASTER_ASSETC_EXECUTABLE="${ASTER_ASSETC_EXECUTABLE}"
   )
@@ -567,16 +717,19 @@ if(ASTER_BUILD_TESTS)
   add_executable(aster_asset_tooling_port_tests tests/asset_tooling_port_tests.cpp)
   target_link_libraries(aster_asset_tooling_port_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_asset_tooling_port_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  aster_configure_test_target(aster_asset_tooling_port_tests)
   target_compile_definitions(aster_asset_tooling_port_tests PRIVATE
     ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
   )
   add_test(NAME aster_asset_tooling_port_tests COMMAND aster_asset_tooling_port_tests)
   add_executable(aster_kernel_public_consumer tests/kernel_public_consumer.cpp)
   target_link_libraries(aster_kernel_public_consumer PRIVATE aster_kernel)
+  aster_configure_test_target(aster_kernel_public_consumer)
   add_test(NAME aster_kernel_public_consumer COMMAND aster_kernel_public_consumer)
 
   add_executable(aster_game_sdk_public_consumer tests/game_sdk_public_consumer.cpp)
   target_link_libraries(aster_game_sdk_public_consumer PRIVATE aster_game_sdk)
+  aster_configure_test_target(aster_game_sdk_public_consumer)
   target_compile_definitions(aster_game_sdk_public_consumer PRIVATE
     ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
   )
@@ -594,6 +747,7 @@ if(ASTER_BUILD_TESTS)
 
   add_executable(aster_kernel_contract_tests tests/kernel_contract_tests.cpp)
   target_link_libraries(aster_kernel_contract_tests PRIVATE aster_kernel)
+  aster_configure_test_target(aster_kernel_contract_tests)
   target_compile_definitions(aster_kernel_contract_tests PRIVATE
     ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
   )
@@ -623,6 +777,10 @@ if(ASTER_BUILD_TESTS)
   add_executable(aster_render_scene_tests tests/render_scene_tests.cpp)
   target_link_libraries(aster_render_scene_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_render_scene_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  aster_configure_test_target(aster_render_scene_tests)
+  target_compile_definitions(aster_render_scene_tests PRIVATE
+    ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+  )
   foreach(render_scene_case
       framebuffer_origin
       ui_text_fitting
@@ -636,7 +794,11 @@ if(ASTER_BUILD_TESTS)
       prepare_scene_custom_mesh_cache
       frame_math_diagnostics
       frame_debugger_material_binding_trace
+      frame_debugger_asset_provenance_trace
+      frame_debugger_procedural_asset_graph_trace
+      frame_debugger_evidence_timeline_and_regression_lab
       software_reference_frame_resource_captures
+      visual_regression_artifacts
       retro_style_neutral_preview
       retro_style_preview_effects
       retro_style_emissive_gain
@@ -664,6 +826,7 @@ if(ASTER_BUILD_TESTS)
   target_link_libraries(aster_render_backend_conformance_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_render_backend_conformance_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/tests)
+  aster_configure_test_target(aster_render_backend_conformance_tests)
   target_compile_definitions(aster_render_backend_conformance_tests PRIVATE
     ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
   )
@@ -687,6 +850,7 @@ if(ASTER_BUILD_TESTS)
   add_executable(aster_material_shader_system_tests tests/material_shader_system_tests.cpp)
   target_link_libraries(aster_material_shader_system_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_material_shader_system_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  aster_configure_test_target(aster_material_shader_system_tests)
   target_compile_definitions(aster_material_shader_system_tests PRIVATE
     ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
   )
@@ -715,4 +879,11 @@ if(ASTER_BUILD_TESTS)
     aster_add_test(aster_network_tests tests/network_tests.cpp)
     add_test(NAME aster_net_probe COMMAND aster_net_probe)
   endif()
+  add_test(NAME aster_rust_tests
+    COMMAND "${CMAKE_COMMAND}" -E env ${ASTER_CARGO_ENV}
+            "${CARGO_EXECUTABLE}" test --workspace ${ASTER_CARGO_TARGET_ARGS}
+  )
+  set_tests_properties(aster_rust_tests PROPERTIES
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  )
 endif()

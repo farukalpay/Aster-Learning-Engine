@@ -6,13 +6,16 @@
 #include "aster/input/input_codes.hpp"
 #include "aster/render/software_framebuffer.hpp"
 
+#if ASTER_HAS_WAYLAND_BACKEND
 #include "pointer-constraints-unstable-v1-client-protocol.h"
 #include "relative-pointer-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
 #include <wayland-client.h>
+#endif
 
 #include <fcntl.h>
+#include <netdb.h>
 #include <poll.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -28,6 +31,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -62,6 +66,8 @@ constexpr std::uint32_t kXVisualTrueColor = 4;
 struct DisplayName {
   std::string socket_path;
   std::string display_number = "0";
+  std::string tcp_host;
+  std::uint16_t tcp_port = 0;
 };
 
 struct XAuthority {
@@ -131,7 +137,11 @@ std::size_t padded4(const std::size_t size) {
 bool sendFull(const int fd, const std::vector<std::uint8_t> &bytes) {
   std::size_t sent = 0;
   while (sent < bytes.size()) {
-    const ssize_t n = ::send(fd, bytes.data() + sent, bytes.size() - sent, 0);
+    int send_flags = 0;
+#ifdef MSG_NOSIGNAL
+    send_flags = MSG_NOSIGNAL;
+#endif
+    const ssize_t n = ::send(fd, bytes.data() + sent, bytes.size() - sent, send_flags);
     if (n < 0) {
       if (errno == EINTR) {
         continue;
@@ -144,6 +154,20 @@ bool sendFull(const int fd, const std::vector<std::uint8_t> &bytes) {
     sent += static_cast<std::size_t>(n);
   }
   return true;
+}
+
+std::optional<std::uint16_t> x11TcpPort(const std::string_view display_number) {
+  std::uint32_t number = 0;
+  for (const char digit : display_number) {
+    if (digit < '0' || digit > '9') {
+      return std::nullopt;
+    }
+    number = number * 10u + static_cast<std::uint32_t>(digit - '0');
+    if (number > 59535u) {
+      return std::nullopt;
+    }
+  }
+  return static_cast<std::uint16_t>(6000u + number);
 }
 
 bool readFull(const int fd, std::uint8_t *bytes, const std::size_t count) {
@@ -185,11 +209,16 @@ std::optional<DisplayName> parseDisplayName() {
     return std::nullopt;
   }
 
-  if (!host.empty() && host != "localhost" && host != "unix") {
+  if (host.empty() || host == "unix") {
+    return DisplayName{"/tmp/.X11-unix/X" + number, number};
+  }
+
+  const std::optional<std::uint16_t> tcp_port = x11TcpPort(number);
+  if (!tcp_port.has_value()) {
     return std::nullopt;
   }
 
-  return DisplayName{"/tmp/.X11-unix/X" + number, number};
+  return DisplayName{{}, number, host, *tcp_port};
 }
 
 std::optional<std::filesystem::path> xAuthorityPath() {
@@ -483,6 +512,8 @@ int createAnonymousFile(const std::size_t size) {
   return fd;
 }
 
+#if ASTER_HAS_WAYLAND_BACKEND
+
 struct WaylandConnection;
 
 struct WaylandBuffer {
@@ -588,54 +619,8 @@ struct WaylandConnection {
   WaylandConnection() = default;
   WaylandConnection(const WaylandConnection &) = delete;
   WaylandConnection &operator=(const WaylandConnection &) = delete;
-
-  WaylandConnection(WaylandConnection &&other) noexcept {
-    *this = std::move(other);
-  }
-
-  WaylandConnection &operator=(WaylandConnection &&other) noexcept {
-    if (this == &other) {
-      return *this;
-    }
-    release();
-    display = std::exchange(other.display, nullptr);
-    registry = std::exchange(other.registry, nullptr);
-    compositor = std::exchange(other.compositor, nullptr);
-    shm = std::exchange(other.shm, nullptr);
-    seat = std::exchange(other.seat, nullptr);
-    pointer = std::exchange(other.pointer, nullptr);
-    keyboard = std::exchange(other.keyboard, nullptr);
-    surface = std::exchange(other.surface, nullptr);
-    cursor_surface = std::exchange(other.cursor_surface, nullptr);
-    wm_base = std::exchange(other.wm_base, nullptr);
-    xdg_surface = std::exchange(other.xdg_surface, nullptr);
-    xdg_toplevel = std::exchange(other.xdg_toplevel, nullptr);
-    relative_pointer_manager = std::exchange(other.relative_pointer_manager, nullptr);
-    relative_pointer = std::exchange(other.relative_pointer, nullptr);
-    pointer_constraints = std::exchange(other.pointer_constraints, nullptr);
-    locked_pointer = std::exchange(other.locked_pointer, nullptr);
-    frame_buffers = std::move(other.frame_buffers);
-    cursor_buffer = std::move(other.cursor_buffer);
-    next_frame_buffer = other.next_frame_buffer;
-    width = other.width;
-    height = other.height;
-    configured_width = other.configured_width;
-    configured_height = other.configured_height;
-    configured = other.configured;
-    open = other.open;
-    supports_xrgb8888 = other.supports_xrgb8888;
-    supports_argb8888 = other.supports_argb8888;
-    has_pointer_focus = other.has_pointer_focus;
-    has_last_pointer = other.has_last_pointer;
-    pointer_locked = other.pointer_locked;
-    locked_pointer_listener_installed = other.locked_pointer_listener_installed;
-    pointer_enter_serial = other.pointer_enter_serial;
-    last_pointer = other.last_pointer;
-    virtual_pointer = other.virtual_pointer;
-    input = std::move(other.input);
-    cursor_mode = other.cursor_mode;
-    return *this;
-  }
+  WaylandConnection(WaylandConnection &&) noexcept = delete;
+  WaylandConnection &operator=(WaylandConnection &&) noexcept = delete;
 
   ~WaylandConnection() {
     release();
@@ -956,7 +941,8 @@ void handleWaylandPointerMotion(void *data, wl_pointer *, std::uint32_t,
   const aster::Vec2 pointer{static_cast<float>(wl_fixed_to_double(surface_x)),
                             static_cast<float>(wl_fixed_to_double(surface_y))};
   if (connection->cursor_mode == aster::CursorMode::Disabled) {
-    if (connection->has_last_pointer) {
+    if (connection->relative_pointer == nullptr && !connection->pointer_locked &&
+        connection->has_last_pointer) {
       connection->virtual_pointer =
           connection->virtual_pointer + (pointer - connection->last_pointer);
       connection->input.pointer = connection->virtual_pointer;
@@ -1161,7 +1147,7 @@ void handleWaylandRegistryGlobal(void *data, wl_registry *registry, const std::u
     }
   } else if (id == wl_seat_interface.name) {
     connection->seat = static_cast<wl_seat *>(
-        wl_registry_bind(registry, name, &wl_seat_interface, std::min<std::uint32_t>(version, 5u)));
+        wl_registry_bind(registry, name, &wl_seat_interface, std::min<std::uint32_t>(version, 1u)));
     if (connection->seat != nullptr) {
       wl_seat_add_listener(connection->seat, &kWaylandSeatListener, connection);
     }
@@ -1187,54 +1173,54 @@ void handleWaylandRegistryRemove(void *, wl_registry *, std::uint32_t) {}
 constexpr wl_registry_listener kWaylandRegistryListener{handleWaylandRegistryGlobal,
                                                         handleWaylandRegistryRemove};
 
-std::optional<WaylandConnection> openWayland(const aster::EngineConfig &config) {
-  WaylandConnection connection;
+bool openWayland(WaylandConnection &connection, const aster::EngineConfig &config) {
+  connection.release();
   connection.display = wl_display_connect(nullptr);
   if (connection.display == nullptr) {
-    return std::nullopt;
+    return false;
   }
 
   connection.registry = wl_display_get_registry(connection.display);
   if (connection.registry == nullptr) {
-    return std::nullopt;
+    return false;
   }
   wl_registry_add_listener(connection.registry, &kWaylandRegistryListener, &connection);
   if (wl_display_roundtrip(connection.display) < 0 || wl_display_roundtrip(connection.display) < 0) {
-    return std::nullopt;
+    return false;
   }
   if (connection.compositor == nullptr || connection.shm == nullptr ||
       connection.wm_base == nullptr || !connection.supports_xrgb8888) {
-    return std::nullopt;
+    return false;
   }
 
   connection.width = std::max(config.initial_width, 1);
   connection.height = std::max(config.initial_height, 1);
   connection.surface = wl_compositor_create_surface(connection.compositor);
   if (connection.surface == nullptr) {
-    return std::nullopt;
+    return false;
   }
   connection.xdg_surface = xdg_wm_base_get_xdg_surface(connection.wm_base, connection.surface);
   if (connection.xdg_surface == nullptr) {
-    return std::nullopt;
+    return false;
   }
   xdg_surface_add_listener(connection.xdg_surface, &kWaylandSurfaceListener, &connection);
   connection.xdg_toplevel = xdg_surface_get_toplevel(connection.xdg_surface);
   if (connection.xdg_toplevel == nullptr) {
-    return std::nullopt;
+    return false;
   }
   xdg_toplevel_add_listener(connection.xdg_toplevel, &kWaylandToplevelListener, &connection);
   xdg_toplevel_set_title(connection.xdg_toplevel, config.application_name);
   xdg_toplevel_set_app_id(connection.xdg_toplevel, "aster-learning-engine");
   wl_surface_commit(connection.surface);
   if (wl_display_flush(connection.display) < 0 && errno != EAGAIN) {
-    return std::nullopt;
+    return false;
   }
   while (!connection.configured) {
     if (wl_display_dispatch(connection.display) < 0) {
-      return std::nullopt;
+      return false;
     }
   }
-  return connection;
+  return true;
 }
 
 void presentWaylandFramebuffer(WaylandConnection &connection) {
@@ -1338,6 +1324,8 @@ void applyWaylandCursorMode(WaylandConnection &connection, const aster::CursorMo
   }
 }
 
+#endif
+
 struct X11Connection {
   int fd = -1;
   std::uint32_t resource_base = 0;
@@ -1364,6 +1352,7 @@ struct X11Connection {
   int width = 1;
   int height = 1;
   aster::ControlSnapshot input;
+  std::vector<std::uint8_t> event_buffer;
   aster::CursorMode cursor_mode = aster::CursorMode::Normal;
   aster::Vec2 virtual_pointer{};
   bool suppress_center_motion = false;
@@ -1412,6 +1401,7 @@ struct X11Connection {
     width = other.width;
     height = other.height;
     input = std::move(other.input);
+    event_buffer = std::move(other.event_buffer);
     cursor_mode = other.cursor_mode;
     virtual_pointer = other.virtual_pointer;
     suppress_center_motion = other.suppress_center_motion;
@@ -1434,6 +1424,8 @@ bool connectUnixSocket(X11Connection &connection, const std::string &path) {
   sockaddr_un address{};
   address.sun_family = AF_UNIX;
   if (path.size() >= sizeof(address.sun_path)) {
+    ::close(connection.fd);
+    connection.fd = -1;
     return false;
   }
   std::strncpy(address.sun_path, path.c_str(), sizeof(address.sun_path) - 1u);
@@ -1443,6 +1435,31 @@ bool connectUnixSocket(X11Connection &connection, const std::string &path) {
     return false;
   }
   return true;
+}
+
+bool connectTcpSocket(X11Connection &connection, const std::string &host,
+                      const std::uint16_t port) {
+  addrinfo hints{};
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  const std::string service = std::to_string(port);
+  addrinfo *result = nullptr;
+  if (getaddrinfo(host.c_str(), service.c_str(), &hints, &result) != 0) {
+    return false;
+  }
+  std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> addresses(result, freeaddrinfo);
+  for (addrinfo *entry = addresses.get(); entry != nullptr; entry = entry->ai_next) {
+    const int fd = ::socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
+    if (fd < 0) {
+      continue;
+    }
+    if (::connect(fd, entry->ai_addr, entry->ai_addrlen) == 0) {
+      connection.fd = fd;
+      return true;
+    }
+    ::close(fd);
+  }
+  return false;
 }
 
 bool sendSetup(X11Connection &connection, const std::optional<XAuthority> &authority) {
@@ -1749,7 +1766,10 @@ std::optional<X11Connection> openX11(const aster::EngineConfig &config) {
   }
 
   X11Connection connection;
-  if (!connectUnixSocket(connection, display->socket_path)) {
+  const bool connected = display->tcp_port != 0u
+                             ? connectTcpSocket(connection, display->tcp_host, display->tcp_port)
+                             : connectUnixSocket(connection, display->socket_path);
+  if (!connected) {
     return std::nullopt;
   }
 
@@ -1934,9 +1954,20 @@ void handleEvent(X11Connection &connection, const std::array<std::uint8_t, 32> &
 
 void pollX11Events(X11Connection &connection, bool &open) {
   connection.input.scroll = {};
+  const auto drain_events = [&] {
+    while (connection.event_buffer.size() >= 32u) {
+      std::array<std::uint8_t, 32> event{};
+      std::copy_n(connection.event_buffer.begin(), event.size(), event.begin());
+      connection.event_buffer.erase(connection.event_buffer.begin(),
+                                    connection.event_buffer.begin() +
+                                        static_cast<std::ptrdiff_t>(event.size()));
+      handleEvent(connection, event, open);
+    }
+  };
+  drain_events();
   for (;;) {
-    std::array<std::uint8_t, 32> event{};
-    const ssize_t n = ::recv(connection.fd, event.data(), event.size(), MSG_DONTWAIT);
+    std::array<std::uint8_t, 256> bytes{};
+    const ssize_t n = ::recv(connection.fd, bytes.data(), bytes.size(), MSG_DONTWAIT);
     if (n < 0) {
       if (errno == EINTR) {
         continue;
@@ -1951,9 +1982,9 @@ void pollX11Events(X11Connection &connection, bool &open) {
       open = false;
       break;
     }
-    if (n == static_cast<ssize_t>(event.size())) {
-      handleEvent(connection, event, open);
-    }
+    connection.event_buffer.insert(connection.event_buffer.end(), bytes.begin(),
+                                   bytes.begin() + static_cast<std::ptrdiff_t>(n));
+    drain_events();
   }
 }
 
@@ -1966,7 +1997,9 @@ struct WindowImpl {
   int height = 1;
   bool open = true;
   ControlSnapshot input;
+#if ASTER_HAS_WAYLAND_BACKEND
   std::optional<WaylandConnection> wayland;
+#endif
   std::optional<X11Connection> x11;
 };
 
@@ -1974,20 +2007,45 @@ Window::Window(const EngineConfig &config) : impl_(std::make_unique<WindowImpl>(
   scale_framebuffer_to_display_ = config.scale_framebuffer_to_display;
   const bool force_x11 = std::getenv("ASTER_FORCE_X11") != nullptr;
   const bool force_wayland = std::getenv("ASTER_FORCE_WAYLAND") != nullptr;
+  if (force_x11 && force_wayland) {
+    throw std::runtime_error("ASTER_FORCE_X11 and ASTER_FORCE_WAYLAND cannot both be set.");
+  }
+#if ASTER_HAS_WAYLAND_BACKEND
   if (!force_x11) {
-    impl_->wayland = openWayland(config);
+    impl_->wayland.emplace();
+    if (!openWayland(*impl_->wayland, config)) {
+      impl_->wayland.reset();
+    }
   }
   if (!impl_->wayland.has_value() && !force_wayland) {
     impl_->x11 = openX11(config);
   }
+#else
+  if (!force_wayland) {
+    impl_->x11 = openX11(config);
+  }
+  (void)force_x11;
+#endif
+#if ASTER_HAS_WAYLAND_BACKEND
   if (!impl_->wayland.has_value() && !impl_->x11.has_value()) {
     throw std::runtime_error(
         "Aster could not open a Linux desktop display. Set WAYLAND_DISPLAY for Wayland or DISPLAY "
         "for the raw X11 fallback. Use ASTER_FORCE_WAYLAND=1 or ASTER_FORCE_X11=1 to select a "
         "specific backend.");
+#else
+  if (!impl_->x11.has_value()) {
+    throw std::runtime_error(
+        "Aster could not open a Linux desktop display. This build was compiled without Wayland "
+        "support; set DISPLAY for the raw X11 fallback.");
+#endif
   }
+#if ASTER_HAS_WAYLAND_BACKEND
   impl_->width = impl_->wayland.has_value() ? impl_->wayland->width : impl_->x11->width;
   impl_->height = impl_->wayland.has_value() ? impl_->wayland->height : impl_->x11->height;
+#else
+  impl_->width = impl_->x11->width;
+  impl_->height = impl_->x11->height;
+#endif
 }
 
 Window::~Window() = default;
@@ -2002,13 +2060,17 @@ void Window::pollEvents() {
   if (impl_ == nullptr) {
     return;
   }
+#if ASTER_HAS_WAYLAND_BACKEND
   if (impl_->wayland.has_value()) {
     pollWaylandEvents(*impl_->wayland);
     impl_->open = impl_->wayland->open;
     impl_->width = impl_->wayland->width;
     impl_->height = impl_->wayland->height;
     impl_->input = impl_->wayland->input;
-  } else if (impl_->x11.has_value()) {
+    return;
+  }
+#endif
+  if (impl_->x11.has_value()) {
     pollX11Events(*impl_->x11, impl_->open);
     impl_->width = impl_->x11->width;
     impl_->height = impl_->x11->height;
@@ -2017,9 +2079,13 @@ void Window::pollEvents() {
 }
 
 void Window::swapBuffers() {
+#if ASTER_HAS_WAYLAND_BACKEND
   if (impl_ != nullptr && impl_->wayland.has_value()) {
     presentWaylandFramebuffer(*impl_->wayland);
-  } else if (impl_ != nullptr && impl_->x11.has_value()) {
+    return;
+  }
+#endif
+  if (impl_ != nullptr && impl_->x11.has_value()) {
     presentFramebuffer(*impl_->x11);
   }
 }
@@ -2029,10 +2095,14 @@ void Window::setVsync(const bool enabled) {
 }
 
 void Window::setCursorMode(const CursorMode mode) {
+#if ASTER_HAS_WAYLAND_BACKEND
   if (impl_ != nullptr && impl_->wayland.has_value()) {
     applyWaylandCursorMode(*impl_->wayland, mode);
     impl_->input = impl_->wayland->input;
-  } else if (impl_ != nullptr && impl_->x11.has_value()) {
+    return;
+  }
+#endif
+  if (impl_ != nullptr && impl_->x11.has_value()) {
     applyCursorMode(*impl_->x11, mode);
     impl_->input = impl_->x11->input;
   }

@@ -528,7 +528,7 @@ void testLumenDeepCaveCaptureLightingContract() {
   camera.vertical_fov = aster::radians(54.0f);
 
   aster::RenderDevice renderer;
-  assert(renderer.initialize());
+  renderer.initialize();
   renderer.prepareScene(run.scene());
   (void)renderer.render(run.scene(), camera, settings, 96, 64, 0.0);
 

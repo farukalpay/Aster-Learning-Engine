@@ -52,6 +52,18 @@ struct Vec3 {
   float z = 0.0f;
 };
 
+struct LinearRgb {
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+};
+
+struct EmissionColor {
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+};
+
 struct Transform {
   Vec3 translation{};
   Vec3 rotation{};

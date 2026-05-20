@@ -4,6 +4,7 @@
 #include "aster/framegraph/frame_graph.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace aster::framegraph {
 
@@ -27,6 +28,27 @@ PassBuilder &PassBuilder::writes(const ResourceHandle resource) {
 PassBuilder &PassBuilder::queue(const rhi::QueueKind queue) {
   if (graph_ != nullptr && pass_index_ < graph_->passes_.size()) {
     graph_->passes_[pass_index_].queue = queue;
+  }
+  return *this;
+}
+
+PassBuilder &PassBuilder::eventLabel(std::string label) {
+  if (graph_ != nullptr && pass_index_ < graph_->passes_.size()) {
+    graph_->passes_[pass_index_].event_label = std::move(label);
+  }
+  return *this;
+}
+
+PassBuilder &PassBuilder::eventScope(std::string scope) {
+  if (graph_ != nullptr && pass_index_ < graph_->passes_.size()) {
+    graph_->passes_[pass_index_].event_scope = std::move(scope);
+  }
+  return *this;
+}
+
+PassBuilder &PassBuilder::allowReadWriteOverlap(const bool allowed) {
+  if (graph_ != nullptr && pass_index_ < graph_->passes_.size()) {
+    graph_->passes_[pass_index_].allow_read_write_overlap = allowed;
   }
   return *this;
 }

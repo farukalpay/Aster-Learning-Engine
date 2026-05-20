@@ -354,6 +354,36 @@ fn cook_and_report_asset_database() {
     assert!(diff.status.success());
     let diff_stdout = String::from_utf8_lossy(&diff.stdout);
     assert!(diff_stdout.contains("\"changed\": []"));
+
+    let catalog = Command::new(binary)
+        .arg("catalog-inspect")
+        .arg("--db")
+        .arg(&db)
+        .output()
+        .expect("run catalog inspect");
+    assert!(catalog.status.success());
+    let catalog_stdout = String::from_utf8_lossy(&catalog.stdout);
+    assert!(catalog_stdout.contains("aster-catalog-"));
+    assert!(catalog_stdout.contains("path=Assets/Material"));
+
+    let catalog_file = output_dir.join("aster_catalogs.json");
+    let catalog_sync = Command::new(binary)
+        .arg("catalog-sync")
+        .arg("--db")
+        .arg(&db)
+        .arg("--output")
+        .arg(&catalog_file)
+        .output()
+        .expect("run catalog sync");
+    assert!(
+        catalog_sync.status.success(),
+        "{}",
+        String::from_utf8_lossy(&catalog_sync.stderr)
+    );
+    let catalog_json = fs::read_to_string(&catalog_file).expect("read catalog store");
+    assert!(catalog_json.contains("\"schema_version\""));
+    assert!(catalog_json.contains("\"path\": \"Assets/Material\""));
+    assert!(catalog_json.contains("\"asset_count\": \"1\""));
     fs::remove_dir_all(project.parent().unwrap()).ok();
 }
 

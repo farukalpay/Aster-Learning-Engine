@@ -54,16 +54,48 @@ const std::vector<ProceduralNodeDescriptor> &ProceduralNodeRegistry::nodes() con
 ProceduralNodeRegistry makeDefaultProceduralNodeRegistry() {
   ProceduralNodeRegistry registry;
   registry.registerNode({"mesh_primitive", "mesh", "runtime-reference", {"primitive"}});
+  registry.registerNode({"pipe_body", "mesh", "runtime-procedural-reference", {"primitive"}});
+  registry.registerNode({"transform_geometry", "mesh-operator", "runtime-reference", {}});
+  registry.registerNode({"join_geometry", "mesh-operator", "runtime-reference", {}});
+  registry.registerNode({"scatter_points", "point-cloud", "runtime-reference", {}});
+  registry.registerNode({"instance_on_points", "mesh-operator", "runtime-reference", {}});
+  registry.registerNode({"merge_by_distance", "mesh-operator", "runtime-reference", {}});
+  registry.registerNode({"triangulate", "mesh-operator", "runtime-reference", {}});
+  registry.registerNode({"extrude_mesh", "mesh-operator", "runtime-reference", {}});
+  registry.registerNode({"bevel_modifier", "mesh-operator", "runtime-procedural-reference", {}});
+  registry.registerNode({"bevel", "mesh-operator", "descriptor-only-reference", {}});
+  registry.registerNode({"array_modifier", "mesh-operator", "runtime-reference", {}});
+  registry.registerNode({"solidify_modifier", "mesh-operator", "runtime-reference", {}});
+  registry.registerNode({"displace_modifier", "mesh-operator", "runtime-reference", {}});
+  registry.registerNode({"weighted_normal", "mesh-operator", "runtime-reference", {}});
+  registry.registerNode({"smooth_modifier", "mesh-operator", "runtime-reference", {}});
+  registry.registerNode({"decimate_modifier", "mesh-operator", "runtime-reference", {}});
   registry.registerNode({"material", "material", "runtime-reference", {}});
+  registry.registerNode({"material_assignment", "material", "runtime-procedural-reference", {}});
   registry.registerNode({"texture_sample", "material-layer", "runtime-reference", {"role"}});
   registry.registerNode({"triplanar", "material-layer", "runtime-reference", {}});
   registry.registerNode({"height_blend", "material-layer", "runtime-reference", {}});
   registry.registerNode({"normal_map", "material-layer", "runtime-reference", {}});
+  registry.registerNode({"normal_height", "material-layer", "runtime-procedural-reference", {}});
+  registry.registerNode({"rust_mask", "material-layer", "runtime-procedural-reference", {}});
+  registry.registerNode({"wetness_flow", "material-layer", "runtime-procedural-reference", {}});
+  registry.registerNode({"edge_wear", "material-layer", "runtime-procedural-reference", {}});
+  registry.registerNode({"cavity_dirt", "material-layer", "runtime-procedural-reference", {}});
+  registry.registerNode({"weld_seam", "mesh-detail", "runtime-procedural-reference", {}});
   registry.registerNode({"wetness", "material-layer", "runtime-reference", {}});
   registry.registerNode({"uv_policy", "mesh-policy", "cook-reference", {}});
+  registry.registerNode({"tangent_validation", "mesh-policy", "cook-reference", {}});
   registry.registerNode({"lod_policy", "runtime-policy", "cook-reference", {}});
+  registry.registerNode({"lod_generator", "runtime-policy", "runtime-procedural-reference", {}});
   registry.registerNode({"collision_proxy", "runtime-policy", "cook-reference", {}});
   registry.registerNode({"creative_variant", "variant", "runtime-reference", {}});
+  registry.registerNode({"prefab_variant", "variant", "runtime-procedural-reference", {}});
+  registry.registerNode({"cook_export", "package", "runtime-procedural-reference", {}});
+  registry.registerNode({"diagnostic", "quality", "runtime-procedural-reference", {}});
+  registry.registerNode({"provenance", "quality", "runtime-reference", {}});
+  registry.registerNode({"anatomy_landmark", "biology", "runtime-procedural-reference", {}});
+  registry.registerNode({"follicle_distribution", "biology", "runtime-procedural-reference", {}});
+  registry.registerNode({"epidermal_strata", "biology", "runtime-procedural-reference", {}});
   return registry;
 }
 

@@ -144,11 +144,16 @@ void testPublicApiBoundaryIsFrozen() {
   assert(cmake.find("add_library(aster_kernel SHARED src/kernel/kernel.cpp)") !=
          std::string::npos);
   assert(cmake.find("add_library(aster_game_sdk STATIC") != std::string::npos);
+  assert(cmake.find("target_compile_features(aster_kernel PUBLIC cxx_std_20)") !=
+         std::string::npos);
+  assert(cmake.find("target_compile_features(aster_game_sdk PUBLIC cxx_std_20)") !=
+         std::string::npos);
   assert(cmake.find("install(DIRECTORY include/aster/kernel DESTINATION") !=
          std::string::npos);
   assert(cmake.find("install(DIRECTORY include/aster/game_sdk DESTINATION") !=
          std::string::npos);
   assert(cmake.find("AsterKernelConfig.cmake") != std::string::npos);
+  assert(cmake.find("AsterGameSdkConfig.cmake") != std::string::npos);
   assert(cmake.find("aster_external_app_minimal_install_tree") != std::string::npos);
   assert(cmake.find("install(DIRECTORY include/aster DESTINATION") == std::string::npos);
   assert(cmake.find("install(DIRECTORY include/aster/render") == std::string::npos);

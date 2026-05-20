@@ -3,6 +3,12 @@
 
 #include "test_support.hpp"
 
+#include "aster/core/job_graph.hpp"
+#include "aster/core/module_registry.hpp"
+#include "aster/core/signal.hpp"
+
+#include <atomic>
+
 namespace {
 
 void testVectorMath() {
@@ -353,6 +359,98 @@ void testBudgetedWorkQueueContracts() {
   assert(controller.telemetry().pressure > 0.0);
 }
 
+void testAsterCoreRuntimeContracts() {
+  int signal_total = 0;
+  aster::Signal<int> signal;
+  aster::SignalConnection connection = signal.connect([&](const int value) {
+    signal_total += value;
+  });
+  assert(connection.connected());
+  signal.emit(3);
+  connection.disconnect();
+  signal.emit(5);
+  assert(signal_total == 3);
+  assert(signal.listenerCount() == 0u);
+
+  aster::ModuleRegistry modules;
+  std::vector<std::string> events;
+  aster::SignalConnection module_event_connection =
+      modules.changes().connect([&](const aster::ModuleChangeEvent &event) {
+        events.push_back(event.id + ":" + aster::moduleChangeKindName(event.kind));
+      });
+  assert(module_event_connection.connected());
+
+  std::vector<std::string> lifecycle;
+  assert(modules.registerModule({.id = "core.assets",
+                                 .display_name = "Asset Spine",
+                                 .initialize = [&](aster::ModuleContext &context) {
+                                   lifecycle.push_back(context.module_id + ".init");
+                                   return true;
+                                 },
+                                 .shutdown = [&](aster::ModuleContext &context) {
+                                   lifecycle.push_back(context.module_id + ".shutdown");
+                                   return true;
+                                 }}));
+  assert(modules.registerModule({.id = "studio.asset-browser",
+                                 .display_name = "Asset Browser",
+                                 .dependencies = {"core.assets"},
+                                 .initialize = [&](aster::ModuleContext &context) {
+                                   lifecycle.push_back(context.module_id + ".init");
+                                   return true;
+                                 },
+                                 .shutdown = [&](aster::ModuleContext &context) {
+                                   lifecycle.push_back(context.module_id + ".shutdown");
+                                   return true;
+                                 }}));
+  assert(modules.loadModule("studio.asset-browser"));
+  assert(modules.status("core.assets")->state == aster::ModuleLifecycleState::Loaded);
+  assert(modules.loadedOrder().size() == 2u);
+  assert(modules.loadedOrder()[0] == "core.assets");
+  assert(modules.loadedOrder()[1] == "studio.asset-browser");
+  assert(lifecycle[0] == "core.assets.init");
+  assert(lifecycle[1] == "studio.asset-browser.init");
+  assert(modules.unloadModule("core.assets"));
+  assert(modules.status("studio.asset-browser")->state == aster::ModuleLifecycleState::Unloaded);
+  assert(modules.status("core.assets")->state == aster::ModuleLifecycleState::Unloaded);
+  assert(!events.empty());
+
+  aster::JobGraph graph({.worker_count = 1u, .deterministic = true});
+  std::vector<int> job_order;
+  const aster::JobId prepare = graph.add({.name = "prepare",
+                                          .priority = aster::JobPriority::High,
+                                          .run = [&](aster::JobContext &context) {
+                                            assert(context.deterministic);
+                                            job_order.push_back(1);
+                                          }});
+  graph.add({.name = "background",
+             .priority = aster::JobPriority::Background,
+             .run = [&](aster::JobContext &) { job_order.push_back(0); }});
+  const aster::JobId finish = graph.add({.name = "finish",
+                                         .priority = aster::JobPriority::Normal,
+                                         .dependencies = {prepare},
+                                         .run = [&](aster::JobContext &) {
+                                           job_order.push_back(2);
+                                         }});
+  const aster::JobGraphDiagnostics diagnostics = graph.run();
+  assert(diagnostics.executed_jobs == 3u);
+  assert(diagnostics.failed_jobs == 0u);
+  assert(graph.record(finish)->status == aster::JobStatus::Complete);
+  assert(job_order.size() == 3u);
+  assert(job_order[0] == 1);
+  assert(job_order[2] == 2);
+
+  std::vector<int> values(12, 0);
+  aster::JobGraph parallel({.worker_count = 2u, .deterministic = false});
+  const aster::JobGraphDiagnostics parallel_diagnostics =
+      parallel.parallelFor("fill", values.size(), 3u, [&](const std::size_t index) {
+        values[index] = static_cast<int>(index * 2u);
+      });
+  assert(parallel_diagnostics.executed_jobs == 4u);
+  for (std::size_t index = 0u; index < values.size(); ++index) {
+    assert(values[index] == static_cast<int>(index * 2u));
+  }
+}
+
 void testSourceBoundaryContracts() {
   const std::filesystem::path project_root =
       std::filesystem::path(__FILE__).parent_path().parent_path();
@@ -398,6 +496,7 @@ int main() {
   testFrameTimeStats();
   testProfilerCaptureExport();
   testBudgetedWorkQueueContracts();
+  testAsterCoreRuntimeContracts();
   testSourceBoundaryContracts();
   std::cout << "core_tests passed.\n";
   return 0;

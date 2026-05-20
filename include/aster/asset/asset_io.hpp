@@ -16,6 +16,9 @@ enum class AssetMeshFormat {
   Obj,
   Ply,
   Stl,
+  Fbx,
+  Usd,
+  Alembic,
 };
 
 struct AssetMeshIoReport {
@@ -38,6 +41,10 @@ struct AssetMeshImportResult {
 [[nodiscard]] AssetMeshImportResult importMeshAsset(const std::filesystem::path &path,
                                                     AssetMeshFormat format = AssetMeshFormat::Auto);
 [[nodiscard]] AssetMeshIoReport exportMeshAssetObj(const CpuMesh &mesh,
+                                                   const std::filesystem::path &path);
+[[nodiscard]] AssetMeshIoReport exportMeshAssetPly(const CpuMesh &mesh,
+                                                   const std::filesystem::path &path);
+[[nodiscard]] AssetMeshIoReport exportMeshAssetStl(const CpuMesh &mesh,
                                                    const std::filesystem::path &path);
 
 } // namespace aster

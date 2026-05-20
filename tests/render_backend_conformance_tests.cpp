@@ -26,6 +26,9 @@
 #ifndef ASTER_SOURCE_DIR
 #define ASTER_SOURCE_DIR "."
 #endif
+#ifndef ASTER_HAS_D3D12_BACKEND
+#define ASTER_HAS_D3D12_BACKEND 0
+#endif
 
 #if defined(_WIN32)
 #include <stdlib.h>
@@ -786,7 +789,7 @@ void testNativeBackendConformsWhenAvailable() {
   assert(native.stats.draw_calls > 0u);
   assert(std::abs(native.metrics.mean_luma - software.metrics.mean_luma) < 0.35);
   assert(std::abs(native.metrics.foreground_ratio - software.metrics.foreground_ratio) < 0.55);
-#if defined(_WIN32)
+#if defined(_WIN32) && ASTER_HAS_D3D12_BACKEND
   assert(native.backend.kind == aster::RenderBackendKind::D3D12);
   assert(native.backend.supports_shader_materials);
   assert(native.backend.supports_instancing);
@@ -807,7 +810,7 @@ void testBackendCapabilityTableContracts() {
   assert((software_table.sample_count_mask & aster::rhi::sampleCountCapabilityBit(1u)) != 0ull);
   assert((software_table.blend_mode_mask &
           aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::AlphaBlend)) != 0ull);
-  assert(software_table.max_sampled_textures_per_material >= 10u);
+  assert(software_table.limits.max_sampled_textures_per_material >= 10u);
   assert(software_table.texture_sampling);
   assert(!software_table.storage_buffers);
   assert(software_table.shadow_maps);
@@ -824,13 +827,13 @@ void testBackendCapabilityTableContracts() {
            aster::rhi::PresentationMode::D3D12OffscreenReadback);
   }
   if (native.backend.kind != aster::RenderBackendKind::Null) {
-    assert(native.backend.capability_table.max_color_attachments == 1u);
+    assert(native.backend.capability_table.limits.max_color_attachments == 1u);
     if (native.backend.kind == aster::RenderBackendKind::Metal ||
         native.backend.kind == aster::RenderBackendKind::D3D12) {
       assert(native.backend.capability_table.texture_sampling);
       assert(native.backend.supports_texture_sampling);
-      assert(native.backend.capability_table.max_sampled_textures_per_material >= 10u);
-      assert(native.backend.capability_table.max_samplers_per_material >= 1u);
+      assert(native.backend.capability_table.limits.max_sampled_textures_per_material >= 10u);
+      assert(native.backend.capability_table.limits.max_samplers_per_material >= 1u);
     } else {
       assert(!native.backend.capability_table.texture_sampling);
     }
@@ -1126,7 +1129,7 @@ void testNativeCaveConformanceWhenAvailable() {
     assert(hasCertifiedResourceProof(native.forensics, aster::RenderGraphResource::VolumetricFog));
     assert(hasCertifiedResourceProof(native.forensics, aster::RenderGraphResource::ReflectionProbes));
   }
-#if defined(_WIN32)
+#if defined(_WIN32) && ASTER_HAS_D3D12_BACKEND
   if (native.backend.kind == aster::RenderBackendKind::D3D12) {
     assert(native.backend.capability_table.presentation ==
            aster::rhi::PresentationMode::D3D12OffscreenReadback);

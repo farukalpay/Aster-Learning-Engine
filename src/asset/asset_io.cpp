@@ -282,6 +282,12 @@ std::string_view assetMeshFormatName(const AssetMeshFormat format) {
     return "ply";
   case AssetMeshFormat::Stl:
     return "stl";
+  case AssetMeshFormat::Fbx:
+    return "fbx";
+  case AssetMeshFormat::Usd:
+    return "usd";
+  case AssetMeshFormat::Alembic:
+    return "alembic";
   case AssetMeshFormat::Auto:
   default:
     return "auto";
@@ -299,6 +305,15 @@ AssetMeshFormat assetMeshFormatFromPath(const std::filesystem::path &path) {
   if (extension == ".stl") {
     return AssetMeshFormat::Stl;
   }
+  if (extension == ".fbx") {
+    return AssetMeshFormat::Fbx;
+  }
+  if (extension == ".usd" || extension == ".usda" || extension == ".usdc") {
+    return AssetMeshFormat::Usd;
+  }
+  if (extension == ".abc" || extension == ".alembic") {
+    return AssetMeshFormat::Alembic;
+  }
   return AssetMeshFormat::Auto;
 }
 
@@ -314,6 +329,18 @@ AssetMeshImportResult importMeshAsset(const std::filesystem::path &path,
     return importPly(path);
   case AssetMeshFormat::Stl:
     return importStl(path);
+  case AssetMeshFormat::Fbx:
+  case AssetMeshFormat::Usd:
+  case AssetMeshFormat::Alembic: {
+    AssetMeshImportResult result;
+    result.report.path = path;
+    result.report.format = format;
+    result.report.stable_source_hash = hashFile(path);
+    result.report.diagnostics.push_back(
+        "error: unsupported mesh import format: " + std::string(assetMeshFormatName(format)) +
+        " importer is not vendored in Aster");
+    return result;
+  }
   case AssetMeshFormat::Auto:
   default: {
     AssetMeshImportResult result;
@@ -353,6 +380,72 @@ AssetMeshIoReport exportMeshAssetObj(const CpuMesh &mesh, const std::filesystem:
     }
     file << '\n';
   }
+  report.vertices = mesh.vertices.size();
+  report.indices = mesh.indices.size();
+  report.ok = file.good();
+  report.stable_source_hash = report.ok ? hashFile(path) : std::string();
+  return report;
+}
+
+AssetMeshIoReport exportMeshAssetPly(const CpuMesh &mesh, const std::filesystem::path &path) {
+  AssetMeshIoReport report;
+  report.path = path;
+  report.format = AssetMeshFormat::Ply;
+  std::ofstream file(path);
+  if (!file) {
+    report.diagnostics.push_back("error: could not open PLY for writing");
+    return report;
+  }
+  file << "ply\nformat ascii 1.0\nelement vertex " << mesh.vertices.size() << '\n';
+  file << "property float x\nproperty float y\nproperty float z\n";
+  file << "property float nx\nproperty float ny\nproperty float nz\n";
+  file << "property float s\nproperty float t\n";
+  file << "element face " << mesh.indices.size() / 3u << '\n';
+  file << "property list uchar uint vertex_indices\nend_header\n";
+  for (const Vertex &vertex : mesh.vertices) {
+    file << vertex.position.x << ' ' << vertex.position.y << ' ' << vertex.position.z << ' '
+         << vertex.normal.x << ' ' << vertex.normal.y << ' ' << vertex.normal.z << ' '
+         << vertex.uv.x << ' ' << vertex.uv.y << '\n';
+  }
+  for (std::size_t i = 0u; i + 2u < mesh.indices.size(); i += 3u) {
+    file << "3 " << mesh.indices[i] << ' ' << mesh.indices[i + 1u] << ' '
+         << mesh.indices[i + 2u] << '\n';
+  }
+  report.vertices = mesh.vertices.size();
+  report.indices = mesh.indices.size();
+  report.ok = file.good();
+  report.stable_source_hash = report.ok ? hashFile(path) : std::string();
+  return report;
+}
+
+AssetMeshIoReport exportMeshAssetStl(const CpuMesh &mesh, const std::filesystem::path &path) {
+  AssetMeshIoReport report;
+  report.path = path;
+  report.format = AssetMeshFormat::Stl;
+  std::ofstream file(path);
+  if (!file) {
+    report.diagnostics.push_back("error: could not open STL for writing");
+    return report;
+  }
+  file << "solid aster_mesh\n";
+  for (std::size_t i = 0u; i + 2u < mesh.indices.size(); i += 3u) {
+    const Vertex &a = mesh.vertices[mesh.indices[i]];
+    const Vertex &b = mesh.vertices[mesh.indices[i + 1u]];
+    const Vertex &c = mesh.vertices[mesh.indices[i + 2u]];
+    const Vec3 normal = normalizeOr(cross(b.position - a.position, c.position - a.position),
+                                    {0.0f, 1.0f, 0.0f});
+    file << "  facet normal " << normal.x << ' ' << normal.y << ' ' << normal.z << '\n';
+    file << "    outer loop\n";
+    file << "      vertex " << a.position.x << ' ' << a.position.y << ' ' << a.position.z
+         << '\n';
+    file << "      vertex " << b.position.x << ' ' << b.position.y << ' ' << b.position.z
+         << '\n';
+    file << "      vertex " << c.position.x << ' ' << c.position.y << ' ' << c.position.z
+         << '\n';
+    file << "    endloop\n";
+    file << "  endfacet\n";
+  }
+  file << "endsolid aster_mesh\n";
   report.vertices = mesh.vertices.size();
   report.indices = mesh.indices.size();
   report.ok = file.good();

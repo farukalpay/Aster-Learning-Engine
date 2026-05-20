@@ -5,6 +5,7 @@
 
 #include "aster/asset/pipe_runtime_asset.hpp"
 #include "aster/framegraph/transient_resource_allocator.hpp"
+#include "aster/render/visual_regression.hpp"
 #include "aster/rhi/graphics_pipeline.hpp"
 #include "aster/rhi/resource_barrier.hpp"
 #include "aster/rhi/resource_lifetime_validator.hpp"
@@ -18,6 +19,10 @@
 
 #if defined(_WIN32)
 #include <stdlib.h>
+#endif
+
+#ifndef ASTER_SOURCE_DIR
+#define ASTER_SOURCE_DIR "."
 #endif
 
 namespace {
@@ -373,7 +378,7 @@ void testSoftwareDepthPolicyIsStableAcrossObjectOrder() {
 
   auto render = [&](const aster::Scene &scene) {
     aster::RenderDevice renderer;
-    assert(renderer.initialize());
+    renderer.initialize();
     renderer.prepareScene(scene);
     (void)renderer.render(scene, camera, settings, 48, 48, 0.0);
     return std::vector<std::uint8_t>(aster::activeFrameBuffer().rgba8().begin(),
@@ -1154,7 +1159,8 @@ void testRetroStyleNeutralSoftwarePreviewMatchesDefault() {
                                     .samples_per_axis = 1,
                                     .frame_seconds = 0.0,
                                     .settings = explicit_neutral});
-  assert(default_frame.rgba8() == neutral_frame.rgba8());
+  assert(std::equal(default_frame.rgba8().begin(), default_frame.rgba8().end(),
+                    neutral_frame.rgba8().begin(), neutral_frame.rgba8().end()));
 }
 
 void testRetroStyleSoftwarePreviewEffects() {

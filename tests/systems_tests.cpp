@@ -5,6 +5,149 @@
 
 namespace {
 
+aster::FeatureLabel featureLabel(const std::string_view text) {
+  const std::optional<aster::FeatureLabel> label = aster::parseFeatureLabel(text);
+  assert(label.has_value());
+  return *label;
+}
+
+aster::ActionLaneSet actionLane(std::string_view lane) {
+  aster::ActionLaneSet lanes;
+  assert(lanes.add(lane));
+  return lanes;
+}
+
+aster::FeatureLabelSet labelSet(std::initializer_list<std::string_view> labels) {
+  aster::FeatureLabelSet result;
+  for (const std::string_view label : labels) {
+    assert(result.add(label));
+  }
+  return result;
+}
+
+void testFeatureLabelContracts() {
+  const aster::FeatureLabel climb = featureLabel(" Player/Motion:Climb ");
+  assert(climb.path() == "player.motion.climb");
+  assert(climb.depth() == 3u);
+  assert(climb.parent().has_value());
+  assert(climb.parent()->path() == "player.motion");
+  assert(climb.matches(featureLabel("player.motion")));
+  assert(!featureLabel("player.motion").matches(climb));
+
+  const std::vector<aster::FeatureLabel> lineage = climb.lineage();
+  assert(lineage.size() == 3u);
+  assert(lineage.front().path() == "player");
+  assert(lineage.back() == climb);
+
+  aster::FeatureLabelSet actor_labels;
+  assert(actor_labels.add(climb));
+  assert(actor_labels.add("surface.wet.rock"));
+  assert(actor_labels.add("interaction.pickup"));
+  assert(actor_labels.contains("player.motion"));
+  assert(!actor_labels.contains("player.motion", aster::FeatureLabelMatchMode::Exact));
+  assert(actor_labels.contains("player.motion.climb", aster::FeatureLabelMatchMode::Exact));
+  assert(!actor_labels.add("player.motion.climb"));
+
+  const aster::FeatureLabelQuery climb_or_wet{
+      .all = {featureLabel("player.motion")},
+      .any = {featureLabel("surface.wet"), featureLabel("surface.ice")},
+      .none = {featureLabel("state.stunned")}};
+  assert(climb_or_wet.matches(actor_labels));
+
+  const aster::FeatureLabelQuery blocked_by_wet{
+      .all = {featureLabel("player.motion")},
+      .none = {featureLabel("surface.wet")}};
+  assert(!blocked_by_wet.matches(actor_labels));
+  assert(!blocked_by_wet.explainMismatch(actor_labels).empty());
+
+  aster::FeatureLabelSet same_labels_different_order;
+  assert(same_labels_different_order.add("interaction.pickup"));
+  assert(same_labels_different_order.add("surface.wet.rock"));
+  assert(same_labels_different_order.add("player.motion.climb"));
+  assert(same_labels_different_order.contractStamp() == actor_labels.contractStamp());
+
+  aster::FeatureLabelSet swim_labels;
+  assert(swim_labels.add("player.motion.swim"));
+  const float affinity = actor_labels.lineageAffinity(swim_labels);
+  assert(affinity > 0.20f && affinity < 1.0f);
+
+  aster::FeatureLabelCatalog catalog;
+  assert(catalog.declare("player.motion.climb", "Climb Locomotion",
+                         "Author-owned locomotion capability imported into Aster."));
+  assert(catalog.addAlias("climb", "player.motion.climb"));
+  const std::optional<aster::FeatureLabel> resolved = catalog.resolve("climb");
+  assert(resolved.has_value());
+  assert(*resolved == climb);
+  assert(catalog.find(climb)->display_name == "Climb Locomotion");
+}
+
+void testActionSchedulerFeatureContracts() {
+  aster::FeatureLabelSet world = labelSet({"world.cave.lit", "actor.player.grounded"});
+  aster::ActionScheduler scheduler;
+  scheduler.setWorldLabels(world);
+
+  int walk_ticks = 0;
+  bool walk_cancelled = false;
+  const aster::ActionTaskId walk = scheduler.submit({
+      .name = "lumen walk tunnel",
+      .owner = "lumen",
+      .priority = aster::ActionTaskPriority::Normal,
+      .lanes = actionLane("lane.actor.motion"),
+      .labels = labelSet({"player.motion.walk"}),
+      .duration_seconds = 1.0f,
+      .on_tick = [&](aster::ActionTaskContext &) { ++walk_ticks; },
+      .on_finish = [&](aster::ActionTaskContext &) { walk_cancelled = true; },
+  });
+
+  aster::ActionSchedulerFrame frame = scheduler.tick(0.10f);
+  assert(frame.active_tasks == 1u);
+  assert(walk_ticks == 1);
+  assert(scheduler.find(walk)->state == aster::ActionTaskState::Active);
+  assert(scheduler.activeLanes().contains(featureLabel("lane.actor.motion")));
+
+  bool dodge_started = false;
+  const aster::ActionTaskId dodge = scheduler.submit({
+      .name = "lumen ledge dodge",
+      .owner = "lumen",
+      .priority = aster::ActionTaskPriority::Critical,
+      .lanes = actionLane("lane.actor.motion"),
+      .labels = labelSet({"player.motion.dodge", "surface.ledge"}),
+      .requirements = {.all = {featureLabel("actor.player.grounded")}},
+      .duration_seconds = 0.10f,
+      .can_preempt = true,
+      .on_start = [&](aster::ActionTaskContext &) { dodge_started = true; },
+  });
+
+  frame = scheduler.tick(0.10f);
+  assert(walk_cancelled);
+  assert(dodge_started);
+  assert(scheduler.find(walk)->state == aster::ActionTaskState::Cancelled);
+  assert(scheduler.find(dodge)->state == aster::ActionTaskState::Finished);
+  bool saw_preemption = false;
+  for (const aster::ActionTaskEvent &event : frame.events) {
+    saw_preemption = saw_preemption || event.kind == aster::ActionTaskEventKind::Cancelled;
+  }
+  assert(saw_preemption);
+
+  const aster::ActionTaskId swim = scheduler.submit({
+      .name = "deep water swim gate",
+      .owner = "lumen",
+      .priority = aster::ActionTaskPriority::High,
+      .lanes = actionLane("lane.actor.motion"),
+      .labels = labelSet({"player.motion.swim"}),
+      .requirements = {.all = {featureLabel("world.water.deep")}},
+      .duration_seconds = 0.05f,
+  });
+  scheduler.tick(0.0f);
+  assert(scheduler.find(swim)->state == aster::ActionTaskState::Blocked);
+
+  assert(world.add("world.water.deep"));
+  scheduler.setWorldLabels(world);
+  scheduler.tick(0.05f);
+  assert(scheduler.find(swim)->state == aster::ActionTaskState::Finished);
+  assert(scheduler.events().size() >= 8u);
+}
+
 void testGameplayItemInteractionSystems() {
   aster::ItemRegistry registry;
   registry.add({.id = "torch",
@@ -623,6 +766,8 @@ void testClassicActorMechanismAutomapAndWipe() {
 } // namespace
 
 int main() {
+  testFeatureLabelContracts();
+  testActionSchedulerFeatureContracts();
   testGameplayItemInteractionSystems();
   testMiningDamageAccumulatesAcrossOneCutFootprint();
   testGenericMineableBreaksWithoutVoxelCarve();

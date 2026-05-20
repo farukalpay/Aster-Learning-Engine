@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -16,7 +17,62 @@
 
 namespace aster {
 
+struct AssetOperationReport {
+  std::filesystem::path path;
+  bool ok = true;
+  std::size_t warning_count = 0u;
+  std::size_t error_count = 0u;
+  std::vector<std::string> diagnostics;
+
+  void add(std::string diagnostic);
+};
+
+class AssetCatalogPath {
+public:
+  AssetCatalogPath() = default;
+  explicit AssetCatalogPath(const char *path);
+  explicit AssetCatalogPath(std::string path);
+  explicit AssetCatalogPath(std::string_view path);
+
+  [[nodiscard]] const std::string &str() const noexcept;
+  [[nodiscard]] const char *c_str() const noexcept;
+  [[nodiscard]] std::size_t length() const noexcept;
+  [[nodiscard]] std::string simpleName() const;
+  [[nodiscard]] AssetCatalogPath parent() const;
+  [[nodiscard]] AssetCatalogPath cleanup() const;
+  [[nodiscard]] bool isContainedIn(const AssetCatalogPath &other) const;
+  [[nodiscard]] AssetCatalogPath rebase(const AssetCatalogPath &from,
+                                        const AssetCatalogPath &to) const;
+  [[nodiscard]] std::vector<std::string> components() const;
+  [[nodiscard]] explicit operator bool() const noexcept;
+
+  friend bool operator==(const AssetCatalogPath &lhs, const AssetCatalogPath &rhs) noexcept {
+    return lhs.path_ == rhs.path_;
+  }
+
+  friend bool operator!=(const AssetCatalogPath &lhs, const AssetCatalogPath &rhs) noexcept {
+    return !(lhs == rhs);
+  }
+
+  friend bool operator<(const AssetCatalogPath &lhs, const AssetCatalogPath &rhs) noexcept {
+    return lhs.path_ < rhs.path_;
+  }
+
+private:
+  std::string path_;
+};
+
+struct AssetCatalogRecord {
+  std::string id;
+  AssetCatalogPath path;
+  std::string simple_name;
+  std::vector<std::string> tags;
+  std::map<std::string, std::string> metadata;
+  bool deleted = false;
+};
+
 struct AssetCatalogEntry {
+  std::string catalog_id;
   std::string catalog_path;
   std::vector<std::size_t> asset_indices;
   std::vector<std::string> tags;
@@ -52,14 +108,19 @@ struct AssetRepresentation {
   std::string id;
   std::string name;
   std::string kind;
+  std::string catalog_path;
   std::filesystem::path source_path;
   std::filesystem::path preview_path;
   bool production_ready = false;
+  std::uintmax_t source_size_bytes = 0u;
+  std::string content_hash;
   AssetDerivedHashes derived_hashes;
+  AssetFateReport fate_report;
   std::vector<std::string> diagnostics;
   std::vector<std::string> tags;
   std::vector<std::string> dependency_ids;
   std::vector<std::string> creative_variant_tags;
+  std::map<std::string, std::string> metadata;
 
   [[nodiscard]] static AssetRepresentation fromRecord(const AssetDatabaseRecord &record,
                                                       const std::filesystem::path &database_root);
@@ -70,6 +131,14 @@ struct AssetFileListEntry {
   std::string kind;
   std::uintmax_t size_bytes = 0u;
   std::string content_hash;
+};
+
+struct AssetLibraryManifest {
+  std::filesystem::path root_path;
+  std::string source_id;
+  std::vector<AssetCatalogRecord> catalogs;
+  std::vector<AssetFileListEntry> files;
+  std::vector<std::string> diagnostics;
 };
 
 class DiskFileHashService {
@@ -93,6 +162,7 @@ public:
   std::filesystem::path root_path;
   std::vector<AssetLibrarySourceRecord> sources;
   std::vector<AssetCatalogEntry> catalogs;
+  std::vector<AssetCatalogRecord> catalog_records;
   std::vector<AssetRepresentation> assets;
   AssetCatalogTreeNode catalog_tree;
   std::vector<AssetDependencyEdge> dependency_edges;
@@ -102,6 +172,20 @@ public:
   [[nodiscard]] const AssetRepresentation *find(std::string_view id_or_guid) const;
   [[nodiscard]] std::vector<const AssetRepresentation *> assetsInCatalog(
       std::string_view catalog_path) const;
+};
+
+class AssetCatalogStore {
+public:
+  std::uint32_t schema_version = 1u;
+  std::filesystem::path source_path;
+  std::vector<AssetCatalogRecord> catalogs;
+  AssetOperationReport report;
+
+  [[nodiscard]] const AssetCatalogRecord *findById(std::string_view id) const noexcept;
+  [[nodiscard]] const AssetCatalogRecord *findByPath(const AssetCatalogPath &path) const noexcept;
+  AssetCatalogRecord &upsert(AssetCatalogRecord record);
+  void mergeFrom(const AssetCatalogStore &other);
+  [[nodiscard]] AssetCatalogTreeNode buildTree() const;
 };
 
 enum class OutlinerDropInsertType {
@@ -146,5 +230,13 @@ private:
 [[nodiscard]] std::vector<AssetFileListEntry>
 scanAssetFiles(const std::filesystem::path &root,
                const DiskFileHashService &hash_service = DiskFileHashService{});
+[[nodiscard]] std::string stableAssetCatalogId(const AssetCatalogPath &path);
+[[nodiscard]] AssetCatalogStore loadAssetCatalogStore(const std::filesystem::path &path);
+[[nodiscard]] AssetOperationReport saveAssetCatalogStore(const AssetCatalogStore &store,
+                                                         const std::filesystem::path &path);
+[[nodiscard]] AssetCatalogStore makeAssetCatalogStoreFromLibrary(const AssetLibrary &library);
+[[nodiscard]] AssetLibraryManifest
+buildAssetLibraryManifest(const AssetLibrary &library,
+                          const DiskFileHashService &hash_service = DiskFileHashService{});
 
 } // namespace aster

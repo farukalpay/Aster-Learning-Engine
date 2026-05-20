@@ -4353,12 +4353,14 @@ void RenderDevice::initialize() {
 
   const char *force_null = std::getenv("ASTER_FORCE_NULL_RENDERER");
   const char *force_software = std::getenv("ASTER_FORCE_SOFTWARE_RENDERER");
-  if (force_null != nullptr && *force_null != '\0') {
+  const bool force_null_enabled = force_null != nullptr && *force_null != '\0';
+  const bool force_software_enabled = force_software != nullptr && *force_software != '\0';
+  if (force_null_enabled && !force_software_enabled) {
     native_backend_ = createNullRenderBackend();
     if (native_backend_ != nullptr && !native_backend_->initialize()) {
       native_backend_.reset();
     }
-  } else if (force_software == nullptr || *force_software == '\0') {
+  } else if (!force_software_enabled) {
     native_backend_ = createNativeRenderBackend();
     if (native_backend_ != nullptr && !native_backend_->initialize()) {
       native_backend_.reset();

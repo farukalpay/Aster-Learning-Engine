@@ -4,6 +4,7 @@
 #include "aster/render/frame_capture.hpp"
 
 #include "aster/render/software_framebuffer.hpp"
+#include "aster/render/visual_regression.hpp"
 #include "native_render_backend.hpp"
 
 #include <stdexcept>
@@ -16,6 +17,14 @@ void writeFramebufferPpm(const std::filesystem::path &path, const int width, con
   }
   (void)captureNativeFrameToActiveFramebuffer();
   activeFrameBuffer().writePpm(path, width, height);
+}
+
+void writeFramebufferPng(const std::filesystem::path &path, const int width, const int height) {
+  if (width <= 0 || height <= 0) {
+    throw std::invalid_argument("Framebuffer capture requires a positive size.");
+  }
+  (void)captureNativeFrameToActiveFramebuffer();
+  writeFrameBufferPng(activeFrameBuffer(), path, width, height);
 }
 
 } // namespace aster

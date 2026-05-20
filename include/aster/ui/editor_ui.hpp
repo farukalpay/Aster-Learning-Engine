@@ -7,6 +7,7 @@
 #include "aster/asset/asset_library.hpp"
 #include "aster/asset/asset_production_model.hpp"
 #include "aster/material/material_lab.hpp"
+#include "aster/physics/xpbd_authoring.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/render_device.hpp"
 #include "aster/ui/ui_canvas.hpp"
@@ -57,6 +58,7 @@ private:
   std::size_t selected_material_lab_node_ = 0u;
   std::size_t selected_material_lab_mesh_ = 0u;
   std::size_t selected_material_lab_environment_ = 0u;
+  std::size_t selected_xpbd_preset_ = 0u;
   std::size_t selected_object_fate_ = 0u;
   std::size_t selected_timeline_event_ = 0u;
   std::size_t selected_resource_provenance_ = 0u;
@@ -68,6 +70,12 @@ private:
   std::string material_lab_cache_key_;
   std::vector<MaterialLabPreviewImage> material_lab_previews_;
   std::vector<std::string> material_lab_diagnostics_;
+  XpbdMeshAuthoringSettings xpbd_settings_{};
+  XpbdMeshAuthoringSession xpbd_session_{};
+  std::string xpbd_loaded_asset_id_;
+  std::filesystem::path xpbd_source_path_;
+  std::vector<std::string> xpbd_diagnostics_;
+  bool xpbd_preview_ready_ = false;
   bool material_lab_dirty_ = false;
   bool material_lab_save_supported_ = false;
   bool initialized_ = false;

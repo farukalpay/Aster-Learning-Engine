@@ -3,10 +3,10 @@
 
 use aster_content::{
     asset_database_diff_json, asset_fate_report_json, asset_graph_inspect_report_json,
-    asset_graph_report_json, bake_texture_to_ktx2, compile_scene_asset_to_cache, cook_project,
-    hex_hash, inspect_cache, inspect_texture, material_inspect_report_json, package_asset_graph,
-    read_asset_database, report_asset_database, write_missing_asset_meta, CompileOptions,
-    OriginPolicy,
+    asset_graph_report_json, bake_texture_to_ktx2, catalog_store_from_database,
+    compile_scene_asset_to_cache, cook_project, hex_hash, inspect_cache, inspect_texture,
+    material_inspect_report_json, package_asset_graph, read_asset_database, report_asset_database,
+    write_asset_catalog_store, write_missing_asset_meta, CompileOptions, OriginPolicy,
 };
 use aster_runtime::{
     build_frame_plan, AsterRuntimeCamera, AsterRuntimeRenderObject, AsterRuntimeRenderPlanOptions,
@@ -88,6 +88,7 @@ fn usage() -> &'static str {
   aster_assetc cook --project <file.asterproj> --platform desktop --output <dir>
   aster_assetc report --db <assetdb.asterdb.json>
   aster_assetc catalog-inspect --db <assetdb.asterdb.json>
+  aster_assetc catalog-sync --db <assetdb.asterdb.json> [--output <aster_catalogs.json>]
   aster_assetc mesh-import-inspect --input <mesh.obj|mesh.ply|mesh.stl>
   aster_assetc graph --db <assetdb.asterdb.json>
   aster_assetc fate --db <assetdb.asterdb.json> --asset <id-or-guid>
@@ -311,8 +312,28 @@ fn catalog_inspect_command(args: &[String]) -> Result<(), String> {
         database.asset_graph.nodes.len(),
         database.asset_graph.edges.len()
     );
+    let store = catalog_store_from_database(&database);
+    for catalog in &store.catalogs {
+        let count = catalog
+            .metadata
+            .get("asset_count")
+            .cloned()
+            .unwrap_or_else(|| "0".to_string());
+        println!(
+            "catalog id={} path={} simple_name={} assets={} tags={}",
+            catalog.id,
+            catalog.path,
+            catalog.simple_name,
+            count,
+            catalog.tags.join(",")
+        );
+    }
     for (kind, count) in by_kind {
-        println!("catalog Assets/{} assets={}", title_case(&kind), count);
+        println!(
+            "catalog-summary Assets/{} assets={}",
+            title_case(&kind),
+            count
+        );
     }
     for edge in &database.asset_graph.edges {
         println!(
@@ -320,6 +341,28 @@ fn catalog_inspect_command(args: &[String]) -> Result<(), String> {
             edge.from, edge.to, edge.role, edge.present
         );
     }
+    Ok(())
+}
+
+fn catalog_sync_command(args: &[String]) -> Result<(), String> {
+    let db = value_after(args, "--db")
+        .map(PathBuf::from)
+        .ok_or_else(|| "catalog-sync requires --db <assetdb.asterdb.json>".to_string())?;
+    let output = value_after(args, "--output")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            db.parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join("aster_catalogs.json")
+        });
+    let database = read_asset_database(&db).map_err(|error| error.to_string())?;
+    let count = write_asset_catalog_store(&database, &output).map_err(|error| error.to_string())?;
+    println!(
+        "catalog-sync db={} output={} catalogs={}",
+        db.display(),
+        output.display(),
+        count
+    );
     Ok(())
 }
 
@@ -493,6 +536,7 @@ fn run() -> Result<(), String> {
         Some("cook") => cook_command(&args[2..]),
         Some("report") => report_command(&args[2..]),
         Some("catalog-inspect") => catalog_inspect_command(&args[2..]),
+        Some("catalog-sync") => catalog_sync_command(&args[2..]),
         Some("mesh-import-inspect") => mesh_import_inspect_command(&args[2..]),
         Some("graph") => graph_command(&args[2..]),
         Some("fate") => fate_command(&args[2..]),

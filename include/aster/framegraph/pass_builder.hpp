@@ -23,9 +23,12 @@ struct ResourceUsage {
 
 struct PassDesc {
   std::string name;
+  std::string event_label;
+  std::string event_scope;
   std::vector<ResourceHandle> reads;
   std::vector<ResourceHandle> writes;
   rhi::QueueKind queue = rhi::QueueKind::Graphics;
+  bool allow_read_write_overlap = false;
 };
 
 class FrameGraph;
@@ -37,6 +40,9 @@ public:
   PassBuilder &reads(ResourceHandle resource);
   PassBuilder &writes(ResourceHandle resource);
   PassBuilder &queue(rhi::QueueKind queue);
+  PassBuilder &eventLabel(std::string label);
+  PassBuilder &eventScope(std::string scope);
+  PassBuilder &allowReadWriteOverlap(bool allowed = true);
 
 private:
   FrameGraph *graph_ = nullptr;

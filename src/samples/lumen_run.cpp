@@ -758,8 +758,8 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                        .radius = 0.48f,
                        .max_distance = 14.0f,
                        .proximity_distance = kCaveSkitterInteractionDistance,
-                       .occluded = rayOccludedByWeb(skitter_focus, ray_distance),
                        .user_data = static_cast<std::uint64_t>(i),
+                       .occluded = rayOccludedByWeb(skitter_focus, ray_distance),
                        .enabled = distance <= kCaveSkitterInteractionDistance});
   }
 

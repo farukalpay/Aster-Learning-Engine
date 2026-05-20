@@ -45,6 +45,8 @@
 #include "aster/geometry/voxel_cave.hpp"
 #include "aster/geometry/voxel_structure.hpp"
 #include "aster/geometry/water_mesh.hpp"
+#include "aster/gameplay/action_scheduler.hpp"
+#include "aster/gameplay/feature_labels.hpp"
 #include "aster/input/control_scheme.hpp"
 #include "aster/math/color.hpp"
 #include "aster/math/mat4.hpp"
@@ -79,11 +81,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -129,8 +134,14 @@ void writeGeneratedNormalTangentBinary(const std::filesystem::path &path) {
 }
 
 std::filesystem::path writeGeneratedNormalTangentFixture() {
+  static std::atomic_uint64_t fixture_counter{0};
+  const std::uint64_t tick = static_cast<std::uint64_t>(
+      std::chrono::steady_clock::now().time_since_epoch().count());
+  const std::uint64_t serial = fixture_counter.fetch_add(1u, std::memory_order_relaxed);
   const std::filesystem::path directory =
-      std::filesystem::temp_directory_path() / "aster_generated_normal_tangent_fixture";
+      std::filesystem::temp_directory_path() /
+      ("aster_generated_normal_tangent_fixture_" + std::to_string(tick) + "_" +
+       std::to_string(serial));
   std::filesystem::remove_all(directory);
   std::filesystem::create_directories(directory);
   writeGeneratedNormalTangentBinary(directory / "normal_tangent_probe.bin");

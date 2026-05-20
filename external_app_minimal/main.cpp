@@ -2,6 +2,7 @@
 // Do not remove this notice.
 
 #include <aster/kernel/api.hpp>
+#include <aster/game_sdk/game_sdk.hpp>
 
 #include <array>
 #include <cassert>
@@ -10,6 +11,34 @@
 #include <filesystem>
 
 namespace {
+
+void verifyGameSdkPackage() {
+  const auto project = aster::sdk::parseProjectDocument(R"json({
+    "schema_version": 1,
+    "name": "External Minimal",
+    "startup_scene": "scene.external",
+    "assets": [
+      { "id": "scene.external", "kind": "scene", "path": "scenes/external.scene" },
+      { "id": "material.external", "kind": "material", "path": "materials/external.material" }
+    ]
+  })json");
+  assert(project.ok());
+  assert(project.value.assets.size() == 2u);
+  assert(project.value.assets.front().kind == aster::sdk::AssetKind::Scene);
+
+  const auto material = aster::sdk::parseMaterialDocument(R"json({
+    "schema_version": 1,
+    "id": "material.external",
+    "name": "External Material",
+    "base_color": [0.8, 0.7, 0.6],
+    "emission_color": [0.1, 0.2, 0.3],
+    "emission_strength": 1.5,
+    "alpha_mode": "opaque"
+  })json");
+  assert(material.ok());
+  assert(material.value.base_color.x > 0.0f);
+  assert(material.value.emission_color.z > 0.0f);
+}
 
 AsterTextureDesc textureDesc(const AsterTextureRole role,
                              const AsterTextureColorSpace color_space,
@@ -32,6 +61,8 @@ AsterTextureDesc textureDesc(const AsterTextureRole role,
 } // namespace
 
 int main() {
+  verifyGameSdkPackage();
+
   auto engine = aster::kernel::Engine::create();
   assert(engine);
 

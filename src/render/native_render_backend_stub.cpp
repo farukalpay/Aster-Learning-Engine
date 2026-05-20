@@ -3,7 +3,11 @@
 
 #include "native_render_backend.hpp"
 
-#if !defined(__APPLE__) && !defined(_WIN32)
+#ifndef ASTER_HAS_D3D12_BACKEND
+#define ASTER_HAS_D3D12_BACKEND 0
+#endif
+
+#if !defined(__APPLE__) && !ASTER_HAS_D3D12_BACKEND
 
 namespace aster {
 

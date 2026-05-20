@@ -43,6 +43,8 @@ struct DescriptorRequirement {
 
 struct CompiledPass {
   std::string name;
+  std::string event_label;
+  std::string event_scope;
   std::vector<ResourceHandle> reads;
   std::vector<ResourceHandle> writes;
   std::vector<CompiledResourceAccess> accesses;
@@ -105,6 +107,7 @@ struct RenderGraphCompilerReport {
   bool has_pipeline_cache_inputs = false;
   bool has_transient_aliasing = false;
   bool has_queue_ownership_transfers = false;
+  bool has_event_labels = false;
 };
 
 struct FrameGraphCompileOptions {
@@ -113,6 +116,8 @@ struct FrameGraphCompileOptions {
   std::uint32_t required_resource_mask = 0u;
   bool cull_unsupported_passes = false;
   bool assign_physical_allocations = true;
+  bool immediate_validation = false;
+  bool strict_resource_validation = true;
 };
 
 [[nodiscard]] CompiledFrameGraph compileFrameGraph(const FrameGraph &graph);

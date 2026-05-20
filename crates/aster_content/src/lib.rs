@@ -743,6 +743,25 @@ pub struct AssetDatabase {
     pub records: Vec<AssetDatabaseRecord>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetCatalogRecord {
+    pub id: String,
+    pub path: String,
+    pub simple_name: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, String>,
+    #[serde(default)]
+    pub deleted: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetCatalogStore {
+    pub schema_version: u32,
+    pub catalogs: Vec<AssetCatalogRecord>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MaterialBinTextureRecord {
     pub role: String,
@@ -2828,6 +2847,124 @@ pub fn refresh_asset_database_truth(database: &mut AssetDatabase) {
         nodes,
         edges,
     };
+}
+
+fn clean_catalog_component(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .map(|c| if c == ':' || c == '\\' { '-' } else { c })
+        .collect()
+}
+
+fn clean_catalog_path(path: &str) -> String {
+    let mut components = Vec::<String>::new();
+    for component in path.split(['/', '\\']) {
+        let component = clean_catalog_component(component);
+        if component.is_empty() || component == "." {
+            continue;
+        }
+        if component == ".." {
+            components.pop();
+        } else {
+            components.push(component);
+        }
+    }
+    components.join("/")
+}
+
+fn catalog_path_for_record(record: &AssetDatabaseRecord) -> String {
+    let mut chars = record.kind.chars();
+    let kind = match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => "Asset".to_string(),
+    };
+    clean_catalog_path(&format!("Assets/{kind}"))
+}
+
+fn catalog_tags_for_record(record: &AssetDatabaseRecord) -> Vec<String> {
+    let mut tags = Vec::new();
+    if !record.kind.is_empty() {
+        tags.push(record.kind.clone());
+    }
+    if !record.platform.is_empty() {
+        tags.push(record.platform.clone());
+    }
+    if !record.import_preset.name.is_empty() {
+        tags.push(format!("preset:{}", record.import_preset.name));
+    }
+    if record.fate_report.production_ready {
+        tags.push("production-ready".to_string());
+    }
+    for output in &record.outputs {
+        if !output.role.is_empty() {
+            tags.push(format!("output:{}", output.role));
+        }
+    }
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
+pub fn stable_asset_catalog_id(path: &str) -> String {
+    let clean = clean_catalog_path(path);
+    let hash = hash_hex_text(&format!("aster.catalog.v1:{clean}"));
+    format!("aster-catalog-{}", &hash[..16])
+}
+
+pub fn catalog_store_from_database(database: &AssetDatabase) -> AssetCatalogStore {
+    let mut database = database.clone();
+    refresh_asset_database_truth(&mut database);
+    let mut by_path = BTreeMap::<String, AssetCatalogRecord>::new();
+    for record in &database.records {
+        let path = catalog_path_for_record(record);
+        let catalog = by_path.entry(path.clone()).or_insert_with(|| {
+            let simple_name = path.split('/').next_back().unwrap_or("Assets").to_string();
+            let mut metadata = BTreeMap::new();
+            metadata.insert("source".to_string(), "asset-database".to_string());
+            metadata.insert("kind".to_string(), record.kind.clone());
+            AssetCatalogRecord {
+                id: stable_asset_catalog_id(&path),
+                path: path.clone(),
+                simple_name,
+                tags: Vec::new(),
+                metadata,
+                deleted: false,
+            }
+        });
+        catalog.tags.extend(catalog_tags_for_record(record));
+        catalog.tags.sort();
+        catalog.tags.dedup();
+        let asset_count = catalog
+            .metadata
+            .get("asset_count")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(0)
+            + 1;
+        catalog
+            .metadata
+            .insert("asset_count".to_string(), asset_count.to_string());
+    }
+    AssetCatalogStore {
+        schema_version: 1,
+        catalogs: by_path.into_values().collect(),
+    }
+}
+
+pub fn asset_catalog_store_json(database: &AssetDatabase) -> Result<String> {
+    Ok(serde_json::to_string_pretty(&catalog_store_from_database(
+        database,
+    ))?)
+}
+
+pub fn write_asset_catalog_store(
+    database: &AssetDatabase,
+    path: impl AsRef<Path>,
+) -> Result<usize> {
+    let store = catalog_store_from_database(database);
+    let count = store.catalogs.len();
+    write_json(path.as_ref(), &store)?;
+    Ok(count)
 }
 
 fn write_artifact_manifest(path: &Path, database: &AssetDatabase) -> Result<()> {
