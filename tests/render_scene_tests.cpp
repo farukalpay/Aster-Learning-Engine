@@ -894,6 +894,20 @@ void testFrameDebuggerEvidenceTimelineAndRegressionLab() {
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::PassOutput));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Overdraw));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Fallback));
+  assert(std::any_of(forensics.passes.begin(), forensics.passes.end(),
+                     [](const aster::FramePassStats &pass) {
+                       return pass.render_target_width > 0u &&
+                              pass.render_target_height > 0u &&
+                              pass.estimated_bandwidth_bytes > 0u &&
+                              pass.cpu_build_seconds >= 0.0;
+                     }));
+  assert(std::any_of(forensics.debug_timeline.begin(), forensics.debug_timeline.end(),
+                     [](const aster::FrameDebuggerTimelineEvent &event) {
+                       return event.kind == aster::FrameDebuggerTimelineEventKind::PassOutput &&
+                              event.estimated_bandwidth_bytes > 0u &&
+                              event.render_target_width > 0u &&
+                              event.render_target_height > 0u;
+                     }));
   assert(std::any_of(forensics.debug_timeline.begin(), forensics.debug_timeline.end(),
                      [](const aster::FrameDebuggerTimelineEvent &event) {
                        return event.kind == aster::FrameDebuggerTimelineEventKind::Fallback &&

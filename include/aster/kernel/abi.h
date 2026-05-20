@@ -154,7 +154,8 @@ typedef enum AsterKernelBackendPresentationMode {
   ASTER_KERNEL_BACKEND_PRESENTATION_NONE = 0,
   ASTER_KERNEL_BACKEND_PRESENTATION_SOFTWARE_FRAMEBUFFER = 1,
   ASTER_KERNEL_BACKEND_PRESENTATION_METAL_LAYER = 2,
-  ASTER_KERNEL_BACKEND_PRESENTATION_D3D12_OFFSCREEN_READBACK = 3
+  ASTER_KERNEL_BACKEND_PRESENTATION_D3D12_OFFSCREEN_READBACK = 3,
+  ASTER_KERNEL_BACKEND_PRESENTATION_D3D12_SWAPCHAIN = 4
 } AsterKernelBackendPresentationMode;
 
 typedef enum AsterKernelMeshPrimitive {
@@ -894,6 +895,14 @@ typedef struct AsterFramePassStats {
   size_t pipeline_switches;
   size_t material_permutations;
   double encode_seconds;
+  double cpu_build_seconds;
+  double gpu_execution_seconds;
+  uint64_t estimated_bandwidth_bytes;
+  uint32_t render_target_width;
+  uint32_t render_target_height;
+  size_t descriptor_heap_pressure;
+  size_t pipeline_cache_hits;
+  size_t pipeline_cache_misses;
 } AsterFramePassStats;
 
 typedef struct AsterFrameDiagnosticEvent {

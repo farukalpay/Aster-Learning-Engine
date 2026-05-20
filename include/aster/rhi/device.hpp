@@ -30,6 +30,7 @@ enum class PresentationMode : std::uint32_t {
   SoftwareFramebuffer,
   MetalLayer,
   D3D12OffscreenReadback,
+  D3D12Swapchain,
 };
 
 struct DeviceLimits {

@@ -79,6 +79,52 @@ Current material contracts:
   pack/unpack intent, normal, and height. They feed shared runtime/reference
   metadata rather than requiring mandatory baked textures in V1.
 
+## Surface Fidelity Gate
+
+Feature presence is not treated as visual quality by itself. `RenderQualityProfile`
+now carries a surface-fidelity policy that asks whether a LitPBR material can
+survive the conditions that players actually see: energy-conserving BSDF intent,
+environment/reflection response, nonzero area-light radius, shadow filtering,
+tangent-space policy for normal maps, temporal stability budget for height or
+micro-detail, and artist-facing preview rig metadata.
+
+`evaluateMaterialQuality` reports those checks under the `surface-fidelity`
+category. Material Lab separates them from generic cook issues so an artist sees
+the image-facing failure mode directly: missing tangent-space policy, missing
+motion-aliasing budget, missing preview environment, or a profile that disables
+IBL/shadow filtering. The report still keeps texture role, color-space, mip,
+compression, descriptor, and provenance data, but those details are support
+evidence rather than the definition of quality.
+
+Applying a production or cinematic `RenderQualityProfile` also gives preview and
+runtime light rigs a minimum source radius, so area-light response is not only a
+label in the material report. Texture sampling keeps full mip-chain checks and
+runtime anisotropy policy in the texture/runtime path; normal-mapped materials
+must declare how their tangent basis is authored or generated before the audit
+can be considered quiet.
+
+## Hero Material Suite
+
+`.astergraph` and `.astermat` content should converge on one artist-visible
+material truth: the material is accepted only when the preview, runtime binding
+trace, shader variant, fallback reason, mip behavior, and backend diff agree
+with the intended surface. The canonical suite is:
+
+- Rusted pipe: `showcases/pipe_lab/rusted_pipe.astergraph`.
+- Wet rock: `showcases/material_lab/wet_rock.astermat` and
+  `showcases/material_lab/procedural_wet_rock.astergraph`.
+- Cave wall or moss: `showcases/material_lab/procedural_cave_moss.astergraph`.
+- Wet decal and soot layering:
+  `showcases/material_lab/procedural_wet_decal_soot.astergraph`.
+- Biological surface: `showcases/primate_lab/cercopithecidae.astergraph`.
+
+Each material in that suite must carry albedo, normal, ORM, height, wetness, and
+roughness-response evidence; a named debug view; the selected shader variant; a
+fallback or no-fallback reason; mip-chain and anisotropy behavior; and a
+software/Metal/D3D12 backend-diff record. A material that only validates roles
+and color spaces but cannot explain the visible response is not production
+ready.
+
 Cooked material records include texture source hash, cooked hash, source format,
 runtime format, dimensions, mip count, byte cost, color-space decision,
 encoder/backend, shader variant key, fallback reason, platform compatibility,

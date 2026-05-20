@@ -243,7 +243,12 @@ MaterialLabAudit buildMaterialLabAudit(const MaterialAsset &asset,
     } else if (issue.severity == RenderQualityIssueSeverity::Info) {
       severity = "info";
     }
-    audit.issues.push_back(severity + ": " + issue.category + ": " + issue.message);
+    const std::string entry = severity + ": " + issue.message;
+    if (issue.category == "surface-fidelity") {
+      audit.surface_fidelity.push_back(entry);
+    } else {
+      audit.issues.push_back(severity + ": " + issue.category + ": " + issue.message);
+    }
   }
   if (const auto roughness = asset.params.find("roughness"); roughness != asset.params.end() &&
                                                  (roughness->second < 0.04f ||
@@ -260,6 +265,9 @@ MaterialLabAudit buildMaterialLabAudit(const MaterialAsset &asset,
   }
   audit.provenance_notes.push_back("roughness histogram unavailable: no decoded texture pixels");
   audit.provenance_notes.push_back("compression artifact preview unavailable: no native transcode path");
+  if (audit.surface_fidelity.empty()) {
+    audit.surface_fidelity.emplace_back("surface contract has no open fidelity warnings");
+  }
   appendMobileDegradations(asset, audit);
   return audit;
 }

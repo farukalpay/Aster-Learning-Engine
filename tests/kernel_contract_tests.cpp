@@ -477,6 +477,10 @@ void testRendererAbi5Lifecycle() {
   assert(aster_kernel_renderer_frame_pass_stats(renderer, 0u, &pass_stats).code ==
          ASTER_STATUS_OK);
   assert(pass_stats.name.size > 0u);
+  assert(pass_stats.render_target_width > 0u);
+  assert(pass_stats.render_target_height > 0u);
+  assert(pass_stats.estimated_bandwidth_bytes > 0u);
+  assert(pass_stats.cpu_build_seconds >= 0.0);
   AsterFrameDebugCaptureInfo capture_info{sizeof(AsterFrameDebugCaptureInfo),
                                           ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_renderer_debug_capture_info(renderer, 0u, &capture_info).code ==

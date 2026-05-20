@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <initializer_list>
+#include <map>
+#include <string_view>
 #include <utility>
 
 namespace aster {
@@ -14,10 +16,34 @@ bool hasTextureRole(const MaterialAsset &asset, const std::string_view role) {
   return asset.textures.find(std::string(role)) != asset.textures.end();
 }
 
-bool hasAnyTextureRole(const MaterialAsset &asset, const std::initializer_list<std::string_view> roles) {
+bool hasAnyTextureRole(const MaterialAsset &asset,
+                       const std::initializer_list<std::string_view> roles) {
   return std::any_of(roles.begin(), roles.end(), [&asset](const std::string_view role) {
     return hasTextureRole(asset, role);
   });
+}
+
+bool featureEnabled(const MaterialAsset &asset, const std::string_view feature) {
+  const auto found = asset.explicit_features.find(std::string(feature));
+  return found != asset.explicit_features.end() && found->second;
+}
+
+bool hasFloatParamAbove(const MaterialAsset &asset, const std::string_view key,
+                        const float threshold) {
+  const auto found = asset.params.find(std::string(key));
+  return found != asset.params.end() && found->second > threshold;
+}
+
+bool mapHasAnyKey(const std::map<std::string, std::string> &values,
+                  const std::initializer_list<std::string_view> keys) {
+  return std::any_of(keys.begin(), keys.end(), [&values](const std::string_view key) {
+    return values.find(std::string(key)) != values.end();
+  });
+}
+
+bool assetHasAnyMetadata(const MaterialAsset &asset,
+                         const std::initializer_list<std::string_view> keys) {
+  return mapHasAnyKey(asset.authoring, keys) || mapHasAnyKey(asset.quality_profile, keys);
 }
 
 void addIssue(MaterialQualityReport &report, const RenderQualityIssueSeverity severity,
@@ -87,6 +113,9 @@ RenderQualityProfile makeRenderQualityProfile(const RenderQualityTier tier) {
   profile.tier = tier;
   switch (tier) {
   case RenderQualityTier::Prototype:
+    profile.surface_fidelity.require_energy_conserving_bsdf = false;
+    profile.surface_fidelity.require_tangent_basis_policy = false;
+    profile.surface_fidelity.minimum_area_light_radius = 0.06f;
     profile.materials.require_normal = false;
     profile.materials.require_roughness_or_orm = false;
     profile.textures.minimum_dimension = 128u;
@@ -106,6 +135,7 @@ RenderQualityProfile makeRenderQualityProfile(const RenderQualityTier tier) {
     profile.reflections.mode = ReflectionProbeMode::Disabled;
     break;
   case RenderQualityTier::Production:
+    profile.surface_fidelity.minimum_area_light_radius = 0.18f;
     profile.shadows = {.technique = ShadowTechnique::CascadedDirectional,
                        .directional_cascades = 3u,
                        .map_size = 2048u,
@@ -130,6 +160,7 @@ RenderQualityProfile makeRenderQualityProfile(const RenderQualityTier tier) {
                            .influence_radius = 10.0f};
     break;
   case RenderQualityTier::Cinematic:
+    profile.surface_fidelity.minimum_area_light_radius = 0.36f;
     profile.textures.minimum_dimension = 1024u;
     profile.materials.require_occlusion = true;
     profile.shadows = {.technique = ShadowTechnique::CascadedDirectional,
@@ -224,6 +255,12 @@ void applyRenderQualityProfile(RendererSettings &settings, const RenderQualityPr
   settings.light_policy.max_point_lights =
       settings.clustered_lighting.enabled ? settings.clustered_lighting.max_visible_lights
                                           : kDefaultRenderLightBudget;
+  if (profile.surface_fidelity.require_area_light_response) {
+    for (Light &light : settings.light_rig) {
+      light.source_radius =
+          std::max(light.source_radius, profile.surface_fidelity.minimum_area_light_radius);
+    }
+  }
 }
 
 TextureImportOptions textureImportOptionsForQuality(const RenderQualityProfile &profile,
@@ -262,6 +299,60 @@ MaterialQualityReport evaluateMaterialQuality(const MaterialAsset &asset,
       addIssue(report, RenderQualityIssueSeverity::Warning, "material",
                "Roughness is outside the profile's stable PBR range.");
     }
+  }
+  if (lit && profile.surface_fidelity.require_energy_conserving_bsdf &&
+      !assetHasAnyMetadata(
+          asset, {"bsdf", "brdf", "surface_model", "lighting_model", "energy_conservation"})) {
+    addIssue(report, RenderQualityIssueSeverity::Info, "surface-fidelity",
+             "Material uses LitPBR inputs but does not name its BSDF or "
+             "energy-conservation contract.");
+  }
+  if (lit && profile.surface_fidelity.require_environment_response) {
+    if (profile.reflections.mode == ReflectionProbeMode::Disabled) {
+      addIssue(report, RenderQualityIssueSeverity::Warning, "surface-fidelity",
+               "Quality profile disables reflection probes, so wet/specular response "
+               "has no IBL path.");
+    } else if (!mapHasAnyKey(asset.preview, {"environment", "ibl", "reflection_probe"})) {
+      addIssue(report, RenderQualityIssueSeverity::Info, "surface-fidelity",
+               "Material preview metadata does not declare an environment or "
+               "reflection-probe rig.");
+    }
+  }
+  if (profile.surface_fidelity.require_area_light_response &&
+      profile.surface_fidelity.minimum_area_light_radius <= 0.0f) {
+    addIssue(report, RenderQualityIssueSeverity::Warning, "surface-fidelity",
+             "Quality profile has no nonzero area-light radius for "
+             "specular/soft-light response.");
+  }
+  if (profile.surface_fidelity.require_shadow_filtering) {
+    if (profile.shadows.technique == ShadowTechnique::Disabled) {
+      addIssue(report, RenderQualityIssueSeverity::Warning, "surface-fidelity",
+               "Quality profile disables shadow filtering.");
+    } else if (profile.shadows.softness <= 0.0f) {
+      addIssue(report, RenderQualityIssueSeverity::Warning, "surface-fidelity",
+               "Quality profile enables shadows without a filtering/softness radius.");
+    }
+  }
+  if (lit && profile.surface_fidelity.require_tangent_basis_policy &&
+      (hasTextureRole(asset, "normal") || featureEnabled(asset, "normal_map")) &&
+      !assetHasAnyMetadata(asset, {"tangent_basis", "tangent_space", "normal_convention"})) {
+    addIssue(report, RenderQualityIssueSeverity::Warning, "surface-fidelity",
+             "Normal-mapped material does not declare its tangent-space policy.");
+  }
+  const bool displacement_like =
+      hasTextureRole(asset, "height") || featureEnabled(asset, "parallax") ||
+      featureEnabled(asset, "triplanar") ||
+      hasFloatParamAbove(asset, "height_shading", 0.0f) ||
+      hasFloatParamAbove(asset, "micro_normal_strength", 0.0f);
+  if (lit && profile.surface_fidelity.require_temporal_stability_budget && displacement_like &&
+      !assetHasAnyMetadata(asset, {"temporal_stability", "motion_aliasing_budget",
+                                  "mip_bias_policy", "parallax_lod_policy"})) {
+    addIssue(report, RenderQualityIssueSeverity::Warning, "surface-fidelity",
+             "Height/detail material has no temporal stability or motion-aliasing budget.");
+  }
+  if (profile.surface_fidelity.require_artist_preview && asset.preview.empty()) {
+    addIssue(report, RenderQualityIssueSeverity::Info, "surface-fidelity",
+             "Material has no artist-facing preview rig metadata.");
   }
 
   for (const std::string &diagnostic : textures.diagnostics) {

@@ -19,6 +19,23 @@ new gameplay assumptions into the engine. Before new sample-game features become
 engine work, backend presentation, GPU timings, feature parity, asset compiler
 diagnostics, and cooked-content workflows must stay visible and testable.
 
+## Renderer Acceptance Route
+
+The cave route is a renderer acceptance test before it is a game level. Each
+stress station should bind a visible artifact to frame-forensics evidence:
+shadow atlas stress with dense casters and receiver bias checks, volumetric fog
+stress with low-resolution injection and final sampling proof, wet material
+stress for roughness/normal/height/wetness response, reflection-probe stress for
+local influence radius and backend diff, overdraw stress for translucent cave
+detail, and streaming stress for cooked graph/material/texture residency.
+
+Every visual glitch should resolve into a renderer or asset bug report, not a
+sample-only workaround. The report needs the capture, image diff status, pass
+cost map, resource transitions, material binding trace, backend feature proof,
+and asset provenance that explain why the frame failed. New gameplay routes wait
+behind D3D12 presentation proof, GPU timing proof, and D3D12 shadow/fog/probe
+parity.
+
 ## Classic Gauntlet
 
 The deep cave includes a Classic Gauntlet route built from Aster-native systems

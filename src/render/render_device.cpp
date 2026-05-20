@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <limits>
 #include <iterator>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -2285,6 +2286,123 @@ struct MaterialFrameSummary {
   std::vector<FrameDiagnosticEvent> events;
 };
 
+std::uint32_t imageFormatBytesPerPixel(const rhi::ImageFormat format) {
+  switch (format) {
+  case rhi::ImageFormat::Rgba16Float:
+    return 8u;
+  case rhi::ImageFormat::Depth32Float:
+  case rhi::ImageFormat::Rgba8Unorm:
+  case rhi::ImageFormat::Rgba8Srgb:
+  case rhi::ImageFormat::Bgra8Unorm:
+  case rhi::ImageFormat::Bgra8Srgb:
+    return 4u;
+  case rhi::ImageFormat::Rg8Unorm:
+    return 2u;
+  case rhi::ImageFormat::R8Unorm:
+    return 1u;
+  default:
+    return 4u;
+  }
+}
+
+const framegraph::CompiledResource *
+compiledResourceForHandle(const FixedRenderGraph &graph, const framegraph::ResourceHandle handle) {
+  if (handle.index < graph.resources.size() && graph.resources[handle.index].handle == handle) {
+    return &graph.resources[handle.index];
+  }
+  const auto found = std::find_if(graph.resources.begin(), graph.resources.end(),
+                                  [handle](const framegraph::CompiledResource &resource) {
+                                    return resource.handle == handle;
+                                  });
+  return found == graph.resources.end() ? nullptr : &*found;
+}
+
+rhi::ImageExtent resourceCostExtent(const RenderGraphResource resource,
+                                    const framegraph::ResourceDesc &desc,
+                                    const RendererSettings &settings,
+                                    const std::uint32_t frame_width,
+                                    const std::uint32_t frame_height) {
+  if (desc.extent.width > 1u || desc.extent.height > 1u) {
+    return desc.extent;
+  }
+  switch (resource) {
+  case RenderGraphResource::ShadowAtlas: {
+    const std::uint32_t atlas = std::max(settings.shadows.atlas_size, 1u);
+    return {atlas, atlas, 1u};
+  }
+  case RenderGraphResource::VolumetricFog:
+    return {std::max(frame_width / 4u, 1u), std::max(frame_height / 4u, 1u), 1u};
+  case RenderGraphResource::ReflectionProbes: {
+    const std::uint32_t face = std::max(settings.reflections.probe_resolution, 1u);
+    return {face * 6u, face, 1u};
+  }
+  case RenderGraphResource::LightClusters:
+    return {1u, 1u, 1u};
+  default:
+    return {std::max(frame_width, 1u), std::max(frame_height, 1u), 1u};
+  }
+}
+
+std::uint64_t estimatedResourceBytes(const RenderGraphResource resource,
+                                     const framegraph::ResourceDesc &desc,
+                                     const RendererSettings &settings,
+                                     const std::uint32_t frame_width,
+                                     const std::uint32_t frame_height) {
+  if (desc.kind == framegraph::ResourceKind::Buffer) {
+    return desc.byte_size;
+  }
+  const rhi::ImageExtent extent =
+      resourceCostExtent(resource, desc, settings, frame_width, frame_height);
+  return static_cast<std::uint64_t>(std::max(extent.width, 1u)) *
+         static_cast<std::uint64_t>(std::max(extent.height, 1u)) *
+         static_cast<std::uint64_t>(std::max(extent.depth, 1u)) *
+         imageFormatBytesPerPixel(desc.format);
+}
+
+std::uint64_t estimatePassBandwidthBytes(const FixedRenderGraph &graph,
+                                         const framegraph::CompiledPass &pass,
+                                         const RendererSettings &settings,
+                                         const std::uint32_t frame_width,
+                                         const std::uint32_t frame_height) {
+  std::uint64_t bytes = 0u;
+  const auto add_resource = [&](const framegraph::ResourceHandle handle) {
+    const framegraph::CompiledResource *resource = compiledResourceForHandle(graph, handle);
+    if (resource == nullptr) {
+      return;
+    }
+    bytes += estimatedResourceBytes(renderGraphResourceFromName(resource->name), resource->desc,
+                                    settings, frame_width, frame_height);
+  };
+  for (const framegraph::ResourceHandle read : pass.reads) {
+    add_resource(read);
+  }
+  for (const framegraph::ResourceHandle write : pass.writes) {
+    add_resource(write);
+  }
+  return bytes;
+}
+
+rhi::ImageExtent renderTargetExtentForPass(const FixedRenderGraph &graph,
+                                           const framegraph::CompiledPass &pass,
+                                           const RendererSettings &settings,
+                                           const std::uint32_t frame_width,
+                                           const std::uint32_t frame_height) {
+  for (const framegraph::ResourceHandle write : pass.writes) {
+    const framegraph::CompiledResource *resource = compiledResourceForHandle(graph, write);
+    if (resource != nullptr && resource->desc.kind == framegraph::ResourceKind::Image) {
+      return resourceCostExtent(renderGraphResourceFromName(resource->name), resource->desc,
+                                settings, frame_width, frame_height);
+    }
+  }
+  return {std::max(frame_width, 1u), std::max(frame_height, 1u), 1u};
+}
+
+bool realPresentationMode(const rhi::PresentationMode presentation) {
+  return presentation == rhi::PresentationMode::SoftwareFramebuffer ||
+         presentation == rhi::PresentationMode::MetalLayer ||
+         presentation == rhi::PresentationMode::D3D12Swapchain;
+}
+
 std::uint64_t appendEvidenceValue(std::uint64_t hash, const std::uint64_t value) {
   constexpr std::uint64_t kPrime = 1099511628211ull;
   hash ^= value;
@@ -3081,14 +3199,15 @@ void appendCapabilityCertification(const aster::RenderBackendCapabilities &capab
               aster::RenderGraphResource::SceneColor, aster::RenderGraphPass::SceneColorDepth,
               capabilities.capability_table.msaa ? 1u : 0u, 0u);
 
-  const bool presentation_proven =
-      capabilities.capability_table.presentation != aster::rhi::PresentationMode::None;
+  const bool presentation_proven = realPresentationMode(capabilities.capability_table.presentation);
   appendProof(forensics, aster::BackendFeatureProofKind::Presentation,
               presentation_proven ? aster::BackendFeatureProofStatus::Proven
                                   : aster::BackendFeatureProofStatus::Unsupported,
               "presentation", "presentation-mode",
-              presentation_proven ? "Backend reports a concrete presentation mode."
-                                  : "Backend has no presentation mode.",
+              presentation_proven
+                  ? "Backend reports a real presentation surface."
+                  : "Backend has no swapchain/window presentation proof; offscreen readback "
+                    "does not count as presentation.",
               aster::RenderGraphResource::SceneColor, aster::RenderGraphPass::UiComposite,
               presentation_proven ? 1u : 0u, presentation_proven ? 1u : 0u);
 }
@@ -3674,6 +3793,49 @@ const aster::FramePassStats *passStatsFor(const aster::FrameForensics &forensics
   return found == forensics.passes.end() ? nullptr : &*found;
 }
 
+void enrichFramePassCostMap(aster::FrameForensics &forensics, const aster::FixedRenderGraph &graph,
+                            const aster::RendererSettings &settings,
+                            const std::uint32_t frame_width,
+                            const std::uint32_t frame_height,
+                            const MaterialFrameSummary &material_summary) {
+  for (std::size_t pass_index = 0u; pass_index < forensics.passes.size(); ++pass_index) {
+    aster::FramePassStats &stats = forensics.passes[pass_index];
+    const auto compiled = std::find_if(
+        graph.passes.begin(), graph.passes.end(),
+        [&stats](const aster::framegraph::CompiledPass &pass) { return pass.name == stats.name; });
+    if (stats.cpu_build_seconds == 0.0) {
+      stats.cpu_build_seconds = stats.encode_seconds;
+    }
+    if (pass_index < forensics.timestamp_samples.size() &&
+        forensics.timestamp_samples[pass_index].available) {
+      stats.gpu_execution_seconds =
+          forensics.timestamp_samples[pass_index].nanoseconds / 1000000000.0;
+    }
+    if (compiled != graph.passes.end()) {
+      const aster::rhi::ImageExtent target =
+          renderTargetExtentForPass(graph, *compiled, settings, frame_width, frame_height);
+      stats.render_target_width = target.width;
+      stats.render_target_height = target.height;
+      stats.estimated_bandwidth_bytes =
+          estimatePassBandwidthBytes(graph, *compiled, settings, frame_width, frame_height);
+      stats.descriptor_heap_pressure = std::accumulate(
+          compiled->descriptor_requirements.begin(), compiled->descriptor_requirements.end(),
+          std::size_t{0u},
+          [](const std::size_t total,
+             const aster::framegraph::DescriptorRequirement &requirement) {
+            return total + std::max<std::uint32_t>(requirement.count, 1u);
+          });
+    }
+    if (stats.pass == aster::RenderGraphPass::Opaque) {
+      stats.pipeline_cache_hits = material_summary.material_variant_cache_hits;
+      stats.pipeline_cache_misses = material_summary.material_variant_cache_misses;
+      stats.descriptor_heap_pressure +=
+          material_summary.material_permutations *
+          std::max<std::uint32_t>(1u, settings.reflections.enabled ? 2u : 1u);
+    }
+  }
+}
+
 aster::RenderGraphResource firstOutputResourceForPass(const aster::RenderGraphPass pass) {
   const aster::RenderGraphPassDeclaration *declaration = aster::defaultRenderPassDeclaration(pass);
   if (declaration != nullptr && !declaration->outputs.empty()) {
@@ -3722,6 +3884,14 @@ std::uint64_t timelineEventHash(const aster::FrameDebuggerTimelineEvent &event) 
   hash = appendEvidenceText(hash, event.object_name);
   hash = appendEvidenceText(hash, event.label);
   hash = appendEvidenceText(hash, event.evidence);
+  hash = appendEvidenceValue(hash, event.estimated_bandwidth_bytes);
+  hash = appendEvidenceValue(hash, event.render_target_width);
+  hash = appendEvidenceValue(hash, event.render_target_height);
+  hash = appendEvidenceValue(hash, event.draw_count);
+  hash = appendEvidenceValue(hash, event.material_variant_count);
+  hash = appendEvidenceValue(hash, event.descriptor_heap_pressure);
+  hash = appendEvidenceValue(hash, event.pipeline_cache_hits);
+  hash = appendEvidenceValue(hash, event.pipeline_cache_misses);
   return appendEvidenceText(hash, event.fallback_reason);
 }
 
@@ -3746,7 +3916,21 @@ void rebuildFrameDebuggerTimeline(aster::FrameForensics &forensics) {
                          .label = pass.name,
                          .evidence = "draws=" + std::to_string(pass.draw_calls) +
                                      " encode_ms=" +
-                                     std::to_string(pass.encode_seconds * 1000.0)});
+                                     std::to_string(pass.encode_seconds * 1000.0) +
+                                     " gpu_ms=" +
+                                     std::to_string(pass.gpu_execution_seconds * 1000.0) +
+                                     " bandwidth=" +
+                                     std::to_string(pass.estimated_bandwidth_bytes),
+                         .cpu_build_seconds = pass.cpu_build_seconds,
+                         .gpu_execution_seconds = pass.gpu_execution_seconds,
+                         .estimated_bandwidth_bytes = pass.estimated_bandwidth_bytes,
+                         .render_target_width = pass.render_target_width,
+                         .render_target_height = pass.render_target_height,
+                         .draw_count = pass.draw_calls,
+                         .material_variant_count = pass.material_permutations,
+                         .descriptor_heap_pressure = pass.descriptor_heap_pressure,
+                         .pipeline_cache_hits = pass.pipeline_cache_hits,
+                         .pipeline_cache_misses = pass.pipeline_cache_misses});
   }
 
   for (const aster::MeshVisibilityTrace &visibility : forensics.mesh_visibility) {
@@ -4545,6 +4729,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
       certifyBackendFrame(render_graph_, native_backend_->capabilities(), settings, native_stats,
                           last_forensics_);
     }
+    enrichFramePassCostMap(last_forensics_, render_graph_, settings,
+                           static_cast<std::uint32_t>(framebuffer_width),
+                           static_cast<std::uint32_t>(framebuffer_height), material_summary);
     if (detailed_forensics) {
       finalizeObjectRenderFates(last_forensics_);
     }
@@ -4672,6 +4859,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   if (certify_forensics) {
     certifyBackendFrame(render_graph_, softwareCapabilities(), settings, stats, last_forensics_);
   }
+  enrichFramePassCostMap(last_forensics_, render_graph_, settings,
+                         static_cast<std::uint32_t>(framebuffer_width),
+                         static_cast<std::uint32_t>(framebuffer_height), material_summary);
   if (detailed_forensics) {
     finalizeObjectRenderFates(last_forensics_);
   }

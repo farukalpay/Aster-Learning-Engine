@@ -297,8 +297,8 @@ Windows now has a D3D12 offscreen raster/readback backend that validates device
 and command queue creation, consumes the shared scene render plan, reports
 structured backend capabilities, and captures through readback. It is a second
 GPU backend entry point for conformance work, not a finished Windows presentation
-renderer. Window presentation on Windows still uses the software framebuffer
-path today.
+renderer, and offscreen readback is not counted as presentation proof. Window
+presentation on Windows still uses the software framebuffer path today.
 
 Procedural material evaluation is profile-driven rather than sample-specific.
 Terrain layers, liquids, masonry, organic fibers, resin, painted wood, foliage,

@@ -21,22 +21,25 @@ Aster builds a frame from engine data, not sample-specific code:
 7. The certification layer validates the compiled RHI contract and records
    backend feature proofs before the frame is considered conformant.
 
-The frame debugger is contract-first: every frame records pass stats, resource
-transition traces, queue submit traces, descriptor layout hashes, pipeline cache
-keys, material binding/fallback state, asset-to-frame provenance traces,
-debug-capture declarations, resource lifetime validation events, pass artifacts,
-timestamp samples, and backend feature proofs. It also materializes three
-derived proof surfaces from the same raw frame: a single ordered debugger
+The frame debugger is contract-first: every frame records pass cost maps,
+resource transition traces, queue submit traces, descriptor layout hashes,
+pipeline cache keys, material binding/fallback state, asset-to-frame provenance
+traces, debug-capture declarations, resource lifetime validation events, pass
+artifacts, timestamp samples, and backend feature proofs. It also materializes
+three derived proof surfaces from the same raw frame: a single ordered debugger
 timeline for visibility, material binding, light cluster, shadow, fog, probe,
-pass output, overdraw, and fallback-reason events; a resource provenance graph
-that traces render-graph resources and material textures back to producer nodes,
-material graph IDs, cook reports, backend fallbacks, asset hashes, and shader
-variant keys; and a regression-gallery model that turns captures into lab
-entries with image diff status, backend difference, pass timing, asset hash, and
-shader key fields. The software reference path now produces checksummed RGBA
-captures for final color, shadow atlas, volumetric fog, and reflection probes.
-Native backends that advertise those proof resources must populate matching
-capture and sampling evidence; otherwise certification records missing proof.
+pass output, overdraw, and fallback-reason events with CPU build time, GPU time
+when sampled, bandwidth estimate, render target size, draw count, material
+variant count, descriptor pressure, and pipeline cache hit/miss totals; a
+resource provenance graph that traces render-graph resources and material
+textures back to producer nodes, material graph IDs, cook reports, backend
+fallbacks, asset hashes, and shader variant keys; and a regression-gallery model
+that turns captures into lab entries with image diff status, backend difference,
+pass timing, asset hash, and shader key fields. The software reference path now
+produces checksummed RGBA captures for final color, shadow atlas, volumetric fog,
+and reflection probes. Native backends that advertise those proof resources must
+populate matching capture and sampling evidence; otherwise certification records
+missing proof.
 Per-object visibility traces and object-to-cluster membership traces are
 recorded alongside the pass/resource data. Asset traces name the source asset,
 source node, source mesh, material slot, texture-role fate, mesh import

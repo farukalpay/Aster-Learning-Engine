@@ -1133,6 +1133,12 @@ void testNativeCaveConformanceWhenAvailable() {
   if (native.backend.kind == aster::RenderBackendKind::D3D12) {
     assert(native.backend.capability_table.presentation ==
            aster::rhi::PresentationMode::D3D12OffscreenReadback);
+    assert(std::any_of(native.forensics.backend_feature_proofs.begin(),
+                       native.forensics.backend_feature_proofs.end(),
+                       [](const aster::BackendFeatureProof &proof) {
+                         return proof.kind == aster::BackendFeatureProofKind::Presentation &&
+                                proof.status == aster::BackendFeatureProofStatus::Unsupported;
+                       }));
     if (!native.backend.capability_table.shadow_maps) {
       assert((native.backend.graph_resource_mask &
               aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas)) == 0u);

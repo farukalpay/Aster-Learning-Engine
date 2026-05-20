@@ -360,6 +360,11 @@ void testMaterialAuthoringGraphAndLabAudit() {
   const aster::MaterialLabAudit audit = aster::buildMaterialLabAudit(loaded.value, validation);
   assert(audit.shader_variant_key != 0u);
   assert(audit.feature_mask != 0u);
+  assert(!audit.surface_fidelity.empty());
+  assert(std::any_of(audit.surface_fidelity.begin(), audit.surface_fidelity.end(),
+                     [](const std::string &note) {
+                       return note.find("temporal stability") != std::string::npos;
+                     }));
   assert(!audit.mobile_degradations.empty());
   assert(std::any_of(audit.provenance_notes.begin(), audit.provenance_notes.end(),
                      [](const std::string &note) {
@@ -560,6 +565,8 @@ void testRenderQualityProfileContracts() {
   assert(production.shadows.technique == aster::ShadowTechnique::CascadedDirectional);
   assert(production.reflections.mode == aster::ReflectionProbeMode::StaticLocal);
   assert(production.textures.require_mip_chain);
+  assert(production.surface_fidelity.require_area_light_response);
+  assert(production.surface_fidelity.minimum_area_light_radius > 0.0f);
 
   aster::RendererSettings settings;
   aster::applyRenderQualityProfile(settings, production);
@@ -573,6 +580,11 @@ void testRenderQualityProfileContracts() {
   assert(settings.shadows.directional_cascades == production.shadows.directional_cascades);
   assert(settings.reflections.enabled);
   assert(settings.reflections.static_local_probes);
+  assert(std::all_of(settings.light_rig.begin(), settings.light_rig.end(),
+                     [&production](const aster::Light &light) {
+                       return light.source_radius >=
+                              production.surface_fidelity.minimum_area_light_radius;
+                     }));
 
   const aster::TextureImportOptions options =
       aster::textureImportOptionsForQuality(production, false);
@@ -602,7 +614,11 @@ void testRenderQualityProfileContracts() {
   const aster::MaterialQualityReport report =
       aster::evaluateMaterialQuality(loaded.value, validation, production);
   assert(report.production_ready);
-  assert(report.score >= 80u);
+  assert(report.score >= 70u);
+  assert(std::any_of(report.issues.begin(), report.issues.end(),
+                     [](const aster::RenderQualityIssue &issue) {
+                       return issue.category == "surface-fidelity";
+                     }));
 
   const aster::MaterialAssetLoadResult broken =
       aster::parseMaterialAsset(R"mat(

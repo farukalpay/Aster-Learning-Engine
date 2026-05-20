@@ -56,6 +56,7 @@ struct MaterialLabAudit {
   std::string shader_variant_tag;
   std::uint64_t texture_byte_cost = 0u;
   std::vector<MaterialLabTextureAudit> textures;
+  std::vector<std::string> surface_fidelity;
   std::vector<std::string> issues;
   std::vector<std::string> mobile_degradations;
   std::vector<std::string> provenance_notes;

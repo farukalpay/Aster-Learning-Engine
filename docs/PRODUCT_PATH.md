@@ -36,16 +36,20 @@ native proof remain unsupported.
 
 The debugger is a required product surface, not a bonus overlay. Each frame must
 explain visibility, material binding, light clusters, shadow, fog, probe, pass
-outputs, overdraw, and fallback reasons on one timeline. Render graph inspection
-must answer provenance questions such as which producer node created a texture,
-which material graph and cook report fed it, which backend fallback touched it,
-and which asset hash and shader variant key identify it. Screenshot galleries
-are regression labs: visuals are useful only when paired with image diff status,
+outputs, overdraw, and fallback reasons on one timeline. Pass entries must read
+as a CPU/GPU cost map: CPU build time, GPU time when sampled, bandwidth estimate,
+render target size, draw count, material variant count, descriptor heap pressure,
+and pipeline cache hit/miss totals. Render graph inspection must answer
+provenance questions such as which producer node created a texture, which
+material graph and cook report fed it, which backend fallback touched it, and
+which asset hash and shader variant key identify it. Screenshot galleries are
+regression labs: visuals are useful only when paired with image diff status,
 backend difference, pass timing, asset hash, and shader variant evidence.
 
 Priority order:
 
-1. D3D12 presentation.
+1. D3D12 swapchain presentation with real presentation proof; offscreen
+   readback remains capture evidence only.
 2. GPU timestamp queries in Metal and D3D12 for real frame timings.
 3. Native HDR and MSAA proof paths.
 4. D3D12 shadow atlas, volumetric fog, and reflection probe parity.

@@ -1,10 +1,12 @@
 # Aster Learning Engine
 
 Aster is a renderer contract engine by Faruk Alpay. Its product promise is not
-"a game engine with everything"; it is a small, inspectable kernel that proves
-what scene, mesh, material, render graph, backend output, and frame-forensics
-contracts mean on each supported platform. Lumen Run is a sample game built on
-top of Aster; it is not the engine itself.
+"a game engine with everything"; it is a small, inspectable kernel where the
+proof surfaces exist to protect the image. A frame is only interesting when the
+viewer can read weight, wetness, air, bounce, and material response on screen,
+then trace that visible result back through scene, mesh, material, render graph,
+backend output, and frame-forensics contracts. Lumen Run is a sample game built
+on top of Aster; it is not the engine itself.
 
 The current renderer/RHI v1 spine is deliberately measured by contracts rather
 than by folder names: the same `Scene`, materials, meshes, render graph, frame
@@ -24,7 +26,8 @@ Start here: [docs/START_HERE.md](docs/START_HERE.md)
   diagnostics.
 - Mesh input: use primitive/custom mesh descriptors or cooked scene assets with
   mesh validation and dependency metadata.
-- Frame guarantee: each frame emits backend capabilities, pass stats, resource
+- Visual guarantee: each frame is judged by the surface and light behavior it
+  produces first, then backed by backend capabilities, pass cost maps, resource
   transitions, descriptor/pipeline traces, material bindings, capture metadata,
   validation events, feature proofs, and timestamp samples when the backend can
   prove them.
@@ -32,9 +35,12 @@ Start here: [docs/START_HERE.md](docs/START_HERE.md)
 ## 30-Second Regression Lab
 
 The checked-in captures are generated from the current build and are organized
-around engine capability, not sample-game marketing. Every visual is expected to
-be explainable from image diff status, backend proof deltas, pass timings, asset
-hashes, shader variant keys, and the frame-forensics timeline.
+around visible renderer obligations, not sample-game marketing. A capture should
+show why a rock feels heavy, why wetness catches light, why a cave has air, and
+why shadows and reflection probes are stable. The proof data is still required,
+but it serves the image: image diff status, backend proof deltas, pass timings,
+asset hashes, shader variant keys, material fidelity issues, and the
+frame-forensics timeline explain what the viewer is seeing.
 
 ![Material Lab](assets/screenshots/material_lab.png)
 
@@ -136,7 +142,10 @@ Run built-in lab scenes:
   asset claim.
 - Material/shader contracts for strict `.astermat` cooking, required
   albedo/normal/ORM LitPBR roles, source texture validation, typed material
-  graph nodes, shader variants, render quality profiles, and hot reload.
+  graph nodes, shader variants, render quality profiles, hot reload, and
+  surface-fidelity audits for BSDF discipline, IBL/area-light response, shadow
+  filtering, texture mip policy, tangent-space policy, temporal stability, and
+  artist preview coverage.
 - Separate compiler entrypoints: `aster_materialc` for material packages,
   `aster_texturec` for texture packages, and `aster_assetc` for project/scene
   bundle orchestration.

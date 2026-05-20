@@ -54,6 +54,17 @@ struct TextureQualityPolicy {
   TextureCompression runtime_compression = TextureCompression::Ktx2Basis;
 };
 
+struct SurfaceFidelityPolicy {
+  bool require_energy_conserving_bsdf = true;
+  bool require_environment_response = true;
+  bool require_area_light_response = true;
+  bool require_shadow_filtering = true;
+  bool require_tangent_basis_policy = true;
+  bool require_temporal_stability_budget = true;
+  bool require_artist_preview = true;
+  float minimum_area_light_radius = 0.18f;
+};
+
 struct ShadowSystemSettings {
   ShadowTechnique technique = ShadowTechnique::ContactOnly;
   std::uint32_t directional_cascades = 0u;
@@ -113,6 +124,7 @@ struct RenderQualityProfile {
   RenderQualityTier tier = RenderQualityTier::Production;
   PbrMaterialQualityPolicy materials{};
   TextureQualityPolicy textures{};
+  SurfaceFidelityPolicy surface_fidelity{};
   ShadowSystemSettings shadows{};
   EnvironmentLightingSettings environment{};
   PostProcessSettings post{};

@@ -344,6 +344,14 @@ struct FramePassStats {
   std::size_t pipeline_switches = 0u;
   std::size_t material_permutations = 0u;
   double encode_seconds = 0.0;
+  double cpu_build_seconds = 0.0;
+  double gpu_execution_seconds = 0.0;
+  std::uint64_t estimated_bandwidth_bytes = 0u;
+  std::uint32_t render_target_width = 0u;
+  std::uint32_t render_target_height = 0u;
+  std::size_t descriptor_heap_pressure = 0u;
+  std::size_t pipeline_cache_hits = 0u;
+  std::size_t pipeline_cache_misses = 0u;
 };
 
 enum class RendererDebugView : std::uint32_t {
@@ -549,6 +557,16 @@ struct FrameDebuggerTimelineEvent {
   std::string evidence;
   std::string fallback_reason;
   std::uint64_t evidence_hash = 0u;
+  double cpu_build_seconds = 0.0;
+  double gpu_execution_seconds = 0.0;
+  std::uint64_t estimated_bandwidth_bytes = 0u;
+  std::uint32_t render_target_width = 0u;
+  std::uint32_t render_target_height = 0u;
+  std::size_t draw_count = 0u;
+  std::size_t material_variant_count = 0u;
+  std::size_t descriptor_heap_pressure = 0u;
+  std::size_t pipeline_cache_hits = 0u;
+  std::size_t pipeline_cache_misses = 0u;
 };
 
 enum class FrameResourceProvenanceKind : std::uint32_t {

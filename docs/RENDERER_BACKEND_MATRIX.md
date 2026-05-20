@@ -24,15 +24,18 @@ material, render graph, capture, and diagnostic contracts.
 | Storage buffers / texture arrays | Unsupported | Advertised for renderer contract work | Advertised for offscreen renderer contract work | Software output |
 | HDR render targets | Software reference advertises RGBA16F scene-color contract | Unsupported until a native HDR color target is wired | Unsupported until a native HDR color target is wired | Software output |
 | Blend modes advertised | Opaque, alpha blend | Opaque, alpha blend | Opaque, alpha blend | Opaque, alpha blend via software |
-| GPU timestamps | No | No | No | No |
+| GPU timestamps | No native queries; pass cost map still reports CPU build time, target size, estimated bandwidth, descriptor pressure, and pipeline cache pressure | No native queries yet; same pass cost map is emitted, GPU time stays unavailable until Metal timestamp sampling lands | No native queries yet; same pass cost map is emitted, GPU time stays unavailable until D3D12 timestamp sampling lands | No native queries; software cost map only |
 | Golden conformance | Exact baseline | Tolerance diff vs software | Tolerance diff vs software on Windows | Exact software baseline |
 
-The frame-debugger truth layer is available through `FrameForensics`: pass stats,
-resource transition traces, descriptor layout hashes, pipeline cache keys, queue
-submit traces, material binding traces, debug-capture declarations, RHI
+The frame-debugger truth layer is available through `FrameForensics`: pass cost
+maps, resource transition traces, descriptor layout hashes, pipeline cache keys,
+queue submit traces, material binding traces, debug-capture declarations, RHI
 validation events, pass artifacts, timestamp samples, and backend feature
-proofs. Software captures include RGBA payloads and content hashes for final
-color, shadow atlas, volumetric fog, and reflection probe resources. Metal cave
+proofs. Each pass stat carries CPU build time, GPU execution time when native
+timestamps exist, estimated bandwidth, render target size, draw count, material
+variant count, descriptor heap pressure, and pipeline cache hit/miss totals.
+Software captures include RGBA payloads and content hashes for final color,
+shadow atlas, volumetric fog, and reflection probe resources. Metal cave
 conformance captures are populated from native GPU/readback payloads for those
 same resources. Object visibility and object-to-cluster membership traces are
 recorded for frame-debugger queries.
@@ -40,13 +43,15 @@ recorded for frame-debugger queries.
 Backend feature support is certification-gated. `BackendFeatureProof` records
 state whether graph resources, capture, texture sampling, instancing, GPU
 timestamps, HDR, MSAA, and presentation were proven, not exercised, unsupported,
-or missing proof in the current frame. The conformance tests write per-pass
-certification artifacts next to image/diff artifacts under the temporary
-conformance artifact directory. If a backend advertises shadow, fog, or
-reflection-probe graph resources in the cave proof scene, it must produce native
-pass evidence, resource transitions, debug captures, and final sampling proof.
-Unsupported GPU timestamps, MSAA, and native HDR stay unsupported until native
-proof data exists.
+or missing proof in the current frame. Presentation support requires a real
+window/swapchain surface: software framebuffer, CAMetalLayer, or a future D3D12
+swapchain. D3D12 offscreen readback is useful capture evidence, but it no longer
+counts as presentation proof. The conformance tests write per-pass certification
+artifacts next to image/diff artifacts under the temporary conformance artifact
+directory. If a backend advertises shadow, fog, or reflection-probe graph
+resources in the cave proof scene, it must produce native pass evidence,
+resource transitions, debug captures, and final sampling proof. Unsupported GPU
+timestamps, MSAA, and native HDR stay unsupported until native proof data exists.
 
 Resource capability reporting is intentionally strict: if a render graph pass
 declares an output that is not in a backend's `graph_resource_mask`,

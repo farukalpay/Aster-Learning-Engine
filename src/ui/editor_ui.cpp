@@ -934,6 +934,8 @@ void drawMaterialLabAudit(aster::UiCanvas &canvas, const aster::MaterialLabAudit
                        std::to_string(texture.mip_count) + " " + byteCost(texture.byte_cost));
   }
   listRows(canvas, "Texture", textures, 6u, x, y, width, visible_top, visible_bottom);
+  listRows(canvas, "Surface", audit.surface_fidelity, 6u, x, y, width, visible_top,
+           visible_bottom);
   listRows(canvas, "Issue", audit.issues, 6u, x, y, width, visible_top, visible_bottom);
   listRows(canvas, "Mobile", audit.mobile_degradations, 4u, x, y, width, visible_top,
            visible_bottom);
@@ -1435,6 +1437,25 @@ void drawDebuggerTimelinePanel(aster::UiCanvas &canvas, std::size_t &selected_ev
           visible_bottom);
   textRow(canvas, "Evidence", clippedValue(event.evidence), x, y, width, visible_top,
           visible_bottom);
+  textRow(canvas, "CPU/GPU",
+          std::to_string(event.cpu_build_seconds * 1000.0) + " / " +
+              std::to_string(event.gpu_execution_seconds * 1000.0) + " ms",
+          x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Target",
+          std::to_string(event.render_target_width) + "x" +
+              std::to_string(event.render_target_height),
+          x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Bandwidth", byteCost(event.estimated_bandwidth_bytes), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Pressure",
+          "draw " + std::to_string(event.draw_count) + " mat " +
+              std::to_string(event.material_variant_count) + " desc " +
+              std::to_string(event.descriptor_heap_pressure),
+          x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Pipe cache",
+          std::to_string(event.pipeline_cache_hits) + " / " +
+              std::to_string(event.pipeline_cache_misses),
+          x, y, width, visible_top, visible_bottom);
   textRow(canvas, "Fallback", clippedValue(event.fallback_reason), x, y, width, visible_top,
           visible_bottom);
 }

@@ -669,6 +669,8 @@ AsterKernelBackendPresentationMode presentationMode(
     return ASTER_KERNEL_BACKEND_PRESENTATION_METAL_LAYER;
   case aster::rhi::PresentationMode::D3D12OffscreenReadback:
     return ASTER_KERNEL_BACKEND_PRESENTATION_D3D12_OFFSCREEN_READBACK;
+  case aster::rhi::PresentationMode::D3D12Swapchain:
+    return ASTER_KERNEL_BACKEND_PRESENTATION_D3D12_SWAPCHAIN;
   case aster::rhi::PresentationMode::None:
   default:
     return ASTER_KERNEL_BACKEND_PRESENTATION_NONE;
@@ -1963,6 +1965,14 @@ AsterStatus aster_kernel_renderer_frame_pass_stats(const AsterRendererHandle ren
   out_stats->pipeline_switches = pass.pipeline_switches;
   out_stats->material_permutations = pass.material_permutations;
   out_stats->encode_seconds = pass.encode_seconds;
+  out_stats->cpu_build_seconds = pass.cpu_build_seconds;
+  out_stats->gpu_execution_seconds = pass.gpu_execution_seconds;
+  out_stats->estimated_bandwidth_bytes = pass.estimated_bandwidth_bytes;
+  out_stats->render_target_width = pass.render_target_width;
+  out_stats->render_target_height = pass.render_target_height;
+  out_stats->descriptor_heap_pressure = pass.descriptor_heap_pressure;
+  out_stats->pipeline_cache_hits = pass.pipeline_cache_hits;
+  out_stats->pipeline_cache_misses = pass.pipeline_cache_misses;
   return aster_kernel_status_ok();
 }
 
