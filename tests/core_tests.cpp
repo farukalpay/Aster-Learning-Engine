@@ -5,6 +5,7 @@
 
 #include "aster/core/job_graph.hpp"
 #include "aster/core/module_registry.hpp"
+#include "aster/core/session_journal.hpp"
 #include "aster/core/signal.hpp"
 
 #include <atomic>
@@ -480,6 +481,53 @@ void testSourceBoundaryContracts() {
   }
 }
 
+void testConfigLayerStackAndSessionJournal() {
+  aster::ConfigLayerStack config;
+  config.addLayer(aster::parseConfigLayerText("defaults", R"cfg(
+[render]
+backend = "software"
+samples = 1
+tool.history = "on"
+)cfg"));
+  config.addLayer(aster::parseConfigLayerText("project", R"json(
+{
+  "render.samples": "4",
+  "tools.audit": "strict"
+}
+)json",
+                                              10u));
+  const aster::ConfigResolution resolution = config.resolve();
+  assert(resolution.values.at("render.backend") == "software");
+  assert(resolution.values.at("render.samples") == "4");
+  assert(config.get("tools.audit").value() == "strict");
+  assert(config.explain("render.samples").find("project") != std::string::npos);
+  assert(resolution.stamp != 0u);
+
+  aster::SessionJournal journal({.max_bytes = 1000u});
+  journal.appendCommand("studio", "open material lab", "asset-db");
+  journal.appendCommand("studio", "inspect cook lineage", "material.cli");
+  journal.append({.session_id = "assetc", .kind = "tool", .text = "catalog-audit"});
+  assert(!journal.empty());
+  assert(journal.contractStamp() != 0u);
+  assert(journal.toJsonLines().find("\"session_id\":\"studio\"") != std::string::npos);
+  assert(journal.byteSize() <= 1000u);
+
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "aster_session_journal_core_test.jsonl";
+  assert(journal.save(path));
+  const aster::SessionJournal loaded = aster::SessionJournal::load(path, {.max_bytes = 1000u});
+  assert(!loaded.empty());
+  assert(loaded.entriesFor("studio").size() >= 1u);
+
+  const aster::SessionDiagnosticSnapshot snapshot =
+      aster::snapshotSessionDiagnostics(config, loaded);
+  assert(snapshot.config_layers == 2u);
+  assert(snapshot.config_values >= 3u);
+  assert(snapshot.journal_entries == loaded.size());
+  assert(snapshot.config_stamp == resolution.stamp);
+  std::filesystem::remove(path);
+}
+
 } // namespace
 
 int main() {
@@ -498,6 +546,7 @@ int main() {
   testBudgetedWorkQueueContracts();
   testAsterCoreRuntimeContracts();
   testSourceBoundaryContracts();
+  testConfigLayerStackAndSessionJournal();
   std::cout << "core_tests passed.\n";
   return 0;
 }

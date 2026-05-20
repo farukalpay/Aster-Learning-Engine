@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -132,6 +133,59 @@ void setComponent(Vec4 &value, const MeshMirrorAxis axis, const float component_
     value.z = component_value;
     break;
   }
+}
+
+[[nodiscard]] CpuMesh transformedMesh(CpuMesh mesh, const Transform &transform) {
+  for (Vertex &vertex : mesh.vertices) {
+    vertex.position = transformPoint(transform, vertex.position);
+    vertex.normal = normalizeOr(transformVector(transform, vertex.normal), {0.0f, 1.0f, 0.0f});
+    const Vec3 tangent =
+        transformVector(transform, {vertex.tangent.x, vertex.tangent.y, vertex.tangent.z});
+    vertex.tangent.x = tangent.x;
+    vertex.tangent.y = tangent.y;
+    vertex.tangent.z = tangent.z;
+  }
+  return mesh;
+}
+
+void appendMesh(CpuMesh &dst, const CpuMesh &src) {
+  const std::uint32_t offset = static_cast<std::uint32_t>(dst.vertices.size());
+  dst.vertices.insert(dst.vertices.end(), src.vertices.begin(), src.vertices.end());
+  dst.indices.reserve(dst.indices.size() + src.indices.size());
+  for (const std::uint32_t index : src.indices) {
+    dst.indices.push_back(index + offset);
+  }
+}
+
+struct MeshBounds {
+  Vec3 min{std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+           std::numeric_limits<float>::max()};
+  Vec3 max{std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(),
+           std::numeric_limits<float>::lowest()};
+};
+
+[[nodiscard]] MeshBounds meshBounds(const CpuMesh &mesh) {
+  MeshBounds bounds;
+  for (const Vertex &vertex : mesh.vertices) {
+    bounds.min.x = std::min(bounds.min.x, vertex.position.x);
+    bounds.min.y = std::min(bounds.min.y, vertex.position.y);
+    bounds.min.z = std::min(bounds.min.z, vertex.position.z);
+    bounds.max.x = std::max(bounds.max.x, vertex.position.x);
+    bounds.max.y = std::max(bounds.max.y, vertex.position.y);
+    bounds.max.z = std::max(bounds.max.z, vertex.position.z);
+  }
+  return bounds;
+}
+
+[[nodiscard]] bool boundsOverlap(const MeshBounds &lhs, const MeshBounds &rhs) {
+  return lhs.min.x <= rhs.max.x && lhs.max.x >= rhs.min.x && lhs.min.y <= rhs.max.y &&
+         lhs.max.y >= rhs.min.y && lhs.min.z <= rhs.max.z && lhs.max.z >= rhs.min.z;
+}
+
+void appendUniqueStrings(std::vector<std::string> &dst, const std::vector<std::string> &src) {
+  dst.insert(dst.end(), src.begin(), src.end());
+  std::sort(dst.begin(), dst.end());
+  dst.erase(std::unique(dst.begin(), dst.end()), dst.end());
 }
 
 } // namespace
@@ -408,6 +462,308 @@ EditableMesh extrudeEditableFaces(const EditableMesh &mesh, const float distance
     *report = local;
   }
   return out;
+}
+
+EditableMesh packEditableMeshUvIslands(const EditableMesh &mesh, const MeshUvPackingPolicy policy,
+                                       MeshAuthoringReport *report) {
+  MeshAuthoringReport local;
+  initializeReport(local, mesh, "uv-pack");
+  EditableMesh out = mesh;
+  if (out.vertices.empty()) {
+    finishReport(local, out);
+    if (report != nullptr) {
+      *report = local;
+    }
+    return out;
+  }
+
+  Vec2 min_uv{std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+  Vec2 max_uv{std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest()};
+  for (const EditableMeshVertex &vertex : out.vertices) {
+    min_uv.x = std::min(min_uv.x, vertex.uv.x);
+    min_uv.y = std::min(min_uv.y, vertex.uv.y);
+    max_uv.x = std::max(max_uv.x, vertex.uv.x);
+    max_uv.y = std::max(max_uv.y, vertex.uv.y);
+  }
+  const Vec2 span{std::max(0.00001f, max_uv.x - min_uv.x),
+                  std::max(0.00001f, max_uv.y - min_uv.y)};
+  const float padding = std::clamp(policy.padding, 0.0f, 0.45f);
+  const float scale_x = 1.0f - padding * 2.0f;
+  const float scale_y = 1.0f - padding * 2.0f;
+  const float uniform = std::min(scale_x / span.x, scale_y / span.y);
+  for (EditableMeshVertex &vertex : out.vertices) {
+    Vec2 uv{(vertex.uv.x - min_uv.x) / span.x, (vertex.uv.y - min_uv.y) / span.y};
+    if (policy.normalize_to_unit_square && policy.preserve_aspect) {
+      uv = {(vertex.uv.x - min_uv.x) * uniform + padding,
+            (vertex.uv.y - min_uv.y) * uniform + padding};
+    } else if (policy.normalize_to_unit_square) {
+      uv = {uv.x * scale_x + padding, uv.y * scale_y + padding};
+    }
+    vertex.uv = uv;
+  }
+  finishReport(local, out);
+  if (report != nullptr) {
+    *report = local;
+  }
+  return out;
+}
+
+CpuMesh makeMeshPrimitiveRecipe(const MeshPrimitiveRecipe &recipe) {
+  switch (recipe.kind) {
+  case MeshPrimitiveRecipeKind::Box:
+    return makeBox();
+  case MeshPrimitiveRecipeKind::Plane:
+    return makePlane(recipe.size);
+  case MeshPrimitiveRecipeKind::Sphere:
+    return makeUvSphere(static_cast<int>(std::max<std::uint32_t>(3u, recipe.segments)),
+                        static_cast<int>(std::max<std::uint32_t>(2u, recipe.rings)),
+                        recipe.radius);
+  case MeshPrimitiveRecipeKind::Rock:
+    return makeRock(static_cast<int>(std::max<std::uint32_t>(3u, recipe.segments)),
+                    static_cast<int>(std::max<std::uint32_t>(2u, recipe.rings)),
+                    recipe.radius);
+  case MeshPrimitiveRecipeKind::Pillar:
+    return makePillar(static_cast<int>(std::max<std::uint32_t>(3u, recipe.segments)),
+                      recipe.radius, recipe.height);
+  }
+  return makeBox();
+}
+
+MeshBooleanResult evaluateMeshBooleanRequest(const MeshBooleanRequest &request) {
+  MeshBooleanResult result;
+  result.variant_intent_tags = request.variant_intent_tags;
+  result.report.operation = std::string("boolean-") + meshBooleanOperationName(request.operation);
+  result.report.input_vertices = 0u;
+  result.report.input_faces = 0u;
+  for (const MeshBooleanInput &input : request.inputs) {
+    result.report.input_vertices += input.mesh.vertices.size();
+    result.report.input_faces += input.mesh.indices.size() / 3u;
+  }
+  if (request.inputs.empty()) {
+    result.report.ok = false;
+    result.report.quality_score = 0u;
+    result.report.issues.push_back({"error", result.report.operation,
+                                    "boolean request has no inputs", 0u});
+    result.diagnostics.push_back("error: boolean request has no inputs");
+    return result;
+  }
+  if (request.solver == MeshBooleanSolver::ExactRequested && !request.allow_approximate) {
+    result.report.ok = false;
+    result.report.quality_score = 0u;
+    result.report.issues.push_back({"error", result.report.operation,
+                                    "exact boolean solver is not enabled in this build", 0u});
+    result.diagnostics.push_back("error: exact boolean solver is not enabled");
+    return result;
+  }
+  if (request.solver == MeshBooleanSolver::ExactRequested) {
+    result.diagnostics.push_back("warning: exact boolean request used Aster reference fallback");
+  }
+
+  std::vector<CpuMesh> transformed;
+  transformed.reserve(request.inputs.size());
+  for (const MeshBooleanInput &input : request.inputs) {
+    transformed.push_back(transformedMesh(input.mesh, input.transform));
+  }
+
+  switch (request.operation) {
+  case MeshBooleanOperation::Union:
+    for (const CpuMesh &mesh : transformed) {
+      appendMesh(result.mesh, mesh);
+    }
+    break;
+  case MeshBooleanOperation::Difference:
+    result.mesh = transformed.front();
+    if (transformed.size() > 1u) {
+      result.diagnostics.push_back("warning: difference kept base mesh as conservative proxy");
+    }
+    break;
+  case MeshBooleanOperation::Intersect: {
+    bool overlaps = true;
+    const MeshBounds first = meshBounds(transformed.front());
+    for (std::size_t i = 1u; i < transformed.size(); ++i) {
+      overlaps = overlaps && boundsOverlap(first, meshBounds(transformed[i]));
+    }
+    if (overlaps) {
+      result.mesh = transformed.front();
+      result.diagnostics.push_back("warning: intersection used overlapping bounds proxy");
+    } else {
+      result.diagnostics.push_back("warning: intersection inputs do not overlap");
+    }
+    break;
+  }
+  }
+
+  result.report.output_vertices = result.mesh.vertices.size();
+  result.report.output_faces = result.mesh.indices.size() / 3u;
+  result.report.generated_triangles = result.mesh.indices.size() / 3u;
+  result.report.ok = std::none_of(result.report.issues.begin(), result.report.issues.end(),
+                                  [](const MeshAuthoringIssue &issue) {
+                                    return issue.severity == "error";
+                                  });
+  result.report.quality_score = result.report.ok ? (result.diagnostics.empty() ? 100u : 82u) : 0u;
+  return result;
+}
+
+MeshAuthoringRecipeResult applyMeshAuthoringRecipe(const MeshAuthoringRecipe &recipe) {
+  MeshAuthoringRecipeResult result;
+  result.variant_intent_tags = recipe.variant_intent_tags;
+  CpuMesh current = recipe.source_mesh.value_or(CpuMesh{});
+  EditableMesh editable = editableMeshFromCpuMesh(current, recipe.provenance_id);
+  if (current.vertices.empty() && recipe.steps.empty()) {
+    result.diagnostics.push_back("error: mesh authoring recipe has no source mesh or steps");
+    result.quality_score = 0u;
+    return result;
+  }
+
+  for (const MeshAuthoringRecipeStep &step : recipe.steps) {
+    appendUniqueStrings(result.variant_intent_tags, step.variant_intent_tags);
+    MeshAuthoringReport report;
+    switch (step.kind) {
+    case MeshAuthoringRecipeStepKind::Primitive:
+      current = makeMeshPrimitiveRecipe(step.primitive);
+      editable = editableMeshFromCpuMesh(current, recipe.provenance_id);
+      report = validateEditableMesh(editable);
+      report.operation = "primitive";
+      break;
+    case MeshAuthoringRecipeStepKind::Validate:
+      report = validateEditableMesh(editable);
+      break;
+    case MeshAuthoringRecipeStepKind::Triangulate:
+      editable = triangulateEditableMesh(editable, &report);
+      break;
+    case MeshAuthoringRecipeStepKind::Weld:
+      editable = weldEditableVertices(editable, step.epsilon, &report);
+      break;
+    case MeshAuthoringRecipeStepKind::RecalculateNormals:
+      editable = recalculateEditableNormals(editable, &report);
+      break;
+    case MeshAuthoringRecipeStepKind::Mirror:
+      editable = mirrorEditableMesh(editable, step.mirror_axis, true, &report);
+      break;
+    case MeshAuthoringRecipeStepKind::Inset:
+      editable = insetEditableFaces(editable, step.amount, &report);
+      break;
+    case MeshAuthoringRecipeStepKind::Extrude:
+      editable = extrudeEditableFaces(editable, step.amount, &report);
+      break;
+    case MeshAuthoringRecipeStepKind::UvPack:
+      editable = packEditableMeshUvIslands(editable, step.uv_policy, &report);
+      break;
+    case MeshAuthoringRecipeStepKind::Boolean: {
+      MeshBooleanRequest request = step.boolean_request;
+      if (request.inputs.empty() && !current.vertices.empty()) {
+        request.inputs.push_back({.label = "current", .mesh = current});
+      }
+      const MeshBooleanResult boolean_result = evaluateMeshBooleanRequest(request);
+      current = boolean_result.mesh;
+      editable = editableMeshFromCpuMesh(current, recipe.provenance_id);
+      report = boolean_result.report;
+      result.diagnostics.insert(result.diagnostics.end(), boolean_result.diagnostics.begin(),
+                                boolean_result.diagnostics.end());
+      appendUniqueStrings(result.variant_intent_tags, boolean_result.variant_intent_tags);
+      break;
+    }
+    }
+    result.reports.push_back(report);
+    result.quality_score = std::min(result.quality_score, report.quality_score);
+    for (const MeshAuthoringIssue &issue : report.issues) {
+      result.diagnostics.push_back(issue.severity + ": " + issue.operation + ": " +
+                                   issue.message);
+    }
+    if (step.kind != MeshAuthoringRecipeStepKind::Boolean &&
+        step.kind != MeshAuthoringRecipeStepKind::Primitive) {
+      current = cpuMeshFromEditableMesh(editable);
+    }
+  }
+  result.mesh = current;
+  result.editable_mesh = editable;
+  if (result.reports.empty()) {
+    result.reports.push_back(validateEditableMesh(editable));
+  }
+  return result;
+}
+
+std::string summarizeMeshAuthoringRecipe(const MeshAuthoringRecipeResult &result) {
+  std::ostringstream out;
+  out << "mesh-recipe vertices=" << result.mesh.vertices.size()
+      << " indices=" << result.mesh.indices.size() << " reports=" << result.reports.size()
+      << " quality=" << result.quality_score;
+  if (!result.variant_intent_tags.empty()) {
+    out << " variants=";
+    for (std::size_t i = 0u; i < result.variant_intent_tags.size(); ++i) {
+      if (i > 0u) {
+        out << ",";
+      }
+      out << result.variant_intent_tags[i];
+    }
+  }
+  return out.str();
+}
+
+const char *meshBooleanOperationName(const MeshBooleanOperation operation) {
+  switch (operation) {
+  case MeshBooleanOperation::Union:
+    return "union";
+  case MeshBooleanOperation::Intersect:
+    return "intersect";
+  case MeshBooleanOperation::Difference:
+    return "difference";
+  }
+  return "unknown";
+}
+
+const char *meshBooleanSolverName(const MeshBooleanSolver solver) {
+  switch (solver) {
+  case MeshBooleanSolver::AsterReference:
+    return "aster-reference";
+  case MeshBooleanSolver::FastApproximate:
+    return "fast-approximate";
+  case MeshBooleanSolver::ExactRequested:
+    return "exact-requested";
+  }
+  return "unknown";
+}
+
+const char *meshPrimitiveRecipeKindName(const MeshPrimitiveRecipeKind kind) {
+  switch (kind) {
+  case MeshPrimitiveRecipeKind::Box:
+    return "box";
+  case MeshPrimitiveRecipeKind::Plane:
+    return "plane";
+  case MeshPrimitiveRecipeKind::Sphere:
+    return "sphere";
+  case MeshPrimitiveRecipeKind::Rock:
+    return "rock";
+  case MeshPrimitiveRecipeKind::Pillar:
+    return "pillar";
+  }
+  return "unknown";
+}
+
+const char *meshAuthoringRecipeStepKindName(const MeshAuthoringRecipeStepKind kind) {
+  switch (kind) {
+  case MeshAuthoringRecipeStepKind::Validate:
+    return "validate";
+  case MeshAuthoringRecipeStepKind::Triangulate:
+    return "triangulate";
+  case MeshAuthoringRecipeStepKind::Weld:
+    return "weld";
+  case MeshAuthoringRecipeStepKind::RecalculateNormals:
+    return "recalculate-normals";
+  case MeshAuthoringRecipeStepKind::Mirror:
+    return "mirror";
+  case MeshAuthoringRecipeStepKind::Inset:
+    return "inset";
+  case MeshAuthoringRecipeStepKind::Extrude:
+    return "extrude";
+  case MeshAuthoringRecipeStepKind::UvPack:
+    return "uv-pack";
+  case MeshAuthoringRecipeStepKind::Boolean:
+    return "boolean";
+  case MeshAuthoringRecipeStepKind::Primitive:
+    return "primitive";
+  }
+  return "unknown";
 }
 
 } // namespace aster

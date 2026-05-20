@@ -2,10 +2,12 @@
 // Do not remove this notice.
 
 use aster_content::{
-    asset_database_diff_json, asset_fate_report_json, asset_graph_inspect_report_json,
-    asset_graph_report_json, bake_texture_to_ktx2, catalog_store_from_database,
-    compile_scene_asset_to_cache, cook_project, hex_hash, inspect_cache, inspect_texture,
-    material_inspect_report_json, package_asset_graph, read_asset_database, report_asset_database,
+    asset_database_diff_json, asset_fate_report_json, asset_foundry_report_json,
+    asset_graph_inspect_report_json, asset_graph_report_json, bake_texture_to_ktx2,
+    catalog_store_from_database, compile_scene_asset_to_cache, cook_lineage_diff_json,
+    cook_lineage_report_json, cook_project, hex_hash, inspect_cache, inspect_texture,
+    material_inspect_report_json, mesh_recipe_inspect_report_json, package_asset_graph,
+    read_asset_database, report_asset_database, session_audit_report_json,
     write_asset_catalog_store, write_missing_asset_meta, CompileOptions, OriginPolicy,
 };
 use aster_runtime::{
@@ -88,11 +90,16 @@ fn usage() -> &'static str {
   aster_assetc cook --project <file.asterproj> --platform desktop --output <dir>
   aster_assetc report --db <assetdb.asterdb.json>
   aster_assetc catalog-inspect --db <assetdb.asterdb.json>
+  aster_assetc catalog-audit --db <assetdb.asterdb.json>
   aster_assetc catalog-sync --db <assetdb.asterdb.json> [--output <aster_catalogs.json>]
   aster_assetc mesh-import-inspect --input <mesh.obj|mesh.ply|mesh.stl>
+  aster_assetc mesh-recipe-inspect --input <recipe.json>
+  aster_assetc session-audit --input <history.jsonl> [--max-bytes <n>]
   aster_assetc graph --db <assetdb.asterdb.json>
   aster_assetc fate --db <assetdb.asterdb.json> --asset <id-or-guid>
   aster_assetc diff --before <old.assetdb.asterdb.json> --after <new.assetdb.asterdb.json>
+  aster_assetc lineage-diff --before <old.assetdb.asterdb.json> --after <new.assetdb.asterdb.json>
+  aster_assetc lineage-report --db <assetdb.asterdb.json>
   aster_assetc guid-init --project <file.asterproj>"
 }
 
@@ -366,6 +373,18 @@ fn catalog_sync_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn catalog_audit_command(args: &[String]) -> Result<(), String> {
+    let db = value_after(args, "--db")
+        .map(PathBuf::from)
+        .ok_or_else(|| "catalog-audit requires --db <assetdb.asterdb.json>".to_string())?;
+    let database = read_asset_database(&db).map_err(|error| error.to_string())?;
+    println!(
+        "{}",
+        asset_foundry_report_json(&database).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
 fn title_case(value: &str) -> String {
     let mut chars = value.chars();
     match chars.next() {
@@ -401,6 +420,35 @@ fn mesh_import_inspect_command(args: &[String]) -> Result<(), String> {
         vertices,
         indices,
         hex_u64(hash_bytes(&bytes))
+    );
+    Ok(())
+}
+
+fn mesh_recipe_inspect_command(args: &[String]) -> Result<(), String> {
+    let input = value_after(args, "--input")
+        .map(PathBuf::from)
+        .ok_or_else(|| "mesh-recipe-inspect requires --input <recipe.json>".to_string())?;
+    println!(
+        "{}",
+        mesh_recipe_inspect_report_json(&input).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn session_audit_command(args: &[String]) -> Result<(), String> {
+    let input = value_after(args, "--input")
+        .map(PathBuf::from)
+        .ok_or_else(|| "session-audit requires --input <history.jsonl>".to_string())?;
+    let max_bytes = value_after(args, "--max-bytes")
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .map_err(|_| format!("invalid --max-bytes value '{value}'"))
+        })
+        .transpose()?;
+    println!(
+        "{}",
+        session_audit_report_json(&input, max_bytes).map_err(|error| error.to_string())?
     );
     Ok(())
 }
@@ -506,6 +554,31 @@ fn diff_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn lineage_diff_command(args: &[String]) -> Result<(), String> {
+    let before = value_after(args, "--before")
+        .map(PathBuf::from)
+        .ok_or_else(|| "lineage-diff requires --before <old.assetdb.asterdb.json>".to_string())?;
+    let after = value_after(args, "--after")
+        .map(PathBuf::from)
+        .ok_or_else(|| "lineage-diff requires --after <new.assetdb.asterdb.json>".to_string())?;
+    let before_database = read_asset_database(&before).map_err(|error| error.to_string())?;
+    let after_database = read_asset_database(&after).map_err(|error| error.to_string())?;
+    let report = cook_lineage_diff_json(&before_database, &after_database)
+        .map_err(|error| error.to_string())?;
+    println!("{report}");
+    Ok(())
+}
+
+fn lineage_report_command(args: &[String]) -> Result<(), String> {
+    let db = value_after(args, "--db")
+        .map(PathBuf::from)
+        .ok_or_else(|| "lineage-report requires --db <assetdb.asterdb.json>".to_string())?;
+    let database = read_asset_database(&db).map_err(|error| error.to_string())?;
+    let report = cook_lineage_report_json(&database).map_err(|error| error.to_string())?;
+    println!("{report}");
+    Ok(())
+}
+
 fn guid_init_command(args: &[String]) -> Result<(), String> {
     let project = value_after(args, "--project")
         .map(PathBuf::from)
@@ -536,11 +609,16 @@ fn run() -> Result<(), String> {
         Some("cook") => cook_command(&args[2..]),
         Some("report") => report_command(&args[2..]),
         Some("catalog-inspect") => catalog_inspect_command(&args[2..]),
+        Some("catalog-audit") => catalog_audit_command(&args[2..]),
         Some("catalog-sync") => catalog_sync_command(&args[2..]),
         Some("mesh-import-inspect") => mesh_import_inspect_command(&args[2..]),
+        Some("mesh-recipe-inspect") => mesh_recipe_inspect_command(&args[2..]),
+        Some("session-audit") => session_audit_command(&args[2..]),
         Some("graph") => graph_command(&args[2..]),
         Some("fate") => fate_command(&args[2..]),
         Some("diff") => diff_command(&args[2..]),
+        Some("lineage-diff") => lineage_diff_command(&args[2..]),
+        Some("lineage-report") => lineage_report_command(&args[2..]),
         Some("guid-init") => guid_init_command(&args[2..]),
         Some("--help") | Some("-h") | None => {
             println!("{}", usage());

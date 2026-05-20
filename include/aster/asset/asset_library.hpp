@@ -120,10 +120,72 @@ struct AssetRepresentation {
   std::vector<std::string> tags;
   std::vector<std::string> dependency_ids;
   std::vector<std::string> creative_variant_tags;
+  std::vector<std::string> variant_intent_tags;
+  std::vector<std::string> production_readiness_reasons;
   std::map<std::string, std::string> metadata;
 
   [[nodiscard]] static AssetRepresentation fromRecord(const AssetDatabaseRecord &record,
                                                       const std::filesystem::path &database_root);
+};
+
+struct AssetImportRecipe {
+  std::string id;
+  std::string guid;
+  std::string kind;
+  std::filesystem::path source_path;
+  AssetCatalogPath catalog_path;
+  AssetLibrarySourceKind source_kind = AssetLibrarySourceKind::OnDisk;
+  AssetImportPresetRecord import_preset;
+  AssetPlatformProfileRecord platform_profile;
+  std::vector<std::string> dependency_ids;
+  std::vector<std::string> variant_intent_tags;
+  std::vector<std::string> production_readiness_reasons;
+  std::map<std::string, std::string> metadata;
+};
+
+struct AssetFoundryCatalogAudit {
+  std::size_t catalog_count = 0u;
+  std::size_t asset_count = 0u;
+  std::size_t production_ready_assets = 0u;
+  std::size_t orphaned_assets = 0u;
+  std::size_t duplicate_catalog_paths = 0u;
+  std::vector<std::string> variant_intent_tags;
+  std::vector<std::string> production_readiness_reasons;
+  std::vector<std::string> diagnostics;
+};
+
+struct AssetFoundryReport {
+  std::filesystem::path root_path;
+  std::vector<AssetLibrarySourceRecord> sources;
+  std::vector<AssetImportRecipe> import_recipes;
+  AssetFoundryCatalogAudit catalog_audit;
+  std::size_t dependency_edge_count = 0u;
+  std::vector<std::string> diagnostics;
+};
+
+struct CookLineageAsset {
+  std::string id;
+  std::string guid;
+  std::string kind;
+  std::string source_path;
+  bool production_ready = false;
+  std::size_t dependency_count = 0u;
+  std::size_t output_count = 0u;
+  std::size_t diagnostic_count = 0u;
+  AssetDerivedHashes hashes;
+  std::vector<std::string> chain;
+  std::vector<std::string> production_readiness_reasons;
+};
+
+struct CookLineageReport {
+  std::string platform;
+  std::string project_fingerprint;
+  std::size_t asset_count = 0u;
+  std::size_t production_ready_assets = 0u;
+  std::size_t dependency_edge_count = 0u;
+  std::size_t output_count = 0u;
+  std::vector<CookLineageAsset> assets;
+  std::vector<std::string> diagnostics;
 };
 
 struct AssetFileListEntry {
@@ -238,5 +300,8 @@ scanAssetFiles(const std::filesystem::path &root,
 [[nodiscard]] AssetLibraryManifest
 buildAssetLibraryManifest(const AssetLibrary &library,
                           const DiskFileHashService &hash_service = DiskFileHashService{});
+[[nodiscard]] AssetImportRecipe buildAssetImportRecipe(const AssetRepresentation &asset);
+[[nodiscard]] AssetFoundryReport buildAssetFoundryReport(const AssetLibrary &library);
+[[nodiscard]] CookLineageReport buildCookLineageReport(const AssetDatabase &database);
 
 } // namespace aster

@@ -3856,6 +3856,356 @@ pub fn asset_database_diff_json(before: &AssetDatabase, after: &AssetDatabase) -
     Ok(serde_json::to_string_pretty(&diff)?)
 }
 
+fn variant_intent_tags_for_record(record: &AssetDatabaseRecord) -> Vec<String> {
+    let mut tags = Vec::new();
+    let mut add = |prefix: &str, value: &str| {
+        if !value.is_empty() && value != "default" {
+            tags.push(format!("{prefix}{value}"));
+        }
+    };
+    add("collision:", &record.import_preset.collision_policy);
+    add("lod:", &record.import_preset.lod_policy);
+    add("texture-policy:", &record.import_preset.texture_role_policy);
+    add(
+        "material-slots:",
+        &record.import_preset.material_slot_policy,
+    );
+    if !record.derived_hashes.material_hash.is_empty() {
+        tags.push("material-variant".to_string());
+    }
+    if !record.derived_hashes.pipeline_cache_key.is_empty() {
+        tags.push("pipeline-variant".to_string());
+    }
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
+fn production_readiness_reasons_for_record(record: &AssetDatabaseRecord) -> Vec<String> {
+    let mut reasons = Vec::new();
+    let has_errors = record
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == "error");
+    let missing_dependencies = record
+        .dependencies
+        .iter()
+        .filter(|dependency| !dependency.present)
+        .count()
+        + record
+            .dependency_edges
+            .iter()
+            .filter(|edge| !edge.present)
+            .count();
+    if record.fate_report.production_ready {
+        reasons.push("production-ready".to_string());
+    }
+    if !has_errors && missing_dependencies == 0 && !record.outputs.is_empty() {
+        reasons.push("runtime-artifacts-present".to_string());
+    }
+    if has_errors {
+        reasons.push("blocked-by-errors".to_string());
+    }
+    if missing_dependencies > 0 {
+        reasons.push("blocked-by-missing-dependencies".to_string());
+    }
+    if record.outputs.is_empty() {
+        reasons.push("blocked-by-missing-runtime-output".to_string());
+    }
+    if !record.derived_hashes.shader_variant_key.is_empty() {
+        reasons.push("shader-variant-tracked".to_string());
+    }
+    if !record.derived_hashes.pipeline_cache_key.is_empty() {
+        reasons.push("pipeline-key-tracked".to_string());
+    }
+    reasons.sort();
+    reasons.dedup();
+    reasons
+}
+
+pub fn asset_foundry_report_json(database: &AssetDatabase) -> Result<String> {
+    let mut database = database.clone();
+    refresh_asset_database_truth(&mut database);
+    let catalogs = catalog_store_from_database(&database);
+    let production_ready = database
+        .records
+        .iter()
+        .filter(|record| record.fate_report.production_ready)
+        .count();
+    let mut variant_intent_tags = Vec::new();
+    let mut readiness_reasons = Vec::new();
+    let recipes = database
+        .records
+        .iter()
+        .map(|record| {
+            let variants = variant_intent_tags_for_record(record);
+            let reasons = production_readiness_reasons_for_record(record);
+            variant_intent_tags.extend(variants.clone());
+            readiness_reasons.extend(reasons.clone());
+            serde_json::json!({
+                "id": record.id,
+                "guid": record.guid,
+                "kind": record.kind,
+                "source_path": record.source_path,
+                "catalog_path": catalog_path_for_record(record),
+                "import_preset": record.import_preset,
+                "platform_profile": record.platform_profile,
+                "dependency_count": record.dependencies.len() + record.dependency_edges.len(),
+                "variant_intent_tags": variants,
+                "production_readiness_reasons": reasons,
+            })
+        })
+        .collect::<Vec<_>>();
+    variant_intent_tags.sort();
+    variant_intent_tags.dedup();
+    readiness_reasons.sort();
+    readiness_reasons.dedup();
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "platform": database.platform,
+        "assets": database.records.len(),
+        "catalogs": catalogs.catalogs.len(),
+        "production_ready_assets": production_ready,
+        "dependency_edges": database.asset_graph.edges.len(),
+        "variant_intent_tags": variant_intent_tags,
+        "production_readiness_reasons": readiness_reasons,
+        "catalog_store": catalogs,
+        "import_recipes": recipes,
+    });
+    Ok(serde_json::to_string_pretty(&report)?)
+}
+
+pub fn cook_lineage_report_json(database: &AssetDatabase) -> Result<String> {
+    let mut database = database.clone();
+    refresh_asset_database_truth(&mut database);
+    let assets = database
+        .records
+        .iter()
+        .map(|record| {
+            serde_json::json!({
+                "id": record.id,
+                "guid": record.guid,
+                "kind": record.kind,
+                "source_path": record.source_path,
+                "production_ready": record.fate_report.production_ready,
+                "dependency_count": record.dependencies.len() + record.dependency_edges.len(),
+                "output_count": record.outputs.len(),
+                "diagnostic_count": record.diagnostics.len(),
+                "hashes": record.derived_hashes,
+                "chain": record.fate_report.chain,
+                "production_readiness_reasons": production_readiness_reasons_for_record(record),
+            })
+        })
+        .collect::<Vec<_>>();
+    let output_count: usize = database
+        .records
+        .iter()
+        .map(|record| record.outputs.len())
+        .sum();
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "platform": database.platform,
+        "project_fingerprint": database.asset_graph.project_fingerprint,
+        "asset_count": database.records.len(),
+        "production_ready_assets": database
+            .records
+            .iter()
+            .filter(|record| record.fate_report.production_ready)
+            .count(),
+        "dependency_edge_count": database.asset_graph.edges.len(),
+        "output_count": output_count,
+        "assets": assets,
+    });
+    Ok(serde_json::to_string_pretty(&report)?)
+}
+
+pub fn cook_lineage_diff_json(before: &AssetDatabase, after: &AssetDatabase) -> Result<String> {
+    let mut before = before.clone();
+    let mut after = after.clone();
+    refresh_asset_database_truth(&mut before);
+    refresh_asset_database_truth(&mut after);
+    let before_records = before
+        .records
+        .iter()
+        .map(|record| (record.id.clone(), record))
+        .collect::<BTreeMap<_, _>>();
+    let mut changed = Vec::new();
+    for after_record in &after.records {
+        let Some(before_record) = before_records.get(&after_record.id) else {
+            changed.push(serde_json::json!({
+                "id": after_record.id,
+                "change": "added",
+                "after_reasons": production_readiness_reasons_for_record(after_record),
+            }));
+            continue;
+        };
+        let mut reasons = Vec::new();
+        if before_record.fate_report.production_ready != after_record.fate_report.production_ready {
+            reasons.push("production_ready");
+        }
+        if before_record.derived_hashes != after_record.derived_hashes {
+            reasons.push("derived_hashes");
+        }
+        if before_record.outputs.len() != after_record.outputs.len() {
+            reasons.push("outputs");
+        }
+        if before_record.dependencies.len() != after_record.dependencies.len() {
+            reasons.push("dependencies");
+        }
+        if !reasons.is_empty() {
+            changed.push(serde_json::json!({
+                "id": after_record.id,
+                "change": "changed",
+                "reasons": reasons,
+                "before_reasons": production_readiness_reasons_for_record(before_record),
+                "after_reasons": production_readiness_reasons_for_record(after_record),
+            }));
+        }
+    }
+    for before_record in &before.records {
+        if !after
+            .records
+            .iter()
+            .any(|record| record.id == before_record.id)
+        {
+            changed.push(serde_json::json!({
+                "id": before_record.id,
+                "change": "removed",
+                "before_reasons": production_readiness_reasons_for_record(before_record),
+            }));
+        }
+    }
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "before_fingerprint": before.asset_graph.project_fingerprint,
+        "after_fingerprint": after.asset_graph.project_fingerprint,
+        "changed": changed,
+    });
+    Ok(serde_json::to_string_pretty(&report)?)
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConfigLayerRecord {
+    pub name: String,
+    #[serde(default)]
+    pub priority: u32,
+    #[serde(default)]
+    pub values: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConfigLayerStackRecord {
+    pub layers: Vec<ConfigLayerRecord>,
+}
+
+impl ConfigLayerStackRecord {
+    pub fn resolve(&self) -> BTreeMap<String, String> {
+        let mut layers = self.layers.clone();
+        layers.sort_by_key(|layer| layer.priority);
+        let mut merged = BTreeMap::new();
+        for layer in layers {
+            for (key, value) in layer.values {
+                merged.insert(key, value);
+            }
+        }
+        merged
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionJournalRecord {
+    pub session_id: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub detail: String,
+    #[serde(default)]
+    pub ts: u64,
+    #[serde(default)]
+    pub sequence: u64,
+}
+
+pub fn session_audit_report_json(
+    input: impl AsRef<Path>,
+    max_bytes: Option<usize>,
+) -> Result<String> {
+    let input = input.as_ref();
+    let text = fs::read_to_string(input)?;
+    let mut total_bytes = 0usize;
+    let mut entries = Vec::new();
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        total_bytes += line.len() + 1;
+        let entry: SessionJournalRecord = serde_json::from_str(line)?;
+        entries.push(entry);
+    }
+    let mut retained_entries = entries.clone();
+    if let Some(max_bytes) = max_bytes {
+        let mut retained_bytes = total_bytes;
+        while retained_bytes > max_bytes && !retained_entries.is_empty() {
+            let dropped = serde_json::to_string(&retained_entries.remove(0))?.len() + 1;
+            retained_bytes = retained_bytes.saturating_sub(dropped);
+        }
+    }
+    let mut by_session = BTreeMap::<String, usize>::new();
+    for entry in &retained_entries {
+        *by_session.entry(entry.session_id.clone()).or_default() += 1;
+    }
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "path": input.to_string_lossy().replace('\\', "/"),
+        "entries": entries.len(),
+        "retained_entries": retained_entries.len(),
+        "bytes": total_bytes,
+        "max_bytes": max_bytes,
+        "sessions": by_session,
+    });
+    Ok(serde_json::to_string_pretty(&report)?)
+}
+
+pub fn mesh_recipe_inspect_report_json(input: impl AsRef<Path>) -> Result<String> {
+    let input = input.as_ref();
+    let value: Value = serde_json::from_slice(&fs::read(input)?)?;
+    let steps = value
+        .get("steps")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    let variants = value
+        .get("variant_intent_tags")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut operations = BTreeMap::<String, usize>::new();
+    if let Some(step_values) = value.get("steps").and_then(Value::as_array) {
+        for step in step_values {
+            let kind = step
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("validate")
+                .to_string();
+            *operations.entry(kind).or_default() += 1;
+        }
+    }
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "path": input.to_string_lossy().replace('\\', "/"),
+        "id": value.get("id").and_then(Value::as_str).unwrap_or("mesh.recipe"),
+        "steps": steps,
+        "operations": operations,
+        "variant_intent_tags": variants,
+        "quality_floor": if steps == 0 { 0 } else { 80 },
+    });
+    Ok(serde_json::to_string_pretty(&report)?)
+}
+
 fn cook_texture_asset_as(
     input: &Path,
     output_root: &Path,
@@ -8151,5 +8501,60 @@ edge mat.wet material.assign wetness
         assert!(dependency.present);
         assert_ne!(dependency.hash, [0u8; 32]);
         fs::remove_dir_all(glb.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn reports_foundry_lineage_config_and_session_audits() {
+        let project = write_material_project("foundry_reports", false);
+        let output = project.parent().unwrap().join("cooked/desktop");
+        let result = cook_project(&project, "desktop", &output).expect("cook");
+        let foundry = asset_foundry_report_json(&result.database).expect("foundry");
+        assert!(foundry.contains("import_recipes"));
+        assert!(foundry.contains("production_readiness_reasons"));
+        let lineage = cook_lineage_report_json(&result.database).expect("lineage");
+        assert!(lineage.contains("project_fingerprint"));
+        assert!(lineage.contains("production_ready_assets"));
+        let lineage_diff =
+            cook_lineage_diff_json(&result.database, &result.database).expect("lineage diff");
+        assert!(lineage_diff.contains("\"changed\": []"));
+
+        let mut stack = ConfigLayerStackRecord::default();
+        stack.layers.push(ConfigLayerRecord {
+            name: "defaults".to_string(),
+            priority: 0,
+            values: BTreeMap::from([
+                ("render.backend".to_string(), "software".to_string()),
+                ("tools.audit".to_string(), "normal".to_string()),
+            ]),
+        });
+        stack.layers.push(ConfigLayerRecord {
+            name: "project".to_string(),
+            priority: 10,
+            values: BTreeMap::from([("tools.audit".to_string(), "strict".to_string())]),
+        });
+        assert_eq!(stack.resolve().get("tools.audit").unwrap(), "strict");
+
+        let history = project.parent().unwrap().join("history.jsonl");
+        fs::write(
+            &history,
+            r#"{"session_id":"studio","kind":"command","text":"open","detail":"lab","ts":1,"sequence":1}
+{"session_id":"assetc","kind":"tool","text":"catalog-audit","detail":"db","ts":2,"sequence":2}
+"#,
+        )
+        .expect("history");
+        let audit = session_audit_report_json(&history, Some(160)).expect("session audit");
+        assert!(audit.contains("retained_entries"));
+        assert!(audit.contains("assetc"));
+
+        let recipe = project.parent().unwrap().join("recipe.json");
+        fs::write(
+            &recipe,
+            r#"{"id":"mesh.recipe","variant_intent_tags":["uv:packed"],"steps":[{"kind":"triangulate"},{"kind":"uv-pack"}]}"#,
+        )
+        .expect("recipe");
+        let mesh_recipe = mesh_recipe_inspect_report_json(&recipe).expect("mesh recipe");
+        assert!(mesh_recipe.contains("\"steps\": 2"));
+        assert!(mesh_recipe.contains("uv-pack"));
+        fs::remove_dir_all(project.parent().unwrap()).ok();
     }
 }

@@ -146,6 +146,61 @@ void testActionSchedulerFeatureContracts() {
   scheduler.tick(0.05f);
   assert(scheduler.find(swim)->state == aster::ActionTaskState::Finished);
   assert(scheduler.events().size() >= 8u);
+
+  aster::ActionScheduler resource_scheduler;
+  aster::ActionResourceSet motion_resource;
+  assert(motion_resource.add("resource.actor.motion"));
+  resource_scheduler.beginEventBatch();
+  const aster::ActionTaskId long_task = resource_scheduler.submit({
+      .name = "resource holder",
+      .owner = "actor.one",
+      .priority = aster::ActionTaskPriority::Normal,
+      .claimed_resources = motion_resource,
+      .duration_seconds = 1.0f,
+  });
+  resource_scheduler.tick(0.10f);
+  assert(resource_scheduler.events().empty());
+  resource_scheduler.endEventBatch();
+  assert(!resource_scheduler.events().empty());
+  assert(resource_scheduler.find(long_task)->state == aster::ActionTaskState::Active);
+  assert(resource_scheduler.claimedResources().contains(featureLabel("resource.actor.motion")));
+
+  const aster::ActionTaskId blocked = resource_scheduler.submit({
+      .name = "resource waiter",
+      .owner = "actor.two",
+      .priority = aster::ActionTaskPriority::Normal,
+      .required_resources = motion_resource,
+      .duration_seconds = 0.1f,
+  });
+  resource_scheduler.tick(0.01f);
+  assert(resource_scheduler.find(blocked)->state == aster::ActionTaskState::Blocked);
+  assert(resource_scheduler.find(blocked)->blocked_by_tasks.size() == 1u);
+  assert(resource_scheduler.find(blocked)->blocked_by_tasks.front() == long_task);
+  assert(!resource_scheduler.find(blocked)->owner_diagnostic.empty());
+
+  bool preempt_finish_called = false;
+  const aster::ActionTaskId preempt = resource_scheduler.submit({
+      .name = "resource preempt",
+      .owner = "actor.two",
+      .priority = aster::ActionTaskPriority::Critical,
+      .claimed_resources = motion_resource,
+      .duration_seconds = 0.01f,
+      .can_preempt = true,
+      .on_finish = [&](aster::ActionTaskContext &context) {
+        assert(context.claimed_resources.contains(featureLabel("resource.actor.motion")));
+        preempt_finish_called = true;
+      },
+  });
+  resource_scheduler.tick(0.02f);
+  assert(resource_scheduler.find(long_task)->state == aster::ActionTaskState::Cancelled);
+  assert(resource_scheduler.find(preempt)->state == aster::ActionTaskState::Finished);
+  assert(preempt_finish_called);
+  assert(!resource_scheduler.journal().empty());
+  assert(resource_scheduler.journal().contractStamp() != 0u);
+  assert(resource_scheduler.journal().summary().find("actor.two") != std::string::npos);
+  const std::vector<aster::ActionOwnerDiagnostic> owner_diagnostics =
+      resource_scheduler.ownerDiagnostics();
+  assert(!owner_diagnostics.empty());
 }
 
 void testGameplayItemInteractionSystems() {

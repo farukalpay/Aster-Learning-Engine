@@ -149,6 +149,7 @@ set(ASTER_CORE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/job_graph.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/module_registry.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/profiler.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/session_journal.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/work_budget.cpp"
   "${PROJECT_SOURCE_DIR}/src/math/transform.cpp"
 )

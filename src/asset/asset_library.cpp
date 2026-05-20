@@ -209,6 +209,51 @@ creativeVariantTagsForRecord(const AssetDatabaseRecord &record) {
   return tags;
 }
 
+[[nodiscard]] std::vector<std::string>
+productionReadinessReasonsForRecord(const AssetDatabaseRecord &record) {
+  std::vector<std::string> reasons;
+  const bool has_errors =
+      std::any_of(record.diagnostics.begin(), record.diagnostics.end(),
+                  [](const AssetCookDiagnostic &diagnostic) {
+                    return diagnostic.severity == "error";
+                  });
+  const std::size_t missing_dependencies =
+      static_cast<std::size_t>(std::count_if(record.dependencies.begin(),
+                                             record.dependencies.end(),
+                                             [](const AssetDependencyRecord &dependency) {
+                                               return !dependency.present;
+                                             })) +
+      static_cast<std::size_t>(std::count_if(record.dependency_edges.begin(),
+                                             record.dependency_edges.end(),
+                                             [](const AssetDependencyEdge &edge) {
+                                               return !edge.present;
+                                             }));
+  if (record.fate_report.production_ready) {
+    reasons.push_back("production-ready");
+  }
+  if (!has_errors && missing_dependencies == 0u && !record.outputs.empty()) {
+    reasons.push_back("runtime-artifacts-present");
+  }
+  if (has_errors) {
+    reasons.push_back("blocked-by-errors");
+  }
+  if (missing_dependencies > 0u) {
+    reasons.push_back("blocked-by-missing-dependencies");
+  }
+  if (record.outputs.empty()) {
+    reasons.push_back("blocked-by-missing-runtime-output");
+  }
+  if (!record.derived_hashes.shader_variant_key.empty()) {
+    reasons.push_back("shader-variant-tracked");
+  }
+  if (!record.derived_hashes.pipeline_cache_key.empty()) {
+    reasons.push_back("pipeline-key-tracked");
+  }
+  std::sort(reasons.begin(), reasons.end());
+  reasons.erase(std::unique(reasons.begin(), reasons.end()), reasons.end());
+  return reasons;
+}
+
 [[nodiscard]] std::map<std::string, std::string>
 metadataForRecord(const AssetDatabaseRecord &record) {
   std::map<std::string, std::string> metadata;
@@ -447,6 +492,8 @@ AssetRepresentation AssetRepresentation::fromRecord(const AssetDatabaseRecord &r
   representation.fate_report = record.fate_report;
   representation.tags = tagsForRecord(record);
   representation.creative_variant_tags = creativeVariantTagsForRecord(record);
+  representation.variant_intent_tags = representation.creative_variant_tags;
+  representation.production_readiness_reasons = productionReadinessReasonsForRecord(record);
   representation.metadata = metadataForRecord(record);
   for (const AssetDependencyEdge &edge : record.dependency_edges) {
     if (!edge.to.empty()) {
@@ -841,6 +888,119 @@ AssetLibraryManifest buildAssetLibraryManifest(const AssetLibrary &library,
     }
   }
   return manifest;
+}
+
+AssetImportRecipe buildAssetImportRecipe(const AssetRepresentation &asset) {
+  AssetImportRecipe recipe;
+  recipe.id = asset.id;
+  recipe.guid = asset.guid;
+  recipe.kind = asset.kind;
+  recipe.source_path = asset.source_path;
+  recipe.catalog_path = AssetCatalogPath(asset.catalog_path).cleanup();
+  recipe.dependency_ids = asset.dependency_ids;
+  recipe.variant_intent_tags = asset.variant_intent_tags.empty() ? asset.creative_variant_tags
+                                                                 : asset.variant_intent_tags;
+  recipe.production_readiness_reasons = asset.production_readiness_reasons;
+  recipe.metadata = asset.metadata;
+  const auto import_preset = asset.metadata.find("import_preset");
+  if (import_preset != asset.metadata.end()) {
+    recipe.import_preset.name = import_preset->second;
+  }
+  const auto platform = asset.metadata.find("platform");
+  if (platform != asset.metadata.end()) {
+    recipe.platform_profile.name = platform->second;
+    recipe.platform_profile.target = platform->second;
+  }
+  return recipe;
+}
+
+AssetFoundryReport buildAssetFoundryReport(const AssetLibrary &library) {
+  AssetFoundryReport report;
+  report.root_path = library.root_path;
+  report.sources = library.sources;
+  report.dependency_edge_count = library.dependency_edges.size();
+  report.catalog_audit.catalog_count = library.catalogs.size();
+  report.catalog_audit.asset_count = library.assets.size();
+
+  std::map<std::string, std::size_t> catalog_path_counts;
+  for (const AssetCatalogEntry &catalog : library.catalogs) {
+    ++catalog_path_counts[catalog.catalog_path];
+  }
+  for (const auto &[path, count] : catalog_path_counts) {
+    if (count > 1u) {
+      ++report.catalog_audit.duplicate_catalog_paths;
+      report.catalog_audit.diagnostics.push_back("duplicate catalog path: " + path);
+    }
+  }
+
+  report.import_recipes.reserve(library.assets.size());
+  for (const AssetRepresentation &asset : library.assets) {
+    report.import_recipes.push_back(buildAssetImportRecipe(asset));
+    if (asset.production_ready) {
+      ++report.catalog_audit.production_ready_assets;
+    }
+    if (asset.catalog_path.empty()) {
+      ++report.catalog_audit.orphaned_assets;
+      report.catalog_audit.diagnostics.push_back("asset has no catalog: " + asset.id);
+    }
+    report.catalog_audit.variant_intent_tags.insert(
+        report.catalog_audit.variant_intent_tags.end(), asset.variant_intent_tags.begin(),
+        asset.variant_intent_tags.end());
+    report.catalog_audit.production_readiness_reasons.insert(
+        report.catalog_audit.production_readiness_reasons.end(),
+        asset.production_readiness_reasons.begin(), asset.production_readiness_reasons.end());
+    report.diagnostics.insert(report.diagnostics.end(), asset.diagnostics.begin(),
+                              asset.diagnostics.end());
+  }
+  std::sort(report.catalog_audit.variant_intent_tags.begin(),
+            report.catalog_audit.variant_intent_tags.end());
+  report.catalog_audit.variant_intent_tags.erase(
+      std::unique(report.catalog_audit.variant_intent_tags.begin(),
+                  report.catalog_audit.variant_intent_tags.end()),
+      report.catalog_audit.variant_intent_tags.end());
+  std::sort(report.catalog_audit.production_readiness_reasons.begin(),
+            report.catalog_audit.production_readiness_reasons.end());
+  report.catalog_audit.production_readiness_reasons.erase(
+      std::unique(report.catalog_audit.production_readiness_reasons.begin(),
+                  report.catalog_audit.production_readiness_reasons.end()),
+      report.catalog_audit.production_readiness_reasons.end());
+  return report;
+}
+
+CookLineageReport buildCookLineageReport(const AssetDatabase &database) {
+  CookLineageReport report;
+  report.platform = database.platform;
+  report.project_fingerprint = database.asset_graph.project_fingerprint;
+  report.asset_count = database.records.size();
+  report.dependency_edge_count = database.asset_graph.edges.size();
+  for (const AssetDatabaseRecord &record : database.records) {
+    CookLineageAsset asset;
+    asset.id = record.id;
+    asset.guid = record.guid;
+    asset.kind = record.kind;
+    asset.source_path = record.source_path;
+    asset.production_ready = record.fate_report.production_ready;
+    asset.dependency_count = record.dependencies.size() + record.dependency_edges.size();
+    asset.output_count = record.outputs.size();
+    asset.diagnostic_count = record.diagnostics.size();
+    asset.hashes = record.derived_hashes;
+    asset.chain = record.fate_report.chain;
+    asset.production_readiness_reasons = productionReadinessReasonsForRecord(record);
+    if (asset.production_ready) {
+      ++report.production_ready_assets;
+    }
+    report.output_count += asset.output_count;
+    for (const AssetCookDiagnostic &diagnostic : record.diagnostics) {
+      report.diagnostics.push_back(record.id + ": " + diagnostic.severity + ": " +
+                                   diagnostic.message);
+    }
+    report.assets.push_back(std::move(asset));
+  }
+  std::sort(report.assets.begin(), report.assets.end(),
+            [](const CookLineageAsset &lhs, const CookLineageAsset &rhs) {
+              return lhs.id < rhs.id;
+            });
+  return report;
 }
 
 } // namespace aster

@@ -366,6 +366,40 @@ fn cook_and_report_asset_database() {
     assert!(catalog_stdout.contains("aster-catalog-"));
     assert!(catalog_stdout.contains("path=Assets/Material"));
 
+    let catalog_audit = Command::new(binary)
+        .arg("catalog-audit")
+        .arg("--db")
+        .arg(&db)
+        .output()
+        .expect("run catalog audit");
+    assert!(catalog_audit.status.success());
+    let catalog_audit_stdout = String::from_utf8_lossy(&catalog_audit.stdout);
+    assert!(catalog_audit_stdout.contains("import_recipes"));
+    assert!(catalog_audit_stdout.contains("production_readiness_reasons"));
+
+    let lineage_report = Command::new(binary)
+        .arg("lineage-report")
+        .arg("--db")
+        .arg(&db)
+        .output()
+        .expect("run lineage report");
+    assert!(lineage_report.status.success());
+    let lineage_report_stdout = String::from_utf8_lossy(&lineage_report.stdout);
+    assert!(lineage_report_stdout.contains("project_fingerprint"));
+    assert!(lineage_report_stdout.contains("production_ready_assets"));
+
+    let lineage_diff = Command::new(binary)
+        .arg("lineage-diff")
+        .arg("--before")
+        .arg(&db)
+        .arg("--after")
+        .arg(&db)
+        .output()
+        .expect("run lineage diff");
+    assert!(lineage_diff.status.success());
+    let lineage_diff_stdout = String::from_utf8_lossy(&lineage_diff.stdout);
+    assert!(lineage_diff_stdout.contains("\"changed\": []"));
+
     let catalog_file = output_dir.join("aster_catalogs.json");
     let catalog_sync = Command::new(binary)
         .arg("catalog-sync")
@@ -385,6 +419,66 @@ fn cook_and_report_asset_database() {
     assert!(catalog_json.contains("\"path\": \"Assets/Material\""));
     assert!(catalog_json.contains("\"asset_count\": \"1\""));
     fs::remove_dir_all(project.parent().unwrap()).ok();
+}
+
+#[test]
+fn audit_session_and_mesh_recipe_commands() {
+    let dir = fixture_dir();
+    fs::create_dir_all(&dir).expect("audit fixture dir");
+    let history = dir.join("history.jsonl");
+    fs::write(
+        &history,
+        r#"{"session_id":"studio","kind":"command","text":"open","detail":"material-lab","ts":1,"sequence":1}
+{"session_id":"studio","kind":"command","text":"catalog-audit","detail":"asset-db","ts":2,"sequence":2}
+{"session_id":"assetc","kind":"tool","text":"lineage-report","detail":"db","ts":3,"sequence":3}
+"#,
+    )
+    .expect("history");
+    let recipe = dir.join("recipe.json");
+    fs::write(
+        &recipe,
+        r#"{
+  "id": "mesh.recipe.audit",
+  "variant_intent_tags": ["uv:packed", "profile:test"],
+  "steps": [
+    { "kind": "triangulate" },
+    { "kind": "uv-pack" },
+    { "kind": "recalculate-normals" }
+  ]
+}
+"#,
+    )
+    .expect("recipe");
+    let binary = env!("CARGO_BIN_EXE_aster_assetc");
+    let session = Command::new(binary)
+        .arg("session-audit")
+        .arg("--input")
+        .arg(&history)
+        .arg("--max-bytes")
+        .arg("1000")
+        .output()
+        .expect("run session audit");
+    assert!(
+        session.status.success(),
+        "{}",
+        String::from_utf8_lossy(&session.stderr)
+    );
+    let session_stdout = String::from_utf8_lossy(&session.stdout);
+    assert!(session_stdout.contains("retained_entries"));
+    assert!(session_stdout.contains("studio"));
+
+    let recipe_report = Command::new(binary)
+        .arg("mesh-recipe-inspect")
+        .arg("--input")
+        .arg(&recipe)
+        .output()
+        .expect("run mesh recipe inspect");
+    assert!(recipe_report.status.success());
+    let recipe_stdout = String::from_utf8_lossy(&recipe_report.stdout);
+    assert!(recipe_stdout.contains("\"steps\": 3"));
+    assert!(recipe_stdout.contains("uv-pack"));
+    assert!(recipe_stdout.contains("variant_intent_tags"));
+    fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

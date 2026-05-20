@@ -132,6 +132,23 @@ void assertAssetLibrary() {
   assert(!aster::stableAssetCatalogId(aster::AssetCatalogPath("Assets/Generated")).empty());
   const aster::AssetLibraryManifest manifest = aster::buildAssetLibraryManifest(library);
   assert(!manifest.catalogs.empty());
+
+  const aster::AssetFoundryReport foundry = aster::buildAssetFoundryReport(library);
+  assert(foundry.catalog_audit.asset_count == 1u);
+  assert(foundry.catalog_audit.production_ready_assets == 1u);
+  assert(foundry.import_recipes.size() == 1u);
+  assert(foundry.import_recipes.front().catalog_path.str() == "Assets/Material");
+  assert(!foundry.import_recipes.front().production_readiness_reasons.empty());
+  assert(std::find(foundry.catalog_audit.production_readiness_reasons.begin(),
+                   foundry.catalog_audit.production_readiness_reasons.end(),
+                   "production-ready") !=
+         foundry.catalog_audit.production_readiness_reasons.end());
+
+  const aster::CookLineageReport lineage = aster::buildCookLineageReport(database);
+  assert(lineage.asset_count == 1u);
+  assert(lineage.production_ready_assets == 1u);
+  assert(lineage.assets.front().id == "material.wet");
+  assert(!lineage.assets.front().production_readiness_reasons.empty());
 }
 
 void assertAssetRegistryAndDerivedCache() {
@@ -288,6 +305,44 @@ void assertMeshAuthoringAndModifiers() {
   assert(result.report.output_indices == result.mesh.indices.size());
   assert(result.mesh.indices.size() >= box.indices.size());
   assert(aster::assetModifierKindName(aster::AssetModifierKind::Solidify) == "solidify");
+
+  aster::MeshAuthoringRecipe recipe;
+  recipe.id = "recipe.box.variant";
+  recipe.provenance_id = "authoring-recipe-test";
+  recipe.source_mesh = box;
+  recipe.variant_intent_tags = {"profile:test"};
+  recipe.steps.push_back({.id = "tri", .kind = aster::MeshAuthoringRecipeStepKind::Triangulate});
+  recipe.steps.push_back({.id = "uv",
+                          .kind = aster::MeshAuthoringRecipeStepKind::UvPack,
+                          .uv_policy = {.padding = 0.04f},
+                          .variant_intent_tags = {"uv:packed"}});
+  recipe.steps.push_back({.id = "normals",
+                          .kind = aster::MeshAuthoringRecipeStepKind::RecalculateNormals});
+  const aster::MeshAuthoringRecipeResult recipe_result =
+      aster::applyMeshAuthoringRecipe(recipe);
+  assert(!recipe_result.mesh.vertices.empty());
+  assert(recipe_result.quality_score > 0u);
+  assert(recipe_result.reports.size() == 3u);
+  assert(std::find(recipe_result.variant_intent_tags.begin(),
+                   recipe_result.variant_intent_tags.end(), "uv:packed") !=
+         recipe_result.variant_intent_tags.end());
+  assert(aster::summarizeMeshAuthoringRecipe(recipe_result).find("quality=") !=
+         std::string::npos);
+
+  aster::MeshBooleanRequest boolean_request;
+  boolean_request.operation = aster::MeshBooleanOperation::Union;
+  boolean_request.solver = aster::MeshBooleanSolver::AsterReference;
+  boolean_request.variant_intent_tags = {"boolean:union-proxy"};
+  boolean_request.inputs.push_back({.label = "a", .mesh = box});
+  boolean_request.inputs.push_back({.label = "b",
+                                    .mesh = box,
+                                    .transform = {.position = {1.25f, 0.0f, 0.0f}}});
+  const aster::MeshBooleanResult boolean_result =
+      aster::evaluateMeshBooleanRequest(boolean_request);
+  assert(boolean_result.report.ok);
+  assert(boolean_result.mesh.vertices.size() == box.vertices.size() * 2u);
+  assert(aster::meshBooleanOperationName(aster::MeshBooleanOperation::Union) ==
+         std::string("union"));
 }
 
 void assertGeometryOperations() {

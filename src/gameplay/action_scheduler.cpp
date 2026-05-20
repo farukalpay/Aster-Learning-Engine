@@ -6,6 +6,7 @@
 #include "aster/math/hash.hpp"
 
 #include <algorithm>
+#include <map>
 #include <sstream>
 #include <utility>
 
@@ -18,12 +19,26 @@ void sortUniqueLanes(std::vector<FeatureLabel> &lanes) {
   lanes.erase(std::unique(lanes.begin(), lanes.end()), lanes.end());
 }
 
+void sortUniqueResources(std::vector<FeatureLabel> &resources) {
+  std::sort(resources.begin(), resources.end());
+  resources.erase(std::unique(resources.begin(), resources.end()), resources.end());
+}
+
 bool isTerminal(const ActionTaskState state) {
   return state == ActionTaskState::Finished || state == ActionTaskState::Cancelled;
 }
 
 std::uint32_t priorityValue(const ActionTaskPriority priority) {
   return static_cast<std::uint32_t>(priority);
+}
+
+std::uint64_t stableStringStamp(const std::string_view value,
+                                std::uint64_t seed = 1469598103934665603ull) {
+  for (const char c : value) {
+    seed ^= static_cast<unsigned char>(c);
+    seed *= 1099511628211ull;
+  }
+  return seed;
 }
 
 } // namespace
@@ -99,6 +114,132 @@ std::string ActionLaneSet::debugString() const {
   return out.str();
 }
 
+bool ActionResourceSet::add(FeatureLabel resource) {
+  if (!resource.valid() || contains(resource)) {
+    return false;
+  }
+  resources_.push_back(std::move(resource));
+  sortUniqueResources(resources_);
+  return true;
+}
+
+bool ActionResourceSet::add(const std::string_view resource) {
+  const std::optional<FeatureLabel> parsed = parseFeatureLabel(resource);
+  return parsed ? add(*parsed) : false;
+}
+
+bool ActionResourceSet::remove(const FeatureLabel &resource) {
+  const auto found = std::find(resources_.begin(), resources_.end(), resource);
+  if (found == resources_.end()) {
+    return false;
+  }
+  resources_.erase(found);
+  return true;
+}
+
+void ActionResourceSet::clear() {
+  resources_.clear();
+}
+
+bool ActionResourceSet::empty() const noexcept {
+  return resources_.empty();
+}
+
+std::size_t ActionResourceSet::size() const noexcept {
+  return resources_.size();
+}
+
+bool ActionResourceSet::contains(const FeatureLabel &resource) const {
+  return std::find(resources_.begin(), resources_.end(), resource) != resources_.end();
+}
+
+bool ActionResourceSet::overlaps(const ActionResourceSet &other) const {
+  for (const FeatureLabel &resource : resources_) {
+    if (other.contains(resource)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::vector<FeatureLabel> ActionResourceSet::resources() const {
+  return resources_;
+}
+
+std::uint64_t ActionResourceSet::stamp() const {
+  std::uint64_t result = 0xA57EA110C1A10001ull;
+  for (const FeatureLabel &resource : resources_) {
+    result = hashCombine64(result, resource.stableId());
+  }
+  return result;
+}
+
+std::string ActionResourceSet::debugString() const {
+  std::ostringstream out;
+  for (std::size_t i = 0u; i < resources_.size(); ++i) {
+    if (i > 0u) {
+      out << ",";
+    }
+    out << resources_[i].path();
+  }
+  return out.str();
+}
+
+void ActionTaskJournal::record(ActionTaskJournalEntry entry) {
+  entries_.push_back(std::move(entry));
+}
+
+void ActionTaskJournal::clear() {
+  entries_.clear();
+}
+
+bool ActionTaskJournal::empty() const noexcept {
+  return entries_.empty();
+}
+
+std::size_t ActionTaskJournal::size() const noexcept {
+  return entries_.size();
+}
+
+const std::vector<ActionTaskJournalEntry> &ActionTaskJournal::entries() const noexcept {
+  return entries_;
+}
+
+std::vector<ActionTaskJournalEntry> ActionTaskJournal::entriesFor(const ActionTaskId task_id) const {
+  std::vector<ActionTaskJournalEntry> out;
+  for (const ActionTaskJournalEntry &entry : entries_) {
+    if (entry.task_id == task_id) {
+      out.push_back(entry);
+    }
+  }
+  return out;
+}
+
+std::uint64_t ActionTaskJournal::contractStamp() const {
+  std::uint64_t result = 0xA57EA110FEE10001ull;
+  for (const ActionTaskJournalEntry &entry : entries_) {
+    result = hashCombine64(result, static_cast<std::uint64_t>(entry.kind));
+    result = hashCombine64(result, entry.task_id);
+    result = hashCombine64(result, entry.sequence);
+    result = hashCombine64(result, entry.deterministic_stamp);
+    result = hashCombine64(result, stableStringStamp(entry.detail));
+  }
+  return result;
+}
+
+std::string ActionTaskJournal::summary() const {
+  std::map<std::string, std::size_t> by_owner;
+  for (const ActionTaskJournalEntry &entry : entries_) {
+    ++by_owner[entry.owner];
+  }
+  std::ostringstream out;
+  out << "events=" << entries_.size();
+  for (const auto &[owner, count] : by_owner) {
+    out << " owner[" << (owner.empty() ? "none" : owner) << "]=" << count;
+  }
+  return out.str();
+}
+
 ActionTaskId ActionScheduler::submit(ActionTaskDesc desc) {
   const ActionTaskId id = next_id_++;
   if (desc.name.empty()) {
@@ -111,10 +252,13 @@ ActionTaskId ActionScheduler::submit(ActionTaskDesc desc) {
   node.record.owner = std::move(desc.owner);
   node.record.priority = desc.priority;
   node.record.lanes = std::move(desc.lanes);
+  node.record.required_resources = std::move(desc.required_resources);
+  node.record.claimed_resources = std::move(desc.claimed_resources);
   node.record.labels = std::move(desc.labels);
   node.record.duration_seconds = desc.duration_seconds;
   node.record.sequence = next_sequence_++;
   node.record.can_preempt = desc.can_preempt;
+  node.record.deterministic_stamp = deterministicStamp(node.record);
   node.requirements = std::move(desc.requirements);
   node.on_start = std::move(desc.on_start);
   node.on_tick = std::move(desc.on_tick);
@@ -167,7 +311,7 @@ ActionSchedulerFrame ActionScheduler::tick(const float dt) {
       continue;
     }
 
-    std::vector<std::size_t> conflicts = conflictingActiveTasks(task.record.lanes);
+    std::vector<std::size_t> conflicts = conflictingActiveTasks(task.record);
     if (!conflicts.empty() && task.record.can_preempt) {
       bool can_preempt_all = true;
       for (const std::size_t conflict : conflicts) {
@@ -180,14 +324,25 @@ ActionSchedulerFrame ActionScheduler::tick(const float dt) {
           finishTask(conflict, ActionTaskState::Cancelled,
                      "preempted by " + task.record.name);
         }
-        conflicts = conflictingActiveTasks(task.record.lanes);
+        conflicts = conflictingActiveTasks(task.record);
       }
     }
     if (conflicts.empty()) {
       activateTask(index);
-    } else if (task.record.state == ActionTaskState::Blocked) {
-      task.record.state = ActionTaskState::Waiting;
-      task.record.diagnostic.clear();
+    } else {
+      task.record.blocked_by_tasks.clear();
+      for (const std::size_t conflict : conflicts) {
+        task.record.blocked_by_tasks.push_back(tasks_[conflict].record.id);
+      }
+      task.record.diagnostic = "blocked by active action resource";
+      task.record.owner_diagnostic = "owner '" + task.record.owner +
+                                     "' is waiting on " +
+                                     std::to_string(task.record.blocked_by_tasks.size()) +
+                                     " active task(s)";
+      if (task.record.state != ActionTaskState::Blocked) {
+        task.record.state = ActionTaskState::Blocked;
+        emit(ActionTaskEventKind::Blocked, task, task.record.diagnostic);
+      }
     }
   }
 
@@ -234,10 +389,28 @@ ActionSchedulerFrame ActionScheduler::tick(const float dt) {
 void ActionScheduler::clear() {
   tasks_.clear();
   events_.clear();
+  deferred_events_.clear();
+  journal_.clear();
   world_labels_.clear();
   next_id_ = 1u;
   next_sequence_ = 1u;
+  next_event_sequence_ = 1u;
+  event_batch_depth_ = 0u;
   time_seconds_ = 0.0f;
+}
+
+void ActionScheduler::beginEventBatch() {
+  ++event_batch_depth_;
+}
+
+void ActionScheduler::endEventBatch() {
+  if (event_batch_depth_ == 0u) {
+    return;
+  }
+  --event_batch_depth_;
+  if (event_batch_depth_ == 0u) {
+    flushDeferredEvents();
+  }
 }
 
 void ActionScheduler::setWorldLabels(FeatureLabelSet labels) {
@@ -266,6 +439,10 @@ std::vector<ActionTaskEvent> ActionScheduler::events() const {
   return events_;
 }
 
+const ActionTaskJournal &ActionScheduler::journal() const noexcept {
+  return journal_;
+}
+
 ActionLaneSet ActionScheduler::activeLanes() const {
   ActionLaneSet lanes;
   for (const ActionTaskNode &task : tasks_) {
@@ -279,6 +456,56 @@ ActionLaneSet ActionScheduler::activeLanes() const {
   return lanes;
 }
 
+ActionResourceSet ActionScheduler::claimedResources() const {
+  ActionResourceSet resources;
+  for (const ActionTaskNode &task : tasks_) {
+    if (task.record.state != ActionTaskState::Active) {
+      continue;
+    }
+    for (const FeatureLabel &resource : resourceFootprint(task.record).resources()) {
+      resources.add(resource);
+    }
+  }
+  return resources;
+}
+
+std::vector<ActionOwnerDiagnostic> ActionScheduler::ownerDiagnostics() const {
+  std::map<std::string, ActionOwnerDiagnostic> by_owner;
+  for (const ActionTaskNode &task : tasks_) {
+    ActionOwnerDiagnostic &diagnostic = by_owner[task.record.owner];
+    diagnostic.owner = task.record.owner;
+    switch (task.record.state) {
+    case ActionTaskState::Waiting:
+      ++diagnostic.waiting_tasks;
+      break;
+    case ActionTaskState::Blocked:
+      ++diagnostic.blocked_tasks;
+      break;
+    case ActionTaskState::Active:
+      ++diagnostic.active_tasks;
+      break;
+    case ActionTaskState::Finished:
+      ++diagnostic.finished_tasks;
+      break;
+    case ActionTaskState::Cancelled:
+      ++diagnostic.cancelled_tasks;
+      break;
+    }
+    diagnostic.lane_stamp = hashCombine64(diagnostic.lane_stamp, task.record.lanes.stamp());
+    diagnostic.resource_stamp =
+        hashCombine64(diagnostic.resource_stamp, resourceFootprint(task.record).stamp());
+    if (!task.record.diagnostic.empty()) {
+      diagnostic.diagnostics.push_back(task.record.name + ": " + task.record.diagnostic);
+    }
+  }
+  std::vector<ActionOwnerDiagnostic> out;
+  out.reserve(by_owner.size());
+  for (auto &[owner, diagnostic] : by_owner) {
+    out.push_back(std::move(diagnostic));
+  }
+  return out;
+}
+
 std::optional<std::size_t> ActionScheduler::indexOf(const ActionTaskId id) const {
   for (std::size_t index = 0u; index < tasks_.size(); ++index) {
     if (tasks_[index].record.id == id) {
@@ -288,14 +515,23 @@ std::optional<std::size_t> ActionScheduler::indexOf(const ActionTaskId id) const
   return std::nullopt;
 }
 
-std::vector<std::size_t> ActionScheduler::conflictingActiveTasks(const ActionLaneSet &lanes) const {
+std::vector<std::size_t> ActionScheduler::conflictingActiveTasks(
+    const ActionTaskRecord &record) const {
   std::vector<std::size_t> conflicts;
-  if (lanes.empty()) {
+  const ActionResourceSet resources = resourceFootprint(record);
+  if (record.lanes.empty() && resources.empty()) {
     return conflicts;
   }
   for (std::size_t index = 0u; index < tasks_.size(); ++index) {
-    if (tasks_[index].record.state == ActionTaskState::Active &&
-        tasks_[index].record.lanes.overlaps(lanes)) {
+    if (tasks_[index].record.id == record.id ||
+        tasks_[index].record.state != ActionTaskState::Active) {
+      continue;
+    }
+    const bool lane_conflict =
+        !record.lanes.empty() && tasks_[index].record.lanes.overlaps(record.lanes);
+    const bool resource_conflict =
+        !resources.empty() && resourceFootprint(tasks_[index].record).overlaps(resources);
+    if (lane_conflict || resource_conflict) {
       conflicts.push_back(index);
     }
   }
@@ -309,7 +545,33 @@ ActionTaskContext ActionScheduler::makeContext(const ActionTaskNode &node, const
                            node.record.elapsed_seconds,
                            dt,
                            world_labels_,
-                           node.record.labels};
+                           node.record.labels,
+                           node.record.required_resources,
+                           node.record.claimed_resources};
+}
+
+ActionResourceSet ActionScheduler::resourceFootprint(const ActionTaskRecord &record) const {
+  ActionResourceSet resources;
+  for (const FeatureLabel &resource : record.required_resources.resources()) {
+    resources.add(resource);
+  }
+  for (const FeatureLabel &resource : record.claimed_resources.resources()) {
+    resources.add(resource);
+  }
+  return resources;
+}
+
+std::uint64_t ActionScheduler::deterministicStamp(const ActionTaskRecord &record) const {
+  std::uint64_t stamp = 0xA57EA1105CED0001ull;
+  stamp = hashCombine64(stamp, record.id);
+  stamp = hashCombine64(stamp, record.sequence);
+  stamp = hashCombine64(stamp, static_cast<std::uint64_t>(record.priority));
+  stamp = hashCombine64(stamp, record.lanes.stamp());
+  stamp = hashCombine64(stamp, resourceFootprint(record).stamp());
+  stamp = hashCombine64(stamp, record.labels.contractStamp());
+  stamp = hashCombine64(stamp, stableStringStamp(record.name));
+  stamp = hashCombine64(stamp, stableStringStamp(record.owner));
+  return stamp;
 }
 
 void ActionScheduler::activateTask(const std::size_t index) {
@@ -319,6 +581,8 @@ void ActionScheduler::activateTask(const std::size_t index) {
   }
   task.record.state = ActionTaskState::Active;
   task.record.diagnostic.clear();
+  task.record.owner_diagnostic.clear();
+  task.record.blocked_by_tasks.clear();
   ActionTaskContext context = makeContext(task, 0.0f);
   if (task.on_start) {
     task.on_start(context);
@@ -345,8 +609,38 @@ void ActionScheduler::finishTask(const std::size_t index, const ActionTaskState 
 
 void ActionScheduler::emit(const ActionTaskEventKind kind, const ActionTaskNode &node,
                            std::string detail) {
-  events_.push_back({kind, node.record.id, node.record.name, node.record.state, time_seconds_,
-                     std::move(detail)});
+  const ActionResourceSet resources = resourceFootprint(node.record);
+  ActionTaskEvent event{.kind = kind,
+                        .task_id = node.record.id,
+                        .task_name = node.record.name,
+                        .owner = node.record.owner,
+                        .state = node.record.state,
+                        .time_seconds = time_seconds_,
+                        .sequence = next_event_sequence_++,
+                        .lane_stamp = node.record.lanes.stamp(),
+                        .resource_stamp = resources.stamp(),
+                        .detail = std::move(detail)};
+  journal_.record({.kind = event.kind,
+                   .task_id = event.task_id,
+                   .task_name = event.task_name,
+                   .owner = event.owner,
+                   .state = event.state,
+                   .time_seconds = event.time_seconds,
+                   .sequence = event.sequence,
+                   .deterministic_stamp = deterministicStamp(node.record),
+                   .lane_stamp = event.lane_stamp,
+                   .resource_stamp = event.resource_stamp,
+                   .detail = event.detail});
+  if (event_batch_depth_ > 0u) {
+    deferred_events_.push_back(std::move(event));
+  } else {
+    events_.push_back(std::move(event));
+  }
+}
+
+void ActionScheduler::flushDeferredEvents() {
+  events_.insert(events_.end(), deferred_events_.begin(), deferred_events_.end());
+  deferred_events_.clear();
 }
 
 const char *actionTaskPriorityName(const ActionTaskPriority priority) {
