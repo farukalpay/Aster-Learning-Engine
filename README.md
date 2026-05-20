@@ -38,12 +38,6 @@ hashes, shader variant keys, and the frame-forensics timeline.
 
 ![Material Lab](assets/screenshots/material_lab.png)
 
-![Mesh Lab](assets/screenshots/mesh_lab.png)
-
-![Lighting Lab](assets/screenshots/lighting_lab.png)
-
-![Scene Lab](assets/screenshots/scene_lab.png)
-
 ![Industrial pipe material preview](assets/screenshots/industrial_pipe.png)
 
 ![Lumen Run cave entry motion](assets/screenshots/lumen_cave_entry.gif)
