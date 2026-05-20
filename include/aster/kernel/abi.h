@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 5u
-#define ASTER_KERNEL_ABI_MINOR 0u
+#define ASTER_KERNEL_ABI_MINOR 1u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -83,6 +83,8 @@ typedef struct AsterDescriptorHeapHandle__ *AsterDescriptorHeapHandle;
 typedef struct AsterDescriptorSetHandle__ *AsterDescriptorSetHandle;
 typedef struct AsterPipelineCacheHandle__ *AsterPipelineCacheHandle;
 typedef struct AsterFrameScheduleHandle__ *AsterFrameScheduleHandle;
+typedef struct AsterAuthoringDocumentHandle__ *AsterAuthoringDocumentHandle;
+typedef struct AsterAuthoringActionExecutionHandle__ *AsterAuthoringActionExecutionHandle;
 
 typedef enum AsterKernelBackendKind {
   ASTER_KERNEL_BACKEND_SOFTWARE_REFERENCE = 0,
@@ -305,6 +307,61 @@ typedef enum AsterValidationKind {
   ASTER_VALIDATION_BACKEND_CAPABILITY_MISMATCH = 11,
   ASTER_VALIDATION_LIFETIME_ERROR = 12
 } AsterValidationKind;
+
+typedef enum AsterAuthoringDocumentKind {
+  ASTER_AUTHORING_DOCUMENT_UNKNOWN = 0,
+  ASTER_AUTHORING_DOCUMENT_PROJECT = 1,
+  ASTER_AUTHORING_DOCUMENT_SCENE = 2,
+  ASTER_AUTHORING_DOCUMENT_PREFAB = 3,
+  ASTER_AUTHORING_DOCUMENT_ITEM = 4,
+  ASTER_AUTHORING_DOCUMENT_ACTION_GRAPH = 5,
+  ASTER_AUTHORING_DOCUMENT_INPUT_MAP = 6
+} AsterAuthoringDocumentKind;
+
+typedef enum AsterAuthoringAssetKind {
+  ASTER_AUTHORING_ASSET_UNKNOWN = 0,
+  ASTER_AUTHORING_ASSET_SCENE = 1,
+  ASTER_AUTHORING_ASSET_PREFAB = 2,
+  ASTER_AUTHORING_ASSET_CAVE = 3,
+  ASTER_AUTHORING_ASSET_MATERIAL = 4,
+  ASTER_AUTHORING_ASSET_ITEM = 5,
+  ASTER_AUTHORING_ASSET_ACTION_GRAPH = 6,
+  ASTER_AUTHORING_ASSET_INPUT_MAP = 7,
+  ASTER_AUTHORING_ASSET_UI = 8,
+  ASTER_AUTHORING_ASSET_MESH = 9,
+  ASTER_AUTHORING_ASSET_TEXTURE = 10,
+  ASTER_AUTHORING_ASSET_GRAPH = 11
+} AsterAuthoringAssetKind;
+
+typedef enum AsterAuthoringDiagnosticSeverity {
+  ASTER_AUTHORING_DIAGNOSTIC_WARNING = 0,
+  ASTER_AUTHORING_DIAGNOSTIC_ERROR = 1
+} AsterAuthoringDiagnosticSeverity;
+
+typedef enum AsterAuthoringInputDevice {
+  ASTER_AUTHORING_INPUT_UNKNOWN = 0,
+  ASTER_AUTHORING_INPUT_KEYBOARD = 1,
+  ASTER_AUTHORING_INPUT_MOUSE = 2,
+  ASTER_AUTHORING_INPUT_GAMEPAD = 3,
+  ASTER_AUTHORING_INPUT_TOUCH = 4
+} AsterAuthoringInputDevice;
+
+enum {
+  ASTER_AUTHORING_ENTITY_COMPONENT_TRANSFORM = 1u << 0u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_MESH_RENDERER = 1u << 1u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_COLLIDER = 1u << 2u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_LIGHT = 1u << 3u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_INTERACTABLE = 1u << 4u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_INVENTORY = 1u << 5u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_CAMERA = 1u << 6u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_CAVE_SCENE = 1u << 7u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_FIXTURE = 1u << 8u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_ORE_NODE = 1u << 9u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_TORCH_SOCKET = 1u << 10u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_SPAWN_POINT = 1u << 11u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_MINING = 1u << 12u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_CAVE_DEBUG = 1u << 13u
+};
 
 typedef enum AsterTextureRole {
   ASTER_TEXTURE_ROLE_ALBEDO = 0,
@@ -619,6 +676,118 @@ typedef struct AsterValidationEvent {
   AsterStringView message;
   uint64_t value;
 } AsterValidationEvent;
+
+typedef struct AsterAuthoringDocumentDesc {
+  size_t size;
+  uint32_t version;
+  AsterAuthoringDocumentKind kind;
+  AsterStringView source_text;
+  AsterStringView source_path;
+  AsterStringView debug_label;
+} AsterAuthoringDocumentDesc;
+
+typedef struct AsterAuthoringDocumentInfo {
+  size_t size;
+  uint32_t version;
+  AsterAuthoringDocumentKind kind;
+  uint32_t schema_version;
+  uint32_t valid;
+  AsterStringView id;
+  AsterStringView name;
+  size_t diagnostic_count;
+  size_t project_asset_count;
+  size_t entity_count;
+  size_t action_node_count;
+  size_t input_binding_count;
+  uint64_t contract_stamp;
+} AsterAuthoringDocumentInfo;
+
+typedef struct AsterAuthoringDiagnosticInfo {
+  size_t size;
+  uint32_t version;
+  AsterAuthoringDiagnosticSeverity severity;
+  AsterStringView source;
+  AsterStringView path;
+  AsterStringView message;
+} AsterAuthoringDiagnosticInfo;
+
+typedef struct AsterAuthoringProjectAssetInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView id;
+  AsterAuthoringAssetKind kind;
+  AsterStringView kind_name;
+  AsterStringView path;
+  uint32_t startup;
+} AsterAuthoringProjectAssetInfo;
+
+typedef struct AsterAuthoringEntityInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView id;
+  AsterStringView name;
+  AsterStringView parent;
+  uint32_t component_flags;
+} AsterAuthoringEntityInfo;
+
+typedef struct AsterAuthoringActionNodeInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView id;
+  AsterStringView type;
+  size_t parameter_count;
+  size_t tag_count;
+  uint64_t deterministic_stamp;
+} AsterAuthoringActionNodeInfo;
+
+typedef struct AsterAuthoringKeyValue {
+  size_t size;
+  uint32_t version;
+  AsterStringView key;
+  AsterStringView value;
+} AsterAuthoringKeyValue;
+
+typedef struct AsterAuthoringInputBindingInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView command;
+  AsterAuthoringInputDevice device;
+  AsterStringView key;
+  AsterStringView button;
+  float scale;
+  float deadzone;
+  size_t tag_count;
+  uint64_t deterministic_stamp;
+} AsterAuthoringInputBindingInfo;
+
+typedef struct AsterAuthoringActionContext {
+  size_t size;
+  uint32_t version;
+  AsterStringView actor;
+  AsterStringView target;
+  AsterStringView input;
+} AsterAuthoringActionContext;
+
+typedef struct AsterAuthoringActionExecutionInfo {
+  size_t size;
+  uint32_t version;
+  uint32_t valid;
+  size_t diagnostic_count;
+  size_t event_count;
+  uint64_t contract_stamp;
+} AsterAuthoringActionExecutionInfo;
+
+typedef struct AsterAuthoringActionEventInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView node_id;
+  AsterStringView type;
+  AsterStringView actor;
+  AsterStringView target;
+  size_t parameter_count;
+  size_t tag_count;
+  uint64_t deterministic_stamp;
+} AsterAuthoringActionEventInfo;
 
 typedef struct AsterShaderModuleSource {
   AsterStringView name;
@@ -1319,6 +1488,51 @@ aster_kernel_render_pipeline_create(AsterEngineHandle engine, const AsterRenderP
                                     AsterRenderPipelineHandle *out_pipeline);
 ASTER_KERNEL_API AsterStatus
 aster_kernel_render_pipeline_destroy(AsterRenderPipelineHandle pipeline);
+
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_document_load(
+    const AsterAuthoringDocumentDesc *desc, AsterAuthoringDocumentHandle *out_document);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_document_info(
+    AsterAuthoringDocumentHandle document, AsterAuthoringDocumentInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_document_diagnostic(
+    AsterAuthoringDocumentHandle document, size_t index, AsterAuthoringDiagnosticInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_project_asset(
+    AsterAuthoringDocumentHandle document, size_t index, AsterAuthoringProjectAssetInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_entity(
+    AsterAuthoringDocumentHandle document, size_t index, AsterAuthoringEntityInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_action_node(
+    AsterAuthoringDocumentHandle document, size_t index, AsterAuthoringActionNodeInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_action_node_parameter(
+    AsterAuthoringDocumentHandle document, size_t node_index, size_t parameter_index,
+    AsterAuthoringKeyValue *out_parameter);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_action_node_tag(
+    AsterAuthoringDocumentHandle document, size_t node_index, size_t tag_index,
+    AsterStringView *out_tag);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_input_binding(
+    AsterAuthoringDocumentHandle document, size_t index, AsterAuthoringInputBindingInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_input_binding_tag(
+    AsterAuthoringDocumentHandle document, size_t binding_index, size_t tag_index,
+    AsterStringView *out_tag);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_action_execute(
+    AsterAuthoringDocumentHandle document, const AsterAuthoringActionContext *context,
+    AsterAuthoringActionExecutionHandle *out_execution);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_action_execution_info(
+    AsterAuthoringActionExecutionHandle execution, AsterAuthoringActionExecutionInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_action_execution_diagnostic(
+    AsterAuthoringActionExecutionHandle execution, size_t index,
+    AsterAuthoringDiagnosticInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_action_event(
+    AsterAuthoringActionExecutionHandle execution, size_t index,
+    AsterAuthoringActionEventInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_action_event_parameter(
+    AsterAuthoringActionExecutionHandle execution, size_t event_index, size_t parameter_index,
+    AsterAuthoringKeyValue *out_parameter);
+ASTER_KERNEL_API AsterStatus aster_kernel_authoring_action_event_tag(
+    AsterAuthoringActionExecutionHandle execution, size_t event_index, size_t tag_index,
+    AsterStringView *out_tag);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_authoring_action_execution_destroy(AsterAuthoringActionExecutionHandle execution);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_authoring_document_destroy(AsterAuthoringDocumentHandle document);
 
 ASTER_KERNEL_API AsterStatus
 aster_kernel_physics_world_destroy(AsterPhysicsWorldHandle physics_world);

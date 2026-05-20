@@ -231,6 +231,12 @@ struct Material {
   EmissionColor emission_color{0.0f, 0.0f, 0.0f};
   float roughness = 0.55f;
   float metallic = 0.0f;
+  float dielectric_reflectance = 0.5f;
+  float coat_strength = 0.0f;
+  float coat_roughness = 0.03f;
+  float tangent_anisotropy = 0.0f;
+  Vec3 edge_sheen_color{};
+  float edge_sheen_roughness = 0.0f;
   float emission_strength = 0.0f;
   float detail_strength = 0.0f;
   float detail_scale = 1.0f;
@@ -266,6 +272,12 @@ struct MaterialDesc {
   EmissionColor emission_color{0.0f, 0.0f, 0.0f};
   float roughness = 0.55f;
   float metallic = 0.0f;
+  float dielectric_reflectance = 0.5f;
+  float coat_strength = 0.0f;
+  float coat_roughness = 0.03f;
+  float tangent_anisotropy = 0.0f;
+  Vec3 edge_sheen_color{};
+  float edge_sheen_roughness = 0.0f;
   float emission_strength = 0.0f;
   float detail_strength = 0.0f;
   float detail_scale = 1.0f;

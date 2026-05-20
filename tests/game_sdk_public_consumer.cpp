@@ -94,9 +94,20 @@ void testLumenProjectAuthoringDocumentsLoad() {
       runtime.execute(graph.value, {.actor = "player", .target = "supply_chest", .input = "use"});
   assert(execution.ok());
   assert(execution.events.size() == 2u);
+  assert(execution.contract_stamp == aster::sdk::actionGraphContractStamp(graph.value));
   assert(execution.events.front().type == "emit_event");
   assert(execution.events.front().target == "supply_chest");
   assert(execution.events.front().parameters.at("event") == "container.open_requested");
+  assert(execution.events.front().deterministic_stamp != 0u);
+
+  const auto input = aster::sdk::loadInputMapDocument(project_root / "inputs" / "lumen_run.input");
+  assert(input.ok());
+  assert(input.value.id == "input.lumen_run");
+  assert(input.value.bindings.size() == 3u);
+  assert(input.value.bindings.front().command == "world.interact");
+  assert(input.value.bindings.front().device == "keyboard");
+  assert(input.value.bindings.front().key == "E");
+  assert(aster::sdk::inputMapContractStamp(input.value) != 0u);
 }
 
 void testSchemaDiagnosticsRejectInvalidDocuments() {
@@ -130,6 +141,15 @@ void testSchemaDiagnosticsRejectInvalidDocuments() {
     "max_stack": 4
   })json");
   assert(!bad_item.ok());
+
+  const auto bad_input = aster::sdk::parseInputMapDocument(R"json({
+    "schema_version": 1,
+    "id": "input.bad",
+    "bindings": [
+      { "command": "world.interact", "device": "mouse" }
+    ]
+  })json");
+  assert(!bad_input.ok());
 
   const auto bad_cave = aster::sdk::parseCaveDocument(R"json({
     "schema_version": 1,
@@ -181,6 +201,41 @@ void testWorldRejectsDuplicateEntityInstances() {
   const aster::sdk::InstantiateResult duplicate = world.instantiate(scene.value);
   assert(!duplicate.ok());
   assert(world.entities().size() == 1u);
+}
+
+void testGameplayContractFixtureDocuments() {
+  const std::filesystem::path fixture_root =
+      sourceRoot() / "tests" / "fixtures" / "gameplay_contract";
+  const auto project = aster::sdk::loadProjectDocument(fixture_root / "demo.asterproj");
+  assert(project.ok());
+  assert(project.value.name == "Aster Gameplay Contract Demo");
+  assert(project.value.assets.size() == 3u);
+
+  const auto scene = aster::sdk::loadSceneDocument(fixture_root / "scenes" / "entry.scene");
+  assert(scene.ok());
+  aster::sdk::World world;
+  assert(world.instantiate(scene.value).ok());
+  const aster::sdk::EntityInstance *door = world.findEntity("demo.door");
+  assert(door != nullptr);
+  assert(door->definition.components.interactable.has_value());
+  assert(door->definition.components.interactable->action_graph == "action.demo.door_open");
+
+  const auto action =
+      aster::sdk::loadActionGraphDocument(fixture_root / "actions" / "door_open.action_graph");
+  assert(action.ok());
+  assert(aster::sdk::actionGraphContractStamp(action.value) != 0u);
+  const aster::sdk::ActionExecution execution =
+      aster::sdk::ActionGraphRuntime{}.execute(
+          action.value, {.actor = "demo.player", .target = "demo.door", .input = "world.interact"});
+  assert(execution.ok());
+  assert(execution.events.size() == 2u);
+  assert(execution.events.front().parameters.at("input") == "world.interact");
+
+  const auto input = aster::sdk::loadInputMapDocument(fixture_root / "inputs" / "demo.input");
+  assert(input.ok());
+  assert(input.value.bindings.size() == 2u);
+  assert(input.value.bindings.front().tags.front().value == "input.primary");
+  assert(aster::sdk::inputMapContractStamp(input.value) != 0u);
 }
 
 void testAgentWorkspacePlanning() {
@@ -369,6 +424,7 @@ int main() {
   testLumenProjectAuthoringDocumentsLoad();
   testSchemaDiagnosticsRejectInvalidDocuments();
   testWorldRejectsDuplicateEntityInstances();
+  testGameplayContractFixtureDocuments();
   testAgentWorkspacePlanning();
   testAgentRunbookInstructionsAndCommandPolicy();
   testAgentAssetBriefReviewGate();

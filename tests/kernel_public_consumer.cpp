@@ -11,6 +11,7 @@ int main() {
   const AsterAbiVersion version = aster::kernel::abiVersion();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 5u);
+  assert(version.minor == 1u);
 
   const auto normalized = aster::kernel::math::normalize({3.0f, 0.0f, 4.0f});
   assert(normalized);
@@ -124,5 +125,63 @@ int main() {
   auto shader_result = shader.value().result();
   assert(shader_result);
   assert(shader_result.value().success == 1u);
+
+  const char *action_text = R"json({
+    "schema_version": 1,
+    "id": "action.public.open",
+    "name": "Open",
+    "nodes": [
+      {
+        "id": "emit.open",
+        "type": "emit_event",
+        "parameters": { "event": "public.open_requested" },
+        "tags": ["interaction.public"]
+      }
+    ]
+  })json";
+  auto action_doc = aster::kernel::AuthoringDocument::parseText(
+      ASTER_AUTHORING_DOCUMENT_ACTION_GRAPH, {action_text, std::strlen(action_text)});
+  assert(action_doc);
+  auto action_info = action_doc.value().info();
+  assert(action_info);
+  assert(action_info.value().valid == 1u);
+  assert(action_info.value().action_node_count == 1u);
+  assert(action_info.value().contract_stamp != 0u);
+  auto action_node = action_doc.value().actionNode(0u);
+  assert(action_node);
+  assert(action_node.value().parameter_count == 1u);
+  assert(action_node.value().deterministic_stamp != 0u);
+  const AsterAuthoringActionContext action_context{sizeof(AsterAuthoringActionContext),
+                                                   ASTER_KERNEL_STRUCT_VERSION_1,
+                                                   {"public.actor", 12u},
+                                                   {"public.target", 13u},
+                                                   {"world.interact", 14u}};
+  auto action_execution = action_doc.value().executeAction(action_context);
+  assert(action_execution);
+  auto execution_info = action_execution.value().info();
+  assert(execution_info);
+  assert(execution_info.value().event_count == 1u);
+  auto action_event = action_execution.value().event(0u);
+  assert(action_event);
+  assert(action_event.value().deterministic_stamp != 0u);
+
+  const char *input_text = R"json({
+    "schema_version": 1,
+    "id": "input.public",
+    "bindings": [
+      { "command": "world.interact", "device": "keyboard", "key": "E", "tags": ["input.primary"] }
+    ]
+  })json";
+  auto input_doc = aster::kernel::AuthoringDocument::parseText(
+      ASTER_AUTHORING_DOCUMENT_INPUT_MAP, {input_text, std::strlen(input_text)});
+  assert(input_doc);
+  auto input_info = input_doc.value().info();
+  assert(input_info);
+  assert(input_info.value().valid == 1u);
+  assert(input_info.value().input_binding_count == 1u);
+  auto input_binding = input_doc.value().inputBinding(0u);
+  assert(input_binding);
+  assert(input_binding.value().device == ASTER_AUTHORING_INPUT_KEYBOARD);
+  assert(input_binding.value().deterministic_stamp != 0u);
   return 0;
 }

@@ -30,7 +30,9 @@ struct Hit {
   bool valid = false;
   float distance = std::numeric_limits<float>::max();
   Vec3 position{};
+  Vec3 local_position{};
   Vec3 normal{};
+  Vec3 tangent{1.0f, 0.0f, 0.0f};
   Vec2 uv{};
   Material material{};
 };
@@ -39,9 +41,15 @@ struct TraceTriangle {
   Vec3 a{};
   Vec3 b{};
   Vec3 c{};
+  Vec3 la{};
+  Vec3 lb{};
+  Vec3 lc{};
   Vec3 na{};
   Vec3 nb{};
   Vec3 nc{};
+  Vec3 ta{1.0f, 0.0f, 0.0f};
+  Vec3 tb{1.0f, 0.0f, 0.0f};
+  Vec3 tc{1.0f, 0.0f, 0.0f};
   Vec2 uva{};
   Vec2 uvb{};
   Vec2 uvc{};
@@ -185,6 +193,113 @@ float projectedFbm(const Vec3 world_position, const Vec3 normal, const float sca
   return amplitude_sum > 0.0f ? sum / amplitude_sum : 0.0f;
 }
 
+float luminanceOf(const Vec3 color) {
+  return color.x * 0.2126f + color.y * 0.7152f + color.z * 0.0722f;
+}
+
+float maxComponent(const Vec3 value) {
+  return std::max({value.x, value.y, value.z});
+}
+
+Vec3 orthogonalTangent(Vec3 tangent, const Vec3 normal) {
+  tangent = tangent - normal * dot(tangent, normal);
+  if (length(tangent) <= 0.0001f) {
+    tangent = cross(std::abs(normal.y) < 0.86f ? Vec3{0.0f, 1.0f, 0.0f}
+                                               : Vec3{1.0f, 0.0f, 0.0f},
+                    normal);
+  }
+  return length(tangent) > 0.0001f ? normalize(tangent) : Vec3{1.0f, 0.0f, 0.0f};
+}
+
+Vec3 materialSamplePosition(const Hit &hit) {
+  const MaterialSurfaceProfile profile = resolveMaterialSurfaceProfile(hit.material);
+  switch (profile) {
+  case MaterialSurfaceProfile::TerrainLayer:
+  case MaterialSurfaceProfile::Masonry:
+  case MaterialSurfaceProfile::CorrodedMetal:
+  case MaterialSurfaceProfile::WeldBead:
+  case MaterialSurfaceProfile::ContactShadow:
+    return hit.position;
+  case MaterialSurfaceProfile::Auto:
+  case MaterialSurfaceProfile::Plain:
+  case MaterialSurfaceProfile::OrganicFiber:
+  case MaterialSurfaceProfile::Liquid:
+  case MaterialSurfaceProfile::Foliage:
+  case MaterialSurfaceProfile::Resin:
+  case MaterialSurfaceProfile::PaintedWood:
+  case MaterialSurfaceProfile::Feather:
+  case MaterialSurfaceProfile::Scales:
+  case MaterialSurfaceProfile::StratifiedRock:
+  case MaterialSurfaceProfile::MineralVein:
+  case MaterialSurfaceProfile::FilamentWeb:
+  case MaterialSurfaceProfile::ChitinShell:
+  case MaterialSurfaceProfile::EmissiveLens:
+  case MaterialSurfaceProfile::BiologicalIntegument:
+    break;
+  }
+  return hit.local_position;
+}
+
+Vec3 environmentRadiance(const Vec3 direction, const RendererSettings &settings,
+                         const std::vector<ReflectionProbe> &probes = {}) {
+  const Vec3 dir = normalize(direction);
+  const float sky = smoothstep(-0.28f, 0.92f, dir.y);
+  const Vec3 lower_air = mixVec(settings.pipeline.clear_color * 1.10f + Vec3{0.006f, 0.010f, 0.014f},
+                                settings.atmosphere.enabled ? settings.atmosphere.fog_color * 1.22f
+                                                            : settings.ground_ambient_color,
+                                0.62f);
+  const Vec3 upper_air = settings.sky_ambient_color * 1.24f + Vec3{0.020f, 0.070f, 0.170f};
+  const Vec3 ground_bounce = settings.ground_ambient_color * 0.72f + lower_air * 0.28f;
+  Vec3 color = mixVec(ground_bounce, upper_air, sky);
+  const float air_detail =
+      valueNoise({dir.x * 2.8f + 17.0f, dir.y * 3.6f + 5.0f, dir.z * 2.8f - 9.0f});
+  color = color + Vec3{0.030f, 0.045f, 0.062f} *
+                      (smoothstep(0.34f, 0.88f, air_detail) * (0.16f + sky * 0.20f));
+  const float cloud_band =
+      smoothstep(0.48f, 0.82f,
+                 valueNoise({dir.x * 5.5f + 31.0f, dir.y * 2.4f + 11.0f,
+                             dir.z * 4.8f - 7.0f})) *
+      smoothstep(-0.10f, 0.46f, dir.y) * (1.0f - smoothstep(0.74f, 1.0f, dir.y));
+  color = mixVec(color, Vec3{0.58f, 0.66f, 0.74f}, cloud_band * 0.22f);
+  const float horizon = std::exp(-std::abs(dir.y) * 8.0f);
+  color = color + (settings.atmosphere.enabled ? settings.atmosphere.fog_color : lower_air) *
+                      (horizon * 0.34f);
+  if (!probes.empty()) {
+    Vec3 probe_sum{};
+    float probe_weight = 0.0f;
+    for (const ReflectionProbe &probe : probes) {
+      const float weight = std::max(probe.intensity, 0.0f);
+      const Vec3 probe_light =
+          mixVec(probe.ground_irradiance, probe.sky_irradiance, smoothstep(-0.35f, 0.95f, dir.y)) *
+          probe.specular_tint;
+      probe_sum = probe_sum + probe_light * weight;
+      probe_weight += weight;
+    }
+    if (probe_weight > 0.0001f) {
+      color = mixVec(color, probe_sum / probe_weight, std::clamp(probe_weight * 0.28f, 0.0f, 0.72f));
+    }
+  }
+  const float studio_key =
+      smoothstep(0.82f, 0.995f, dot(dir, normalize(Vec3{-0.58f, 0.54f, 0.62f})));
+  const float studio_rim =
+      smoothstep(0.84f, 0.996f, dot(dir, normalize(Vec3{0.72f, 0.34f, -0.58f})));
+  const float upper_strip =
+      smoothstep(0.62f, 0.92f, dir.y) *
+      (1.0f - smoothstep(0.12f, 0.90f, std::abs(dir.x * 0.45f + dir.z * 0.15f)));
+  color = color + settings.sun_light.color * (studio_key * 1.10f) +
+          Vec3{0.42f, 0.54f, 0.72f} * (studio_rim * 0.42f) +
+          Vec3{0.36f, 0.44f, 0.54f} * (upper_strip * 0.22f);
+  if (settings.sun_light.enabled && settings.sun_light.intensity > 0.0f) {
+    const Vec3 sun_dir = normalize(settings.sun_light.direction_to_light);
+    const float sun_dot = std::max(dot(dir, sun_dir), 0.0f);
+    const float disk = std::pow(sun_dot, 240.0f);
+    const float bloom = std::pow(sun_dot, 18.0f);
+    color = color + settings.sun_light.color * settings.sun_light.intensity *
+                        (disk * 0.055f + bloom * 0.018f);
+  }
+  return clamp(color, 0.0f, 8.0f);
+}
+
 std::uint8_t toByte(const float value) {
   return static_cast<std::uint8_t>(saturate(value) * 255.0f + 0.5f);
 }
@@ -220,12 +335,31 @@ void prepareTriangleMesh(PreparedObject &out, const CpuMesh &mesh) {
     const Vec3 na = normalize(transformVector(model, va.normal));
     const Vec3 nb = normalize(transformVector(model, vb.normal));
     const Vec3 nc = normalize(transformVector(model, vc.normal));
+    const auto transformed_tangent = [&](const Vertex &vertex, const Vec3 fallback_normal) {
+      Vec3 tangent = transformVector(model, {vertex.tangent.x, vertex.tangent.y, vertex.tangent.z});
+      tangent = tangent - fallback_normal * dot(tangent, fallback_normal);
+      if (length(tangent) <= 0.0001f) {
+        tangent = cross(std::abs(fallback_normal.y) < 0.86f ? Vec3{0.0f, 1.0f, 0.0f}
+                                                            : Vec3{1.0f, 0.0f, 0.0f},
+                        fallback_normal);
+      }
+      return length(tangent) > 0.0001f ? normalize(tangent) : Vec3{1.0f, 0.0f, 0.0f};
+    };
+    const Vec3 safe_na = length(na) > 0.0001f ? na : face;
+    const Vec3 safe_nb = length(nb) > 0.0001f ? nb : face;
+    const Vec3 safe_nc = length(nc) > 0.0001f ? nc : face;
     out.triangles.push_back({a,
                              b,
                              c,
-                             length(na) > 0.0001f ? na : face,
-                             length(nb) > 0.0001f ? nb : face,
-                             length(nc) > 0.0001f ? nc : face,
+                             va.position,
+                             vb.position,
+                             vc.position,
+                             safe_na,
+                             safe_nb,
+                             safe_nc,
+                             transformed_tangent(va, safe_na),
+                             transformed_tangent(vb, safe_nb),
+                             transformed_tangent(vc, safe_nc),
                              va.uv,
                              vb.uv,
                              vc.uv});
@@ -361,10 +495,19 @@ bool intersectPreparedMesh(const Ray &ray, const PreparedObject &prepared, Hit &
     if (dot(normal, ray.direction) > 0.0f) {
       normal = normal * -1.0f;
     }
+    Vec3 tangent = triangle.ta * w + triangle.tb * u + triangle.tc * v;
+    tangent = tangent - normal * dot(tangent, normal);
+    if (length(tangent) <= 0.0001f) {
+      tangent = cross(std::abs(normal.y) < 0.86f ? Vec3{0.0f, 1.0f, 0.0f}
+                                                 : Vec3{1.0f, 0.0f, 0.0f},
+                      normal);
+    }
     hit.valid = true;
     hit.distance = t;
     hit.position = ray.origin + ray.direction * t;
+    hit.local_position = triangle.la * w + triangle.lb * u + triangle.lc * v;
     hit.normal = normal;
+    hit.tangent = length(tangent) > 0.0001f ? normalize(tangent) : Vec3{1.0f, 0.0f, 0.0f};
     hit.uv = triangle.uva * w + triangle.uvb * u + triangle.uvc * v;
     hit.material = prepared.object.material;
     found = true;
@@ -378,6 +521,22 @@ Hit trace(const Ray &ray, const std::vector<PreparedObject> &scene) {
     intersectPreparedMesh(ray, prepared, closest);
   }
   return closest;
+}
+
+bool traceShadowRay(const Ray &ray, const std::vector<PreparedObject> &scene,
+                    const float max_distance) {
+  Hit closest;
+  closest.distance = std::max(max_distance, 0.02f);
+  for (const PreparedObject &prepared : scene) {
+    if (!renderObjectCastsShadows(prepared.object) ||
+        resolveMaterialSurfaceProfile(prepared.object.material) == MaterialSurfaceProfile::ContactShadow) {
+      continue;
+    }
+    if (intersectPreparedMesh(ray, prepared, closest)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 Vec2 patternCoordinatesAt(const Vec3 position, const Vec3 normal) {
@@ -600,10 +759,159 @@ Vec3 biologicalIntegumentPreviewAlbedo(const Hit &hit) {
   return clamp(color * (0.92f + pore * 0.10f), 0.0f, 4.0f);
 }
 
+Vec3 terrainPreviewAlbedo(const Hit &hit) {
+  const float detail = std::max(hit.material.detail_scale, 0.001f);
+  const float broad =
+      projectedFbm(hit.position + Vec3{0.15f, 0.0f, -0.09f}, hit.normal, detail * 0.18f, 521.0f);
+  const float medium = projectedFbm(hit.position, hit.normal, detail * 0.72f, 523.0f);
+  const float fine = ridge(projectedFbm(hit.position, hit.normal, detail * 2.15f, 541.0f));
+  const float pebble = smoothstep(0.62f, 0.94f, fine * 0.62f + medium * 0.34f);
+  const float clay_band = projectedFbm(hit.position + Vec3{-0.36f, 0.0f, 0.22f}, hit.normal,
+                                       detail * 0.095f, 547.0f);
+  const Vec3 dry_soil = hit.material.base_color.value * Vec3{0.92f, 0.78f, 0.58f};
+  const Vec3 compact_soil = hit.material.base_color.value * Vec3{0.46f, 0.39f, 0.30f};
+  const Vec3 clay{0.135f, 0.100f, 0.070f};
+  const Vec3 cool_grit{0.066f, 0.066f, 0.062f};
+  Vec3 color = mixVec(compact_soil, dry_soil, smoothstep(0.22f, 0.86f, broad));
+  color = mixVec(color, clay, smoothstep(0.50f, 0.92f, clay_band) * 0.30f);
+  color = mixVec(color, cool_grit, smoothstep(0.60f, 0.96f, medium) * 0.34f);
+  color = mixVec(color, color * 1.18f + Vec3{0.030f, 0.020f, 0.012f}, pebble * 0.18f);
+  color *= 0.68f + fine * 0.12f + hit.normal.y * 0.08f;
+  return clamp(color, 0.0f, 4.0f);
+}
+
+Vec3 fiberPreviewAlbedo(const Hit &hit) {
+  const float detail = std::max(hit.material.detail_scale, 0.001f);
+  const Vec3 p = materialSamplePosition(hit);
+  const float along = p.x * 0.96f + p.z * 0.18f;
+  const float across = p.y * 0.72f + p.z * 0.30f;
+  const float directional_grain =
+      0.5f + 0.5f * std::sin((along * hit.material.pattern_scale.x +
+                              across * hit.material.pattern_scale.y * 0.07f) *
+                                 3.9f +
+                             projectedFbm(p, hit.normal, detail * 0.26f, 563.0f) *
+                                 3.0f);
+  const float fine = ridge(projectedFbm(p, hit.normal, detail * 1.72f, 569.0f));
+  if (hit.material.metallic > 0.50f) {
+    Vec3 color = hit.material.base_color.value * (0.92f + fine * 0.035f);
+    color = mixVec(color, color * Vec3{0.88f, 0.94f, 1.02f},
+                   smoothstep(0.70f, 0.96f, directional_grain) * 0.018f);
+    return clamp(color, 0.0f, 4.0f);
+  }
+  const bool warm_fiber = hit.material.base_color.value.x > hit.material.base_color.value.z * 1.25f &&
+                          hit.material.base_color.value.y > hit.material.base_color.value.z * 0.82f;
+  if (warm_fiber) {
+    const float rings =
+        0.5f + 0.5f * std::sin((along * 1.65f + across * 0.42f +
+                                projectedFbm(p, hit.normal, detail * 0.18f, 571.0f) *
+                                    3.8f) *
+                               6.2f);
+    const float pores = smoothstep(
+        0.72f, 0.97f,
+        ridge(projectedFbm(p + Vec3{0.17f, 0.04f, -0.11f}, hit.normal,
+                           detail * 2.20f, 577.0f)));
+    const Vec3 walnut_dark = hit.material.base_color.value * Vec3{0.38f, 0.28f, 0.18f};
+    const Vec3 walnut_gold = hit.material.base_color.value * Vec3{1.26f, 1.00f, 0.64f};
+    Vec3 color = mixVec(walnut_dark, walnut_gold, smoothstep(0.28f, 0.92f, rings));
+    color = mixVec(color, color * 0.46f, pores * 0.26f);
+    color = mixVec(color, color * Vec3{1.10f, 0.94f, 0.76f}, directional_grain * 0.12f);
+    return clamp(color, 0.0f, 4.0f);
+  }
+  Vec3 color = mixVec(hit.material.base_color.value * 0.88f,
+                      hit.material.base_color.value * Vec3{1.08f, 1.06f, 1.02f},
+                      smoothstep(0.18f, 0.92f, directional_grain));
+  color = mixVec(color, color * Vec3{0.84f, 0.90f, 0.96f}, fine * 0.08f);
+  return clamp(color, 0.0f, 4.0f);
+}
+
+Vec3 stratifiedPreviewAlbedo(const Hit &hit) {
+  const float detail = std::max(hit.material.detail_scale, 0.001f);
+  const Vec3 p = materialSamplePosition(hit);
+  const float layer = 0.5f + 0.5f * std::sin((p.y * hit.material.pattern_scale.y +
+                                              p.x * 0.22f + p.z * 0.35f) *
+                                                 5.4f +
+                                             projectedFbm(p, hit.normal,
+                                                          detail * 0.38f, 587.0f) *
+                                                 4.6f);
+  const float crack = ridge(projectedFbm(p, hit.normal, detail * 1.22f, 593.0f));
+  const float wet = std::clamp(hit.material.procedural.wetness, 0.0f, 1.0f);
+  Vec3 color = mixVec(hit.material.base_color.value * Vec3{0.58f, 0.62f, 0.60f},
+                      hit.material.base_color.value * Vec3{1.20f, 1.12f, 0.96f},
+                      smoothstep(0.24f, 0.92f, layer));
+  color = mixVec(color, color * 0.38f, smoothstep(0.72f, 0.98f, crack) * 0.38f);
+  color = mixVec(color, color * Vec3{0.84f, 0.92f, 1.04f},
+                 smoothstep(0.56f, 0.94f, layer) * wet * 0.10f);
+  color = mixVec(color, color * Vec3{0.64f, 0.72f, 0.80f} + Vec3{0.012f, 0.015f, 0.018f},
+                 wet * 0.18f);
+  return clamp(color, 0.0f, 4.0f);
+}
+
+Vec3 mineralPreviewAlbedo(const Hit &hit) {
+  const float detail = std::max(hit.material.detail_scale, 0.001f);
+  const Vec3 p = materialSamplePosition(hit);
+  const float vein = ridge(std::sin((p.x * 0.46f + p.z * 0.76f + p.y * 0.22f +
+                                     projectedFbm(p, hit.normal, detail * 0.34f,
+                                     607.0f)) *
+                                    4.8f) *
+                           0.5f +
+                       0.5f);
+  const float secondary_vein = ridge(std::sin((p.x * -0.32f + p.z * 0.92f + p.y * 0.46f +
+                                               projectedFbm(p, hit.normal,
+                                                            detail * 0.26f, 609.0f)) *
+                                              7.4f) *
+                                     0.5f +
+                                 0.5f);
+  const float polish = projectedFbm(p, hit.normal, detail * 1.44f, 613.0f);
+  const float glass_depth =
+      projectedFbm(p + hit.normal * 0.09f, hit.normal, detail * 0.62f, 617.0f);
+  const float mineral_line =
+      smoothstep(0.68f, 0.98f, vein * 0.76f + secondary_vein * 0.34f);
+  const float dark_inclusion =
+      smoothstep(0.62f, 0.94f,
+                 projectedFbm(p + Vec3{0.21f, -0.12f, 0.17f}, hit.normal,
+                              detail * 0.72f, 619.0f));
+  const Vec3 calcite{0.72f, 0.76f, 0.67f};
+  const Vec3 oxidized_green{0.070f, 0.130f, 0.102f};
+  Vec3 color = mixVec(hit.material.base_color.value * 0.68f,
+                      hit.material.base_color.value * Vec3{1.18f, 1.12f, 0.98f},
+                      smoothstep(0.42f, 0.92f, vein) * 0.20f);
+  color = mixVec(color, calcite, mineral_line * (0.36f + polish * 0.18f));
+  color = mixVec(color, oxidized_green, dark_inclusion * (0.20f + (1.0f - mineral_line) * 0.18f));
+  color = mixVec(color, color * Vec3{0.62f, 0.76f, 0.94f} + Vec3{0.010f, 0.014f, 0.020f},
+                 smoothstep(0.46f, 0.92f, glass_depth) * 0.24f);
+  color = mixVec(color, color * 1.20f + Vec3{0.018f, 0.024f, 0.032f},
+                 smoothstep(0.66f, 0.96f, polish) * 0.12f);
+  return clamp(color, 0.0f, 4.0f);
+}
+
+Vec3 resinPreviewAlbedo(const Hit &hit) {
+  const float detail = std::max(hit.material.detail_scale, 0.001f);
+  const Vec3 p = materialSamplePosition(hit);
+  const float cloud = projectedFbm(p + hit.normal * 0.12f, hit.normal,
+                                   detail * 0.36f, 631.0f);
+  const float inner = projectedFbm(p, hit.normal, detail * 1.10f, 641.0f);
+  Vec3 color = hit.material.base_color.value * (0.72f + cloud * 0.34f);
+  color = mixVec(color, color * Vec3{0.62f, 0.78f, 0.92f} + Vec3{0.018f, 0.030f, 0.036f},
+                 smoothstep(0.58f, 0.96f, inner) * 0.24f);
+  color = mixVec(color, hit.material.base_color.value * Vec3{1.20f, 0.94f, 0.70f},
+                 smoothstep(0.66f, 0.96f, cloud) * 0.14f);
+  return clamp(color, 0.0f, 4.0f);
+}
+
 Vec3 previewAlbedo(const Hit &hit) {
   switch (resolveMaterialSurfaceProfile(hit.material)) {
   case MaterialSurfaceProfile::Masonry:
     return courseCellAlbedo(hit);
+  case MaterialSurfaceProfile::TerrainLayer:
+    return terrainPreviewAlbedo(hit);
+  case MaterialSurfaceProfile::OrganicFiber:
+    return fiberPreviewAlbedo(hit);
+  case MaterialSurfaceProfile::StratifiedRock:
+    return stratifiedPreviewAlbedo(hit);
+  case MaterialSurfaceProfile::MineralVein:
+    return mineralPreviewAlbedo(hit);
+  case MaterialSurfaceProfile::Resin:
+    return resinPreviewAlbedo(hit);
   case MaterialSurfaceProfile::CorrodedMetal:
     return corrodedMetalAlbedo(hit);
   case MaterialSurfaceProfile::WeldBead:
@@ -612,16 +920,11 @@ Vec3 previewAlbedo(const Hit &hit) {
     return biologicalIntegumentPreviewAlbedo(hit);
   case MaterialSurfaceProfile::Auto:
   case MaterialSurfaceProfile::Plain:
-  case MaterialSurfaceProfile::OrganicFiber:
-  case MaterialSurfaceProfile::TerrainLayer:
   case MaterialSurfaceProfile::Liquid:
   case MaterialSurfaceProfile::Foliage:
-  case MaterialSurfaceProfile::Resin:
   case MaterialSurfaceProfile::PaintedWood:
   case MaterialSurfaceProfile::Feather:
   case MaterialSurfaceProfile::Scales:
-  case MaterialSurfaceProfile::StratifiedRock:
-  case MaterialSurfaceProfile::MineralVein:
   case MaterialSurfaceProfile::ContactShadow:
   case MaterialSurfaceProfile::FilamentWeb:
   case MaterialSurfaceProfile::ChitinShell:
@@ -630,15 +933,130 @@ Vec3 previewAlbedo(const Hit &hit) {
   }
 
   const float detail = std::max(hit.material.detail_scale, 0.001f);
-  const float broad = projectedFbm(hit.position, hit.normal, detail * 0.22f, 19.0f);
-  const float fine = projectedFbm(hit.position, hit.normal, detail * 0.84f, 29.0f);
+  const Vec3 p = materialSamplePosition(hit);
+  const float broad = projectedFbm(p, hit.normal, detail * 0.22f, 19.0f);
+  const float fine = projectedFbm(p, hit.normal, detail * 0.84f, 29.0f);
   const float weight = saturate(hit.material.detail_strength + hit.material.pattern_contrast * 0.24f);
   return clamp(hit.material.base_color.value *
                    std::lerp(1.0f, 0.86f + broad * 0.20f + fine * 0.08f, weight),
                0.0f, 4.0f);
 }
 
-float effectiveRoughness(const Hit &hit) {
+float surfaceHeightSignal(const Hit &hit) {
+  const float detail = std::max(hit.material.detail_scale, 0.001f);
+  const MaterialSurfaceProfile profile = resolveMaterialSurfaceProfile(hit.material);
+  switch (profile) {
+  case MaterialSurfaceProfile::TerrainLayer: {
+    const float broad = projectedFbm(hit.position + Vec3{0.15f, 0.0f, -0.09f}, hit.normal,
+                                     detail * 0.18f, 521.0f);
+    const float medium = projectedFbm(hit.position, hit.normal, detail * 0.72f, 523.0f);
+    const float fine = ridge(projectedFbm(hit.position, hit.normal, detail * 2.15f, 541.0f));
+    const float pebble = smoothstep(0.62f, 0.94f, fine * 0.62f + medium * 0.34f);
+    return saturate(broad * 0.30f + medium * 0.30f + fine * 0.18f + pebble * 0.28f);
+  }
+  case MaterialSurfaceProfile::OrganicFiber: {
+    const Vec3 p = materialSamplePosition(hit);
+    const float along = p.x * 0.96f + p.z * 0.18f;
+    const float across = p.y * 0.72f + p.z * 0.30f;
+    const float grain =
+        0.5f + 0.5f * std::sin((along * hit.material.pattern_scale.x +
+                                across * hit.material.pattern_scale.y * 0.07f) *
+                                   3.9f +
+                               projectedFbm(p, hit.normal, detail * 0.26f, 563.0f) *
+                                   3.0f);
+    const float fine = ridge(projectedFbm(p, hit.normal, detail * 1.72f, 569.0f));
+    if (hit.material.metallic > 0.50f) {
+      return saturate(grain * 0.12f + fine * 0.34f);
+    }
+    return saturate(grain * 0.46f + fine * 0.42f);
+  }
+  case MaterialSurfaceProfile::StratifiedRock: {
+    const Vec3 p = materialSamplePosition(hit);
+    const float layer =
+        0.5f + 0.5f * std::sin((p.y * hit.material.pattern_scale.y +
+                                p.x * 0.22f + p.z * 0.35f) *
+                                   5.4f +
+                               projectedFbm(p, hit.normal, detail * 0.38f, 587.0f) *
+                                   4.6f);
+    const float crack = ridge(projectedFbm(p, hit.normal, detail * 1.22f, 593.0f));
+    return saturate(layer * 0.42f + smoothstep(0.70f, 0.98f, crack) * 0.44f);
+  }
+  case MaterialSurfaceProfile::MineralVein: {
+    const Vec3 p = materialSamplePosition(hit);
+    const float vein = ridge(std::sin((p.x * 0.46f + p.z * 0.76f + p.y * 0.22f +
+                                       projectedFbm(p, hit.normal, detail * 0.34f,
+                                                    607.0f)) *
+                                      4.8f) *
+                             0.5f +
+                         0.5f);
+    const float polish = projectedFbm(p, hit.normal, detail * 1.44f, 613.0f);
+    return saturate(vein * 0.38f + polish * 0.32f);
+  }
+  case MaterialSurfaceProfile::Resin: {
+    const Vec3 p = materialSamplePosition(hit);
+    const float cloud = projectedFbm(p + hit.normal * 0.12f, hit.normal,
+                                     detail * 0.36f, 631.0f);
+    const float inner = projectedFbm(p, hit.normal, detail * 1.10f, 641.0f);
+    return saturate(cloud * 0.20f + inner * 0.16f);
+  }
+  case MaterialSurfaceProfile::CorrodedMetal:
+  case MaterialSurfaceProfile::WeldBead: {
+    const AsterPipeSurfaceSignals signals =
+        sampleAsterPipeSurface({.position = hit.position,
+                                .normal = hit.normal,
+                                .uv = hit.uv,
+                                .detail_scale = hit.material.detail_scale},
+                               hit.material.procedural, hit.material.edge_wear,
+                               hit.material.pattern_depth);
+    return saturate(signals.height * 0.70f + signals.pit * 0.24f +
+                    signals.cavity_grime * 0.18f);
+  }
+  case MaterialSurfaceProfile::Masonry:
+  case MaterialSurfaceProfile::Plain:
+  case MaterialSurfaceProfile::Auto:
+  case MaterialSurfaceProfile::Liquid:
+  case MaterialSurfaceProfile::Foliage:
+  case MaterialSurfaceProfile::PaintedWood:
+  case MaterialSurfaceProfile::Feather:
+  case MaterialSurfaceProfile::Scales:
+  case MaterialSurfaceProfile::ContactShadow:
+  case MaterialSurfaceProfile::FilamentWeb:
+  case MaterialSurfaceProfile::ChitinShell:
+  case MaterialSurfaceProfile::EmissiveLens:
+  case MaterialSurfaceProfile::BiologicalIntegument:
+    break;
+  }
+  return projectedFbm(hit.position, hit.normal, detail * 0.84f, 671.0f);
+}
+
+Vec3 perturbNormalFromHeight(const Hit &hit, const Vec3 base_normal, const float strength,
+                             const RendererSettings &settings) {
+  const Vec3 normal = normalize(base_normal);
+  const Vec3 tangent = orthogonalTangent(hit.tangent, normal);
+  const Vec3 bitangent = normalize(cross(normal, tangent));
+  const float texel_density =
+      std::max(hit.material.procedural.physical_texel_density,
+               settings.surface_scale.physical_texel_density);
+  const float detail_step =
+      std::clamp(640.0f / std::max(texel_density, 1.0f), 0.004f, 0.045f);
+  const auto offset_hit = [&](const Vec3 offset) {
+    Hit sample = hit;
+    sample.position = hit.position + offset;
+    sample.local_position = hit.local_position + offset;
+    return sample;
+  };
+  const float h_t0 = surfaceHeightSignal(offset_hit(tangent * -detail_step));
+  const float h_t1 = surfaceHeightSignal(offset_hit(tangent * detail_step));
+  const float h_b0 = surfaceHeightSignal(offset_hit(bitangent * -detail_step));
+  const float h_b1 = surfaceHeightSignal(offset_hit(bitangent * detail_step));
+  const float coupling = std::max(hit.material.procedural.height_normal_coupling,
+                                  settings.surface_scale.height_normal_coupling);
+  const float gain = std::clamp(strength * coupling * 1.55f, 0.0f, 2.6f);
+  return normalize(normal - tangent * ((h_t1 - h_t0) * gain) -
+                   bitangent * ((h_b1 - h_b0) * gain));
+}
+
+float effectiveRoughness(const Hit &hit, const RendererSettings &settings) {
   float roughness = std::clamp(hit.material.roughness, 0.045f, 1.0f);
   const MaterialSurfaceProfile profile = resolveMaterialSurfaceProfile(hit.material);
   const AsterPipeSurfaceSignals signals =
@@ -652,13 +1070,30 @@ float effectiveRoughness(const Hit &hit) {
           : AsterPipeSurfaceSignals{};
   const float variation = hit.material.procedural.roughness_variation;
   if (variation > 0.0001f) {
-    const float noise = projectedFbm(hit.position, hit.normal,
+    const float noise = projectedFbm(materialSamplePosition(hit), hit.normal,
                                      std::max(hit.material.detail_scale, 1.0f), 503.0f);
     roughness += (noise - 0.5f) * variation * 0.24f;
   }
+  const float height = surfaceHeightSignal(hit);
+  const float coupling =
+      std::max(hit.material.procedural.roughness_height_coupling,
+               settings.surface_scale.roughness_height_coupling);
+  if (profile == MaterialSurfaceProfile::TerrainLayer) {
+    roughness = std::lerp(roughness, 0.98f, coupling * (0.18f + height * 0.24f));
+  } else if (profile == MaterialSurfaceProfile::OrganicFiber && hit.material.metallic > 0.50f) {
+    roughness += (height - 0.50f) * variation * 0.18f;
+    roughness = std::lerp(roughness, 0.20f, hit.material.tangent_anisotropy * 0.06f);
+  } else if (profile == MaterialSurfaceProfile::StratifiedRock) {
+    roughness = std::lerp(roughness, 0.88f, height * coupling * 0.18f);
+    roughness = std::lerp(roughness, 0.48f, hit.material.procedural.wetness * 0.16f);
+  } else if (profile == MaterialSurfaceProfile::MineralVein) {
+    roughness = std::lerp(roughness, 0.16f, hit.material.coat_strength * 0.18f);
+    roughness += (height - 0.45f) * variation * 0.10f;
+  } else if (profile == MaterialSurfaceProfile::Resin) {
+    roughness = std::lerp(roughness, 0.38f, 0.12f + hit.material.coat_strength * 0.14f);
+  }
   if (profile == MaterialSurfaceProfile::CorrodedMetal || profile == MaterialSurfaceProfile::WeldBead) {
-    const float height_coupling =
-        std::clamp(hit.material.procedural.roughness_height_coupling, 0.0f, 1.50f);
+    const float height_coupling = std::clamp(coupling, 0.0f, 1.50f);
     const float rust_plate = saturate(signals.rust_bloom * 0.54f + signals.orange_rust * 0.24f +
                                       signals.black_scab * 0.42f + signals.cavity_grime * 0.24f);
     roughness = std::lerp(roughness, 0.97f, rust_plate * 0.66f);
@@ -710,11 +1145,103 @@ float effectiveAmbientOcclusion(const Hit &hit) {
                          signals.rim_soot * 0.26f - signals.weld_scorch * 0.20f -
                          signals.weld_slag * 0.16f,
                      0.36f, 1.0f);
+  } else {
+    const float height = surfaceHeightSignal(hit);
+    ao *= std::clamp(1.0f - (1.0f - height) * hit.material.procedural.height_shading * 0.24f,
+                     0.62f, 1.0f);
   }
   return ao;
 }
 
-Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
+float contactShadowVisibility(const Hit &hit, const std::vector<PreparedObject> &scene,
+                              const RendererSettings &settings) {
+  if (!settings.grounding.enabled || !settings.grounding.contact_shadows ||
+      settings.grounding.contact_shadow_strength <= 0.0f) {
+    return 1.0f;
+  }
+
+  const float reference_y = settings.grounding.reference_y;
+  if (hit.material.render_role != MaterialRenderRole::SupportSurface && hit.normal.y < 0.62f) {
+    const float near_ground = 1.0f - smoothstep(0.05f, 0.68f, hit.position.y - reference_y);
+    const float underside = smoothstep(-0.25f, 0.42f, -hit.normal.y);
+    return std::clamp(1.0f - near_ground * (0.12f + underside * 0.16f) *
+                                settings.grounding.contact_shadow_strength,
+                      0.62f, 1.0f);
+  }
+  if (hit.material.render_role != MaterialRenderRole::SupportSurface) {
+    return 1.0f;
+  }
+
+  float shadow = 0.0f;
+  const Vec3 light_dir =
+      settings.sun_light.enabled ? normalize(settings.sun_light.direction_to_light)
+                                 : Vec3{-0.45f, 0.82f, 0.34f};
+  for (const PreparedObject &prepared : scene) {
+    const RenderObject &object = prepared.object;
+    const bool casts_contact = object.casts_contact_shadow ||
+                               (settings.grounding.auto_contact_shadows &&
+                                object.auto_contact_shadow);
+    if (!casts_contact || object.material.render_role == MaterialRenderRole::SupportSurface ||
+        resolveMaterialSurfaceProfile(object.material) == MaterialSurfaceProfile::ContactShadow) {
+      continue;
+    }
+    const Vec3 center = (prepared.bounds_min + prepared.bounds_max) * 0.5f;
+    const Vec3 half_extents = (prepared.bounds_max - prepared.bounds_min) * 0.5f;
+    const float foot_y = prepared.bounds_min.y;
+    const float receiver_delta = std::abs(foot_y - reference_y);
+    if (receiver_delta > settings.grounding.contact_shadow_receiver_height) {
+      continue;
+    }
+    const float min_radius = std::max(settings.grounding.contact_shadow_min_radius, 0.001f);
+    const float max_radius = std::max(settings.grounding.contact_shadow_max_radius, min_radius);
+    const float radius_scale = settings.grounding.contact_shadow_radius_scale *
+                               object.contact_shadow_radius_scale;
+    const float radius_x = std::clamp(half_extents.x * radius_scale + 0.10f, min_radius, max_radius);
+    const float radius_z = std::clamp(half_extents.z * radius_scale + 0.10f, min_radius, max_radius);
+    const float caster_height = std::max(center.y - reference_y, 0.0f);
+    const float projection = caster_height * 0.12f / std::max(light_dir.y, 0.24f);
+    const Vec2 shadow_center{center.x - light_dir.x * projection, center.z - light_dir.z * projection};
+    const float dx = (hit.position.x - shadow_center.x) / std::max(radius_x, 0.001f);
+    const float dz = (hit.position.z - shadow_center.y) / std::max(radius_z, 0.001f);
+    const float d2 = dx * dx + dz * dz;
+    const float core = 1.0f - smoothstep(0.08f, 0.72f, d2);
+    const float penumbra = 1.0f - smoothstep(0.48f, 1.74f, d2);
+    const float receiver_fade =
+        1.0f - smoothstep(settings.grounding.contact_shadow_receiver_height * 0.70f,
+                           settings.grounding.contact_shadow_receiver_height, receiver_delta);
+    const float grain = projectedFbm(hit.position, hit.normal,
+                                     settings.grounding.contact_shadow_detail_scale, 701.0f);
+    shadow += (core * 0.72f + penumbra * 0.30f) *
+              (0.86f + grain * 0.14f) * receiver_fade * object.contact_shadow_strength;
+  }
+
+  const float strength = settings.grounding.contact_shadow_strength;
+  return std::clamp(1.0f - saturate(shadow) * strength, 0.34f, 1.0f);
+}
+
+float directionalShadowVisibility(const Hit &hit, const std::vector<PreparedObject> &scene,
+                                  const RendererSettings &settings, const Vec3 light_dir) {
+  if (!settings.shadows.enabled || !hit.material.receives_shadows || length(light_dir) <= 0.0001f) {
+    return 1.0f;
+  }
+  const float n_dot_l = dot(normalize(hit.normal), normalize(light_dir));
+  if (n_dot_l <= 0.02f) {
+    return 1.0f;
+  }
+  const float max_distance = settings.shadows.max_distance > 0.0f ? settings.shadows.max_distance : 64.0f;
+  const Ray shadow_ray{hit.position + normalize(hit.normal) * 0.035f +
+                           normalize(light_dir) * settings.shadows.receiver_bias,
+                       normalize(light_dir)};
+  if (!traceShadowRay(shadow_ray, scene, max_distance)) {
+    return 1.0f;
+  }
+  const float penumbra = std::clamp(settings.shadows.pcf_radius * 0.24f + 0.38f, 0.34f, 0.68f);
+  return 1.0f - penumbra;
+}
+
+Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings,
+           const std::vector<PreparedObject> &scene,
+           const std::vector<ReflectionProbe> &probes) {
   Hit sample_hit = hit;
   sample_hit.position = snapProceduralSamplePosition(hit.position, settings.style);
   const Vec3 albedo = previewAlbedo(sample_hit);
@@ -731,26 +1258,22 @@ Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
                                          hit.material.procedural, {1.0f, 0.0f, 0.0f},
                                          std::clamp(normal_strength, 0.0f, 0.92f));
     } else {
-      const Vec3 bump{
-          projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.10f, 607.0f) -
-              0.5f,
-          projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.35f, 619.0f) -
-              0.5f,
-          projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.58f, 631.0f) -
-              0.5f};
-      normal = normalize(normal + bump * std::clamp(normal_strength, 0.0f, 0.90f));
+      normal = perturbNormalFromHeight(sample_hit, normal, std::clamp(normal_strength, 0.0f, 0.90f),
+                                       settings);
     }
   }
 
   const Vec3 view = normalize(ray.origin - hit.position);
-  const float sky = saturate(normal.y * 0.5f + 0.5f);
+  const float contact_visibility = contactShadowVisibility(sample_hit, scene, settings);
   const float ambient =
-      std::max(settings.ambient_strength * effectiveAmbientOcclusion(sample_hit), settings.ambient_floor);
-  Vec3 color = mixVec(settings.ground_ambient_color, settings.sky_ambient_color, sky) * albedo *
-                   ambient +
+      std::max(settings.ambient_strength * effectiveAmbientOcclusion(sample_hit) *
+                   contact_visibility,
+               settings.ambient_floor);
+  const Vec3 diffuse_ibl = environmentRadiance(normal, settings, probes);
+  Vec3 color = diffuse_ibl * albedo * ambient +
                albedo * std::max(settings.indirect_albedo_floor, 0.0f);
 
-  const float roughness = effectiveRoughness(sample_hit);
+  const float roughness = effectiveRoughness(sample_hit, settings);
   const float metallic = effectiveMetallic(sample_hit);
   if (settings.material_debug_view != MaterialDebugView::Beauty) {
     switch (settings.material_debug_view) {
@@ -776,28 +1299,74 @@ Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
   const float alpha2 = std::max(alpha * alpha, 0.0005f);
   const float n_dot_v = std::max(dot(normal, view), 0.001f);
   const float k = ((roughness + 1.0f) * (roughness + 1.0f)) * 0.125f;
-  const Vec3 f0 = mixVec({0.04f, 0.04f, 0.04f}, albedo, metallic);
+  const float reflectance =
+      std::clamp(hit.material.dielectric_reflectance, 0.0f, 1.0f);
+  const float dielectric_f0 = std::clamp(0.16f * reflectance * reflectance, 0.018f, 0.16f);
+  const Vec3 f0 = mixVec({dielectric_f0, dielectric_f0, dielectric_f0}, albedo, metallic);
+  const float coat_strength = std::clamp(hit.material.coat_strength, 0.0f, 1.0f);
+  const float coat_roughness = std::clamp(hit.material.coat_roughness, 0.025f, 1.0f);
+  const float coat_alpha = coat_roughness * coat_roughness;
+  const float coat_alpha2 = std::max(coat_alpha * coat_alpha, 0.0005f);
+  const float coat_k = ((coat_roughness + 1.0f) * (coat_roughness + 1.0f)) * 0.125f;
+  const float anisotropy = std::clamp(hit.material.tangent_anisotropy, -0.95f, 0.95f);
+  const Vec3 tangent = orthogonalTangent(hit.tangent, normal);
+  const Vec3 sheen_color = hit.material.edge_sheen_color;
+  const float sheen_strength =
+      std::clamp(maxComponent(sheen_color), 0.0f, 2.0f);
+  const float sheen_roughness = std::clamp(hit.material.edge_sheen_roughness, 0.0f, 1.0f);
+  const Vec3 view_fresnel =
+      f0 + (Vec3{1.0f, 1.0f, 1.0f} - f0) * std::pow(1.0f - n_dot_v, 5.0f);
+  const float average_fresnel = std::clamp(luminanceOf(view_fresnel), 0.0f, 1.0f);
 
-  const auto add_light = [&](const Vec3 light_dir, const Vec3 radiance) {
+  const auto add_light = [&](const Vec3 light_dir, const Vec3 radiance, const float visibility) {
     const Vec3 half_vector = normalize(light_dir + view);
     const float n_dot_l = std::max(dot(normal, light_dir), 0.0f);
     const float n_dot_h = std::max(dot(normal, half_vector), 0.0f);
     const float h_dot_v = std::max(dot(half_vector, view), 0.0f);
     const float distribution_denominator = n_dot_h * n_dot_h * (alpha2 - 1.0f) + 1.0f;
-    const float distribution =
+    float distribution =
         alpha2 / std::max(kPi * distribution_denominator * distribution_denominator, 0.001f);
+    if (std::abs(anisotropy) > 0.0001f) {
+      const float tangent_alignment = std::abs(dot(half_vector, tangent));
+      const float anisotropic_lobe =
+          1.0f + std::abs(anisotropy) * (1.0f - tangent_alignment * tangent_alignment) * 0.75f;
+      distribution *= anisotropic_lobe;
+    }
     const float geometry_l = n_dot_l / std::max(n_dot_l * (1.0f - k) + k, 0.001f);
     const float geometry_v = n_dot_v / std::max(n_dot_v * (1.0f - k) + k, 0.001f);
     const Vec3 fresnel = f0 + (Vec3{1.0f, 1.0f, 1.0f} - f0) * std::pow(1.0f - h_dot_v, 5.0f);
-    const Vec3 specular = fresnel * (distribution * geometry_l * geometry_v);
-    const Vec3 diffuse = albedo * ((1.0f - metallic) * 0.82f);
-    color = color + (diffuse + specular) * (radiance * n_dot_l);
+    const float brdf_denominator = std::max(4.0f * n_dot_l * n_dot_v, 0.04f);
+    Vec3 specular = fresnel * (distribution * geometry_l * geometry_v / brdf_denominator);
+    if (coat_strength > 0.0001f) {
+      const float coat_denominator = n_dot_h * n_dot_h * (coat_alpha2 - 1.0f) + 1.0f;
+      const float coat_distribution =
+          coat_alpha2 / std::max(kPi * coat_denominator * coat_denominator, 0.001f);
+      const float coat_geometry_l =
+          n_dot_l / std::max(n_dot_l * (1.0f - coat_k) + coat_k, 0.001f);
+      const float coat_geometry_v =
+          n_dot_v / std::max(n_dot_v * (1.0f - coat_k) + coat_k, 0.001f);
+      const float coat_fresnel = 0.04f + 0.96f * std::pow(1.0f - h_dot_v, 5.0f);
+      specular = specular * (1.0f - coat_strength * 0.20f) +
+                 Vec3{coat_fresnel, coat_fresnel, coat_fresnel} *
+                     (coat_distribution * coat_geometry_l * coat_geometry_v * coat_strength /
+                      brdf_denominator);
+    }
+    const float sheen = sheen_strength <= 0.0001f
+                            ? 0.0f
+                            : std::pow(1.0f - h_dot_v, 5.0f) *
+                                  (0.22f + sheen_roughness * 0.36f) * (1.0f - metallic);
+    const Vec3 diffuse =
+        albedo * ((1.0f - metallic) * (1.0f - average_fresnel) *
+                  (1.0f - coat_strength * 0.10f) / kPi);
+    color = color + (diffuse + specular + sheen_color * sheen) *
+                        (radiance * n_dot_l * contact_visibility * visibility);
   };
 
   if (settings.sun_light.enabled && settings.sun_light.intensity > 0.0f) {
     const Vec3 sun_dir = normalize(settings.sun_light.direction_to_light);
     if (length(sun_dir) > 0.0001f) {
-      add_light(sun_dir, settings.sun_light.color * settings.sun_light.intensity);
+      add_light(sun_dir, settings.sun_light.color * settings.sun_light.intensity,
+                directionalShadowVisibility(sample_hit, scene, settings, sun_dir));
     }
   }
   const std::vector<Light> selected_lights =
@@ -810,7 +1379,25 @@ Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
     const float distance_sq = std::max(dot(light_vector, light_vector), 0.0001f);
     const float softened_distance =
         std::max(distance_sq, light.source_radius * light.source_radius + 0.0001f);
-    add_light(normalize(light_vector), light.color * (light.intensity / softened_distance));
+    add_light(normalize(light_vector), light.color * (light.intensity / softened_distance), 1.0f);
+  }
+
+  if (settings.reflections.enabled || settings.reflections.fallback_intensity > 0.0f) {
+    const Vec3 reflection = normalize(reflect(-view, normal));
+    const Vec3 softened_reflection =
+        normalize(mixVec(reflection, normal, std::clamp(roughness * 0.42f + 0.05f, 0.0f, 0.72f)));
+    const Vec3 env_specular = mixVec(environmentRadiance(reflection, settings, probes),
+                                     environmentRadiance(softened_reflection, settings, probes),
+                                     std::clamp(roughness * 0.72f, 0.0f, 1.0f));
+    const float gloss = std::pow(1.0f - roughness, 1.65f);
+    const float probe_gain = std::clamp(settings.reflections.fallback_intensity, 0.0f, 2.0f);
+    const Vec3 coat_fresnel =
+        Vec3{0.04f, 0.04f, 0.04f} +
+        Vec3{0.96f, 0.96f, 0.96f} * std::pow(1.0f - n_dot_v, 5.0f);
+    color = color + env_specular *
+                        (view_fresnel * (0.08f + gloss * 0.58f) +
+                         coat_fresnel * (coat_strength * (0.05f + gloss * 0.22f))) *
+                        probe_gain * contact_visibility;
   }
 
   color = mixVec(color,
@@ -828,10 +1415,9 @@ Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
   return gamma_encode(color);
 }
 
-Vec3 skyColor(const Ray &ray, const RendererSettings &settings) {
-  const float t = saturate(ray.direction.y * 0.5f + 0.5f);
-  const Vec3 base = mixVec(settings.pipeline.clear_color * 0.72f,
-                           settings.sky_ambient_color * 0.32f + Vec3{0.015f, 0.020f, 0.030f}, t);
+Vec3 skyColor(const Ray &ray, const RendererSettings &settings,
+              const std::vector<ReflectionProbe> &probes) {
+  const Vec3 base = environmentRadiance(ray.direction, settings, probes);
   Vec3 color = aces_tonemap(base * settings.exposure);
   color = applyRenderStylePost(color, settings.style);
   return gamma_encode(color);
@@ -849,6 +1435,7 @@ SoftwareFrameBuffer renderSoftwarePreview(const Scene &scene, const OrbitCamera 
   const float inv_sample_count =
       1.0f / static_cast<float>(samples_per_axis * samples_per_axis);
   const std::vector<PreparedObject> prepared_scene = prepareScene(scene);
+  const std::vector<ReflectionProbe> &reflection_probes = scene.reflectionProbes();
   std::vector<std::uint8_t> rgba(static_cast<std::size_t>(options.width) *
                                  static_cast<std::size_t>(options.height) * 4u);
 
@@ -867,8 +1454,10 @@ SoftwareFrameBuffer renderSoftwarePreview(const Scene &scene, const OrbitCamera 
                                              static_cast<float>(options.height)}});
           const Ray ray{camera_ray.origin, camera_ray.direction};
           const Hit hit = trace(ray, prepared_scene);
-          accumulated = accumulated + (hit.valid ? shade(hit, ray, options.settings)
-                                                 : skyColor(ray, options.settings));
+          accumulated = accumulated +
+                        (hit.valid ? shade(hit, ray, options.settings, prepared_scene,
+                                           reflection_probes)
+                                   : skyColor(ray, options.settings, reflection_probes));
         }
       }
       const Vec3 color = accumulated * inv_sample_count;

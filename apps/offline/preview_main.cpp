@@ -70,11 +70,11 @@ aster::OrbitCamera makeCamera(const std::string &scene_name) {
     return camera;
   }
   if (scene_name == "material-lab") {
-    camera.target = {0.0f, 0.58f, 0.0f};
-    camera.yaw = aster::radians(18.0f);
-    camera.pitch = aster::radians(14.0f);
-    camera.radius = 6.2f;
-    camera.vertical_fov = aster::radians(38.0f);
+    camera.target = {0.05f, 0.58f, -0.02f};
+    camera.yaw = aster::radians(20.0f);
+    camera.pitch = aster::radians(11.0f);
+    camera.radius = 6.80f;
+    camera.vertical_fov = aster::radians(42.0f);
     return camera;
   }
   if (scene_name == "mesh-lab") {
@@ -181,13 +181,60 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
     settings.atmosphere.fog_strength = 0.12f;
   }
   if (scene_name == "material-lab") {
-    settings.exposure = 1.00f;
-    settings.ambient_strength = 0.24f;
-    settings.sun_light.intensity = 2.35f;
+    settings.exposure = 1.16f;
+    settings.ambient_strength = 0.27f;
+    settings.ambient_floor = 0.012f;
+    settings.indirect_albedo_floor = 0.018f;
+    settings.sun_light.direction_to_light = {-0.52f, 0.80f, 0.30f};
+    settings.sun_light.color = {1.0f, 0.90f, 0.74f};
+    settings.sun_light.intensity = 5.40f;
+    settings.pipeline.clear_color = {0.018f, 0.032f, 0.052f};
+    settings.sky_ambient_color = {0.44f, 0.60f, 0.82f};
+    settings.ground_ambient_color = {0.18f, 0.13f, 0.085f};
+    settings.atmosphere.enabled = true;
+    settings.atmosphere.fog_color = {0.090f, 0.125f, 0.165f};
+    settings.atmosphere.fog_start = 2.8f;
+    settings.atmosphere.fog_end = 12.0f;
+    settings.atmosphere.fog_strength = 0.42f;
+    settings.atmosphere.fog_falloff = aster::AtmosphereFogFalloff::Exponential;
+    settings.atmosphere.fog_power = 1.55f;
+    settings.atmosphere.saturation = 1.04f;
+    settings.atmosphere.contrast = 1.06f;
+    settings.atmosphere.shadow_tint = {0.68f, 0.76f, 0.90f};
+    settings.atmosphere.shadow_tint_strength = 0.10f;
+    settings.atmosphere.highlight_tint = {1.08f, 0.98f, 0.82f};
+    settings.atmosphere.highlight_tint_strength = 0.08f;
     settings.grounding.enabled = true;
     settings.grounding.contact_shadows = true;
     settings.grounding.auto_contact_shadows = true;
-    settings.grounding.contact_shadow_strength = 0.34f;
+    settings.grounding.contact_shadow_strength = 0.82f;
+    settings.grounding.contact_shadow_radius_scale = 1.16f;
+    settings.occlusion.radius = 1.20f;
+    settings.occlusion.strength = 0.46f;
+    settings.occlusion.sample_count = 16u;
+    settings.occlusion.contact_hardening = 0.36f;
+    settings.shadows.enabled = true;
+    settings.shadows.cascaded_directional = true;
+    settings.shadows.directional_cascades = 2u;
+    settings.shadows.atlas_size = 160u;
+    settings.shadows.max_distance = 16.0f;
+    settings.shadows.pcf_radius = 0.30f;
+    settings.reflections.enabled = true;
+    settings.reflections.static_local_probes = true;
+    settings.reflections.probe_resolution = 16u;
+    settings.reflections.max_active_probes = 1u;
+    settings.reflections.fallback_intensity = 1.18f;
+    settings.surface_scale.physical_texel_density = 1024.0f;
+    settings.surface_scale.height_normal_coupling = 0.94f;
+    settings.surface_scale.roughness_height_coupling = 0.72f;
+    settings.surface_scale.macro_frequency_breakup = 0.58f;
+    settings.surface_scale.micro_frequency_breakup = 0.82f;
+    settings.presentation.focal_length_mm = 50.0f;
+    settings.light_rig = {
+        aster::Light{{-3.4f, 3.6f, 1.7f}, {11.0f, 8.4f, 5.8f}, 1.0f, 0.80f},
+        aster::Light{{2.7f, 1.8f, 1.5f}, {1.8f, 3.0f, 5.6f}, 1.0f, 1.00f},
+        aster::Light{{0.4f, 2.7f, -2.8f}, {3.8f, 4.8f, 6.4f}, 1.0f, 1.18f},
+    };
   }
   if (scene_name == "industrial-pipe") {
     settings.exposure = 0.92f;

@@ -443,6 +443,23 @@ struct ActionGraphDocument {
   std::vector<ActionNode> nodes;
 };
 
+struct InputBindingDocument {
+  std::string command;
+  std::string device;
+  std::string key;
+  std::string button;
+  float scale = 1.0f;
+  float deadzone = 0.0f;
+  std::vector<GameplayTag> tags;
+};
+
+struct InputMapDocument {
+  std::uint32_t schema_version = 0u;
+  AssetId id;
+  std::string name;
+  std::vector<InputBindingDocument> bindings;
+};
+
 struct EntityInstance {
   EntityDefinition definition;
   AssetId source_asset;
@@ -491,11 +508,13 @@ struct ActionEvent {
   EntityId target;
   std::map<std::string, std::string> parameters;
   std::vector<GameplayTag> tags;
+  std::uint64_t deterministic_stamp = 0u;
 };
 
 struct ActionExecution {
   std::vector<ActionEvent> events;
   std::vector<Diagnostic> diagnostics;
+  std::uint64_t contract_stamp = 0u;
 
   [[nodiscard]] bool ok() const {
     for (const Diagnostic &diagnostic : diagnostics) {
@@ -530,6 +549,8 @@ parseMaterialDocument(std::string_view source, std::filesystem::path source_path
                                                          std::filesystem::path source_path = {});
 [[nodiscard]] LoadResult<ActionGraphDocument>
 parseActionGraphDocument(std::string_view source, std::filesystem::path source_path = {});
+[[nodiscard]] LoadResult<InputMapDocument>
+parseInputMapDocument(std::string_view source, std::filesystem::path source_path = {});
 
 [[nodiscard]] LoadResult<ProjectDocument> loadProjectDocument(const std::filesystem::path &path);
 [[nodiscard]] LoadResult<SceneDocument> loadSceneDocument(const std::filesystem::path &path);
@@ -539,6 +560,10 @@ parseActionGraphDocument(std::string_view source, std::filesystem::path source_p
 [[nodiscard]] LoadResult<ItemDocument> loadItemDocument(const std::filesystem::path &path);
 [[nodiscard]] LoadResult<ActionGraphDocument>
 loadActionGraphDocument(const std::filesystem::path &path);
+[[nodiscard]] LoadResult<InputMapDocument> loadInputMapDocument(const std::filesystem::path &path);
+
+[[nodiscard]] std::uint64_t actionGraphContractStamp(const ActionGraphDocument &graph);
+[[nodiscard]] std::uint64_t inputMapContractStamp(const InputMapDocument &input_map);
 
 [[nodiscard]] std::vector<Diagnostic>
 validateCaveDocument(const CaveDocument &cave, const ProjectDocument *project = nullptr,

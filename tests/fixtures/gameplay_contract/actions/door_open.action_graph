@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "action.demo.door_open",
+  "name": "Open Door",
+  "nodes": [
+    {
+      "id": "emit.open_requested",
+      "type": "emit_event",
+      "parameters": { "event": "door.open_requested" },
+      "tags": ["interaction.door"]
+    },
+    {
+      "id": "emit.audio_cue",
+      "type": "emit_event",
+      "parameters": { "event": "audio.play", "cue": "door_mechanism" },
+      "tags": ["feedback.audio"]
+    }
+  ]
+}

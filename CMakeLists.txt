@@ -44,7 +44,7 @@ include(CheckIncludeFileCXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-set(ASTER_KERNEL_PACKAGE_VERSION "5.0.0")
+set(ASTER_KERNEL_PACKAGE_VERSION "5.1.0")
 
 if(WIN32 AND NOT MINGW)
   set(ASTER_RUST_STATICLIB_NAME "aster_runtime.lib")
@@ -517,6 +517,7 @@ target_include_directories(aster_game_sdk PUBLIC
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 set_target_properties(aster_game_sdk PROPERTIES EXPORT_NAME game_sdk)
+set_target_properties(aster_game_sdk PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(MSVC)
   target_compile_options(aster_game_sdk PRIVATE /W4 /permissive-)
 else()
@@ -573,7 +574,7 @@ target_include_directories(aster_kernel PUBLIC
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_compile_definitions(aster_kernel PRIVATE ASTER_KERNEL_BUILD=1)
-target_link_libraries(aster_kernel PRIVATE aster_engine_internal)
+target_link_libraries(aster_kernel PRIVATE aster_engine_internal aster_game_sdk)
 set_target_properties(aster_kernel PROPERTIES
   EXPORT_NAME kernel
   VERSION ${PROJECT_VERSION}

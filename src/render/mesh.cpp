@@ -80,7 +80,9 @@ CpuMesh makeUvSphere(const int segments, const int rings, const float radius) {
           std::cos(phi),
           std::sin(phi) * std::sin(theta),
       };
-      mesh.vertices.push_back({normal * radius, normal, {u, v}});
+      const Vec3 tangent = normalize(Vec3{-std::sin(theta), 0.0f, std::cos(theta)});
+      mesh.vertices.push_back(
+          {normal * radius, normal, {u, v}, {tangent.x, tangent.y, tangent.z, 1.0f}});
     }
   }
 

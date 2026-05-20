@@ -11,6 +11,12 @@ Material makeMaterial(const MaterialDesc &desc) {
   material.emission_color = desc.emission_color;
   material.roughness = desc.roughness;
   material.metallic = desc.metallic;
+  material.dielectric_reflectance = desc.dielectric_reflectance;
+  material.coat_strength = desc.coat_strength;
+  material.coat_roughness = desc.coat_roughness;
+  material.tangent_anisotropy = desc.tangent_anisotropy;
+  material.edge_sheen_color = desc.edge_sheen_color;
+  material.edge_sheen_roughness = desc.edge_sheen_roughness;
   material.emission_strength = desc.emission_strength;
   material.detail_strength = desc.detail_strength;
   material.detail_scale = desc.detail_scale;

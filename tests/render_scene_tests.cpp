@@ -266,11 +266,24 @@ void testShowcaseLabSceneContracts() {
   }
   assert(custom_meshes >= 4u);
 
-  std::size_t translucent = 0u;
+  std::size_t terrain_layers = 0u;
+  std::size_t organic_fibers = 0u;
+  std::size_t mineral_veins = 0u;
+  std::size_t stratified_rocks = 0u;
+  std::size_t contact_casters = 0u;
   for (const aster::RenderObject &object : material_lab.objects()) {
-    translucent += aster::isMaterialTranslucent(object.material) ? 1u : 0u;
+    const aster::MaterialSurfaceProfile profile = aster::resolveMaterialSurfaceProfile(object.material);
+    terrain_layers += profile == aster::MaterialSurfaceProfile::TerrainLayer ? 1u : 0u;
+    organic_fibers += profile == aster::MaterialSurfaceProfile::OrganicFiber ? 1u : 0u;
+    mineral_veins += profile == aster::MaterialSurfaceProfile::MineralVein ? 1u : 0u;
+    stratified_rocks += profile == aster::MaterialSurfaceProfile::StratifiedRock ? 1u : 0u;
+    contact_casters += object.casts_contact_shadow ? 1u : 0u;
   }
-  assert(translucent >= 1u);
+  assert(terrain_layers >= 1u);
+  assert(organic_fibers >= 2u);
+  assert(mineral_veins >= 1u);
+  assert(stratified_rocks >= 1u);
+  assert(contact_casters >= 4u);
 }
 
 void testSoftwarePreviewRendererProducesImage() {

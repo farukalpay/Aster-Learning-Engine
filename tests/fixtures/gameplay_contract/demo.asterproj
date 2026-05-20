@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "name": "Aster Gameplay Contract Demo",
+  "startup_scene": "scene.demo.entry",
+  "assets": [
+    { "id": "scene.demo.entry", "kind": "scene", "path": "scenes/entry.scene" },
+    { "id": "action.demo.door_open", "kind": "action_graph", "path": "actions/door_open.action_graph" },
+    { "id": "input.demo", "kind": "input", "path": "inputs/demo.input" }
+  ]
+}

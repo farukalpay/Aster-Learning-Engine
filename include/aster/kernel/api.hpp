@@ -7,6 +7,7 @@
 
 #include <cstring>
 #include <new>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -1171,6 +1172,284 @@ public:
 
 private:
   AsterRendererHandle handle_ = nullptr;
+};
+
+class AuthoringActionExecution {
+public:
+  AuthoringActionExecution() = default;
+  explicit AuthoringActionExecution(AsterAuthoringActionExecutionHandle handle) noexcept
+      : handle_(handle) {}
+
+  AuthoringActionExecution(AuthoringActionExecution &&other) noexcept
+      : handle_(std::exchange(other.handle_, nullptr)) {}
+
+  AuthoringActionExecution &operator=(AuthoringActionExecution &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  AuthoringActionExecution(const AuthoringActionExecution &) = delete;
+  AuthoringActionExecution &operator=(const AuthoringActionExecution &) = delete;
+
+  ~AuthoringActionExecution() {
+    reset();
+  }
+
+  [[nodiscard]] bool valid() const noexcept {
+    return handle_ != nullptr;
+  }
+
+  [[nodiscard]] AsterAuthoringActionExecutionHandle get() const noexcept {
+    return handle_;
+  }
+
+  [[nodiscard]] Result<AsterAuthoringActionExecutionInfo> info() const noexcept {
+    AsterAuthoringActionExecutionInfo info{sizeof(AsterAuthoringActionExecutionInfo),
+                                           ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_authoring_action_execution_info(handle_, &info));
+    if (!status) {
+      return Result<AsterAuthoringActionExecutionInfo>(status);
+    }
+    return Result<AsterAuthoringActionExecutionInfo>(std::move(info));
+  }
+
+  [[nodiscard]] Result<AsterAuthoringDiagnosticInfo> diagnostic(const size_t index) const noexcept {
+    AsterAuthoringDiagnosticInfo diagnostic{sizeof(AsterAuthoringDiagnosticInfo),
+                                            ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_authoring_action_execution_diagnostic(handle_, index, &diagnostic));
+    if (!status) {
+      return Result<AsterAuthoringDiagnosticInfo>(status);
+    }
+    return Result<AsterAuthoringDiagnosticInfo>(std::move(diagnostic));
+  }
+
+  [[nodiscard]] Result<AsterAuthoringActionEventInfo> event(const size_t index) const noexcept {
+    AsterAuthoringActionEventInfo event{sizeof(AsterAuthoringActionEventInfo),
+                                        ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_authoring_action_event(handle_, index, &event));
+    if (!status) {
+      return Result<AsterAuthoringActionEventInfo>(status);
+    }
+    return Result<AsterAuthoringActionEventInfo>(std::move(event));
+  }
+
+  [[nodiscard]] Result<AsterAuthoringKeyValue> eventParameter(
+      const size_t event_index, const size_t parameter_index) const noexcept {
+    AsterAuthoringKeyValue parameter{sizeof(AsterAuthoringKeyValue),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_authoring_action_event_parameter(
+        handle_, event_index, parameter_index, &parameter));
+    if (!status) {
+      return Result<AsterAuthoringKeyValue>(status);
+    }
+    return Result<AsterAuthoringKeyValue>(std::move(parameter));
+  }
+
+  [[nodiscard]] Result<AsterStringView> eventTag(const size_t event_index,
+                                                 const size_t tag_index) const noexcept {
+    AsterStringView tag{};
+    const Status status(
+        aster_kernel_authoring_action_event_tag(handle_, event_index, tag_index, &tag));
+    if (!status) {
+      return Result<AsterStringView>(status);
+    }
+    return Result<AsterStringView>(std::move(tag));
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_authoring_action_execution_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterAuthoringActionExecutionHandle handle_ = nullptr;
+};
+
+class AuthoringDocument {
+public:
+  AuthoringDocument() = default;
+  explicit AuthoringDocument(AsterAuthoringDocumentHandle handle) noexcept : handle_(handle) {}
+
+  AuthoringDocument(AuthoringDocument &&other) noexcept
+      : handle_(std::exchange(other.handle_, nullptr)) {}
+
+  AuthoringDocument &operator=(AuthoringDocument &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  AuthoringDocument(const AuthoringDocument &) = delete;
+  AuthoringDocument &operator=(const AuthoringDocument &) = delete;
+
+  ~AuthoringDocument() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<AuthoringDocument> load(
+      const AsterAuthoringDocumentDesc &desc) noexcept {
+    AsterAuthoringDocumentHandle handle = nullptr;
+    const Status status(aster_kernel_authoring_document_load(&desc, &handle));
+    if (!status) {
+      return Result<AuthoringDocument>(status);
+    }
+    return Result<AuthoringDocument>(AuthoringDocument(handle));
+  }
+
+  [[nodiscard]] static Result<AuthoringDocument> parseText(
+      const AsterAuthoringDocumentKind kind, const std::string_view source,
+      const std::string_view source_path = {}) noexcept {
+    const AsterAuthoringDocumentDesc desc{sizeof(AsterAuthoringDocumentDesc),
+                                          ASTER_KERNEL_STRUCT_VERSION_1,
+                                          kind,
+                                          {source.data(), source.size()},
+                                          {source_path.data(), source_path.size()},
+                                          {}};
+    return load(desc);
+  }
+
+  [[nodiscard]] static Result<AuthoringDocument> loadPath(
+      const AsterAuthoringDocumentKind kind, const std::string_view source_path) noexcept {
+    const AsterAuthoringDocumentDesc desc{sizeof(AsterAuthoringDocumentDesc),
+                                          ASTER_KERNEL_STRUCT_VERSION_1,
+                                          kind,
+                                          {},
+                                          {source_path.data(), source_path.size()},
+                                          {}};
+    return load(desc);
+  }
+
+  [[nodiscard]] bool valid() const noexcept {
+    return handle_ != nullptr;
+  }
+
+  [[nodiscard]] AsterAuthoringDocumentHandle get() const noexcept {
+    return handle_;
+  }
+
+  [[nodiscard]] Result<AsterAuthoringDocumentInfo> info() const noexcept {
+    AsterAuthoringDocumentInfo info{sizeof(AsterAuthoringDocumentInfo),
+                                    ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_authoring_document_info(handle_, &info));
+    if (!status) {
+      return Result<AsterAuthoringDocumentInfo>(status);
+    }
+    return Result<AsterAuthoringDocumentInfo>(std::move(info));
+  }
+
+  [[nodiscard]] Result<AsterAuthoringDiagnosticInfo> diagnostic(const size_t index) const noexcept {
+    AsterAuthoringDiagnosticInfo diagnostic{sizeof(AsterAuthoringDiagnosticInfo),
+                                            ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_authoring_document_diagnostic(handle_, index, &diagnostic));
+    if (!status) {
+      return Result<AsterAuthoringDiagnosticInfo>(status);
+    }
+    return Result<AsterAuthoringDiagnosticInfo>(std::move(diagnostic));
+  }
+
+  [[nodiscard]] Result<AsterAuthoringProjectAssetInfo> projectAsset(
+      const size_t index) const noexcept {
+    AsterAuthoringProjectAssetInfo asset{sizeof(AsterAuthoringProjectAssetInfo),
+                                         ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_authoring_project_asset(handle_, index, &asset));
+    if (!status) {
+      return Result<AsterAuthoringProjectAssetInfo>(status);
+    }
+    return Result<AsterAuthoringProjectAssetInfo>(std::move(asset));
+  }
+
+  [[nodiscard]] Result<AsterAuthoringEntityInfo> entity(const size_t index) const noexcept {
+    AsterAuthoringEntityInfo entity{sizeof(AsterAuthoringEntityInfo),
+                                    ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_authoring_entity(handle_, index, &entity));
+    if (!status) {
+      return Result<AsterAuthoringEntityInfo>(status);
+    }
+    return Result<AsterAuthoringEntityInfo>(std::move(entity));
+  }
+
+  [[nodiscard]] Result<AsterAuthoringActionNodeInfo> actionNode(
+      const size_t index) const noexcept {
+    AsterAuthoringActionNodeInfo node{sizeof(AsterAuthoringActionNodeInfo),
+                                      ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_authoring_action_node(handle_, index, &node));
+    if (!status) {
+      return Result<AsterAuthoringActionNodeInfo>(status);
+    }
+    return Result<AsterAuthoringActionNodeInfo>(std::move(node));
+  }
+
+  [[nodiscard]] Result<AsterAuthoringKeyValue> actionNodeParameter(
+      const size_t node_index, const size_t parameter_index) const noexcept {
+    AsterAuthoringKeyValue parameter{sizeof(AsterAuthoringKeyValue),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_authoring_action_node_parameter(
+        handle_, node_index, parameter_index, &parameter));
+    if (!status) {
+      return Result<AsterAuthoringKeyValue>(status);
+    }
+    return Result<AsterAuthoringKeyValue>(std::move(parameter));
+  }
+
+  [[nodiscard]] Result<AsterStringView> actionNodeTag(const size_t node_index,
+                                                      const size_t tag_index) const noexcept {
+    AsterStringView tag{};
+    const Status status(aster_kernel_authoring_action_node_tag(handle_, node_index, tag_index, &tag));
+    if (!status) {
+      return Result<AsterStringView>(status);
+    }
+    return Result<AsterStringView>(std::move(tag));
+  }
+
+  [[nodiscard]] Result<AsterAuthoringInputBindingInfo> inputBinding(
+      const size_t index) const noexcept {
+    AsterAuthoringInputBindingInfo binding{sizeof(AsterAuthoringInputBindingInfo),
+                                           ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_authoring_input_binding(handle_, index, &binding));
+    if (!status) {
+      return Result<AsterAuthoringInputBindingInfo>(status);
+    }
+    return Result<AsterAuthoringInputBindingInfo>(std::move(binding));
+  }
+
+  [[nodiscard]] Result<AsterStringView> inputBindingTag(const size_t binding_index,
+                                                        const size_t tag_index) const noexcept {
+    AsterStringView tag{};
+    const Status status(
+        aster_kernel_authoring_input_binding_tag(handle_, binding_index, tag_index, &tag));
+    if (!status) {
+      return Result<AsterStringView>(status);
+    }
+    return Result<AsterStringView>(std::move(tag));
+  }
+
+  [[nodiscard]] Result<AuthoringActionExecution> executeAction(
+      const AsterAuthoringActionContext &context) const noexcept {
+    AsterAuthoringActionExecutionHandle execution = nullptr;
+    const Status status(aster_kernel_authoring_action_execute(handle_, &context, &execution));
+    if (!status) {
+      return Result<AuthoringActionExecution>(status);
+    }
+    return Result<AuthoringActionExecution>(AuthoringActionExecution(execution));
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_authoring_document_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterAuthoringDocumentHandle handle_ = nullptr;
 };
 
 namespace math {

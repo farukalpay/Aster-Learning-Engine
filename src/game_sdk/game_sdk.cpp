@@ -538,6 +538,49 @@ readPathMap(const Json &object, const char *key, std::vector<Diagnostic> &diagno
   return values;
 }
 
+void hashBytes(std::uint64_t &hash, const void *data, const std::size_t size) {
+  const auto *bytes = static_cast<const unsigned char *>(data);
+  for (std::size_t i = 0u; i < size; ++i) {
+    hash ^= static_cast<std::uint64_t>(bytes[i]);
+    hash *= 1099511628211ull;
+  }
+}
+
+void hashString(std::uint64_t &hash, const std::string_view value) {
+  hashBytes(hash, value.data(), value.size());
+  const unsigned char separator = 0xffu;
+  hashBytes(hash, &separator, 1u);
+}
+
+void hashNumber(std::uint64_t &hash, const std::uint64_t value) {
+  hashBytes(hash, &value, sizeof(value));
+}
+
+[[nodiscard]] std::uint64_t beginContractHash() {
+  return 1469598103934665603ull;
+}
+
+[[nodiscard]] std::uint64_t actionEventStamp(const ActionGraphDocument &graph,
+                                             const ActionNode &node,
+                                             const ActionContext &context) {
+  std::uint64_t hash = beginContractHash();
+  hashString(hash, "aster.action_event.v1");
+  hashString(hash, graph.id);
+  hashString(hash, node.id);
+  hashString(hash, node.type);
+  hashString(hash, context.actor);
+  hashString(hash, context.target);
+  hashString(hash, context.input);
+  for (const auto &[key, value] : node.parameters) {
+    hashString(hash, key);
+    hashString(hash, value);
+  }
+  for (const GameplayTag &tag : node.tags) {
+    hashString(hash, tag.value);
+  }
+  return hash;
+}
+
 [[nodiscard]] CaveSeedRecord parseCaveSeedRecord(const Json &value,
                                                  std::vector<Diagnostic> &diagnostics,
                                                  const std::filesystem::path &source,
@@ -1574,6 +1617,86 @@ LoadResult<ActionGraphDocument> parseActionGraphDocument(std::string_view source
   return result;
 }
 
+LoadResult<InputMapDocument> parseInputMapDocument(std::string_view source_text,
+                                                   std::filesystem::path source_path) {
+  LoadResult<InputMapDocument> result;
+  try {
+    const Json root = JsonParser(source_text).parse();
+    if (!expectObject(root, result.diagnostics, source_path, "$")) {
+      return result;
+    }
+    result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
+    result.value.id = readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
+    result.value.name = readStringOr(root, "name", result.diagnostics, source_path, "$", {});
+    const Json *bindings = member(root, "bindings");
+    if (bindings == nullptr) {
+      addDiagnostic(result.diagnostics, source_path, "$.bindings",
+                    "missing required input binding array");
+      return result;
+    }
+    if (bindings->kind != Json::Kind::Array) {
+      addDiagnostic(result.diagnostics, source_path, "$.bindings", "expected input binding array");
+      return result;
+    }
+    std::set<std::string> binding_keys;
+    for (std::size_t i = 0u; i < bindings->array.size(); ++i) {
+      const Json &binding_json = bindings->array[i];
+      const std::string path = indexPath("$.bindings", i);
+      if (!expectObject(binding_json, result.diagnostics, source_path, path)) {
+        continue;
+      }
+      InputBindingDocument binding;
+      binding.command =
+          readString(binding_json, "command", result.diagnostics, source_path, path, true)
+              .value_or("");
+      binding.device =
+          readString(binding_json, "device", result.diagnostics, source_path, path, true)
+              .value_or("");
+      binding.key = readStringOr(binding_json, "key", result.diagnostics, source_path, path, {});
+      binding.button =
+          readStringOr(binding_json, "button", result.diagnostics, source_path, path, {});
+      binding.scale = readFloatOr(binding_json, "scale", result.diagnostics, source_path, path,
+                                  binding.scale);
+      binding.deadzone = readFloatOr(binding_json, "deadzone", result.diagnostics, source_path,
+                                     path, binding.deadzone);
+      binding.tags = readTags(binding_json, "tags", result.diagnostics, source_path, path);
+
+      if (binding.device != "keyboard" && binding.device != "mouse" &&
+          binding.device != "gamepad" && binding.device != "touch") {
+        addDiagnostic(result.diagnostics, source_path, childPath(path, "device"),
+                      "input binding device must be keyboard, mouse, gamepad, or touch");
+      }
+      if ((binding.device == "keyboard" || binding.device == "gamepad") && binding.key.empty()) {
+        addDiagnostic(result.diagnostics, source_path, childPath(path, "key"),
+                      "keyboard and gamepad bindings require a key");
+      }
+      if (binding.device == "mouse" && binding.button.empty()) {
+        addDiagnostic(result.diagnostics, source_path, childPath(path, "button"),
+                      "mouse bindings require a button");
+      }
+      if (binding.deadzone < 0.0f || binding.deadzone > 1.0f) {
+        addDiagnostic(result.diagnostics, source_path, childPath(path, "deadzone"),
+                      "deadzone must be between 0 and 1");
+      }
+      if (binding.command.empty()) {
+        addDiagnostic(result.diagnostics, source_path, childPath(path, "command"),
+                      "input binding command must not be empty");
+      }
+      const std::string dedupe_key =
+          binding.command + "|" + binding.device + "|" + binding.key + "|" + binding.button;
+      if (!binding.command.empty() && !binding.device.empty() &&
+          !binding_keys.insert(dedupe_key).second) {
+        addDiagnostic(result.diagnostics, source_path, path,
+                      "duplicate input binding for command '" + binding.command + "'");
+      }
+      result.value.bindings.push_back(std::move(binding));
+    }
+  } catch (const std::exception &error) {
+    addDiagnostic(result.diagnostics, source_path, "$", error.what());
+  }
+  return result;
+}
+
 LoadResult<ProjectDocument> loadProjectDocument(const std::filesystem::path &path) {
   return loadDocument<ProjectDocument>(path, parseProjectDocument);
 }
@@ -1600,6 +1723,10 @@ LoadResult<ItemDocument> loadItemDocument(const std::filesystem::path &path) {
 
 LoadResult<ActionGraphDocument> loadActionGraphDocument(const std::filesystem::path &path) {
   return loadDocument<ActionGraphDocument>(path, parseActionGraphDocument);
+}
+
+LoadResult<InputMapDocument> loadInputMapDocument(const std::filesystem::path &path) {
+  return loadDocument<InputMapDocument>(path, parseInputMapDocument);
 }
 
 void World::clear() {
@@ -1647,6 +1774,7 @@ InstantiateResult World::instantiateEntities(const AssetId &source_asset,
 ActionExecution ActionGraphRuntime::execute(const ActionGraphDocument &graph,
                                             const ActionContext &context) const {
   ActionExecution result;
+  result.contract_stamp = actionGraphContractStamp(graph);
   if (graph.nodes.empty()) {
     addDiagnostic(result.diagnostics, graph.id, "$.nodes", "action graph has no nodes",
                   DiagnosticSeverity::Warning);
@@ -1667,12 +1795,58 @@ ActionExecution ActionGraphRuntime::execute(const ActionGraphDocument &graph,
                              .actor = context.actor,
                              .target = context.target,
                              .parameters = node.parameters,
-                             .tags = node.tags});
+                             .tags = node.tags,
+                             .deterministic_stamp = actionEventStamp(graph, node, context)});
     if (!context.input.empty()) {
       result.events.back().parameters.emplace("input", context.input);
     }
   }
   return result;
+}
+
+std::uint64_t actionGraphContractStamp(const ActionGraphDocument &graph) {
+  std::uint64_t hash = beginContractHash();
+  hashString(hash, "aster.action_graph.v1");
+  hashString(hash, graph.id);
+  hashString(hash, graph.name);
+  hashNumber(hash, graph.schema_version);
+  hashNumber(hash, graph.nodes.size());
+  for (const ActionNode &node : graph.nodes) {
+    hashString(hash, node.id);
+    hashString(hash, node.type);
+    hashNumber(hash, node.parameters.size());
+    for (const auto &[key, value] : node.parameters) {
+      hashString(hash, key);
+      hashString(hash, value);
+    }
+    hashNumber(hash, node.tags.size());
+    for (const GameplayTag &tag : node.tags) {
+      hashString(hash, tag.value);
+    }
+  }
+  return hash;
+}
+
+std::uint64_t inputMapContractStamp(const InputMapDocument &input_map) {
+  std::uint64_t hash = beginContractHash();
+  hashString(hash, "aster.input_map.v1");
+  hashString(hash, input_map.id);
+  hashString(hash, input_map.name);
+  hashNumber(hash, input_map.schema_version);
+  hashNumber(hash, input_map.bindings.size());
+  for (const InputBindingDocument &binding : input_map.bindings) {
+    hashString(hash, binding.command);
+    hashString(hash, binding.device);
+    hashString(hash, binding.key);
+    hashString(hash, binding.button);
+    hashString(hash, std::to_string(binding.scale));
+    hashString(hash, std::to_string(binding.deadzone));
+    hashNumber(hash, binding.tags.size());
+    for (const GameplayTag &tag : binding.tags) {
+      hashString(hash, tag.value);
+    }
+  }
+  return hash;
 }
 
 std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "scene.demo.entry",
+  "name": "Gameplay Contract Entry",
+  "entities": [
+    {
+      "id": "demo.player",
+      "name": "Demo Player",
+      "components": {
+        "transform": { "translation": [0, 0, 0] },
+        "camera": { "primary": true }
+      }
+    },
+    {
+      "id": "demo.door",
+      "name": "Demo Door",
+      "components": {
+        "transform": { "translation": [0, 0, 2] },
+        "interactable": {
+          "tags": ["interaction.door"],
+          "action_graph": "action.demo.door_open",
+          "prompt_action": "Open",
+          "prompt_subject": "Door",
+          "radius": 0.45,
+          "max_distance": 4.0
+        }
+      }
+    }
+  ]
+}

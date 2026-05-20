@@ -108,6 +108,14 @@ CompiledMaterial compileMaterialForRendering(const Material &material,
   appendFloat(hash, material.depth_policy.normal_offset);
   appendEnum(hash, material.cull_mode);
   appendEnum(hash, resolveMaterialSurfaceProfile(material));
+  appendFloat(hash, material.dielectric_reflectance);
+  appendFloat(hash, material.coat_strength);
+  appendFloat(hash, material.coat_roughness);
+  appendFloat(hash, material.tangent_anisotropy);
+  appendFloat(hash, material.edge_sheen_color.x);
+  appendFloat(hash, material.edge_sheen_color.y);
+  appendFloat(hash, material.edge_sheen_color.z);
+  appendFloat(hash, material.edge_sheen_roughness);
   appendFloat(hash, material.pattern_scale.x);
   appendFloat(hash, material.pattern_scale.y);
   appendFloat(hash, material.pattern_depth);

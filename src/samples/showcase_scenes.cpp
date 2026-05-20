@@ -10,8 +10,8 @@
 #include "aster/geometry/fracture_mesh.hpp"
 #include "aster/geometry/primate_anatomy.hpp"
 #include "aster/geometry/terrain_mesh.hpp"
-#include "aster/geometry/tube_mesh.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <cstddef>
 #include <memory>
@@ -65,16 +65,6 @@ std::shared_ptr<const CpuMesh> showcaseHouseMesh() {
   return mesh;
 }
 
-std::shared_ptr<const CpuMesh> pipeSectionMesh() {
-  static const std::shared_ptr<const CpuMesh> mesh =
-      std::make_shared<const CpuMesh>(makeTubeMesh({.length = 5.2f,
-                                                    .outer_radius = 0.54f,
-                                                    .wall_thickness = 0.075f,
-                                                    .radial_segments = 96,
-                                                    .length_segments = 24}));
-  return mesh;
-}
-
 std::shared_ptr<const CpuMesh> labCableMesh() {
   static const std::shared_ptr<const CpuMesh> mesh =
       std::make_shared<const CpuMesh>(makeCableMesh({.construction = CableConstruction::TwistedStrands,
@@ -101,6 +91,113 @@ std::shared_ptr<const CpuMesh> labTerrainMesh() {
                                   .clamp_edge_samples = true,
                                   .subdivisions_per_square = 1,
                                   .smooth_visual_surface = true}));
+  }();
+  return mesh;
+}
+
+float labSoilHeightAt(const float px, const float pz) {
+  const float macro = std::sin(px * 0.11f + pz * 0.07f) * 0.070f +
+                      std::sin(px * 0.23f - pz * 0.15f) * 0.045f;
+  const float broad = std::sin(px * 0.86f + pz * 0.44f) * 0.020f +
+                      std::sin(px * 1.42f - pz * 0.77f) * 0.012f;
+  const float grit = std::sin(px * 5.40f + pz * 3.30f) * 0.0040f +
+                     std::sin(px * 8.70f - pz * 6.10f) * 0.0022f;
+  const float settled = std::sin((px + pz) * 0.26f) * 0.012f;
+  return macro + broad + grit + settled;
+}
+
+Vec3 labSoilNormalAt(const float px, const float pz) {
+  constexpr float step = 0.055f;
+  const float left = labSoilHeightAt(px - step, pz);
+  const float right = labSoilHeightAt(px + step, pz);
+  const float back = labSoilHeightAt(px, pz - step);
+  const float front = labSoilHeightAt(px, pz + step);
+  return normalize(Vec3{left - right, step * 2.0f, back - front});
+}
+
+std::shared_ptr<const CpuMesh> labSoilPatchMesh() {
+  static const std::shared_ptr<const CpuMesh> mesh = [] {
+    CpuMesh soil;
+    constexpr int columns = 96;
+    constexpr int rows = 68;
+    constexpr float width = 420.0f;
+    constexpr float depth = 340.0f;
+    constexpr float side_drop = 0.18f;
+    soil.vertices.reserve(static_cast<std::size_t>(columns * rows + columns * 4 + rows * 4));
+    for (int z = 0; z < rows; ++z) {
+      const float v = static_cast<float>(z) / static_cast<float>(rows - 1);
+      for (int x = 0; x < columns; ++x) {
+        const float u = static_cast<float>(x) / static_cast<float>(columns - 1);
+        const float px = (u - 0.5f) * width;
+        const float pz = (v - 0.5f) * depth;
+        Vertex vertex;
+        vertex.position = {px, labSoilHeightAt(px, pz), pz};
+        vertex.normal = labSoilNormalAt(px, pz);
+        vertex.tangent = {1.0f, 0.0f, 0.0f, 1.0f};
+        vertex.uv = {u * 4.0f, v * 3.0f};
+        vertex.ambient_occlusion = 0.90f + vertex.normal.y * 0.06f;
+        soil.vertices.push_back(vertex);
+      }
+    }
+    for (int z = 0; z + 1 < rows; ++z) {
+      for (int x = 0; x + 1 < columns; ++x) {
+        const std::uint32_t a = static_cast<std::uint32_t>(z * columns + x);
+        const std::uint32_t b = static_cast<std::uint32_t>(z * columns + x + 1);
+        const std::uint32_t c = static_cast<std::uint32_t>((z + 1) * columns + x);
+        const std::uint32_t d = static_cast<std::uint32_t>((z + 1) * columns + x + 1);
+        soil.indices.insert(soil.indices.end(), {a, c, b, b, c, d});
+      }
+    }
+    const auto append_side = [&](const Vec3 top_a, const Vec3 top_b, const Vec3 bottom_a,
+                                 const Vec3 bottom_b, const Vec3 normal, const Vec3 tangent,
+                                 const float u0, const float u1) {
+      const std::uint32_t base = static_cast<std::uint32_t>(soil.vertices.size());
+      const Vec4 tangent4{tangent.x, tangent.y, tangent.z, 1.0f};
+      soil.vertices.push_back({top_a, normal, {u0, 0.0f}, tangent4, 0.78f});
+      soil.vertices.push_back({bottom_a, normal, {u0, 1.0f}, tangent4, 0.68f});
+      soil.vertices.push_back({top_b, normal, {u1, 0.0f}, tangent4, 0.78f});
+      soil.vertices.push_back({bottom_b, normal, {u1, 1.0f}, tangent4, 0.68f});
+      soil.indices.insert(soil.indices.end(), {base, base + 1u, base + 2u, base + 2u,
+                                               base + 1u, base + 3u});
+    };
+    const float bottom_y = -side_drop;
+    for (int x = 0; x + 1 < columns; ++x) {
+      const float u0 = static_cast<float>(x) / static_cast<float>(columns - 1);
+      const float u1 = static_cast<float>(x + 1) / static_cast<float>(columns - 1);
+      const float x0 = (u0 - 0.5f) * width;
+      const float x1 = (u1 - 0.5f) * width;
+      const float z_front = depth * 0.5f;
+      const float z_back = -depth * 0.5f;
+      append_side({x0, labSoilHeightAt(x0, z_front), z_front},
+                  {x1, labSoilHeightAt(x1, z_front), z_front},
+                  {x0, bottom_y + labSoilHeightAt(x0, z_front) * 0.22f, z_front},
+                  {x1, bottom_y + labSoilHeightAt(x1, z_front) * 0.22f, z_front},
+                  {0.0f, 0.10f, 0.995f}, {1.0f, 0.0f, 0.0f}, u0, u1);
+      append_side({x1, labSoilHeightAt(x1, z_back), z_back},
+                  {x0, labSoilHeightAt(x0, z_back), z_back},
+                  {x1, bottom_y + labSoilHeightAt(x1, z_back) * 0.22f, z_back},
+                  {x0, bottom_y + labSoilHeightAt(x0, z_back) * 0.22f, z_back},
+                  {0.0f, 0.10f, -0.995f}, {-1.0f, 0.0f, 0.0f}, u0, u1);
+    }
+    for (int z = 0; z + 1 < rows; ++z) {
+      const float v0 = static_cast<float>(z) / static_cast<float>(rows - 1);
+      const float v1 = static_cast<float>(z + 1) / static_cast<float>(rows - 1);
+      const float z0 = (v0 - 0.5f) * depth;
+      const float z1 = (v1 - 0.5f) * depth;
+      const float x_left = -width * 0.5f;
+      const float x_right = width * 0.5f;
+      append_side({x_left, labSoilHeightAt(x_left, z1), z1},
+                  {x_left, labSoilHeightAt(x_left, z0), z0},
+                  {x_left, bottom_y + labSoilHeightAt(x_left, z1) * 0.22f, z1},
+                  {x_left, bottom_y + labSoilHeightAt(x_left, z0) * 0.22f, z0},
+                  {-0.995f, 0.10f, 0.0f}, {0.0f, 0.0f, -1.0f}, v0, v1);
+      append_side({x_right, labSoilHeightAt(x_right, z0), z0},
+                  {x_right, labSoilHeightAt(x_right, z1), z1},
+                  {x_right, bottom_y + labSoilHeightAt(x_right, z0) * 0.22f, z0},
+                  {x_right, bottom_y + labSoilHeightAt(x_right, z1) * 0.22f, z1},
+                  {0.995f, 0.10f, 0.0f}, {0.0f, 0.0f, 1.0f}, v0, v1);
+    }
+    return std::make_shared<const CpuMesh>(std::move(soil));
   }();
   return mesh;
 }
@@ -320,59 +417,137 @@ Scene makeIndustrialPipeScene() {
 
 Scene makeMaterialLabShowcaseScene() {
   Scene scene;
+  scene.reflectionProbes().push_back({"material lab soft sky probe",
+                                      {0.0f, 1.40f, -1.0f},
+                                      9.0f,
+                                      {0.48f, 0.62f, 0.82f},
+                                      {0.19f, 0.145f, 0.096f},
+                                      {1.08f, 1.04f, 0.95f},
+                                      1.22f,
+                                      {}});
 
-  const Material floor_material =
-      makeSupportSurfaceMaterial(material({0.16f, 0.17f, 0.16f}, {}, 0.92f, 0.0f, 0.0f, 0.28f,
-                                          3.0f, 0.08f, 0.86f, SurfacePattern::CourseCells,
-                                          {2.2f, 2.2f}, 0.05f, 0.30f));
+  Material soil_surface =
+      material({0.125f, 0.102f, 0.074f}, {}, 0.95f, 0.0f, 0.0f, 0.86f, 2.8f, 0.10f,
+               0.76f, SurfacePattern::TerrainBlend, {3.8f, 4.6f}, 0.24f, 0.58f, 0.052f,
+               {.macro_variation = 0.74f,
+                .micro_normal_strength = 0.48f,
+                .roughness_variation = 0.38f,
+                .physical_texel_density = 1080.0f,
+                .height_normal_coupling = 0.92f,
+                .roughness_height_coupling = 0.72f,
+                .macro_frequency_breakup = 0.62f,
+                .micro_frequency_breakup = 0.82f,
+                .wetness = 0.06f,
+                .height_shading = 0.34f});
+  soil_surface.edge_sheen_color = {0.026f, 0.022f, 0.017f};
+  soil_surface.edge_sheen_roughness = 0.72f;
+  const Material floor_material = makeSupportSurfaceMaterial(soil_surface);
   RenderObject floor;
-  floor.name = "material lab inspection floor";
-  floor.primitive = MeshPrimitive::Plane;
-  floor.transform.scale = {1.05f, 1.0f, 1.05f};
+  floor.name = "material lab granular soil floor";
+  floor.primitive = MeshPrimitive::Box;
+  floor.custom_mesh = labSoilPatchMesh();
+  floor.transform.position = {0.0f, 0.0f, 0.02f};
+  floor.transform.scale = {1.0f, 1.0f, 1.0f};
   floor.material = floor_material;
   floor.auto_contact_shadow = false;
   scene.objects().push_back(floor);
 
-  const Material wet_rock =
-      material({0.20f, 0.22f, 0.21f}, {}, 0.78f, 0.0f, 0.0f, 0.88f, 5.0f, 0.22f, 0.78f,
-               SurfacePattern::CaveRock, {2.6f, 3.2f}, 0.26f, 0.60f, 0.06f,
-               {.macro_variation = 0.56f,
-                .micro_normal_strength = 0.50f,
-                .roughness_variation = 0.36f,
-                .wetness = 0.52f,
-                .height_shading = 0.28f});
-  const Material rusty_pipe =
-      material({0.24f, 0.17f, 0.12f}, {0.02f, 0.008f, 0.0f}, 0.74f, 0.78f, 0.0f, 0.92f,
-               10.0f, 0.36f, 0.70f, SurfacePattern::WeatheredMetal, {3.6f, 11.5f}, 0.42f,
-               0.92f, 0.05f, {.macro_variation = 0.70f,
-                               .micro_normal_strength = 0.54f,
-                               .roughness_variation = 0.68f,
-                               .wetness = 0.08f,
-                               .height_shading = 0.36f});
-  const Material brushed_metal =
-      material({0.55f, 0.53f, 0.48f}, {}, 0.34f, 0.92f, 0.0f, 0.48f, 18.0f, 0.10f, 0.84f,
-               SurfacePattern::FiberStrands, {14.0f, 2.0f}, 0.08f, 0.38f);
-  Material glass =
-      material({0.34f, 0.62f, 0.78f}, {0.02f, 0.04f, 0.06f}, 0.08f, 0.0f, 0.08f, 0.12f,
-               2.0f, 0.0f, 1.0f);
-  glass.opacity = 0.42f;
-  glass.alpha_mode = MaterialAlphaMode::Blend;
-  glass.depth_write = MaterialDepthWrite::Disabled;
-  glass.double_sided = true;
+  Material brushed_aluminium =
+      material({0.70f, 0.73f, 0.72f}, {0.006f, 0.008f, 0.009f}, 0.32f, 0.96f, 0.0f,
+               0.34f, 24.0f, 0.10f, 0.90f, SurfacePattern::FiberStrands,
+               {18.0f, 2.0f}, 0.08f, 0.22f, 0.04f,
+               {.macro_variation = 0.34f,
+                .micro_normal_strength = 0.070f,
+                .roughness_variation = 0.14f,
+                .physical_texel_density = 1152.0f,
+                .height_normal_coupling = 0.50f,
+                .roughness_height_coupling = 0.42f,
+                .macro_frequency_breakup = 0.28f,
+                .micro_frequency_breakup = 0.84f,
+                .wetness = 0.02f,
+                .height_shading = 0.08f});
+  brushed_aluminium.dielectric_reflectance = 0.56f;
+  brushed_aluminium.coat_strength = 0.10f;
+  brushed_aluminium.coat_roughness = 0.22f;
+  brushed_aluminium.tangent_anisotropy = 0.84f;
 
-  const Material materials[] = {wet_rock, rusty_pipe, brushed_metal, glass};
-  const char *names[] = {"wet rock shader ball", "weathered pipe shader ball",
-                         "brushed metal shader ball", "translucent glass shader ball"};
+  Material honed_slate =
+      material({0.155f, 0.180f, 0.190f}, {}, 0.64f, 0.01f, 0.0f, 0.82f, 7.5f, 0.30f,
+               0.70f, SurfacePattern::CaveRock, {3.6f, 4.6f}, 0.34f, 0.68f, 0.052f,
+               {.macro_variation = 0.72f,
+                .micro_normal_strength = 0.58f,
+                .roughness_variation = 0.42f,
+                .physical_texel_density = 960.0f,
+                .height_normal_coupling = 0.88f,
+                .roughness_height_coupling = 0.70f,
+                .macro_frequency_breakup = 0.54f,
+                .micro_frequency_breakup = 0.66f,
+                .wetness = 0.28f,
+                .height_shading = 0.34f});
+  honed_slate.dielectric_reflectance = 0.42f;
+  honed_slate.coat_strength = 0.08f;
+  honed_slate.coat_roughness = 0.26f;
+  honed_slate.edge_sheen_color = {0.050f, 0.062f, 0.060f};
+  honed_slate.edge_sheen_roughness = 0.64f;
+
+  Material green_marble =
+      material({0.115f, 0.250f, 0.190f}, {0.002f, 0.004f, 0.003f}, 0.36f, 0.0f, 0.0f,
+               0.72f, 8.4f, 0.05f, 0.88f, SurfacePattern::CoalVein, {3.6f, 4.8f},
+               0.16f, 0.50f, 0.045f,
+               {.macro_variation = 0.42f,
+                .micro_normal_strength = 0.28f,
+                .roughness_variation = 0.26f,
+                .physical_texel_density = 864.0f,
+                .height_normal_coupling = 0.48f,
+                .roughness_height_coupling = 0.44f,
+                .macro_frequency_breakup = 0.42f,
+                .micro_frequency_breakup = 0.46f,
+                .wetness = 0.08f,
+                .height_shading = 0.12f});
+  green_marble.dielectric_reflectance = 0.66f;
+  green_marble.coat_strength = 0.32f;
+  green_marble.coat_roughness = 0.16f;
+  green_marble.edge_sheen_color = {0.050f, 0.085f, 0.060f};
+  green_marble.edge_sheen_roughness = 0.44f;
+
+  Material oiled_walnut =
+      material({0.315f, 0.175f, 0.075f}, {0.002f, 0.001f, 0.000f}, 0.48f, 0.0f, 0.0f,
+               0.88f, 10.0f, 0.10f, 0.86f, SurfacePattern::FiberStrands,
+               {14.0f, 2.4f}, 0.18f, 0.58f, 0.04f,
+               {.macro_variation = 0.32f,
+                .micro_normal_strength = 0.36f,
+                .roughness_variation = 0.30f,
+                .physical_texel_density = 920.0f,
+                .height_normal_coupling = 0.62f,
+                .roughness_height_coupling = 0.50f,
+                .macro_frequency_breakup = 0.44f,
+                .micro_frequency_breakup = 0.72f,
+                .wetness = 0.10f,
+                .height_shading = 0.18f});
+  oiled_walnut.dielectric_reflectance = 0.46f;
+  oiled_walnut.coat_strength = 0.24f;
+  oiled_walnut.coat_roughness = 0.30f;
+  oiled_walnut.edge_sheen_color = {0.070f, 0.036f, 0.012f};
+  oiled_walnut.edge_sheen_roughness = 0.70f;
+
+  const Material materials[] = {brushed_aluminium, honed_slate, green_marble, oiled_walnut};
+  const char *names[] = {"brushed aluminium material sphere", "honed slate material sphere",
+                         "green marble material sphere", "oiled walnut material sphere"};
+  const float sphere_x[] = {-2.80f, -0.96f, 0.90f, 2.48f};
+  const float sphere_z[] = {-0.22f, 0.14f, -0.05f, 0.10f};
+  constexpr float sphere_radius = 0.56f;
   for (std::size_t i = 0; i < 4u; ++i) {
     RenderObject object;
     object.name = names[i];
-    object.primitive = i == 1u ? MeshPrimitive::Box : MeshPrimitive::Sphere;
-    object.custom_mesh = i == 1u ? pipeSectionMesh() : nullptr;
-    object.transform.position = {-2.55f + static_cast<float>(i) * 1.70f, 0.70f, 0.0f};
-    object.transform.scale = {0.58f, 0.58f, 0.58f};
+    object.primitive = MeshPrimitive::Sphere;
+    object.transform.position = {sphere_x[i],
+                                 labSoilHeightAt(sphere_x[i], sphere_z[i]) + sphere_radius - 0.010f,
+                                 sphere_z[i]};
+    object.transform.scale = {sphere_radius, sphere_radius, sphere_radius};
     object.material = materials[i];
     object.casts_contact_shadow = true;
-    object.contact_shadow_strength = 0.56f;
+    object.contact_shadow_strength = 0.88f;
+    object.contact_shadow_radius_scale = 1.12f;
     scene.objects().push_back(object);
   }
 

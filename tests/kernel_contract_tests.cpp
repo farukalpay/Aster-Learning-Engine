@@ -30,6 +30,17 @@ static_assert(std::is_standard_layout_v<AsterRendererDesc>);
 static_assert(std::is_standard_layout_v<AsterBackendCapabilities>);
 static_assert(std::is_standard_layout_v<AsterBackendCapabilityTable>);
 static_assert(std::is_standard_layout_v<AsterValidationEvent>);
+static_assert(std::is_standard_layout_v<AsterAuthoringDocumentDesc>);
+static_assert(std::is_standard_layout_v<AsterAuthoringDocumentInfo>);
+static_assert(std::is_standard_layout_v<AsterAuthoringDiagnosticInfo>);
+static_assert(std::is_standard_layout_v<AsterAuthoringProjectAssetInfo>);
+static_assert(std::is_standard_layout_v<AsterAuthoringEntityInfo>);
+static_assert(std::is_standard_layout_v<AsterAuthoringActionNodeInfo>);
+static_assert(std::is_standard_layout_v<AsterAuthoringKeyValue>);
+static_assert(std::is_standard_layout_v<AsterAuthoringInputBindingInfo>);
+static_assert(std::is_standard_layout_v<AsterAuthoringActionContext>);
+static_assert(std::is_standard_layout_v<AsterAuthoringActionExecutionInfo>);
+static_assert(std::is_standard_layout_v<AsterAuthoringActionEventInfo>);
 static_assert(std::is_standard_layout_v<AsterShaderCompileDesc>);
 static_assert(std::is_standard_layout_v<AsterShaderCompileResult>);
 static_assert(std::is_standard_layout_v<AsterShaderReflectionBinding>);
@@ -151,6 +162,10 @@ std::string readFile(const std::string &path) {
   return buffer.str();
 }
 
+std::string toString(const AsterStringView view) {
+  return view.data == nullptr ? std::string() : std::string(view.data, view.size);
+}
+
 std::set<std::string> readManifest() {
   std::ifstream input(std::string(ASTER_SOURCE_DIR) + "/abi/aster_kernel.symbols");
   assert(input.good());
@@ -206,7 +221,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 5u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 0u);
+  assert(version.minor == 1u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -987,6 +1002,168 @@ void testAbi5ExplicitValidationContracts() {
   assert(aster_kernel_engine_destroy(engine).code == ASTER_STATUS_OK);
 }
 
+void testAuthoringDocumentAbi51Contracts() {
+  const std::filesystem::path fixture_root =
+      std::filesystem::path(ASTER_SOURCE_DIR) / "tests" / "fixtures" / "gameplay_contract";
+  const std::string project_path = (fixture_root / "demo.asterproj").string();
+  AsterAuthoringDocumentHandle project = nullptr;
+  const AsterAuthoringDocumentDesc project_desc{sizeof(AsterAuthoringDocumentDesc),
+                                                ASTER_KERNEL_STRUCT_VERSION_1,
+                                                ASTER_AUTHORING_DOCUMENT_PROJECT,
+                                                {},
+                                                {project_path.data(), project_path.size()},
+                                                {"fixture-project", 15u}};
+  assert(aster_kernel_authoring_document_load(&project_desc, &project).code == ASTER_STATUS_OK);
+  AsterAuthoringDocumentInfo project_info{sizeof(AsterAuthoringDocumentInfo),
+                                          ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_document_info(project, &project_info).code == ASTER_STATUS_OK);
+  assert(project_info.kind == ASTER_AUTHORING_DOCUMENT_PROJECT);
+  assert(project_info.valid == 1u);
+  assert(toString(project_info.name) == "Aster Gameplay Contract Demo");
+  assert(project_info.project_asset_count == 3u);
+  AsterAuthoringProjectAssetInfo project_asset{sizeof(AsterAuthoringProjectAssetInfo),
+                                               ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_project_asset(project, 0u, &project_asset).code ==
+         ASTER_STATUS_OK);
+  assert(project_asset.kind == ASTER_AUTHORING_ASSET_SCENE);
+  assert(project_asset.startup == 1u);
+
+  const std::string scene_path = (fixture_root / "scenes" / "entry.scene").string();
+  AsterAuthoringDocumentHandle scene = nullptr;
+  const AsterAuthoringDocumentDesc scene_desc{sizeof(AsterAuthoringDocumentDesc),
+                                              ASTER_KERNEL_STRUCT_VERSION_1,
+                                              ASTER_AUTHORING_DOCUMENT_SCENE,
+                                              {},
+                                              {scene_path.data(), scene_path.size()},
+                                              {}};
+  assert(aster_kernel_authoring_document_load(&scene_desc, &scene).code == ASTER_STATUS_OK);
+  AsterAuthoringDocumentInfo scene_info{sizeof(AsterAuthoringDocumentInfo),
+                                        ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_document_info(scene, &scene_info).code == ASTER_STATUS_OK);
+  assert(scene_info.entity_count == 2u);
+  AsterAuthoringEntityInfo entity{sizeof(AsterAuthoringEntityInfo),
+                                  ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_entity(scene, 1u, &entity).code == ASTER_STATUS_OK);
+  assert(toString(entity.id) == "demo.door");
+  assert((entity.component_flags & ASTER_AUTHORING_ENTITY_COMPONENT_INTERACTABLE) != 0u);
+
+  const std::string action_path = (fixture_root / "actions" / "door_open.action_graph").string();
+  AsterAuthoringDocumentHandle action = nullptr;
+  const AsterAuthoringDocumentDesc action_desc{sizeof(AsterAuthoringDocumentDesc),
+                                               ASTER_KERNEL_STRUCT_VERSION_1,
+                                               ASTER_AUTHORING_DOCUMENT_ACTION_GRAPH,
+                                               {},
+                                               {action_path.data(), action_path.size()},
+                                               {}};
+  assert(aster_kernel_authoring_document_load(&action_desc, &action).code == ASTER_STATUS_OK);
+  AsterAuthoringDocumentInfo action_info{sizeof(AsterAuthoringDocumentInfo),
+                                         ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_document_info(action, &action_info).code == ASTER_STATUS_OK);
+  assert(action_info.action_node_count == 2u);
+  assert(action_info.contract_stamp != 0u);
+  AsterAuthoringActionNodeInfo node{sizeof(AsterAuthoringActionNodeInfo),
+                                    ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_action_node(action, 0u, &node).code == ASTER_STATUS_OK);
+  assert(toString(node.type) == "emit_event");
+  assert(node.parameter_count == 1u);
+  assert(node.deterministic_stamp != 0u);
+  AsterAuthoringKeyValue parameter{sizeof(AsterAuthoringKeyValue),
+                                   ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_action_node_parameter(action, 0u, 0u, &parameter).code ==
+         ASTER_STATUS_OK);
+  assert(toString(parameter.key) == "event");
+  assert(toString(parameter.value) == "door.open_requested");
+  AsterStringView node_tag{};
+  assert(aster_kernel_authoring_action_node_tag(action, 0u, 0u, &node_tag).code ==
+         ASTER_STATUS_OK);
+  assert(toString(node_tag) == "interaction.door");
+
+  const AsterAuthoringActionContext context{sizeof(AsterAuthoringActionContext),
+                                            ASTER_KERNEL_STRUCT_VERSION_1,
+                                            {"demo.player", 11u},
+                                            {"demo.door", 9u},
+                                            {"world.interact", 14u}};
+  AsterAuthoringActionExecutionHandle execution = nullptr;
+  assert(aster_kernel_authoring_action_execute(action, &context, &execution).code ==
+         ASTER_STATUS_OK);
+  AsterAuthoringActionExecutionInfo execution_info{sizeof(AsterAuthoringActionExecutionInfo),
+                                                   ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_action_execution_info(execution, &execution_info).code ==
+         ASTER_STATUS_OK);
+  assert(execution_info.valid == 1u);
+  assert(execution_info.event_count == 2u);
+  assert(execution_info.contract_stamp == action_info.contract_stamp);
+  AsterAuthoringActionEventInfo event{sizeof(AsterAuthoringActionEventInfo),
+                                      ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_action_event(execution, 0u, &event).code == ASTER_STATUS_OK);
+  assert(toString(event.actor) == "demo.player");
+  assert(toString(event.target) == "demo.door");
+  assert(event.parameter_count == 2u);
+  assert(event.deterministic_stamp != 0u);
+
+  const std::string input_path = (fixture_root / "inputs" / "demo.input").string();
+  AsterAuthoringDocumentHandle input = nullptr;
+  const AsterAuthoringDocumentDesc input_desc{sizeof(AsterAuthoringDocumentDesc),
+                                              ASTER_KERNEL_STRUCT_VERSION_1,
+                                              ASTER_AUTHORING_DOCUMENT_INPUT_MAP,
+                                              {},
+                                              {input_path.data(), input_path.size()},
+                                              {}};
+  assert(aster_kernel_authoring_document_load(&input_desc, &input).code == ASTER_STATUS_OK);
+  AsterAuthoringDocumentInfo input_info{sizeof(AsterAuthoringDocumentInfo),
+                                        ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_document_info(input, &input_info).code == ASTER_STATUS_OK);
+  assert(input_info.input_binding_count == 2u);
+  assert(input_info.contract_stamp != 0u);
+  AsterAuthoringInputBindingInfo binding{sizeof(AsterAuthoringInputBindingInfo),
+                                         ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_input_binding(input, 0u, &binding).code == ASTER_STATUS_OK);
+  assert(toString(binding.command) == "world.interact");
+  assert(binding.device == ASTER_AUTHORING_INPUT_KEYBOARD);
+  assert(toString(binding.key) == "E");
+  assert(binding.tag_count == 1u);
+  assert(binding.deterministic_stamp != 0u);
+  AsterStringView binding_tag{};
+  assert(aster_kernel_authoring_input_binding_tag(input, 0u, 0u, &binding_tag).code ==
+         ASTER_STATUS_OK);
+  assert(toString(binding_tag) == "input.primary");
+
+  const char *bad_input = R"json({
+    "schema_version": 1,
+    "id": "input.bad",
+    "bindings": [
+      { "command": "world.interact", "device": "mouse" }
+    ]
+  })json";
+  AsterAuthoringDocumentHandle invalid_input = nullptr;
+  const AsterAuthoringDocumentDesc bad_desc{sizeof(AsterAuthoringDocumentDesc),
+                                            ASTER_KERNEL_STRUCT_VERSION_1,
+                                            ASTER_AUTHORING_DOCUMENT_INPUT_MAP,
+                                            {bad_input, std::strlen(bad_input)},
+                                            {"bad.input", 9u},
+                                            {}};
+  assert(aster_kernel_authoring_document_load(&bad_desc, &invalid_input).code ==
+         ASTER_STATUS_OK);
+  AsterAuthoringDocumentInfo bad_info{sizeof(AsterAuthoringDocumentInfo),
+                                      ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_document_info(invalid_input, &bad_info).code == ASTER_STATUS_OK);
+  assert(bad_info.valid == 0u);
+  assert(bad_info.diagnostic_count >= 1u);
+  AsterAuthoringDiagnosticInfo diagnostic{sizeof(AsterAuthoringDiagnosticInfo),
+                                          ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_authoring_document_diagnostic(invalid_input, 0u, &diagnostic).code ==
+         ASTER_STATUS_OK);
+  assert(diagnostic.severity == ASTER_AUTHORING_DIAGNOSTIC_ERROR);
+  assert(toString(diagnostic.message).find("button") != std::string::npos);
+
+  assert(aster_kernel_authoring_document_destroy(invalid_input).code == ASTER_STATUS_OK);
+  assert(aster_kernel_authoring_document_destroy(input).code == ASTER_STATUS_OK);
+  assert(aster_kernel_authoring_action_execution_destroy(execution).code == ASTER_STATUS_OK);
+  assert(aster_kernel_authoring_document_destroy(action).code == ASTER_STATUS_OK);
+  assert(aster_kernel_authoring_document_destroy(scene).code == ASTER_STATUS_OK);
+  assert(aster_kernel_authoring_document_destroy(project).code == ASTER_STATUS_OK);
+}
+
 void testShaderCompilerAbi5() {
   AsterEngineHandle engine = nullptr;
   const AsterEngineDesc engine_desc{sizeof(AsterEngineDesc),
@@ -1137,6 +1314,24 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_shader_destroy",
       "aster_kernel_render_pipeline_create",
       "aster_kernel_render_pipeline_destroy",
+      "aster_kernel_authoring_document_load",
+      "aster_kernel_authoring_document_info",
+      "aster_kernel_authoring_document_diagnostic",
+      "aster_kernel_authoring_project_asset",
+      "aster_kernel_authoring_entity",
+      "aster_kernel_authoring_action_node",
+      "aster_kernel_authoring_action_node_parameter",
+      "aster_kernel_authoring_action_node_tag",
+      "aster_kernel_authoring_input_binding",
+      "aster_kernel_authoring_input_binding_tag",
+      "aster_kernel_authoring_action_execute",
+      "aster_kernel_authoring_action_execution_info",
+      "aster_kernel_authoring_action_execution_diagnostic",
+      "aster_kernel_authoring_action_event",
+      "aster_kernel_authoring_action_event_parameter",
+      "aster_kernel_authoring_action_event_tag",
+      "aster_kernel_authoring_action_execution_destroy",
+      "aster_kernel_authoring_document_destroy",
       "aster_kernel_physics_world_destroy",
       "aster_kernel_system_world_destroy",
       "aster_kernel_sample_app_destroy",
@@ -1242,6 +1437,24 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_shader_destroy;
   (void)&aster_kernel_render_pipeline_create;
   (void)&aster_kernel_render_pipeline_destroy;
+  (void)&aster_kernel_authoring_document_load;
+  (void)&aster_kernel_authoring_document_info;
+  (void)&aster_kernel_authoring_document_diagnostic;
+  (void)&aster_kernel_authoring_project_asset;
+  (void)&aster_kernel_authoring_entity;
+  (void)&aster_kernel_authoring_action_node;
+  (void)&aster_kernel_authoring_action_node_parameter;
+  (void)&aster_kernel_authoring_action_node_tag;
+  (void)&aster_kernel_authoring_input_binding;
+  (void)&aster_kernel_authoring_input_binding_tag;
+  (void)&aster_kernel_authoring_action_execute;
+  (void)&aster_kernel_authoring_action_execution_info;
+  (void)&aster_kernel_authoring_action_execution_diagnostic;
+  (void)&aster_kernel_authoring_action_event;
+  (void)&aster_kernel_authoring_action_event_parameter;
+  (void)&aster_kernel_authoring_action_event_tag;
+  (void)&aster_kernel_authoring_action_execution_destroy;
+  (void)&aster_kernel_authoring_document_destroy;
   (void)&aster_kernel_physics_world_destroy;
   (void)&aster_kernel_system_world_destroy;
   (void)&aster_kernel_sample_app_destroy;
@@ -1256,6 +1469,7 @@ int main() {
   testMathAbi5Contracts();
   testRendererAbi5Lifecycle();
   testAbi5ExplicitValidationContracts();
+  testAuthoringDocumentAbi51Contracts();
   testShaderCompilerAbi5();
   testCppWrapperUsesResultStatus();
   testManifestNamesMatchLinkedApi();

@@ -4,6 +4,7 @@
 #include "aster/kernel/abi.h"
 
 #include "aster/core/config.hpp"
+#include "aster/game_sdk/game_sdk.hpp"
 #include "aster/math/geometry.hpp"
 #include "aster/math/quat.hpp"
 #include "aster/math/transform.hpp"
@@ -23,10 +24,14 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <iterator>
+#include <list>
 #include <memory>
 #include <new>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #if defined(_WIN32)
@@ -48,6 +53,8 @@ constexpr std::uint32_t kDescriptorHeapMagic = 0x41544448u;
 constexpr std::uint32_t kDescriptorSetMagic = 0x41544453u;
 constexpr std::uint32_t kPipelineCacheMagic = 0x41545043u;
 constexpr std::uint32_t kFrameScheduleMagic = 0x41544653u;
+constexpr std::uint32_t kAuthoringDocumentMagic = 0x41544144u;
+constexpr std::uint32_t kAuthoringExecutionMagic = 0x41544145u;
 constexpr std::uint32_t kRetiredMagic = 0xDEAD5A5Au;
 
 struct KernelValidationRecord {
@@ -180,6 +187,23 @@ struct AsterFrameScheduleHandle__ {
   std::vector<aster::FramePassStats> passes;
   aster::rhi::FrameTrace trace;
   std::vector<KernelValidationRecord> validation_events;
+};
+
+struct AsterAuthoringDocumentHandle__ {
+  std::uint32_t magic = kAuthoringDocumentMagic;
+  AsterAuthoringDocumentKind kind = ASTER_AUTHORING_DOCUMENT_UNKNOWN;
+  std::variant<std::monostate, aster::sdk::ProjectDocument, aster::sdk::SceneDocument,
+               aster::sdk::PrefabDocument, aster::sdk::ItemDocument,
+               aster::sdk::ActionGraphDocument, aster::sdk::InputMapDocument>
+      document;
+  std::vector<aster::sdk::Diagnostic> diagnostics;
+  std::list<std::string> string_scratch;
+};
+
+struct AsterAuthoringActionExecutionHandle__ {
+  std::uint32_t magic = kAuthoringExecutionMagic;
+  aster::sdk::ActionExecution execution;
+  std::list<std::string> string_scratch;
 };
 
 namespace {
@@ -318,6 +342,138 @@ bool retiredDescriptorHeap(const AsterDescriptorHeapHandle heap) {
 
 bool validFrameSchedule(const AsterFrameScheduleHandle schedule) {
   return schedule != nullptr && schedule->magic == kFrameScheduleMagic;
+}
+
+bool validAuthoringDocument(const AsterAuthoringDocumentHandle document) {
+  return document != nullptr && document->magic == kAuthoringDocumentMagic;
+}
+
+bool validAuthoringExecution(const AsterAuthoringActionExecutionHandle execution) {
+  return execution != nullptr && execution->magic == kAuthoringExecutionMagic;
+}
+
+template <typename Document>
+[[nodiscard]] const Document *authoringDocumentAs(const AsterAuthoringDocumentHandle document) {
+  return validAuthoringDocument(document) ? std::get_if<Document>(&document->document) : nullptr;
+}
+
+bool diagnosticsOk(const std::vector<aster::sdk::Diagnostic> &diagnostics) {
+  for (const aster::sdk::Diagnostic &diagnostic : diagnostics) {
+    if (diagnostic.severity == aster::sdk::DiagnosticSeverity::Error) {
+      return false;
+    }
+  }
+  return true;
+}
+
+AsterStringView authoringScratch(AsterAuthoringDocumentHandle document, std::string text) {
+  document->string_scratch.push_back(std::move(text));
+  return viewFromString(document->string_scratch.back());
+}
+
+AsterStringView authoringScratch(AsterAuthoringActionExecutionHandle execution, std::string text) {
+  execution->string_scratch.push_back(std::move(text));
+  return viewFromString(execution->string_scratch.back());
+}
+
+AsterAuthoringDiagnosticSeverity
+authoringSeverity(const aster::sdk::DiagnosticSeverity severity) {
+  return severity == aster::sdk::DiagnosticSeverity::Warning
+             ? ASTER_AUTHORING_DIAGNOSTIC_WARNING
+             : ASTER_AUTHORING_DIAGNOSTIC_ERROR;
+}
+
+AsterAuthoringAssetKind authoringAssetKind(const aster::sdk::AssetKind kind) {
+  switch (kind) {
+  case aster::sdk::AssetKind::Scene:
+    return ASTER_AUTHORING_ASSET_SCENE;
+  case aster::sdk::AssetKind::Prefab:
+    return ASTER_AUTHORING_ASSET_PREFAB;
+  case aster::sdk::AssetKind::Cave:
+    return ASTER_AUTHORING_ASSET_CAVE;
+  case aster::sdk::AssetKind::Material:
+    return ASTER_AUTHORING_ASSET_MATERIAL;
+  case aster::sdk::AssetKind::Item:
+    return ASTER_AUTHORING_ASSET_ITEM;
+  case aster::sdk::AssetKind::ActionGraph:
+    return ASTER_AUTHORING_ASSET_ACTION_GRAPH;
+  case aster::sdk::AssetKind::InputMap:
+    return ASTER_AUTHORING_ASSET_INPUT_MAP;
+  case aster::sdk::AssetKind::Ui:
+    return ASTER_AUTHORING_ASSET_UI;
+  case aster::sdk::AssetKind::Mesh:
+    return ASTER_AUTHORING_ASSET_MESH;
+  case aster::sdk::AssetKind::Texture:
+    return ASTER_AUTHORING_ASSET_TEXTURE;
+  case aster::sdk::AssetKind::AssetGraph:
+    return ASTER_AUTHORING_ASSET_GRAPH;
+  case aster::sdk::AssetKind::Unknown:
+    return ASTER_AUTHORING_ASSET_UNKNOWN;
+  }
+  return ASTER_AUTHORING_ASSET_UNKNOWN;
+}
+
+AsterAuthoringInputDevice authoringInputDevice(const std::string_view device) {
+  if (device == "keyboard") {
+    return ASTER_AUTHORING_INPUT_KEYBOARD;
+  }
+  if (device == "mouse") {
+    return ASTER_AUTHORING_INPUT_MOUSE;
+  }
+  if (device == "gamepad") {
+    return ASTER_AUTHORING_INPUT_GAMEPAD;
+  }
+  if (device == "touch") {
+    return ASTER_AUTHORING_INPUT_TOUCH;
+  }
+  return ASTER_AUTHORING_INPUT_UNKNOWN;
+}
+
+std::uint32_t componentFlags(const aster::sdk::ComponentSet &components) {
+  std::uint32_t flags = 0u;
+  if (components.transform.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_TRANSFORM;
+  }
+  if (components.mesh_renderer.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_MESH_RENDERER;
+  }
+  if (components.collider.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_COLLIDER;
+  }
+  if (components.light.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_LIGHT;
+  }
+  if (components.interactable.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_INTERACTABLE;
+  }
+  if (components.inventory.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_INVENTORY;
+  }
+  if (components.camera.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_CAMERA;
+  }
+  if (components.cave_scene.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_CAVE_SCENE;
+  }
+  if (components.fixture.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_FIXTURE;
+  }
+  if (components.ore_node.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_ORE_NODE;
+  }
+  if (components.torch_socket.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_TORCH_SOCKET;
+  }
+  if (components.spawn_point.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_SPAWN_POINT;
+  }
+  if (components.mining.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_MINING;
+  }
+  if (components.cave_debug.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_CAVE_DEBUG;
+  }
+  return flags;
 }
 
 bool finiteValue(const float value) {
@@ -3242,6 +3398,491 @@ AsterStatus aster_kernel_render_pipeline_create(const AsterEngineHandle engine,
 
 AsterStatus aster_kernel_render_pipeline_destroy(const AsterRenderPipelineHandle pipeline) {
   return destroyHandle(pipeline, kPipelineMagic);
+}
+
+AsterStatus aster_kernel_authoring_document_load(const AsterAuthoringDocumentDesc *desc,
+                                                 AsterAuthoringDocumentHandle *out_document) {
+  if (out_document == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_document is null");
+  }
+  *out_document = nullptr;
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring document descriptor version is not supported");
+  }
+  if (!validStringView(desc->source_text) || !validStringView(desc->source_path) ||
+      !validStringView(desc->debug_label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document string view is invalid");
+  }
+  if (desc->source_text.size == 0u && desc->source_path.size == 0u) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "authoring document requires source text or source path");
+  }
+  const std::string source_text = stringFromView(desc->source_text);
+  const std::filesystem::path source_path = stringFromView(desc->source_path);
+  const bool parse_text = desc->source_text.size > 0u;
+  try {
+    auto *document = new AsterAuthoringDocumentHandle__();
+    document->kind = desc->kind;
+    const auto store = [&](auto result) {
+      document->document = std::move(result.value);
+      document->diagnostics = std::move(result.diagnostics);
+    };
+    switch (desc->kind) {
+    case ASTER_AUTHORING_DOCUMENT_PROJECT:
+      store(parse_text ? aster::sdk::parseProjectDocument(source_text, source_path)
+                       : aster::sdk::loadProjectDocument(source_path));
+      break;
+    case ASTER_AUTHORING_DOCUMENT_SCENE:
+      store(parse_text ? aster::sdk::parseSceneDocument(source_text, source_path)
+                       : aster::sdk::loadSceneDocument(source_path));
+      break;
+    case ASTER_AUTHORING_DOCUMENT_PREFAB:
+      store(parse_text ? aster::sdk::parsePrefabDocument(source_text, source_path)
+                       : aster::sdk::loadPrefabDocument(source_path));
+      break;
+    case ASTER_AUTHORING_DOCUMENT_ITEM:
+      store(parse_text ? aster::sdk::parseItemDocument(source_text, source_path)
+                       : aster::sdk::loadItemDocument(source_path));
+      break;
+    case ASTER_AUTHORING_DOCUMENT_ACTION_GRAPH:
+      store(parse_text ? aster::sdk::parseActionGraphDocument(source_text, source_path)
+                       : aster::sdk::loadActionGraphDocument(source_path));
+      break;
+    case ASTER_AUTHORING_DOCUMENT_INPUT_MAP:
+      store(parse_text ? aster::sdk::parseInputMapDocument(source_text, source_path)
+                       : aster::sdk::loadInputMapDocument(source_path));
+      break;
+    case ASTER_AUTHORING_DOCUMENT_UNKNOWN:
+    default:
+      delete document;
+      return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document kind is unsupported");
+    }
+    *out_document = document;
+  } catch (const std::bad_alloc &) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "authoring document allocation failed");
+  } catch (...) {
+    return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "authoring document load failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_document_info(const AsterAuthoringDocumentHandle document,
+                                                 AsterAuthoringDocumentInfo *out_info) {
+  if (!validAuthoringDocument(document)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring document info struct version is not supported");
+  }
+  const size_t size = out_info->size;
+  const uint32_t version = out_info->version;
+  *out_info = {};
+  out_info->size = size;
+  out_info->version = version;
+  out_info->kind = document->kind;
+  out_info->valid = diagnosticsOk(document->diagnostics) ? 1u : 0u;
+  out_info->diagnostic_count = document->diagnostics.size();
+  if (const auto *project = authoringDocumentAs<aster::sdk::ProjectDocument>(document)) {
+    out_info->schema_version = project->schema_version;
+    out_info->name = viewFromString(project->name);
+    out_info->project_asset_count = project->assets.size();
+  } else if (const auto *scene = authoringDocumentAs<aster::sdk::SceneDocument>(document)) {
+    out_info->schema_version = scene->schema_version;
+    out_info->id = viewFromString(scene->id);
+    out_info->name = viewFromString(scene->name);
+    out_info->entity_count = scene->entities.size();
+  } else if (const auto *prefab = authoringDocumentAs<aster::sdk::PrefabDocument>(document)) {
+    out_info->schema_version = prefab->schema_version;
+    out_info->id = viewFromString(prefab->id);
+    out_info->name = viewFromString(prefab->name);
+    out_info->entity_count = prefab->entities.size();
+  } else if (const auto *item = authoringDocumentAs<aster::sdk::ItemDocument>(document)) {
+    out_info->schema_version = item->schema_version;
+    out_info->id = viewFromString(item->id);
+    out_info->name = viewFromString(item->display_name);
+  } else if (const auto *graph = authoringDocumentAs<aster::sdk::ActionGraphDocument>(document)) {
+    out_info->schema_version = graph->schema_version;
+    out_info->id = viewFromString(graph->id);
+    out_info->name = viewFromString(graph->name);
+    out_info->action_node_count = graph->nodes.size();
+    out_info->contract_stamp = aster::sdk::actionGraphContractStamp(*graph);
+  } else if (const auto *input = authoringDocumentAs<aster::sdk::InputMapDocument>(document)) {
+    out_info->schema_version = input->schema_version;
+    out_info->id = viewFromString(input->id);
+    out_info->name = viewFromString(input->name);
+    out_info->input_binding_count = input->bindings.size();
+    out_info->contract_stamp = aster::sdk::inputMapContractStamp(*input);
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_document_diagnostic(
+    const AsterAuthoringDocumentHandle document, const size_t index,
+    AsterAuthoringDiagnosticInfo *out_info) {
+  if (!validAuthoringDocument(document)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring diagnostic info struct version is not supported");
+  }
+  if (index >= document->diagnostics.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring diagnostic index is out of range");
+  }
+  const aster::sdk::Diagnostic &diagnostic = document->diagnostics[index];
+  out_info->severity = authoringSeverity(diagnostic.severity);
+  out_info->source = authoringScratch(document, diagnostic.source.string());
+  out_info->path = viewFromString(diagnostic.path);
+  out_info->message = viewFromString(diagnostic.message);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_project_asset(
+    const AsterAuthoringDocumentHandle document, const size_t index,
+    AsterAuthoringProjectAssetInfo *out_info) {
+  if (!validAuthoringDocument(document)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring project asset info struct version is not supported");
+  }
+  const auto *project = authoringDocumentAs<aster::sdk::ProjectDocument>(document);
+  if (project == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document is not a project");
+  }
+  if (index >= project->assets.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "project asset index is out of range");
+  }
+  const aster::sdk::ProjectAssetRef &asset = project->assets[index];
+  out_info->id = viewFromString(asset.id);
+  out_info->kind = authoringAssetKind(asset.kind);
+  out_info->kind_name = {aster::sdk::assetKindName(asset.kind).data(),
+                         aster::sdk::assetKindName(asset.kind).size()};
+  out_info->path = authoringScratch(document, asset.path.generic_string());
+  out_info->startup = asset.id == project->startup_scene ? 1u : 0u;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_entity(const AsterAuthoringDocumentHandle document,
+                                          const size_t index,
+                                          AsterAuthoringEntityInfo *out_info) {
+  if (!validAuthoringDocument(document)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring entity info struct version is not supported");
+  }
+  const std::vector<aster::sdk::EntityDefinition> *entities = nullptr;
+  if (const auto *scene = authoringDocumentAs<aster::sdk::SceneDocument>(document)) {
+    entities = &scene->entities;
+  } else if (const auto *prefab = authoringDocumentAs<aster::sdk::PrefabDocument>(document)) {
+    entities = &prefab->entities;
+  }
+  if (entities == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document has no entities");
+  }
+  if (index >= entities->size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "entity index is out of range");
+  }
+  const aster::sdk::EntityDefinition &entity = (*entities)[index];
+  out_info->id = viewFromString(entity.id);
+  out_info->name = viewFromString(entity.name);
+  out_info->parent = viewFromString(entity.parent);
+  out_info->component_flags = componentFlags(entity.components);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_action_node(const AsterAuthoringDocumentHandle document,
+                                               const size_t index,
+                                               AsterAuthoringActionNodeInfo *out_info) {
+  if (!validAuthoringDocument(document)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring action node info struct version is not supported");
+  }
+  const auto *graph = authoringDocumentAs<aster::sdk::ActionGraphDocument>(document);
+  if (graph == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document is not an action graph");
+  }
+  if (index >= graph->nodes.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "action node index is out of range");
+  }
+  const aster::sdk::ActionNode &node = graph->nodes[index];
+  out_info->id = viewFromString(node.id);
+  out_info->type = viewFromString(node.type);
+  out_info->parameter_count = node.parameters.size();
+  out_info->tag_count = node.tags.size();
+  out_info->deterministic_stamp =
+      aster::sdk::actionGraphContractStamp(*graph) ^ ((index + 1u) * 1099511628211ull);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_action_node_parameter(
+    const AsterAuthoringDocumentHandle document, const size_t node_index,
+    const size_t parameter_index, AsterAuthoringKeyValue *out_parameter) {
+  if (!validAuthoringDocument(document)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document handle is invalid");
+  }
+  if (!validStruct(out_parameter)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring key/value struct version is not supported");
+  }
+  const auto *graph = authoringDocumentAs<aster::sdk::ActionGraphDocument>(document);
+  if (graph == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document is not an action graph");
+  }
+  if (node_index >= graph->nodes.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "action node index is out of range");
+  }
+  const auto &parameters = graph->nodes[node_index].parameters;
+  if (parameter_index >= parameters.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "action parameter index is out of range");
+  }
+  auto it = parameters.begin();
+  std::advance(it, static_cast<std::ptrdiff_t>(parameter_index));
+  out_parameter->key = viewFromString(it->first);
+  out_parameter->value = viewFromString(it->second);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_action_node_tag(const AsterAuthoringDocumentHandle document,
+                                                   const size_t node_index,
+                                                   const size_t tag_index,
+                                                   AsterStringView *out_tag) {
+  if (!validAuthoringDocument(document)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document handle is invalid");
+  }
+  if (out_tag == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_tag is null");
+  }
+  const auto *graph = authoringDocumentAs<aster::sdk::ActionGraphDocument>(document);
+  if (graph == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document is not an action graph");
+  }
+  if (node_index >= graph->nodes.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "action node index is out of range");
+  }
+  const auto &tags = graph->nodes[node_index].tags;
+  if (tag_index >= tags.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "action tag index is out of range");
+  }
+  *out_tag = viewFromString(tags[tag_index].value);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_input_binding(
+    const AsterAuthoringDocumentHandle document, const size_t index,
+    AsterAuthoringInputBindingInfo *out_info) {
+  if (!validAuthoringDocument(document)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring input binding info struct version is not supported");
+  }
+  const auto *input = authoringDocumentAs<aster::sdk::InputMapDocument>(document);
+  if (input == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document is not an input map");
+  }
+  if (index >= input->bindings.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "input binding index is out of range");
+  }
+  const aster::sdk::InputBindingDocument &binding = input->bindings[index];
+  out_info->command = viewFromString(binding.command);
+  out_info->device = authoringInputDevice(binding.device);
+  out_info->key = viewFromString(binding.key);
+  out_info->button = viewFromString(binding.button);
+  out_info->scale = binding.scale;
+  out_info->deadzone = binding.deadzone;
+  out_info->tag_count = binding.tags.size();
+  out_info->deterministic_stamp =
+      aster::sdk::inputMapContractStamp(*input) ^ ((index + 1u) * 1469598103934665603ull);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_input_binding_tag(
+    const AsterAuthoringDocumentHandle document, const size_t binding_index,
+    const size_t tag_index, AsterStringView *out_tag) {
+  if (!validAuthoringDocument(document)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document handle is invalid");
+  }
+  if (out_tag == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_tag is null");
+  }
+  const auto *input = authoringDocumentAs<aster::sdk::InputMapDocument>(document);
+  if (input == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document is not an input map");
+  }
+  if (binding_index >= input->bindings.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "input binding index is out of range");
+  }
+  const auto &tags = input->bindings[binding_index].tags;
+  if (tag_index >= tags.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "input binding tag index is out of range");
+  }
+  *out_tag = viewFromString(tags[tag_index].value);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_action_execute(
+    const AsterAuthoringDocumentHandle document, const AsterAuthoringActionContext *context,
+    AsterAuthoringActionExecutionHandle *out_execution) {
+  if (out_execution == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_execution is null");
+  }
+  *out_execution = nullptr;
+  if (!validAuthoringDocument(document)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document handle is invalid");
+  }
+  if (!validStruct(context)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring action context version is not supported");
+  }
+  if (!validStringView(context->actor) || !validStringView(context->target) ||
+      !validStringView(context->input)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring action context string is invalid");
+  }
+  const auto *graph = authoringDocumentAs<aster::sdk::ActionGraphDocument>(document);
+  if (graph == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring document is not an action graph");
+  }
+  try {
+    auto *execution = new AsterAuthoringActionExecutionHandle__();
+    const aster::sdk::ActionContext sdk_context{.actor = stringFromView(context->actor),
+                                                .target = stringFromView(context->target),
+                                                .input = stringFromView(context->input)};
+    execution->execution = aster::sdk::ActionGraphRuntime{}.execute(*graph, sdk_context);
+    *out_execution = execution;
+  } catch (const std::bad_alloc &) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "authoring action execution allocation failed");
+  } catch (...) {
+    return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "authoring action execution failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_action_execution_info(
+    const AsterAuthoringActionExecutionHandle execution,
+    AsterAuthoringActionExecutionInfo *out_info) {
+  if (!validAuthoringExecution(execution)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring action execution handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring action execution info struct version is not supported");
+  }
+  out_info->valid = diagnosticsOk(execution->execution.diagnostics) ? 1u : 0u;
+  out_info->diagnostic_count = execution->execution.diagnostics.size();
+  out_info->event_count = execution->execution.events.size();
+  out_info->contract_stamp = execution->execution.contract_stamp;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_action_execution_diagnostic(
+    const AsterAuthoringActionExecutionHandle execution, const size_t index,
+    AsterAuthoringDiagnosticInfo *out_info) {
+  if (!validAuthoringExecution(execution)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring action execution handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring diagnostic info struct version is not supported");
+  }
+  if (index >= execution->execution.diagnostics.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "authoring action diagnostic index is out of range");
+  }
+  const aster::sdk::Diagnostic &diagnostic = execution->execution.diagnostics[index];
+  out_info->severity = authoringSeverity(diagnostic.severity);
+  out_info->source = authoringScratch(execution, diagnostic.source.string());
+  out_info->path = viewFromString(diagnostic.path);
+  out_info->message = viewFromString(diagnostic.message);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_action_event(
+    const AsterAuthoringActionExecutionHandle execution, const size_t index,
+    AsterAuthoringActionEventInfo *out_info) {
+  if (!validAuthoringExecution(execution)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring action execution handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring action event info struct version is not supported");
+  }
+  if (index >= execution->execution.events.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring action event index is out of range");
+  }
+  const aster::sdk::ActionEvent &event = execution->execution.events[index];
+  out_info->node_id = viewFromString(event.node_id);
+  out_info->type = viewFromString(event.type);
+  out_info->actor = viewFromString(event.actor);
+  out_info->target = viewFromString(event.target);
+  out_info->parameter_count = event.parameters.size();
+  out_info->tag_count = event.tags.size();
+  out_info->deterministic_stamp = event.deterministic_stamp;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_action_event_parameter(
+    const AsterAuthoringActionExecutionHandle execution, const size_t event_index,
+    const size_t parameter_index, AsterAuthoringKeyValue *out_parameter) {
+  if (!validAuthoringExecution(execution)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring action execution handle is invalid");
+  }
+  if (!validStruct(out_parameter)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "authoring key/value struct version is not supported");
+  }
+  if (event_index >= execution->execution.events.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring action event index is out of range");
+  }
+  const auto &parameters = execution->execution.events[event_index].parameters;
+  if (parameter_index >= parameters.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "authoring action event parameter index is out of range");
+  }
+  auto it = parameters.begin();
+  std::advance(it, static_cast<std::ptrdiff_t>(parameter_index));
+  out_parameter->key = viewFromString(it->first);
+  out_parameter->value = viewFromString(it->second);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_action_event_tag(
+    const AsterAuthoringActionExecutionHandle execution, const size_t event_index,
+    const size_t tag_index, AsterStringView *out_tag) {
+  if (!validAuthoringExecution(execution)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring action execution handle is invalid");
+  }
+  if (out_tag == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_tag is null");
+  }
+  if (event_index >= execution->execution.events.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "authoring action event index is out of range");
+  }
+  const auto &tags = execution->execution.events[event_index].tags;
+  if (tag_index >= tags.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "authoring action event tag index is out of range");
+  }
+  *out_tag = viewFromString(tags[tag_index].value);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_authoring_action_execution_destroy(
+    AsterAuthoringActionExecutionHandle execution) {
+  return destroyHandle(execution, kAuthoringExecutionMagic);
+}
+
+AsterStatus aster_kernel_authoring_document_destroy(AsterAuthoringDocumentHandle document) {
+  return destroyHandle(document, kAuthoringDocumentMagic);
 }
 
 AsterStatus aster_kernel_physics_world_destroy(const AsterPhysicsWorldHandle physics_world) {

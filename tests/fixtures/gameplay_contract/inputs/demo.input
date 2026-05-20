@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "input.demo",
+  "name": "Demo Input",
+  "bindings": [
+    { "command": "world.interact", "device": "keyboard", "key": "E", "tags": ["input.primary"] },
+    { "command": "world.interact.secondary", "device": "mouse", "button": "right", "tags": ["input.secondary"] }
+  ]
+}
