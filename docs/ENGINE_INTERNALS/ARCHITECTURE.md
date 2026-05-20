@@ -36,6 +36,12 @@ nodes instead of routing gameplay through string-prefix target IDs. Engine
 runtime adapters can consume these SDK models later, but product apps should not
 copy project loading or schema validation into their own code.
 
+Agent-led authoring also belongs in the Game SDK. `AsterAgentWorkspaceProfile`,
+`AsterAgentWorkspaceAudit`, and `AsterAgentTaskBoard` turn a project manifest
+into scoped batches, validation commands, output schemas, and handoff summaries.
+This keeps generated game work attached to Aster-owned documents instead of
+letting a long agent session drift into unrelated runtime shortcuts.
+
 `projects/lumen_run` is the first SDK project seed. `aster_lumen_run` validates
 that project during boot, while the current hand-authored C++ simulation remains
 transitional until its items, interactions, prefabs, and scene placements are
@@ -58,8 +64,9 @@ forensics, frame schedules, validation events, and backend capability tables.
 
 Public source SDK for game authoring. This layer owns schema-versioned project
 manifests, entity/component scene documents, prefab documents, item/material
-documents, and data-driven action graphs. It must stay reusable and independent
-from sample code, renderer internals, and kernel ABI handles.
+documents, data-driven action graphs, and agent authoring profiles. It must stay
+reusable and independent from sample code, renderer internals, and kernel ABI
+handles.
 
 `include/aster/math`
 

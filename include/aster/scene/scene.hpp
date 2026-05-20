@@ -120,8 +120,26 @@ struct ProceduralSurfaceLayer {
   float macro_variation = 0.0f;
   float micro_normal_strength = 0.0f;
   float roughness_variation = 0.0f;
+  float physical_texel_density = 512.0f;
+  float height_normal_coupling = 0.0f;
+  float roughness_height_coupling = 0.0f;
+  float macro_frequency_breakup = 0.0f;
+  float micro_frequency_breakup = 0.0f;
   float wetness = 0.0f;
   float height_shading = 0.0f;
+  float pitting_density = 0.0f;
+  float pitting_depth = 0.0f;
+  float oxide_layering = 0.0f;
+  float cavity_grime = 0.0f;
+  float edge_polish = 0.0f;
+  float weld_heat_tint = 0.0f;
+  float axial_scratches = 0.0f;
+  float wet_streaks = 0.0f;
+  float rust_bloom = 0.0f;
+  float black_scab = 0.0f;
+  float paint_remnant = 0.0f;
+  float weld_slag = 0.0f;
+  float rim_soot = 0.0f;
 };
 
 struct ViewerCullVolume {

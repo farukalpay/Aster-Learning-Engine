@@ -1,6 +1,8 @@
 // Author: Faruk Alpay
 // Do not remove this notice.
 
+mod agent_plan;
+
 use aster_content::{
     asset_database_diff_json, asset_fate_report_json, asset_foundry_report_json,
     asset_graph_inspect_report_json, asset_graph_report_json, bake_texture_to_ktx2,
@@ -18,6 +20,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+
+use crate::agent_plan::{agent_plan_report_json, asset_brief_report_json};
 
 fn self_check() {
     let object = AsterRuntimeRenderObject {
@@ -95,6 +99,8 @@ fn usage() -> &'static str {
   aster_assetc mesh-import-inspect --input <mesh.obj|mesh.ply|mesh.stl>
   aster_assetc mesh-recipe-inspect --input <recipe.json>
   aster_assetc session-audit --input <history.jsonl> [--max-bytes <n>]
+  aster_assetc agent-plan --project <file.asterproj> [--objective <text>] [--output-schema]
+  aster_assetc asset-brief --project <file.asterproj> --asset <id> --reference <image> [--target <text>] [--require <signal>] [--forbid <signal>] [--output-schema]
   aster_assetc graph --db <assetdb.asterdb.json>
   aster_assetc fate --db <assetdb.asterdb.json> --asset <id-or-guid>
   aster_assetc diff --before <old.assetdb.asterdb.json> --after <new.assetdb.asterdb.json>
@@ -107,6 +113,13 @@ fn value_after(args: &[String], name: &str) -> Option<String> {
     args.windows(2)
         .find(|window| window[0] == name)
         .map(|window| window[1].clone())
+}
+
+fn values_after(args: &[String], name: &str) -> Vec<String> {
+    args.windows(2)
+        .filter(|window| window[0] == name)
+        .map(|window| window[1].clone())
+        .collect()
 }
 
 fn compile_command(args: &[String]) -> Result<(), String> {
@@ -453,6 +466,51 @@ fn session_audit_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn agent_plan_command(args: &[String]) -> Result<(), String> {
+    let project = value_after(args, "--project")
+        .map(PathBuf::from)
+        .ok_or_else(|| "agent-plan requires --project <file.asterproj>".to_string())?;
+    let objective = value_after(args, "--objective");
+    let include_schema = args.iter().any(|arg| arg == "--output-schema");
+    println!(
+        "{}",
+        agent_plan_report_json(&project, objective.as_deref(), include_schema)?
+    );
+    Ok(())
+}
+
+fn asset_brief_command(args: &[String]) -> Result<(), String> {
+    let project = value_after(args, "--project")
+        .map(PathBuf::from)
+        .ok_or_else(|| "asset-brief requires --project <file.asterproj>".to_string())?;
+    let asset = value_after(args, "--asset")
+        .ok_or_else(|| "asset-brief requires --asset <id>".to_string())?;
+    let references = values_after(args, "--reference")
+        .into_iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    if references.is_empty() {
+        return Err("asset-brief requires at least one --reference <image>".to_string());
+    }
+    let target = value_after(args, "--target");
+    let required = values_after(args, "--require");
+    let forbidden = values_after(args, "--forbid");
+    let include_schema = args.iter().any(|arg| arg == "--output-schema");
+    println!(
+        "{}",
+        asset_brief_report_json(
+            &project,
+            &asset,
+            &references,
+            target.as_deref(),
+            &required,
+            &forbidden,
+            include_schema,
+        )?
+    );
+    Ok(())
+}
+
 fn mesh_format_for_path(path: &Path) -> String {
     path.extension()
         .and_then(|extension| extension.to_str())
@@ -614,6 +672,8 @@ fn run() -> Result<(), String> {
         Some("mesh-import-inspect") => mesh_import_inspect_command(&args[2..]),
         Some("mesh-recipe-inspect") => mesh_recipe_inspect_command(&args[2..]),
         Some("session-audit") => session_audit_command(&args[2..]),
+        Some("agent-plan") => agent_plan_command(&args[2..]),
+        Some("asset-brief") => asset_brief_command(&args[2..]),
         Some("graph") => graph_command(&args[2..]),
         Some("fate") => fate_command(&args[2..]),
         Some("diff") => diff_command(&args[2..]),

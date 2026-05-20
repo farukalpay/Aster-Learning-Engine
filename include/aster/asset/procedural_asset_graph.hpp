@@ -51,6 +51,37 @@ struct ProceduralAssetGraphQualityReport {
   std::vector<ProceduralAssetGraphQualityIssue> issues;
 };
 
+struct ProceduralAssetGraphProductionSession {
+  std::string session_id;
+  std::string graph_hash;
+  std::string preview_artifact_hash;
+  std::string quality_gate;
+  std::vector<std::string> cook_steps;
+};
+
+struct ProceduralAssetGraphFactoryStageReport {
+  std::string id;
+  std::string kind;
+  std::string status;
+  std::vector<std::string> diagnostics;
+};
+
+struct ProceduralAssetGraphFactorySignalCoverage {
+  std::string signal;
+  float average = 0.0f;
+  float coverage = 0.0f;
+  std::string status;
+};
+
+struct ProceduralAssetGraphFactoryReport {
+  std::string stable_recipe_hash;
+  std::vector<ProceduralAssetGraphFactoryStageReport> stage_diagnostics;
+  std::vector<ProceduralAssetGraphFactorySignalCoverage> surface_signal_coverage;
+  std::map<std::string, std::string> collision_proxy_summary;
+  std::vector<std::string> visual_brief_claims;
+  std::vector<std::string> visual_brief_rejections;
+};
+
 struct ProceduralAssetGraphPackage {
   std::filesystem::path package_path;
   std::string asset_guid;
@@ -67,6 +98,8 @@ struct ProceduralAssetGraphPackage {
   ProceduralAssetGraphMeshDescriptor mesh;
   std::vector<ProceduralAssetGraphNode> nodes;
   std::vector<ProceduralAssetGraphEdge> edges;
+  ProceduralAssetGraphProductionSession production_session;
+  ProceduralAssetGraphFactoryReport factory_report;
   ProceduralAssetGraphQualityReport quality;
   std::vector<MaterialDiagnostic> diagnostics;
 };

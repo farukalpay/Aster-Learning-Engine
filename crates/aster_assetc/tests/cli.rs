@@ -482,6 +482,78 @@ fn audit_session_and_mesh_recipe_commands() {
 }
 
 #[test]
+fn agent_plan_reports_batch_contracts() {
+    let project = write_material_project();
+    fs::write(
+        project.parent().unwrap().join("AGENTS.md"),
+        "# Agent scope\n\n- Keep material edits in Aster-owned authoring files.\n",
+    )
+    .expect("agent instructions");
+    let binary = env!("CARGO_BIN_EXE_aster_assetc");
+    let plan = Command::new(binary)
+        .arg("agent-plan")
+        .arg("--project")
+        .arg(&project)
+        .arg("--objective")
+        .arg("Let an agent extend the material lab safely.")
+        .arg("--output-schema")
+        .output()
+        .expect("run agent plan");
+    assert!(
+        plan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plan.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&plan.stdout);
+    assert!(stdout.contains("\"kind\": \"aster_agent_plan\""));
+    assert!(stdout.contains("batch.content_surface"));
+    assert!(stdout.contains("agent.visual_proof_surface"));
+    assert!(stdout.contains("\"instruction_stack\""));
+    assert!(stdout.contains("Keep material edits in Aster-owned authoring files"));
+    assert!(stdout.contains("\"command_policy\""));
+    assert!(stdout.contains("aster.deny.git_reset_hard"));
+    assert!(stdout.contains("\"handoff_policy\""));
+    assert!(stdout.contains("Aster Agent Batch Report"));
+    assert!(stdout.contains("Do not add third-party notice files"));
+    fs::remove_dir_all(project.parent().unwrap()).ok();
+}
+
+#[test]
+fn asset_brief_reports_reference_quality_gate() {
+    let project = write_material_project();
+    let reference = project.parent().unwrap().join("reference.png");
+    write_png_header(&reference, 320, 180);
+    let binary = env!("CARGO_BIN_EXE_aster_assetc");
+    let brief = Command::new(binary)
+        .arg("asset-brief")
+        .arg("--project")
+        .arg(&project)
+        .arg("--asset")
+        .arg("asset_graph.pipe_lab.rusted_pipe")
+        .arg("--reference")
+        .arg(&reference)
+        .arg("--output-schema")
+        .output()
+        .expect("run asset brief");
+    assert!(
+        brief.status.success(),
+        "{}",
+        String::from_utf8_lossy(&brief.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&brief.stdout);
+    assert!(stdout.contains("\"kind\": \"aster_agent_asset_brief\""));
+    assert!(stdout.contains("corroded_orange_brown_rust"));
+    assert!(stdout.contains("smooth_black_pipe"));
+    assert!(stdout.contains("presentation_quality"));
+    assert!(stdout.contains("surface_occlusion"));
+    assert!(stdout.contains("physical_texel_density"));
+    assert!(stdout.contains("height_normal_coupling"));
+    assert!(stdout.contains("Aster Agent Asset Iteration Report"));
+    assert!(stdout.contains("A passed build is not enough"));
+    fs::remove_dir_all(project.parent().unwrap()).ok();
+}
+
+#[test]
 fn strict_cook_fails_broken_material_and_skips_runtime_outputs() {
     let project = write_broken_material_project();
     let output_dir = project.parent().unwrap().join("cooked/desktop");

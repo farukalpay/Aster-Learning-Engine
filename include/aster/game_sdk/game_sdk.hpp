@@ -546,3 +546,5 @@ validateCaveDocument(const CaveDocument &cave, const ProjectDocument *project = 
                      std::filesystem::path source_path = {});
 
 } // namespace aster::sdk
+
+#include "aster/game_sdk/agent_authoring.hpp"

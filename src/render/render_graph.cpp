@@ -93,6 +93,8 @@ std::string_view renderGraphPassName(const RenderGraphPass pass) {
     return "opaque";
   case RenderGraphPass::ContactShadow:
     return "contact-shadow";
+  case RenderGraphPass::SurfaceOcclusion:
+    return "surface-occlusion";
   case RenderGraphPass::SceneLighting:
     return "scene-lighting";
   case RenderGraphPass::VolumetricFog:
@@ -115,10 +117,14 @@ std::string_view renderGraphResourceName(const RenderGraphResource resource) {
     return "scene-color";
   case RenderGraphResource::SceneDepth:
     return "scene-depth";
+  case RenderGraphResource::SurfaceAttributes:
+    return "surface-attributes";
   case RenderGraphResource::LightClusters:
     return "light-clusters";
   case RenderGraphResource::ShadowAtlas:
     return "shadow-atlas";
+  case RenderGraphResource::SurfaceOcclusion:
+    return "surface-occlusion";
   case RenderGraphResource::VolumetricFog:
     return "volumetric-fog";
   case RenderGraphResource::ReflectionProbes:
@@ -156,6 +162,9 @@ RenderGraphPass renderGraphPassFromName(const std::string_view name) {
   if (name == renderGraphPassName(RenderGraphPass::ContactShadow)) {
     return RenderGraphPass::ContactShadow;
   }
+  if (name == renderGraphPassName(RenderGraphPass::SurfaceOcclusion)) {
+    return RenderGraphPass::SurfaceOcclusion;
+  }
   if (name == renderGraphPassName(RenderGraphPass::SceneLighting)) {
     return RenderGraphPass::SceneLighting;
   }
@@ -181,11 +190,17 @@ RenderGraphResource renderGraphResourceFromName(const std::string_view name) {
   if (name == renderGraphResourceName(RenderGraphResource::SceneDepth)) {
     return RenderGraphResource::SceneDepth;
   }
+  if (name == renderGraphResourceName(RenderGraphResource::SurfaceAttributes)) {
+    return RenderGraphResource::SurfaceAttributes;
+  }
   if (name == renderGraphResourceName(RenderGraphResource::LightClusters)) {
     return RenderGraphResource::LightClusters;
   }
   if (name == renderGraphResourceName(RenderGraphResource::ShadowAtlas)) {
     return RenderGraphResource::ShadowAtlas;
+  }
+  if (name == renderGraphResourceName(RenderGraphResource::SurfaceOcclusion)) {
+    return RenderGraphResource::SurfaceOcclusion;
   }
   if (name == renderGraphResourceName(RenderGraphResource::VolumetricFog)) {
     return RenderGraphResource::VolumetricFog;
@@ -216,6 +231,8 @@ std::string_view renderGraphExecutorKeyName(const RenderGraphExecutorKey key) {
     return "opaque";
   case RenderGraphExecutorKey::ContactShadow:
     return "contact-shadow";
+  case RenderGraphExecutorKey::SurfaceOcclusion:
+    return "surface-occlusion";
   case RenderGraphExecutorKey::SceneLighting:
     return "scene-lighting";
   case RenderGraphExecutorKey::VolumetricFog:
@@ -247,46 +264,67 @@ renderGraphDebugCapturePolicyName(const RenderGraphDebugCapturePolicy policy) {
 
 framegraph::ResourceDesc defaultRenderGraphResourceDesc(const RenderGraphResource resource) {
   switch (resource) {
-  case RenderGraphResource::SceneColor:
-    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-            .format = rhi::ImageFormat::Rgba16Float,
-            .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
-                     rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+	  case RenderGraphResource::SceneColor:
+	    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+	            .format = rhi::ImageFormat::Rgba16Float,
+	            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+	            .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
+	                     rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+	                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
+	  case RenderGraphResource::SceneDepth:
+	    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+	            .format = rhi::ImageFormat::Depth32Float,
+	            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+	            .usage = rhi::imageUsageBit(rhi::ImageUsage::DepthAttachment) |
+	                     rhi::imageUsageBit(rhi::ImageUsage::Sampled)};
+	  case RenderGraphResource::SurfaceAttributes:
+	    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+	            .format = rhi::ImageFormat::Rgba8Unorm,
+	            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+	            .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
+	                     rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+	                     rhi::imageUsageBit(rhi::ImageUsage::Storage) |
                      rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
-  case RenderGraphResource::SceneDepth:
-    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-            .format = rhi::ImageFormat::Depth32Float,
-            .usage = rhi::imageUsageBit(rhi::ImageUsage::DepthAttachment) |
-                     rhi::imageUsageBit(rhi::ImageUsage::Sampled)};
   case RenderGraphResource::LightClusters:
     return {.kind = framegraph::ResourceKind::Buffer,
             .lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
             .usage = rhi::bufferUsageBit(rhi::BufferUsage::Storage),
             .byte_size = 64u * 1024u,
             .stride = 16u};
-  case RenderGraphResource::ShadowAtlas:
-    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-            .format = rhi::ImageFormat::Depth32Float,
-            .usage = rhi::imageUsageBit(rhi::ImageUsage::DepthAttachment) |
-                     rhi::imageUsageBit(rhi::ImageUsage::Sampled)};
-  case RenderGraphResource::VolumetricFog:
-    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-            .format = rhi::ImageFormat::Rgba8Unorm,
-            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
-                     rhi::imageUsageBit(rhi::ImageUsage::Storage)};
-  case RenderGraphResource::ReflectionProbes:
-    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
-            .format = rhi::ImageFormat::Rgba8Unorm,
-            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
-                     rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment)};
+	  case RenderGraphResource::ShadowAtlas:
+	    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+	            .format = rhi::ImageFormat::Depth32Float,
+	            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+	            .usage = rhi::imageUsageBit(rhi::ImageUsage::DepthAttachment) |
+	                     rhi::imageUsageBit(rhi::ImageUsage::Sampled)};
+	  case RenderGraphResource::SurfaceOcclusion:
+	    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+	            .format = rhi::ImageFormat::R8Unorm,
+	            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+	            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+	                     rhi::imageUsageBit(rhi::ImageUsage::Storage) |
+	                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
+	  case RenderGraphResource::VolumetricFog:
+	    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+	            .format = rhi::ImageFormat::Rgba8Unorm,
+	            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+	            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+	                     rhi::imageUsageBit(rhi::ImageUsage::Storage)};
+	  case RenderGraphResource::ReflectionProbes:
+	    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+	            .format = rhi::ImageFormat::Rgba8Unorm,
+	            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+	            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+	                     rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment)};
   case RenderGraphResource::UiOverlay:
     return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Imported),
             .format = rhi::ImageFormat::Bgra8Unorm,
             .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled)};
-  case RenderGraphResource::CaptureReadback:
-    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Readback),
-            .format = rhi::ImageFormat::Bgra8Unorm,
-            .usage = rhi::imageUsageBit(rhi::ImageUsage::TransferDestination)};
+	  case RenderGraphResource::CaptureReadback:
+	    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Readback),
+	            .format = rhi::ImageFormat::Bgra8Unorm,
+	            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+	            .usage = rhi::imageUsageBit(rhi::ImageUsage::TransferDestination)};
   }
   return {};
 }
@@ -333,7 +371,10 @@ RenderPassRegistry makeDefaultRenderPassRegistry(const bool ui_overlay_enabled,
                                          rhi::AttachmentLoadOp::Load),
                             writeBinding(RenderGraphResource::SceneDepth,
                                          rhi::ResourceState::DepthAttachment,
-                                         rhi::AttachmentLoadOp::Load)},
+                                         rhi::AttachmentLoadOp::Load),
+                            writeBinding(RenderGraphResource::SurfaceAttributes,
+                                         rhi::ResourceState::ColorAttachment,
+                                         rhi::AttachmentLoadOp::Clear)},
                 .executor = RenderGraphExecutorKey::Opaque,
                 .produces_backend_work = true});
   registry.add({.pass = RenderGraphPass::ContactShadow,
@@ -348,17 +389,15 @@ RenderPassRegistry makeDefaultRenderPassRegistry(const bool ui_overlay_enabled,
                                          rhi::AttachmentLoadOp::Load)},
                 .executor = RenderGraphExecutorKey::ContactShadow,
                 .produces_backend_work = true});
-  registry.add({.pass = RenderGraphPass::SceneLighting,
-                .name = std::string(renderGraphPassName(RenderGraphPass::SceneLighting)),
-                .inputs = {readBinding(RenderGraphResource::SceneColor),
-                           readBinding(RenderGraphResource::SceneDepth),
-                           readBinding(RenderGraphResource::LightClusters),
-                           readBinding(RenderGraphResource::ShadowAtlas)},
-                .outputs = {writeBinding(RenderGraphResource::SceneColor,
-                                         rhi::ResourceState::ColorAttachment,
-                                         rhi::AttachmentLoadOp::Load)},
-                .executor = RenderGraphExecutorKey::SceneLighting,
-                .produces_backend_work = true});
+  registry.add({.pass = RenderGraphPass::SurfaceOcclusion,
+                .name = std::string(renderGraphPassName(RenderGraphPass::SurfaceOcclusion)),
+                .inputs = {readBinding(RenderGraphResource::SceneDepth),
+                           readBinding(RenderGraphResource::SurfaceAttributes)},
+                .outputs = {writeBinding(RenderGraphResource::SurfaceOcclusion,
+                                         rhi::ResourceState::ShaderWrite)},
+                .debug_capture = RenderGraphDebugCapturePolicy::OnRequest,
+                .executor = RenderGraphExecutorKey::SurfaceOcclusion,
+                .produces_backend_work = false});
   registry.add({.pass = RenderGraphPass::VolumetricFog,
                 .name = std::string(renderGraphPassName(RenderGraphPass::VolumetricFog)),
                 .inputs = {readBinding(RenderGraphResource::SceneDepth),
@@ -375,11 +414,26 @@ RenderPassRegistry makeDefaultRenderPassRegistry(const bool ui_overlay_enabled,
                                          rhi::AttachmentLoadOp::Clear)},
                 .executor = RenderGraphExecutorKey::ReflectionProbe,
                 .produces_backend_work = false});
+  registry.add({.pass = RenderGraphPass::SceneLighting,
+                .name = std::string(renderGraphPassName(RenderGraphPass::SceneLighting)),
+                .inputs = {readBinding(RenderGraphResource::SceneColor),
+                           readBinding(RenderGraphResource::SceneDepth),
+                           readBinding(RenderGraphResource::LightClusters),
+                           readBinding(RenderGraphResource::ShadowAtlas),
+                           readBinding(RenderGraphResource::SurfaceOcclusion),
+                           readBinding(RenderGraphResource::VolumetricFog),
+                           readBinding(RenderGraphResource::ReflectionProbes)},
+                .outputs = {writeBinding(RenderGraphResource::SceneColor,
+                                         rhi::ResourceState::ColorAttachment,
+                                         rhi::AttachmentLoadOp::Load)},
+                .executor = RenderGraphExecutorKey::SceneLighting,
+                .produces_backend_work = true});
   registry.add({.pass = RenderGraphPass::Transparent,
                 .name = std::string(renderGraphPassName(RenderGraphPass::Transparent)),
                 .inputs = {readBinding(RenderGraphResource::SceneColor),
                            readBinding(RenderGraphResource::SceneDepth),
                            readBinding(RenderGraphResource::LightClusters),
+                           readBinding(RenderGraphResource::SurfaceOcclusion),
                            readBinding(RenderGraphResource::VolumetricFog),
                            readBinding(RenderGraphResource::ReflectionProbes)},
                 .outputs = {writeBinding(RenderGraphResource::SceneColor,
@@ -424,7 +478,7 @@ framegraph::FrameGraph makeDefaultFrameGraph(const bool ui_overlay_enabled,
   const RenderPassRegistry registry =
       makeDefaultRenderPassRegistry(ui_overlay_enabled, capture_enabled);
   std::vector<framegraph::ResourceHandle> handles;
-  handles.resize(8u);
+  handles.resize(10u);
   for (std::uint32_t i = 0u; i < static_cast<std::uint32_t>(handles.size()); ++i) {
     const auto resource = static_cast<RenderGraphResource>(i);
     handles[i] = graph.addResource(std::string(renderGraphResourceName(resource)),

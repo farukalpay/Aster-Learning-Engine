@@ -55,6 +55,13 @@ ProceduralNodeRegistry makeDefaultProceduralNodeRegistry() {
   ProceduralNodeRegistry registry;
   registry.registerNode({"mesh_primitive", "mesh", "runtime-reference", {"primitive"}});
   registry.registerNode({"pipe_body", "mesh", "runtime-procedural-reference", {"primitive"}});
+  registry.registerNode({"factory_recipe", "asset-factory", "runtime-procedural-reference", {"target"}});
+  registry.registerNode({"factory_stage", "asset-factory-stage", "runtime-procedural-reference", {"kind"}});
+  registry.registerNode({"surface_contract", "asset-factory-surface", "runtime-procedural-reference", {}});
+  registry.registerNode({"physics_proxy", "asset-factory-physics", "runtime-procedural-reference", {"shape"}});
+  registry.registerNode({"lod_recipe", "asset-factory-lod", "runtime-procedural-reference", {"levels"}});
+  registry.registerNode({"quality_signal", "asset-factory-quality", "runtime-procedural-reference", {"signal"}});
+  registry.registerNode({"visual_brief_claim", "asset-factory-quality", "runtime-procedural-reference", {"signal"}});
   registry.registerNode({"transform_geometry", "mesh-operator", "runtime-reference", {}});
   registry.registerNode({"join_geometry", "mesh-operator", "runtime-reference", {}});
   registry.registerNode({"scatter_points", "point-cloud", "runtime-reference", {}});

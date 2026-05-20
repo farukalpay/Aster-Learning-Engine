@@ -430,6 +430,11 @@ void LumenRun::rebuildScene() {
                                  .roughness_variation = 0.18f,
                                  .wetness = 0.06f,
                                  .height_shading = 0.22f};
+  cave_mouth_stone.procedural.physical_texel_density = 720.0f;
+  cave_mouth_stone.procedural.height_normal_coupling = 0.86f;
+  cave_mouth_stone.procedural.roughness_height_coupling = 0.60f;
+  cave_mouth_stone.procedural.macro_frequency_breakup = 0.42f;
+  cave_mouth_stone.procedural.micro_frequency_breakup = 0.58f;
   Material cave_wall =
       material({0.082f, 0.066f, 0.052f}, {0.008f, 0.006f, 0.003f}, 0.95f, 0.0f, 0.012f, 1.00f,
                11.8f, 0.30f, 0.56f, SurfacePattern::CaveRock, {2.9f, 5.6f}, 0.132f, 0.92f,
@@ -443,6 +448,11 @@ void LumenRun::rebuildScene() {
                           .roughness_variation = 0.24f,
                           .wetness = 0.12f,
                           .height_shading = 0.22f};
+  cave_wall.procedural.physical_texel_density = 860.0f;
+  cave_wall.procedural.height_normal_coupling = 0.92f;
+  cave_wall.procedural.roughness_height_coupling = 0.68f;
+  cave_wall.procedural.macro_frequency_breakup = 0.52f;
+  cave_wall.procedural.micro_frequency_breakup = 0.72f;
   Material cave_entrance_wall = cave_wall;
   cave_entrance_wall.base_color = {0.104f, 0.082f, 0.062f};
   cave_entrance_wall.emission_color = {0.030f, 0.020f, 0.010f};
@@ -455,6 +465,11 @@ void LumenRun::rebuildScene() {
   cave_floor.pattern_depth = 0.118f;
   cave_floor.ambient_occlusion = 0.36f;
   cave_floor.procedural.wetness = 0.20f;
+  cave_floor.procedural.physical_texel_density = 960.0f;
+  cave_floor.procedural.height_normal_coupling = 0.94f;
+  cave_floor.procedural.roughness_height_coupling = 0.74f;
+  cave_floor.procedural.macro_frequency_breakup = 0.58f;
+  cave_floor.procedural.micro_frequency_breakup = 0.78f;
   cave_floor.asset_id = "material.cave_rock";
   const RenderDepthPolicy cave_decal_depth{
       .layer = RenderDepthLayer::Decal, .constant_bias = 0.00008f, .slope_bias = 0.00012f};
@@ -469,6 +484,11 @@ void LumenRun::rebuildScene() {
                {.macro_variation = 0.42f,
                 .micro_normal_strength = 0.18f,
                 .roughness_variation = 0.34f,
+                .physical_texel_density = 900.0f,
+                .height_normal_coupling = 0.72f,
+                .roughness_height_coupling = 0.82f,
+                .macro_frequency_breakup = 0.28f,
+                .micro_frequency_breakup = 0.44f,
                 .wetness = 0.70f,
                 .height_shading = 0.08f});
   cave_wet_streak.opacity = 0.54f;
@@ -507,6 +527,11 @@ void LumenRun::rebuildScene() {
                {.macro_variation = 0.36f,
                 .micro_normal_strength = 0.10f,
                 .roughness_variation = 0.12f,
+                .physical_texel_density = 420.0f,
+                .height_normal_coupling = 0.36f,
+                .roughness_height_coupling = 0.44f,
+                .macro_frequency_breakup = 0.34f,
+                .micro_frequency_breakup = 0.22f,
                 .height_shading = 0.035f});
   cave_dust_accumulation.opacity = 0.50f;
   cave_dust_accumulation.alpha_mode = MaterialAlphaMode::Blend;
@@ -522,6 +547,11 @@ void LumenRun::rebuildScene() {
   cave_talus.procedural = {.macro_variation = 0.34f,
                            .micro_normal_strength = 0.28f,
                            .roughness_variation = 0.14f,
+                           .physical_texel_density = 680.0f,
+                           .height_normal_coupling = 0.80f,
+                           .roughness_height_coupling = 0.56f,
+                           .macro_frequency_breakup = 0.40f,
+                           .micro_frequency_breakup = 0.50f,
                            .wetness = 0.08f,
                            .height_shading = 0.14f};
   Material cave_calcite =

@@ -114,6 +114,7 @@ add_custom_command(
     "${PROJECT_SOURCE_DIR}/crates/aster_runtime/Cargo.toml"
     "${PROJECT_SOURCE_DIR}/crates/aster_runtime/src/lib.rs"
     "${PROJECT_SOURCE_DIR}/crates/aster_assetc/Cargo.toml"
+    "${PROJECT_SOURCE_DIR}/crates/aster_assetc/src/agent_plan.rs"
     "${PROJECT_SOURCE_DIR}/crates/aster_assetc/src/main.rs"
     "${PROJECT_SOURCE_DIR}/crates/aster_assetc/src/bin/aster_materialc.rs"
     "${PROJECT_SOURCE_DIR}/crates/aster_assetc/src/bin/aster_texturec.rs"
@@ -138,6 +139,7 @@ endif()
 add_dependencies(aster_runtime aster_rust_runtime)
 
 set(ASTER_GAME_SDK_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/game_sdk/agent_authoring.cpp"
   "${PROJECT_SOURCE_DIR}/src/game_sdk/game_sdk.cpp"
 )
 
@@ -167,6 +169,7 @@ set(ASTER_FRAMEGRAPH_SOURCES
 
 set(ASTER_ASSET_SOURCES
   "${PROJECT_SOURCE_DIR}/src/asset/asset_database.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/asset_factory.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_io.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_library.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_modifier_stack.cpp"
@@ -190,6 +193,7 @@ set(ASTER_MATERIAL_SOURCES
   "${PROJECT_SOURCE_DIR}/src/material/material_instance.cpp"
   "${PROJECT_SOURCE_DIR}/src/material/material_lab.cpp"
   "${PROJECT_SOURCE_DIR}/src/material/material_parameter_block.cpp"
+  "${PROJECT_SOURCE_DIR}/src/material/procedural_surface.cpp"
 )
 
 set(ASTER_TEXTURE_SOURCES
@@ -707,6 +711,16 @@ if(ASTER_BUILD_TESTS)
   )
   add_dependencies(aster_pipe_runtime_asset_tests aster_rust_runtime)
   add_test(NAME aster_pipe_runtime_asset_tests COMMAND aster_pipe_runtime_asset_tests)
+  add_executable(aster_asset_factory_tests tests/asset_factory_tests.cpp)
+  target_link_libraries(aster_asset_factory_tests PRIVATE aster_engine_internal)
+  target_include_directories(aster_asset_factory_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  aster_configure_test_target(aster_asset_factory_tests)
+  target_compile_definitions(aster_asset_factory_tests PRIVATE
+    ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    ASTER_ASSETC_EXECUTABLE="${ASTER_ASSETC_EXECUTABLE}"
+  )
+  add_dependencies(aster_asset_factory_tests aster_rust_runtime)
+  add_test(NAME aster_asset_factory_tests COMMAND aster_asset_factory_tests)
   add_executable(aster_asset_cache_tests tests/asset_cache_tests.cpp)
   target_link_libraries(aster_asset_cache_tests PRIVATE aster_engine_internal)
   target_include_directories(aster_asset_cache_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)

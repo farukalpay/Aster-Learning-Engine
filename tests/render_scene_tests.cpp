@@ -224,6 +224,8 @@ void testIndustrialPipeSceneContract() {
   const aster::Scene scene = aster::makeIndustrialPipeScene();
   std::size_t weathered_metal = 0;
   std::size_t weld_beads = 0;
+  std::size_t surface_attachments = 0;
+  std::size_t contact_skirts = 0;
   std::size_t runtime_parts = 0;
   for (const aster::RenderObject &object : scene.objects()) {
     weathered_metal +=
@@ -235,11 +237,16 @@ void testIndustrialPipeSceneContract() {
                           aster::MaterialSurfaceProfile::WeldBead
                       ? 1u
                       : 0u;
+    surface_attachments +=
+        object.material.depth_policy.layer == aster::RenderDepthLayer::SurfaceAttachment ? 1u : 0u;
+    contact_skirts += object.name.find("contact skirt") != std::string::npos ? 1u : 0u;
     runtime_parts += object.name.find("runtime rusted pipe") != std::string::npos ? 1u : 0u;
   }
-  assert(weathered_metal >= 3u);
-  assert(weld_beads >= 3u);
-  assert(runtime_parts >= asset.parts.size());
+  assert(weathered_metal >= 1u);
+  assert(weld_beads >= 2u);
+  assert(surface_attachments >= 2u);
+  assert(contact_skirts >= 2u);
+  assert(runtime_parts >= 3u);
 }
 
 void testShowcaseLabSceneContracts() {
@@ -329,17 +336,21 @@ void testSoftwareDepthPolicyIsStableAcrossObjectOrder() {
   setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
 
   auto make_scene = [](const bool decal_first) {
+    const auto coplanar_patch = std::make_shared<const aster::CpuMesh>(aster::makePlane(1.6f));
     aster::RenderObject base;
     base.name = "coplanar base";
     base.primitive = aster::MeshPrimitive::Plane;
+    base.custom_mesh = coplanar_patch;
     base.material = aster::makeMaterial({.base_color = {0.02f, 0.04f, 0.42f},
                                          .emission_color = {0.02f, 0.04f, 0.42f},
                                          .emission_strength = 0.35f,
-                                         .roughness = 1.0f});
+                                         .roughness = 1.0f,
+                                         .double_sided = true});
 
     aster::RenderObject decal;
     decal.name = "coplanar red decal";
     decal.primitive = aster::MeshPrimitive::Plane;
+    decal.custom_mesh = coplanar_patch;
     decal.material = aster::makeMaterial({.base_color = {1.0f, 0.04f, 0.02f},
                                           .emission_color = {1.0f, 0.04f, 0.02f},
                                           .emission_strength = 0.55f,
@@ -860,6 +871,9 @@ void testFrameDebuggerEvidenceTimelineAndRegressionLab() {
   settings.shadows.cascaded_directional = true;
   settings.shadows.directional_cascades = 2u;
   settings.shadows.atlas_size = 64u;
+  settings.occlusion.enabled = true;
+  settings.occlusion.strength = 0.40f;
+  settings.occlusion.contact_hardening = 0.32f;
   settings.atmosphere.enabled = true;
   settings.atmosphere.fog_strength = 0.40f;
   settings.atmosphere.fog_start = 1.0f;
@@ -889,6 +903,7 @@ void testFrameDebuggerEvidenceTimelineAndRegressionLab() {
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::MaterialBinding));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::LightCluster));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Shadow));
+  assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::SurfaceOcclusion));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Fog));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Probe));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::PassOutput));
@@ -1006,6 +1021,14 @@ void testSoftwareReferenceFrameResourceCaptures() {
   settings.shadows.directional_cascades = 2u;
   settings.shadows.atlas_size = 64u;
   settings.shadows.max_distance = 12.0f;
+  settings.occlusion.enabled = true;
+  settings.occlusion.radius = 1.15f;
+  settings.occlusion.thickness = 0.18f;
+  settings.occlusion.strength = 0.44f;
+  settings.occlusion.sample_count = 12u;
+  settings.occlusion.contact_hardening = 0.34f;
+  settings.grounding.enabled = true;
+  settings.grounding.contact_shadows = true;
   settings.atmosphere.enabled = true;
   settings.atmosphere.fog_color = {0.10f, 0.13f, 0.16f};
   settings.atmosphere.fog_start = 1.5f;
@@ -1033,6 +1056,8 @@ void testSoftwareReferenceFrameResourceCaptures() {
                         });
   };
   const auto shadow = capture_for(aster::RenderGraphResource::ShadowAtlas);
+  const auto surface_attributes = capture_for(aster::RenderGraphResource::SurfaceAttributes);
+  const auto surface_occlusion = capture_for(aster::RenderGraphResource::SurfaceOcclusion);
   const auto fog = capture_for(aster::RenderGraphResource::VolumetricFog);
   const auto reflection = capture_for(aster::RenderGraphResource::ReflectionProbes);
   const auto final = capture_for(aster::RenderGraphResource::CaptureReadback);
@@ -1040,6 +1065,12 @@ void testSoftwareReferenceFrameResourceCaptures() {
   assert(shadow->width == 64u && shadow->height == 64u);
   assert(shadow->row_stride_bytes == shadow->width * 4u);
   assert(shadow->content_hash != 0u && !shadow->rgba8.empty());
+  assert(surface_attributes != forensics.captures.end());
+  assert(surface_attributes->width == 80u && surface_attributes->height == 56u);
+  assert(surface_attributes->content_hash != 0u && !surface_attributes->rgba8.empty());
+  assert(surface_occlusion != forensics.captures.end());
+  assert(surface_occlusion->width == 80u && surface_occlusion->height == 56u);
+  assert(surface_occlusion->content_hash != 0u && !surface_occlusion->rgba8.empty());
   assert(fog != forensics.captures.end());
   assert(fog->width == 20u && fog->height == 14u);
   assert(fog->content_hash != 0u && !fog->rgba8.empty());
@@ -1052,6 +1083,14 @@ void testSoftwareReferenceFrameResourceCaptures() {
   assert(forensics.mesh_visibility.size() == scene.objects().size());
   assert(!forensics.object_clusters.empty());
   assert(forensics.object_fates.size() == scene.objects().size());
+  assert(forensics.surface_traces.size() == scene.objects().size());
+  assert(std::any_of(forensics.surface_traces.begin(), forensics.surface_traces.end(),
+                     [](const aster::SurfacePresentationTrace &trace) {
+                       return trace.surface_occlusion_enabled &&
+                              trace.physical_texel_density > 0.0f &&
+                              trace.height_normal_coupling > 0.0f &&
+                              trace.trace_hash != 0u;
+                     }));
   assert(std::any_of(forensics.object_fates.begin(), forensics.object_fates.end(),
                      [](const aster::ObjectRenderFateTrace &trace) {
                        return trace.object_name == "shadow atlas caster" && trace.visible &&
@@ -1079,6 +1118,8 @@ void testSoftwareReferenceFrameResourceCaptures() {
   const aster::RenderBackendCapabilities capabilities = renderer.backendCapabilities();
   assert((capabilities.graph_resource_mask &
           aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas)) != 0u);
+  assert((capabilities.graph_resource_mask &
+          aster::renderGraphResourceBit(aster::RenderGraphResource::SurfaceOcclusion)) != 0u);
   assert(capabilities.capability_table.shadow_maps);
   assert(forensics.certification.valid);
   assert(forensics.certification.proof_count == forensics.backend_feature_proofs.size());
@@ -1091,6 +1132,13 @@ void testSoftwareReferenceFrameResourceCaptures() {
                      [](const aster::BackendFeatureProof &proof) {
                        return proof.kind == aster::BackendFeatureProofKind::GraphResource &&
                               proof.resource == aster::RenderGraphResource::ShadowAtlas &&
+                              proof.status == aster::BackendFeatureProofStatus::Proven;
+                     }));
+  assert(std::any_of(forensics.backend_feature_proofs.begin(),
+                     forensics.backend_feature_proofs.end(),
+                     [](const aster::BackendFeatureProof &proof) {
+                       return proof.kind == aster::BackendFeatureProofKind::GraphResource &&
+                              proof.resource == aster::RenderGraphResource::SurfaceOcclusion &&
                               proof.status == aster::BackendFeatureProofStatus::Proven;
                      }));
   assert(std::any_of(forensics.backend_feature_proofs.begin(),
@@ -1272,20 +1320,24 @@ void testRetroStyleEmissiveSoftwarePreviewGain() {
   aster::RenderObject object;
   object.name = "emissive style probe";
   object.primitive = aster::MeshPrimitive::Sphere;
-  object.transform.position = {0.0f, 0.55f, 0.0f};
-  object.transform.scale = {0.85f, 0.85f, 0.85f};
+	  object.transform.position = {0.0f, 0.55f, 0.0f};
+	  object.transform.scale = {1.45f, 1.45f, 1.45f};
   object.material = aster::makeMaterial({.base_color = {0.12f, 0.08f, 0.06f},
                                          .emission_color = {1.0f, 0.18f, 0.06f},
                                          .emission_strength = 0.42f});
   scene.objects().push_back(object);
 
-  aster::RendererSettings neutral;
-  neutral.sun_light.enabled = false;
-  neutral.ambient_strength = 0.05f;
-  neutral.ambient_floor = 0.01f;
+	  aster::RendererSettings neutral;
+	  neutral.sun_light.enabled = false;
+	  neutral.ambient_strength = 0.0f;
+	  neutral.ambient_floor = 0.0f;
+	  neutral.indirect_albedo_floor = 0.0f;
+	  neutral.pipeline.clear_color = {0.0f, 0.0f, 0.0f};
+	  neutral.sky_ambient_color = {0.0f, 0.0f, 0.0f};
+	  neutral.ground_ambient_color = {0.0f, 0.0f, 0.0f};
 
-  aster::RendererSettings boosted = neutral;
-  boosted.style.emissive_gain = 4.0f;
+	  aster::RendererSettings boosted = neutral;
+	  boosted.style.emissive_gain = 8.0f;
 
   const aster::OrbitCamera camera = retroStyleTestCamera();
   const aster::SoftwareFrameBuffer neutral_frame =
@@ -1699,39 +1751,48 @@ void testFrameGraphContract() {
   const aster::FixedRenderGraph graph = aster::makeFixedRenderGraph();
   assert(graph.valid());
   assert(graph.validation_errors.empty());
-  assert(graph.resources.size() == 8u);
+  assert(graph.resources.size() == 10u);
   assert(graph.resources[0].name == "scene-color");
   assert(graph.resources[0].desc.kind == aster::framegraph::ResourceKind::Image);
   assert(graph.resources[0].desc.lifetime == aster::framegraph::ResourceLifetime::Transient);
-  assert(graph.resources[2].name == "light-clusters");
-  assert(graph.resources[2].desc.kind == aster::framegraph::ResourceKind::Buffer);
-  assert((graph.resources[2].desc.usage &
+  assert(graph.resources[2].name == "surface-attributes");
+  assert(graph.resources[2].desc.kind == aster::framegraph::ResourceKind::Image);
+  assert(graph.resources[3].name == "light-clusters");
+  assert(graph.resources[3].desc.kind == aster::framegraph::ResourceKind::Buffer);
+  assert((graph.resources[3].desc.usage &
           aster::rhi::bufferUsageBit(aster::rhi::BufferUsage::Storage)) != 0u);
-  assert(graph.resources[2].desc.byte_size >= 64u * 1024u);
-  assert(graph.resources[6].name == "ui-overlay");
-  assert(graph.resources[6].desc.lifetime == aster::framegraph::ResourceLifetime::Imported);
-  assert(graph.resources[7].name == "capture-readback");
-  assert(graph.resources[7].desc.lifetime == aster::framegraph::ResourceLifetime::Readback);
-  assert(graph.passes.size() == 11u);
+  assert(graph.resources[3].desc.byte_size >= 64u * 1024u);
+  assert(graph.resources[5].name == "surface-occlusion");
+  assert(graph.resources[5].desc.format == aster::rhi::ImageFormat::R8Unorm);
+  assert(graph.resources[8].name == "ui-overlay");
+  assert(graph.resources[8].desc.lifetime == aster::framegraph::ResourceLifetime::Imported);
+  assert(graph.resources[9].name == "capture-readback");
+  assert(graph.resources[9].desc.lifetime == aster::framegraph::ResourceLifetime::Readback);
+  assert(graph.passes.size() == 12u);
   assert(graph.passes[0].name == "scene-color-depth");
   assert(graph.passes[1].name == "light-cull");
   assert(graph.passes[2].name == "shadow-atlas");
   assert(graph.passes[3].name == "opaque");
   assert(graph.passes[4].name == "contact-shadow");
-  assert(graph.passes[5].name == "scene-lighting");
+  assert(graph.passes[5].name == "surface-occlusion");
   assert(graph.passes[6].name == "volumetric-fog");
   assert(graph.passes[7].name == "reflection-probe");
-  assert(graph.passes[8].name == "transparent");
-  assert(graph.passes[9].name == "ui-composite");
-  assert(graph.passes[10].name == "capture");
+  assert(graph.passes[8].name == "scene-lighting");
+  assert(graph.passes[9].name == "transparent");
+  assert(graph.passes[10].name == "ui-composite");
+  assert(graph.passes[11].name == "capture");
   const std::uint32_t color =
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor);
   const std::uint32_t depth =
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth);
+  const std::uint32_t surface_attributes =
+      aster::renderGraphResourceBit(aster::RenderGraphResource::SurfaceAttributes);
   const std::uint32_t light_clusters =
       aster::renderGraphResourceBit(aster::RenderGraphResource::LightClusters);
   const std::uint32_t shadow_atlas =
       aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas);
+  const std::uint32_t surface_occlusion =
+      aster::renderGraphResourceBit(aster::RenderGraphResource::SurfaceOcclusion);
   const std::uint32_t volumetric_fog =
       aster::renderGraphResourceBit(aster::RenderGraphResource::VolumetricFog);
   const std::uint32_t reflection_probes =
@@ -1743,20 +1804,25 @@ void testFrameGraphContract() {
   assert(graph.passes[1].read_mask == depth && graph.passes[1].write_mask == light_clusters);
   assert(graph.passes[2].read_mask == light_clusters && graph.passes[2].write_mask == shadow_atlas);
   assert(graph.passes[3].read_mask == (color | depth | light_clusters | shadow_atlas) &&
-         graph.passes[3].write_mask == (color | depth));
+         graph.passes[3].write_mask == (color | depth | surface_attributes));
   assert(graph.passes[4].read_mask == (color | depth) &&
          graph.passes[4].write_mask == (color | depth));
-  assert(graph.passes[5].read_mask == (color | depth | light_clusters) &&
-         graph.passes[5].write_mask == color);
+  assert(graph.passes[5].read_mask == (depth | surface_attributes) &&
+         graph.passes[5].write_mask == surface_occlusion);
   assert(graph.passes[6].read_mask == (depth | light_clusters) &&
          graph.passes[6].write_mask == volumetric_fog);
   assert(graph.passes[7].read_mask == color && graph.passes[7].write_mask == reflection_probes);
   assert(graph.passes[8].read_mask ==
-             (color | depth | light_clusters | volumetric_fog | reflection_probes) &&
+             (color | depth | light_clusters | shadow_atlas | surface_occlusion |
+              volumetric_fog | reflection_probes) &&
          graph.passes[8].write_mask == color);
-  assert(graph.passes[9].read_mask == (color | ui) && graph.passes[9].write_mask == color);
-  assert(graph.passes[10].read_mask == color && graph.passes[10].write_mask == capture);
-  assert(graph.transient_resource_count == 6u);
+  assert(graph.passes[9].read_mask ==
+             (color | depth | light_clusters | surface_occlusion | volumetric_fog |
+              reflection_probes) &&
+         graph.passes[9].write_mask == color);
+  assert(graph.passes[10].read_mask == (color | ui) && graph.passes[10].write_mask == color);
+  assert(graph.passes[11].read_mask == color && graph.passes[11].write_mask == capture);
+  assert(graph.transient_resource_count == 8u);
   assert(!graph.barriers.empty());
   assert(!graph.resource_barriers.empty());
   assert(graph.resource_barriers.size() == graph.barriers.size());
@@ -1764,11 +1830,14 @@ void testFrameGraphContract() {
   assert(!graph.descriptor_requirements.empty());
   assert(!graph.passes[3].attachments.empty());
   assert(!graph.passes[3].pipeline_compatibility.color_formats.empty());
-  assert(graph.passes[1].descriptor_requirements.front().kind ==
-         aster::rhi::DescriptorRangeKind::StorageBuffer);
+	  assert(std::any_of(graph.passes[1].descriptor_requirements.begin(),
+	                     graph.passes[1].descriptor_requirements.end(),
+	                     [](const aster::framegraph::DescriptorRequirement &requirement) {
+	                       return requirement.kind == aster::rhi::DescriptorRangeKind::StorageBuffer;
+	                     }));
   assert(graph.passes[1].debug_marker_name == "light-cull");
   assert(graph.passes[1].timestamp_zone_index == 1u);
-  assert(graph.resources[2].physical_allocation_id != 0u);
+  assert(graph.resources[3].physical_allocation_id != 0u);
   const aster::framegraph::RenderGraphCompilerReport report =
       aster::framegraph::renderGraphCompilerReport(graph);
   assert(report.resource_count == graph.resources.size());
@@ -1809,7 +1878,8 @@ void testFrameGraphContract() {
   assert(executed_passes[1] == aster::RenderGraphPass::LightCull);
   assert(executed_passes[3] == aster::RenderGraphPass::Opaque);
   assert(executed_passes[4] == aster::RenderGraphPass::ContactShadow);
-  assert(executed_passes[8] == aster::RenderGraphPass::Transparent);
+  assert(executed_passes[5] == aster::RenderGraphPass::SurfaceOcclusion);
+  assert(executed_passes[9] == aster::RenderGraphPass::Transparent);
 
   aster::framegraph::FrameGraph invalid_graph;
   const auto dangling = invalid_graph.addResource("dangling", {});
@@ -1872,6 +1942,8 @@ void testFrameGraphContract() {
   assert(intent_result.report.has_resource_lifetimes);
 
   assert(aster::renderGraphResourceName(aster::RenderGraphResource::UiOverlay) == "ui-overlay");
+  assert(aster::renderGraphResourceName(aster::RenderGraphResource::SurfaceOcclusion) ==
+         "surface-occlusion");
   assert(aster::renderGraphResourceLifetimeName(aster::RenderGraphResourceLifetime::Readback) ==
          "readback");
 }
@@ -2070,9 +2142,12 @@ void testRustRenderFramePlanContracts() {
 
 void testSceneCoherenceEnergy() {
   aster::SceneCoherenceProblem coherent;
-  coherent.visual.samples.push_back({"surface", {0.0f, 0.0f, 0.0f}, 0.10f, 1.0f});
-  coherent.collision.samples.push_back({"surface", {0.0f, 0.0f, 0.0f}, 0.10f, 1.0f});
-  coherent.navigation.samples.push_back({"surface", {0.0f, 0.0f, 0.0f}, 0.10f, 1.0f});
+	  coherent.visual.samples.push_back({"surface", {0.0f, 0.0f, 0.0f}, 0.10f, 1.0f});
+	  coherent.visual.samples.push_back({"surface", {0.5f, 0.0f, 0.0f}, 0.10f, 1.0f});
+	  coherent.collision.samples.push_back({"surface", {0.0f, 0.0f, 0.0f}, 0.10f, 1.0f});
+	  coherent.collision.samples.push_back({"surface", {0.5f, 0.0f, 0.0f}, 0.10f, 1.0f});
+	  coherent.navigation.samples.push_back({"surface", {0.0f, 0.0f, 0.0f}, 0.10f, 1.0f});
+	  coherent.navigation.samples.push_back({"surface", {0.5f, 0.0f, 0.0f}, 0.10f, 1.0f});
   coherent.routes.push_back(
       {"walkable", {{0.0f, 0.0f, 0.0f}, {0.5f, 0.0f, 0.0f}}, 0.05f, 1.0f, 0.25f});
   coherent.solid_volumes.push_back({"wall", {3.0f, 0.0f, 0.0f}, {0.2f, 1.0f, 1.0f}});

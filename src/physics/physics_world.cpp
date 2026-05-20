@@ -593,8 +593,8 @@ bool raycastAabb(const Vec3 origin, const Vec3 direction, const float max_distan
     const float inverse_direction = 1.0f / direction_axis;
     float t1 = (min_axis - origin_axis) * inverse_direction;
     float t2 = (max_axis - origin_axis) * inverse_direction;
-    Vec3 n1 = axisNormal(axis, direction_axis > 0.0f ? -1.0f : 1.0f);
-    Vec3 n2 = n1 * -1.0f;
+    Vec3 n1 = axisNormal(axis, -1.0f);
+    Vec3 n2 = axisNormal(axis, 1.0f);
     if (t1 > t2) {
       std::swap(t1, t2);
       std::swap(n1, n2);

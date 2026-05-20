@@ -937,12 +937,13 @@ solveSceneTraceFoSeparatorProfile(const std::vector<SceneSymbolicTrace> &accepte
         }
       }
     }
-    if (indistinguishable_pairs.empty()) {
-      profile.separated = true;
-      profile.quantifier_rank = rank;
-      profile.searched_quantifier_rank = rank;
-      return profile;
-    }
+	    if (indistinguishable_pairs.empty()) {
+	      profile.separated = true;
+	      profile.quantifier_rank = rank;
+	      profile.searched_quantifier_rank = rank;
+	      profile.indistinguishable_pairs.clear();
+	      return profile;
+	    }
     profile.indistinguishable_pairs = std::move(indistinguishable_pairs);
   }
 

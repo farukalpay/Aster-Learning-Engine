@@ -41,6 +41,16 @@ struct AsterPipeWetnessStreakAnchor {
   float strength = 0.5f;
 };
 
+struct AsterPipeSurfaceMask {
+  std::string id;
+  std::string target_part;
+  float pitting_coverage = 0.0f;
+  float cavity_coverage = 0.0f;
+  float wetness_coverage = 0.0f;
+  float edge_wear_coverage = 0.0f;
+  float oxide_coverage = 0.0f;
+};
+
 struct AsterPipeAssetPart {
   std::string name;
   std::string material_slot;
@@ -86,8 +96,8 @@ struct AsterPipeAssetSpec {
   int bevel_segments = 4;
   bool include_welds = true;
   bool include_longitudinal_seam = true;
-  bool include_flanges = true;
-  bool include_bolts = true;
+  bool include_flanges = false;
+  bool include_bolts = false;
   bool include_chipped_rims = true;
   bool include_lods = true;
   bool include_collision = true;
@@ -95,6 +105,23 @@ struct AsterPipeAssetSpec {
   std::uint32_t seed = 0xA57E2026u;
   float rust_strength = 0.82f;
   float wetness_strength = 0.22f;
+  float pitting_density = 1.35f;
+  float pitting_depth = 0.0035f;
+  float oxide_layering = 0.72f;
+  float cavity_grime_strength = 0.66f;
+  float edge_polish_strength = 0.36f;
+  float weld_heat_tint_strength = 0.42f;
+  float axial_scratch_strength = 0.58f;
+  float rust_bloom_strength = 0.86f;
+  float black_scab_strength = 0.74f;
+  float paint_remnant_strength = 0.18f;
+  float weld_slag_strength = 0.82f;
+  float rim_soot_strength = 0.88f;
+  float attachment_clearance = 0.006f;
+  float weld_contact_skirt_width = 0.055f;
+  float seam_inset_depth = 0.004f;
+  float rim_normal_feather = 0.62f;
+  int wet_streak_count = 7;
 };
 
 struct AsterPipeAsset {
@@ -105,6 +132,7 @@ struct AsterPipeAsset {
   std::vector<AsterPipeUvIsland> uv_islands;
   std::vector<AsterPipeRustAnchor> rust_anchors;
   std::vector<AsterPipeWetnessStreakAnchor> wetness_streaks;
+  std::vector<AsterPipeSurfaceMask> surface_masks;
   AsterPipeCookReport cook_report;
 
   [[nodiscard]] CpuMesh mergedRenderMesh() const;

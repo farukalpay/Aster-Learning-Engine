@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -114,6 +115,28 @@ void assertFiniteRenderableMesh(const aster::CpuMesh &mesh) {
   assert(report.bounds.valid);
 }
 
+float minRadialDistance(const aster::CpuMesh &mesh) {
+  float min_radius = std::numeric_limits<float>::max();
+  for (const aster::Vertex &vertex : mesh.vertices) {
+    min_radius =
+        std::min(min_radius,
+                 std::sqrt(vertex.position.y * vertex.position.y +
+                           vertex.position.z * vertex.position.z));
+  }
+  return min_radius;
+}
+
+float maxRadialDistance(const aster::CpuMesh &mesh) {
+  float max_radius = 0.0f;
+  for (const aster::Vertex &vertex : mesh.vertices) {
+    max_radius =
+        std::max(max_radius,
+                 std::sqrt(vertex.position.y * vertex.position.y +
+                           vertex.position.z * vertex.position.z));
+  }
+  return max_radius;
+}
+
 void testPipeRuntimeAssetModel() {
   const aster::AsterPipeAsset asset = aster::makeAsterPipeAsset(
       {.asset_id = "test.pipe.production",
@@ -123,11 +146,20 @@ void testPipeRuntimeAssetModel() {
        .rust_strength = 0.88f,
        .wetness_strength = 0.24f});
   assert(asset.cook_report.production_ready);
-  assert(asset.parts.size() >= 8u);
+  assert(asset.parts.size() >= 4u);
   assert(asset.material_slots.size() == 3u);
   assert(asset.uv_islands.size() == 3u);
-  assert(asset.rust_anchors.size() == 9u);
-  assert(asset.wetness_streaks.size() == 5u);
+  assert(asset.rust_anchors.size() == 11u);
+  assert(asset.wetness_streaks.size() == 7u);
+  assert(asset.surface_masks.size() == asset.parts.size());
+  assert(std::any_of(asset.surface_masks.begin(), asset.surface_masks.end(),
+                     [](const aster::AsterPipeSurfaceMask &mask) {
+                       return mask.pitting_coverage > 0.02f && mask.oxide_coverage > 0.05f;
+                     }));
+  assert(std::any_of(asset.surface_masks.begin(), asset.surface_masks.end(),
+                     [](const aster::AsterPipeSurfaceMask &mask) {
+                       return mask.cavity_coverage > 0.01f || mask.wetness_coverage > 0.01f;
+                     }));
   assert(asset.lods.size() == 3u);
   assert(asset.lods[0].mesh.indices.size() > asset.lods[1].mesh.indices.size());
   assert(asset.lods[1].mesh.indices.size() > asset.lods[2].mesh.indices.size());
@@ -136,10 +168,59 @@ void testPipeRuntimeAssetModel() {
   assert(asset.collision_proxies.front().triangle_budget <= 64u);
   assert(asset.cook_report.dependency_edges.size() >= 6u);
   assert(asset.cook_report.modifier_stack_hash != 0u);
+  assert(std::any_of(asset.cook_report.dependency_edges.begin(),
+                     asset.cook_report.dependency_edges.end(), [](const std::string &edge) {
+                       return edge.find("voronoi_pitting") != std::string::npos;
+                     }));
+  assert(std::any_of(asset.cook_report.dependency_edges.begin(),
+                     asset.cook_report.dependency_edges.end(), [](const std::string &edge) {
+                       return edge.find("contact_skirt") != std::string::npos;
+                     }));
+  assert(std::any_of(asset.cook_report.dependency_edges.begin(),
+                     asset.cook_report.dependency_edges.end(), [](const std::string &edge) {
+                       return edge.find("depth_bias_policy") != std::string::npos;
+                     }));
+  bool saw_contact_weld = false;
+  bool saw_inset_seam = false;
+  for (const aster::AsterPipeAssetPart &part : asset.parts) {
+    assert(part.name.find("flange") == std::string::npos);
+    assert(part.name.find("bolt") == std::string::npos);
+    if (part.name.find("contact skirt") != std::string::npos) {
+      saw_contact_weld = true;
+      assert(part.material_slot == "pipe.weld");
+      assert(minRadialDistance(part.mesh) <= 0.54f + 0.010f);
+      assert(maxRadialDistance(part.mesh) >= 0.54f + 0.040f);
+    }
+    if (part.name.find("longitudinal") != std::string::npos) {
+      saw_inset_seam = true;
+      assert(part.material_slot == "pipe.body");
+      assert(maxRadialDistance(part.mesh) <= 0.54f + 0.012f);
+    }
+  }
+  assert(saw_contact_weld);
+  assert(saw_inset_seam);
   assertFiniteRenderableMesh(asset.mergedRenderMesh());
   for (const aster::AsterPipeLod &lod : asset.lods) {
     assertFiniteRenderableMesh(lod.mesh);
   }
+
+  const aster::AsterPipeAsset hardware_asset = aster::makeAsterPipeAsset(
+      {.asset_id = "test.pipe.hardware_variant",
+       .radial_segments = 72,
+       .length_segments = 18,
+       .include_flanges = true,
+       .include_bolts = true,
+       .bolt_count_per_flange = 8,
+       .rust_strength = 0.88f,
+       .wetness_strength = 0.24f});
+  assert(std::any_of(hardware_asset.parts.begin(), hardware_asset.parts.end(),
+                     [](const aster::AsterPipeAssetPart &part) {
+                       return part.name.find("flange") != std::string::npos;
+                     }));
+  assert(std::any_of(hardware_asset.parts.begin(), hardware_asset.parts.end(),
+                     [](const aster::AsterPipeAssetPart &part) {
+                       return part.name.find("bolt") != std::string::npos;
+                     }));
 }
 
 void testPipeAssetGraphCook() {
@@ -181,6 +262,39 @@ void testPipeAssetGraphCook() {
   assert((package.feature_mask & (1ull << 40u)) != 0u);
   assert((package.feature_mask & (1ull << 41u)) != 0u);
   assert((package.feature_mask & (1ull << 42u)) != 0u);
+  assert((package.feature_mask & (1ull << 43u)) != 0u);
+  assert((package.feature_mask & (1ull << 44u)) != 0u);
+  assert((package.feature_mask & (1ull << 45u)) != 0u);
+  assert((package.feature_mask & (1ull << 46u)) != 0u);
+  assert((package.feature_mask & (1ull << 48u)) != 0u);
+  assert((package.feature_mask & (1ull << 49u)) != 0u);
+  for (std::uint32_t bit = 57u; bit <= 63u; ++bit) {
+    assert((package.feature_mask & (1ull << bit)) != 0u);
+  }
+  assert(!package.factory_report.stable_recipe_hash.empty());
+  assert(package.factory_report.stage_diagnostics.size() >= 6u);
+  assert(std::any_of(package.factory_report.surface_signal_coverage.begin(),
+                     package.factory_report.surface_signal_coverage.end(),
+                     [](const aster::ProceduralAssetGraphFactorySignalCoverage &signal) {
+                       return signal.signal == "open_hollow_rims" &&
+                              signal.status == "claimed";
+                     }));
+  assert(package.factory_report.collision_proxy_summary.at("shape") ==
+         "pipe-runtime-bounds");
+  assert(std::find(package.factory_report.visual_brief_claims.begin(),
+                   package.factory_report.visual_brief_claims.end(),
+                   "reference_silhouette") !=
+         package.factory_report.visual_brief_claims.end());
+  assert(std::find(package.factory_report.visual_brief_rejections.begin(),
+                   package.factory_report.visual_brief_rejections.end(),
+                   "decorative_bolts_without_reference") !=
+         package.factory_report.visual_brief_rejections.end());
+  assert(!package.production_session.session_id.empty());
+  assert(package.production_session.quality_gate == "production-ready");
+  assert(!package.production_session.preview_artifact_hash.empty());
+  assert(std::find(package.production_session.cook_steps.begin(),
+                   package.production_session.cook_steps.end(),
+                   "preview-render") != package.production_session.cook_steps.end());
   assert(std::any_of(package.nodes.begin(), package.nodes.end(),
                      [](const aster::ProceduralAssetGraphNode &node) {
                        return node.kind == "pipe_body" &&
@@ -217,13 +331,25 @@ void testIndustrialPipePreviewRenders() {
                                  aster::MaterialSurfaceProfile::CorrodedMetal
                              ? 1u
                              : 0u;
+    if (aster::resolveMaterialSurfaceProfile(object.material) ==
+        aster::MaterialSurfaceProfile::CorrodedMetal) {
+      assert(object.material.procedural.pitting_density > 0.40f);
+      assert(object.material.procedural.cavity_grime > 0.30f);
+      assert(object.material.procedural.axial_scratches > 0.20f);
+    }
+    if (aster::resolveMaterialSurfaceProfile(object.material) ==
+        aster::MaterialSurfaceProfile::WeldBead) {
+      assert(object.material.procedural.weld_heat_tint > 0.40f);
+      assert(object.material.depth_policy.layer == aster::RenderDepthLayer::SurfaceAttachment);
+      assert(object.material.depth_policy.constant_bias > 0.0f);
+    }
     if (object.custom_mesh != nullptr) {
       assertFiniteRenderableMesh(*object.custom_mesh);
     }
   }
-  assert(runtime_parts >= 8u);
-  assert(weld_profiles >= 3u);
-  assert(corroded_profiles >= 5u);
+  assert(runtime_parts >= 3u);
+  assert(weld_profiles >= 2u);
+  assert(corroded_profiles >= 1u);
 
   aster::OrbitCamera camera;
   camera.target = {0.0f, 0.58f, 0.0f};

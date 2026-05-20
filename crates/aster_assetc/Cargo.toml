@@ -8,6 +8,7 @@ authors.workspace = true
 [dependencies]
 aster_content = { path = "../aster_content" }
 aster_runtime = { path = "../aster_runtime" }
+serde_json = "1.0"
 
 [[bin]]
 name = "aster_assetc"

@@ -28,16 +28,17 @@ traces, debug-capture declarations, resource lifetime validation events, pass
 artifacts, timestamp samples, and backend feature proofs. It also materializes
 three derived proof surfaces from the same raw frame: a single ordered debugger
 timeline for visibility, material binding, light cluster, shadow, fog, probe,
-pass output, overdraw, and fallback-reason events with CPU build time, GPU time
-when sampled, bandwidth estimate, render target size, draw count, material
-variant count, descriptor pressure, and pipeline cache hit/miss totals; a
-resource provenance graph that traces render-graph resources and material
-textures back to producer nodes, material graph IDs, cook reports, backend
-fallbacks, asset hashes, and shader variant keys; and a regression-gallery model
-that turns captures into lab entries with image diff status, backend difference,
-pass timing, asset hash, and shader key fields. The software reference path now
-produces checksummed RGBA captures for final color, shadow atlas, volumetric fog,
-and reflection probes. Native backends that advertise those proof resources must
+surface occlusion, pass output, overdraw, and fallback-reason events with CPU
+build time, GPU time when sampled, bandwidth estimate, render target size, draw
+count, material variant count, descriptor pressure, and pipeline cache hit/miss
+totals; a resource provenance graph that traces render-graph resources and
+material textures back to producer nodes, material graph IDs, cook reports,
+backend fallbacks, asset hashes, and shader variant keys; and a
+regression-gallery model that turns captures into lab entries with image diff
+status, backend difference, pass timing, asset hash, and shader key fields. The
+software reference path now produces checksummed RGBA captures for final color,
+surface attributes, surface occlusion, shadow atlas, volumetric fog, and
+reflection probes. Native backends that advertise those proof resources must
 populate matching capture and sampling evidence; otherwise certification records
 missing proof.
 Per-object visibility traces and object-to-cluster membership traces are
@@ -59,8 +60,8 @@ as `world_to_screen`, `screen_to_world`, and `screen_to_world_ray`.
 Backend roles today:
 
 - Software reference: deterministic fallback, Linux presentation source, preview,
-  capture, exact golden baseline, and reference shadow/fog/probe resource
-  producers.
+  capture, exact golden baseline, and reference surface-attribute,
+  surface-occlusion, shadow/fog/probe resource producers.
 - Metal: native macOS scene renderer and presentation path.
 - D3D12: native offscreen raster/readback path under conformance; Windows
   presentation still uses the production software path.

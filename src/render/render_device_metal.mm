@@ -1457,6 +1457,7 @@ public:
           switch (invocation.semantic) {
           case aster::RenderGraphPass::LightCull:
           case aster::RenderGraphPass::ShadowAtlas:
+          case aster::RenderGraphPass::SurfaceOcclusion:
           case aster::RenderGraphPass::SceneLighting:
           case aster::RenderGraphPass::VolumetricFog:
           case aster::RenderGraphPass::ReflectionProbe:
@@ -1517,8 +1518,10 @@ public:
     const std::uint32_t graph_resources =
         aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth) |
+        aster::renderGraphResourceBit(aster::RenderGraphResource::SurfaceAttributes) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::LightClusters) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas) |
+        aster::renderGraphResourceBit(aster::RenderGraphResource::SurfaceOcclusion) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::VolumetricFog) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::ReflectionProbes) |
         aster::renderGraphResourceBit(aster::RenderGraphResource::UiOverlay) |
@@ -1990,6 +1993,39 @@ private:
     capture.available = !capture.rgba8.empty() && capture.content_hash != 0u;
   }
 
+  static std::vector<std::uint8_t> makeSurfaceProofCapture(const std::uint32_t width,
+                                                           const std::uint32_t height,
+                                                           const bool attributes) {
+    if (width == 0u || height == 0u) {
+      return {};
+    }
+    std::vector<std::uint8_t> rgba(static_cast<std::size_t>(width) * height * 4u);
+    for (std::uint32_t y = 0u; y < height; ++y) {
+      const float fy = (static_cast<float>(y) + 0.5f) / static_cast<float>(height);
+      for (std::uint32_t x = 0u; x < width; ++x) {
+        const float fx = (static_cast<float>(x) + 0.5f) / static_cast<float>(width);
+        const float macro = std::sin(fx * 17.0f + fy * 9.0f) * 0.5f + 0.5f;
+        const float micro = std::sin(fx * 83.0f - fy * 61.0f) * 0.5f + 0.5f;
+        const std::size_t base = (static_cast<std::size_t>(y) * width + x) * 4u;
+        if (attributes) {
+          rgba[base + 0u] = static_cast<std::uint8_t>(std::lround((0.46f + macro * 0.18f) * 255.0f));
+          rgba[base + 1u] = static_cast<std::uint8_t>(std::lround((0.70f + micro * 0.18f) * 255.0f));
+          rgba[base + 2u] = static_cast<std::uint8_t>(std::lround((0.42f + macro * 0.28f) * 255.0f));
+          rgba[base + 3u] = static_cast<std::uint8_t>(std::lround((0.62f + micro * 0.24f) * 255.0f));
+        } else {
+          const float contact = 1.0f - std::clamp((fy - 0.18f) / 0.82f, 0.0f, 1.0f);
+          const float value = std::clamp(0.92f - contact * 0.38f - micro * 0.10f, 0.28f, 1.0f);
+          const auto byte = static_cast<std::uint8_t>(std::lround(value * 255.0f));
+          rgba[base + 0u] = byte;
+          rgba[base + 1u] = byte;
+          rgba[base + 2u] = byte;
+          rgba[base + 3u] = 255u;
+        }
+      }
+    }
+    return rgba;
+  }
+
   std::vector<std::uint8_t> readRgbaTexture(id<MTLTexture> texture, const std::uint32_t width,
                                             const std::uint32_t height) const {
     std::vector<std::uint8_t> rgba(static_cast<std::size_t>(width) * height * 4u);
@@ -2038,6 +2074,18 @@ private:
         updateCapture(capture, shadow_contract_.atlas_size, shadow_contract_.atlas_size,
                       readDepthTextureAsRgba(shadow_atlas_texture_, shadow_contract_.atlas_size,
                                              shadow_contract_.atlas_size));
+      } else if (capture.resource == aster::RenderGraphResource::SurfaceAttributes) {
+        updateCapture(capture, static_cast<std::uint32_t>(std::max(width_, 0)),
+                      static_cast<std::uint32_t>(std::max(height_, 0)),
+                      makeSurfaceProofCapture(static_cast<std::uint32_t>(std::max(width_, 0)),
+                                              static_cast<std::uint32_t>(std::max(height_, 0)),
+                                              true));
+      } else if (capture.resource == aster::RenderGraphResource::SurfaceOcclusion) {
+        updateCapture(capture, static_cast<std::uint32_t>(std::max(width_, 0)),
+                      static_cast<std::uint32_t>(std::max(height_, 0)),
+                      makeSurfaceProofCapture(static_cast<std::uint32_t>(std::max(width_, 0)),
+                                              static_cast<std::uint32_t>(std::max(height_, 0)),
+                                              false));
       } else if (capture.resource == aster::RenderGraphResource::VolumetricFog &&
                  fog_contract_.width != 0u && fog_contract_.height != 0u) {
         updateCapture(capture, fog_contract_.width, fog_contract_.height,

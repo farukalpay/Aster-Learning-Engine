@@ -8,50 +8,153 @@ uv_policy pipe-triplanar-uv-islands
 tangent_policy validate-or-generate
 collision_proxy pipe-runtime-bounds
 lod_policy lod0-lod1-lod2
-base_color 0.18 0.17 0.16
-roughness 0.78
-metallic 0.82
-param wetness 0.24
-param macro_variation 0.72
-param micro_normal_strength 0.54
-param roughness_variation 0.72
-param height_shading 0.40
-param rust_strength 0.86
+base_color 0.30 0.135 0.06
+roughness 0.72
+metallic 0.48
+param wetness 0.18
+param macro_variation 0.90
+param micro_normal_strength 0.46
+param roughness_variation 0.92
+param physical_texel_density 1024
+param height_normal_coupling 0.92
+param roughness_height_coupling 0.74
+param macro_frequency_breakup 0.48
+param micro_frequency_breakup 0.66
+param height_shading 0.36
+param detail_scale 12.40
+param detail_strength 1.02
+param rust_strength 0.98
 param seam_grime 0.64
 param exposed_edge_ratio 0.22
+param pitting_density 0.96
+param pitting_depth 0.0055
+param oxide_layering 0.92
+param cavity_grime 0.84
+param edge_polish 0.36
+param weld_heat_tint 0.48
+param axial_scratches 0.82
+param rust_bloom 0.92
+param black_scab 0.78
+param paint_remnant 0.06
+param weld_slag 0.88
+param rim_soot 0.92
+param attachment_clearance 0.0065
+param weld_contact_skirt_width 0.040
+param seam_inset_depth 0.004
+param rim_normal_feather 0.78
+param wet_streaks 7
 feature triplanar true
 feature normal_map true
 feature parallax true
 preview environment inspection-neutral
 preview rig pipe-lab-three-quarter
-node mesh.pipe pipe_body role=mesh primitive=rusted-pipe length=5.2 outer_radius=0.54 wall_thickness=0.075
-node modifier.bevel bevel_modifier role=modifier segments=4 width=0.026 affects=rim,flange,seam
+preview artifact industrial_pipe.png
+node mesh.pipe pipe_body role=mesh primitive=rusted-pipe length=5.2 outer_radius=0.54 wall_thickness=0.090
+node factory.recipe factory_recipe role=factory target=rusted-pipe variant=reference-silhouette owner=aster
+node factory.stage.source factory_stage role=factory kind=source-geometry order=0
+node factory.stage.modifiers factory_stage role=factory kind=modifier-stack order=1
+node factory.stage.surface factory_stage role=factory kind=surface-contract order=2
+node factory.stage.lod factory_stage role=factory kind=lod-recipe order=3
+node factory.stage.physics factory_stage role=factory kind=physics-proxy order=4
+node factory.stage.quality factory_stage role=factory kind=quality-gate order=5
+node factory.surface surface_contract role=factory signal=corroded_orange_brown_rust texel_density=1024 height_normal_coupling=0.92 roughness_height_coupling=0.74
+node factory.physics physics_proxy role=factory shape=pipe-runtime-bounds triangles=48 material=corroded-wet-metal
+node factory.lod lod_recipe role=factory levels=3 policy=lod0-lod1-lod2
+node factory.signal.rust quality_signal role=factory signal=corroded_orange_brown_rust threshold=0.88
+node factory.signal.oxide quality_signal role=factory signal=dark_oxide_cavities threshold=0.70
+node factory.signal.rim quality_signal role=factory signal=open_hollow_rims threshold=0.78
+node factory.claim.rust visual_brief_claim role=factory signal=corroded_orange_brown_rust
+node factory.claim.oxide visual_brief_claim role=factory signal=dark_oxide_cavities
+node factory.claim.weld visual_brief_claim role=factory signal=raised_weld_rings
+node factory.claim.rim visual_brief_claim role=factory signal=open_hollow_rims
+node factory.claim.pitting visual_brief_claim role=factory signal=uneven_pitting
+node factory.claim.scratches visual_brief_claim role=factory signal=axial_scratches
+node factory.claim.silhouette visual_brief_claim role=factory signal=reference_silhouette
+node modifier.bevel bevel_modifier role=modifier segments=4 width=0.026 affects=rim,seam,weld
+node modifier.soft_rim soft_rim_normals role=modifier feather=0.78 affects=open_hollow_rims
 node uv.pipe uv_policy role=uv mapping=pipe-triplanar-uv-islands texel_density=5.2 islands=outer,inner,weld
+node domain.triplanar triplanar_domain role=material mapping=pipe-world-space blend=normal-weighted
 node tangent.validate tangent_validation role=tangent policy=validate-or-generate
 node material.assign material_assignment role=material surface_profile=corroded-metal
 node material.weld material_assignment role=material surface_profile=weld-bead slot=pipe.weld
-node seam.longitudinal weld_seam role=geometry label="longitudinal seam band" grime=0.64
+node seam.longitudinal seam_inset role=geometry label="longitudinal inset grime seam" grime=0.64 clearance=0.0065
 node seam.circumferential weld_seam role=geometry label="circumferential raised weld beads" count=2
-node mask.rust rust_mask role=material anchors=9 severity=0.86 exposed_edge=0.22
-node mask.wetness wetness_flow role=material streaks=5 strength=0.24 downhill_bias=0.36
-node mask.edge_wear edge_wear role=material rim_chipping=true flange_contact=true
-node mask.cavity cavity_dirt role=material seam_bias=0.64 bolt_occlusion=0.58
-node normal.pipe normal_height role=material source=rust_mask height=0.40
+node seam.contact contact_skirt role=geometry label="weld contact skirts" width=0.040 clearance=0.0065
+node render.depth_bias depth_bias_policy role=render layer=surface_attachment constant=0.00008 slope=0.00012 normal_offset=0.0025
+node mask.pitting voronoi_pitting role=material density=0.96 depth=0.0055 radius_variation=0.42
+node mask.rust rust_mask role=material anchors=11 severity=0.86 exposed_edge=0.22
+node mask.rust_bloom rust_bloom role=material scale=macro severity=0.92 patchy=true
+node mask.layer_stack layered_corrosion role=material layers=oxide,pitting,cavity_grime,wet_film,exposed_steel
+node mask.oxide oxide_layer role=material layering=0.72 dark_oxide=true dusty_rust=true
+node mask.black_scab black_scab role=material soot=true undercut=true strength=0.78
+node mask.paint_remnant paint_remnant role=material flakes=true worn=false strength=0.06
+node mask.wetfilm wet_film role=material streaks=7 strength=0.24 downhill_bias=0.36
+node mask.wetness wetness_flow role=material streaks=7 strength=0.24 downhill_bias=0.36
+node mask.edge_angle edge_angle_wear role=material rim_chipping=true weld_contact=true polish=0.36
+node mask.edge_wear edge_wear role=material rim_chipping=true weld_contact=true
+node mask.cavity cavity_occlusion role=material seam_bias=0.62 hardware_occlusion=0.0 weld_shadow=true
+node mask.cavity_legacy cavity_dirt role=material seam_bias=0.64 hardware_occlusion=0.0
+node shade.weld_heat weld_heat_tint role=material strength=0.48 straw=true blue_heat=true
+node shade.weld_scorch weld_scorch role=material heat_affected_zone=true soot=true strength=0.48
+node shade.weld_slag weld_slag role=material contact_grime=true slag=true soot=true
+node shade.roughmetal roughness_metalness_split role=material rust_roughness=0.9 exposed_metal=0.7 wet_film=0.18
+node normal.scratches axial_scratch role=normal strength=0.66 direction=pipe-axis
+node normal.weld_displacement weld_bead_displacement role=normal bead_ripple=true toe_grime=true strength=0.42
+node normal.pipe normal_height role=material source=rust_mask height=0.36
+node mask.rim_soot rim_soot role=material target=open_hollow_rims strength=0.92
+node preview.masks baked_mask_preview role=quality target=industrial_pipe.png channels=oxide,pitting,cavity,wetness
 node collision.proxy collision_proxy role=collision shape=pipe-runtime-bounds triangles=48
 node lod.chain lod_generator role=lod policy=lod0-lod1-lod2 levels=3
 node prefab.variant prefab_variant role=prefab variant=runtime-pipe-section
 node export.runtime cook_export role=package target=assetgraphbin
 node diagnostic.quality diagnostic role=quality profile=production
 edge mesh.pipe modifier.bevel modifier_stack
-edge modifier.bevel seam.longitudinal beveled_body
+edge factory.recipe factory.stage.source factory_order
+edge factory.stage.source factory.stage.modifiers factory_order
+edge factory.stage.modifiers factory.stage.surface factory_order
+edge factory.stage.surface factory.stage.lod factory_order
+edge factory.stage.lod factory.stage.physics factory_order
+edge factory.stage.physics factory.stage.quality factory_order
+edge factory.stage.surface factory.surface surface_contract
+edge factory.stage.physics factory.physics physics_proxy
+edge factory.stage.lod factory.lod lod_recipe
+edge factory.surface factory.signal.rust quality_signal
+edge factory.surface factory.signal.oxide quality_signal
+edge factory.surface factory.signal.rim quality_signal
+edge factory.signal.rust factory.claim.rust visual_brief_claim
+edge factory.signal.oxide factory.claim.oxide visual_brief_claim
+edge factory.signal.rim factory.claim.rim visual_brief_claim
+edge modifier.bevel modifier.soft_rim rim_normal_feather
+edge modifier.soft_rim seam.longitudinal beveled_body
 edge modifier.bevel seam.circumferential weld_base
-edge seam.longitudinal material.weld weld_material
+edge seam.circumferential seam.contact contact_skirt
+edge uv.pipe domain.triplanar material_domain
+edge seam.longitudinal material.assign seam_grime_material
 edge seam.circumferential material.weld weld_material
+edge seam.contact render.depth_bias attachment_bias
+edge render.depth_bias material.weld weld_depth_policy
+edge mask.pitting mask.rust pitting_seed
+edge mask.pitting mask.layer_stack pitting_layer
+edge mask.rust_bloom mask.layer_stack bloom_layer
+edge mask.oxide material.assign oxide_layer
+edge mask.black_scab material.assign black_oxide_scab
+edge mask.paint_remnant material.assign paint_residue
+edge mask.layer_stack material.assign corrosion_stack
 edge mask.rust material.assign rust_mask
+edge mask.wetfilm material.assign wet_film_mask
 edge mask.wetness material.assign wetness_mask
+edge mask.edge_angle material.assign edge_angle_mask
 edge mask.edge_wear material.assign exposed_edge_mask
 edge mask.cavity material.assign seam_grime_mask
+edge shade.weld_heat material.weld heat_tint
+edge shade.weld_scorch material.weld heat_affected_zone
+edge shade.weld_slag material.weld slag_grime
+edge shade.roughmetal material.assign roughness_metalness
+edge normal.scratches normal.pipe scratch_height
+edge normal.weld_displacement material.weld bead_displacement
 edge normal.pipe material.assign normal_height
+edge mask.rim_soot material.assign rim_soot
+edge preview.masks diagnostic.quality mask_preview
 edge mesh.pipe collision.proxy collision_source
 edge mesh.pipe lod.chain lod_source
 edge lod.chain export.runtime runtime_lods

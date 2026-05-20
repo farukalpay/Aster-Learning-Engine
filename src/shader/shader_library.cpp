@@ -20,7 +20,8 @@ bool ShaderLibrary::addModule(std::string name, std::string source, std::filesys
   if (name.empty()) {
     return false;
   }
-  modules_[name] = {.name = std::move(name), .path = std::move(path), .source = std::move(source)};
+  const std::string key = name;
+  modules_[key] = {.name = std::move(name), .path = std::move(path), .source = std::move(source)};
   return true;
 }
 

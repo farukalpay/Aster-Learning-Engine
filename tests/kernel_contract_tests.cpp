@@ -104,6 +104,44 @@ static_assert(offsetof(AsterEngineDesc, size) == 0u);
 static_assert(offsetof(AsterEngineDesc, version) > offsetof(AsterEngineDesc, size));
 static_assert(offsetof(AsterEngineDesc, application_name) > offsetof(AsterEngineDesc, version));
 static_assert(offsetof(AsterEngineDesc, flags) > offsetof(AsterEngineDesc, application_name));
+static_assert(ASTER_KERNEL_RENDER_QUALITY_PRODUCTION == 0u);
+static_assert(ASTER_KERNEL_TONE_MAPPER_PBR_NEUTRAL == 0u);
+static_assert(ASTER_KERNEL_RENDER_PASS_SURFACE_OCCLUSION !=
+              ASTER_KERNEL_RENDER_PASS_CONTACT_SHADOW);
+static_assert(ASTER_KERNEL_RENDER_RESOURCE_SURFACE_ATTRIBUTES !=
+              ASTER_KERNEL_RENDER_RESOURCE_SCENE_COLOR);
+static_assert(ASTER_KERNEL_RENDER_RESOURCE_SURFACE_OCCLUSION !=
+              ASTER_KERNEL_RENDER_RESOURCE_SHADOW_ATLAS);
+static_assert(offsetof(AsterCameraDesc, focal_length_mm) > offsetof(AsterCameraDesc, far_plane));
+static_assert(offsetof(AsterRendererSettings, quality_tier) >
+              offsetof(AsterRendererSettings, render_target));
+
+struct LegacyCameraDesc {
+  size_t size;
+  uint32_t version;
+  AsterVec3 target;
+  float yaw_radians;
+  float pitch_radians;
+  float radius;
+  float vertical_fov_radians;
+  float near_plane;
+  float far_plane;
+};
+
+struct LegacyRendererSettings {
+  size_t size;
+  uint32_t version;
+  AsterVec3 clear_color;
+  float exposure;
+  float ambient_strength;
+  uint32_t framebuffer_width;
+  uint32_t framebuffer_height;
+  uint32_t flags;
+  AsterRenderTargetHandle render_target;
+};
+
+static_assert(sizeof(LegacyCameraDesc) == offsetof(AsterCameraDesc, focal_length_mm));
+static_assert(sizeof(LegacyRendererSettings) == offsetof(AsterRendererSettings, quality_tier));
 
 std::string readFile(const std::string &path) {
   std::ifstream input(path);
@@ -454,6 +492,79 @@ void testRendererAbi5Lifecycle() {
   assert(aster_kernel_renderer_render_frame_to_target(renderer, scene, target, &camera, &settings)
              .code ==
          ASTER_STATUS_OK);
+
+  const LegacyCameraDesc legacy_camera{sizeof(LegacyCameraDesc),
+                                       ASTER_KERNEL_STRUCT_VERSION_1,
+                                       {0.0f, 0.0f, 0.0f},
+                                       0.0f,
+                                       0.25f,
+                                       5.0f,
+                                       0.9f,
+                                       0.01f,
+                                       50.0f};
+  const LegacyRendererSettings legacy_settings{sizeof(LegacyRendererSettings),
+                                               ASTER_KERNEL_STRUCT_VERSION_1,
+                                               {0.04f, 0.05f, 0.07f},
+                                               1.0f,
+                                               0.24f,
+                                               64u,
+                                               48u,
+                                               0u,
+                                               nullptr};
+  assert(aster_kernel_renderer_render_frame_to_target(
+             renderer, scene, target, reinterpret_cast<const AsterCameraDesc *>(&legacy_camera),
+             reinterpret_cast<const AsterRendererSettings *>(&legacy_settings))
+             .code == ASTER_STATUS_OK);
+
+  AsterCameraDesc physical_camera = camera;
+  physical_camera.focal_length_mm = 54.0f;
+  physical_camera.sensor_width_mm = 36.0f;
+  physical_camera.composition_weight = 0.66f;
+  physical_camera.scale_reference_m = 2.0f;
+  physical_camera.camera_flags = ASTER_KERNEL_CAMERA_FLAG_USE_PHYSICAL_LENS;
+  AsterRendererSettings presentation_settings = settings;
+  presentation_settings.flags =
+      ASTER_KERNEL_RENDER_SETTING_CONTACT_SHADOWS |
+      ASTER_KERNEL_RENDER_SETTING_SURFACE_OCCLUSION |
+      ASTER_KERNEL_RENDER_SETTING_CASCADED_SHADOWS |
+      ASTER_KERNEL_RENDER_SETTING_REFLECTION_PROBES |
+      ASTER_KERNEL_RENDER_SETTING_VOLUMETRIC_FOG |
+      ASTER_KERNEL_RENDER_SETTING_PROCEDURAL_SURFACE_NORMALS |
+      ASTER_KERNEL_RENDER_SETTING_FXAA |
+      ASTER_KERNEL_RENDER_SETTING_BLOOM |
+      ASTER_KERNEL_RENDER_SETTING_PRESENTATION_LENS;
+  presentation_settings.quality_tier = ASTER_KERNEL_RENDER_QUALITY_CINEMATIC;
+  presentation_settings.tone_mapper = ASTER_KERNEL_TONE_MAPPER_FILMIC_ACES;
+  presentation_settings.ambient_floor = 0.02f;
+  presentation_settings.shadow_cascades = 4u;
+  presentation_settings.shadow_atlas_size = 1024u;
+  presentation_settings.shadow_max_distance = 80.0f;
+  presentation_settings.shadow_receiver_bias = 0.010f;
+  presentation_settings.shadow_normal_bias = 0.008f;
+  presentation_settings.shadow_softness = 0.26f;
+  presentation_settings.occlusion_radius = 1.35f;
+  presentation_settings.occlusion_strength = 0.44f;
+  presentation_settings.occlusion_sample_count = 16u;
+  presentation_settings.occlusion_contact_hardening = 0.38f;
+  presentation_settings.contact_shadow_strength = 0.55f;
+  presentation_settings.contact_shadow_radius_scale = 1.22f;
+  presentation_settings.contact_shadow_receiver_height = 1.35f;
+  presentation_settings.contact_shadow_receiver_bias = 0.012f;
+  presentation_settings.physical_texel_density = 768.0f;
+  presentation_settings.macro_frequency_breakup = 0.42f;
+  presentation_settings.micro_frequency_breakup = 0.58f;
+  presentation_settings.height_normal_coupling = 0.90f;
+  presentation_settings.roughness_height_coupling = 0.68f;
+  presentation_settings.fog_start = 5.0f;
+  presentation_settings.fog_end = 32.0f;
+  presentation_settings.fog_strength = 0.18f;
+  presentation_settings.reflection_intensity = 0.44f;
+  presentation_settings.bloom_threshold = 1.9f;
+  presentation_settings.bloom_intensity = 0.18f;
+  assert(aster_kernel_renderer_render_frame_to_target(renderer, scene, target, &physical_camera,
+                                                      &presentation_settings)
+             .code == ASTER_STATUS_OK);
+
   AsterFrameStats stats{sizeof(AsterFrameStats), ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_renderer_last_stats(renderer, &stats).code == ASTER_STATUS_OK);
   assert(stats.framebuffer_width == 64u);
@@ -473,6 +584,33 @@ void testRendererAbi5Lifecycle() {
   assert(detail_counts.resource_transition_count >= 1u);
   assert(detail_counts.object_fate_count >= 1u);
   assert(detail_counts.backend_feature_proof_count >= 1u);
+  bool saw_surface_occlusion_pass = false;
+  bool saw_surface_attributes_capture = false;
+  bool saw_surface_occlusion_capture = false;
+  for (size_t index = 0u; index < detail_counts.pass_count; ++index) {
+    AsterFramePassStats pass{sizeof(AsterFramePassStats), ASTER_KERNEL_STRUCT_VERSION_1};
+    assert(aster_kernel_renderer_frame_pass_stats(renderer, index, &pass).code ==
+           ASTER_STATUS_OK);
+    saw_surface_occlusion_pass =
+        saw_surface_occlusion_pass || pass.pass == ASTER_KERNEL_RENDER_PASS_SURFACE_OCCLUSION;
+  }
+  for (size_t index = 0u; index < detail_counts.debug_capture_count; ++index) {
+    AsterFrameDebugCaptureInfo capture{sizeof(AsterFrameDebugCaptureInfo),
+                                       ASTER_KERNEL_STRUCT_VERSION_1};
+    assert(aster_kernel_renderer_debug_capture_info(renderer, index, &capture).code ==
+           ASTER_STATUS_OK);
+    if (capture.resource == ASTER_KERNEL_RENDER_RESOURCE_SURFACE_ATTRIBUTES) {
+      saw_surface_attributes_capture =
+          capture.available != 0u && capture.content_hash != 0u && capture.payload_size > 0u;
+    }
+    if (capture.resource == ASTER_KERNEL_RENDER_RESOURCE_SURFACE_OCCLUSION) {
+      saw_surface_occlusion_capture =
+          capture.available != 0u && capture.content_hash != 0u && capture.payload_size > 0u;
+    }
+  }
+  assert(saw_surface_occlusion_pass);
+  assert(saw_surface_attributes_capture);
+  assert(saw_surface_occlusion_capture);
   AsterFramePassStats pass_stats{sizeof(AsterFramePassStats), ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_renderer_frame_pass_stats(renderer, 0u, &pass_stats).code ==
          ASTER_STATUS_OK);
@@ -963,6 +1101,7 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_renderer_rhi_validation_event",
       "aster_kernel_renderer_timestamp_sample",
       "aster_kernel_renderer_backend_feature_proof",
+      "aster_kernel_renderer_object_render_fate",
       "aster_kernel_renderer_get_last_frame_schedule",
       "aster_kernel_renderer_destroy",
       "aster_kernel_mesh_create",
@@ -1067,6 +1206,7 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_renderer_rhi_validation_event;
   (void)&aster_kernel_renderer_timestamp_sample;
   (void)&aster_kernel_renderer_backend_feature_proof;
+  (void)&aster_kernel_renderer_object_render_fate;
   (void)&aster_kernel_renderer_get_last_frame_schedule;
   (void)&aster_kernel_renderer_destroy;
   (void)&aster_kernel_mesh_create;

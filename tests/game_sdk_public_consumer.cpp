@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -182,12 +183,195 @@ void testWorldRejectsDuplicateEntityInstances() {
   assert(world.entities().size() == 1u);
 }
 
+void testAgentWorkspacePlanning() {
+  const std::filesystem::path project_root = sourceRoot() / "projects" / "lumen_run";
+  const auto project = aster::sdk::loadProjectDocument(project_root / "lumen_run.asterproj");
+  assert(project.ok());
+
+  aster::sdk::AsterAgentWorkspaceOptions options;
+  options.objective = "Make Lumen Run easier for an agent to extend in batches.";
+  options.project_file = project_root / "lumen_run.asterproj";
+  const aster::sdk::AsterAgentWorkspaceProfile profile =
+      aster::sdk::createAsterAgentWorkspaceProfile(project.value, project_root, options);
+  assert(profile.name == "Lumen Run Agent Workspace");
+  assert(profile.metadata.at("kernel_changes") == "locked");
+  assert(!profile.scopes.empty());
+  assert(!profile.validation.empty());
+  assert(!profile.output_contracts.empty());
+
+  const aster::sdk::AsterAgentWorkspaceAudit audit =
+      aster::sdk::auditAsterAgentWorkspace(project.value, profile);
+  assert(audit.ok());
+  assert(audit.assets.size() == project.value.assets.size());
+  assert(!audit.recommended_batches.empty());
+
+  aster::sdk::AsterAgentTaskBoard board =
+      aster::sdk::planAsterAgentAuthoringBatches(project.value, profile);
+  assert(board.task("agent.map_project_contracts") != nullptr);
+  assert(board.task("agent.scene_foundation") != nullptr);
+  assert(board.task("agent.visual_proof_surface") != nullptr);
+  assert(board.task("agent.gameplay_loop_contracts") != nullptr);
+  assert(!board.readyTasks().empty());
+  assert(board.readyTasks().front().id == "agent.map_project_contracts");
+  assert(!board.blockedTasks().empty());
+  assert(board.setStatus("agent.map_project_contracts", aster::sdk::AsterAgentTaskStatus::Complete));
+  assert(board.setStatus("agent.normalize_authoring_surface",
+                         aster::sdk::AsterAgentTaskStatus::Complete));
+  const std::vector<aster::sdk::AsterAgentTask> ready_after_contracts = board.readyTasks();
+  assert(!ready_after_contracts.empty());
+  assert(ready_after_contracts.front().id == "agent.scene_foundation");
+  assert(board.contractStamp() != 0u);
+
+  const std::string schema = aster::sdk::asterAgentBatchOutputSchemaJson();
+  assert(schema.find("Aster Agent Batch Report") != std::string::npos);
+  assert(schema.find("changed_files") != std::string::npos);
+
+  const std::string prompt = aster::sdk::makeAsterAgentPrompt(profile, project.value, board);
+  assert(prompt.find("Lumen Run") != std::string::npos);
+  assert(prompt.find("Do not add third-party notice files") != std::string::npos);
+
+  aster::sdk::AsterAgentHandoff handoff;
+  handoff.session_id = "test-session";
+  handoff.summary = "Mapped Aster authoring contracts.";
+  handoff.decisions.push_back("Keep gameplay in action graphs before sample C++.");
+  handoff.changed_paths.push_back("projects/lumen_run/lumen_run.asterproj");
+  handoff.remaining_tasks = ready_after_contracts;
+  const std::string handoff_markdown = aster::sdk::summarizeAsterAgentHandoffMarkdown(handoff);
+  assert(handoff_markdown.find("Aster Agent Handoff") != std::string::npos);
+  assert(handoff_markdown.find("test-session") != std::string::npos);
+  assert(aster::sdk::parseAsterAgentDomain("action-graph") ==
+         aster::sdk::AsterAgentDomain::ActionGraph);
+}
+
+void testAgentRunbookInstructionsAndCommandPolicy() {
+  const std::filesystem::path temp_root =
+      std::filesystem::temp_directory_path() / "aster_agent_runbook_public_consumer";
+  std::filesystem::remove_all(temp_root);
+  std::filesystem::create_directories(temp_root / "projects" / "demo" / "scenes");
+  {
+    std::ofstream root_instructions(temp_root / "AGENTS.md");
+    root_instructions << "# Root\n\n";
+    root_instructions << "- Preserve Aster ownership boundaries.\n";
+    root_instructions << "- Never add third-party notice files in agent batches.\n";
+  }
+  {
+    std::ofstream project_instructions(temp_root / "projects" / "demo" / "AGENTS.md");
+    project_instructions << "# Demo\n\n";
+    project_instructions << "1. Prefer .scene edits before runtime shortcuts.\n";
+  }
+
+  const aster::sdk::AsterAgentInstructionStack instructions =
+      aster::sdk::loadAsterAgentInstructions(
+          temp_root / "projects" / "demo" / "scenes" / "entry.scene",
+          {.workspace_root = temp_root});
+  assert(instructions.ok());
+  assert(instructions.files.size() == 2u);
+  const std::vector<std::string> rules = instructions.flattenedRules();
+  assert(rules.size() == 3u);
+  assert(rules.front().find("Aster ownership") != std::string::npos);
+  assert(instructions.contractStamp() != 0u);
+  assert(instructions.summarizeMarkdown().find("Aster Agent Instruction Stack") !=
+         std::string::npos);
+
+  const aster::sdk::AsterAgentCommandPolicy policy =
+      aster::sdk::createDefaultAsterAgentCommandPolicy();
+  assert(policy.reviewShellCommand("cmake --build build --target aster_game_sdk_public_consumer")
+             .decision == aster::sdk::AsterAgentCommandDecision::Allow);
+  assert(policy.reviewShellCommand("git reset --hard").decision ==
+         aster::sdk::AsterAgentCommandDecision::Deny);
+  assert(policy.reviewShellCommand("python custom_tool.py").decision ==
+         aster::sdk::AsterAgentCommandDecision::Review);
+  assert(policy.summarizeMarkdown().find("third-party notice") != std::string::npos);
+  assert(aster::sdk::asterAgentCommandDecisionName(aster::sdk::AsterAgentCommandDecision::Deny) ==
+         "deny");
+
+  const auto project = aster::sdk::parseProjectDocument(R"json({
+    "schema_version": 1,
+    "name": "Demo",
+    "startup_scene": "scene.entry",
+    "assets": [
+      { "id": "scene.entry", "kind": "scene", "path": "scenes/entry.scene" }
+    ]
+  })json");
+  assert(project.ok());
+  aster::sdk::AsterAgentRunbookOptions runbook_options;
+  runbook_options.workspace_root = temp_root;
+  aster::sdk::AsterAgentWorkspaceOptions workspace_options;
+  workspace_options.project_file = temp_root / "projects" / "demo" / "demo.asterproj";
+  const aster::sdk::AsterAgentRunbook runbook = aster::sdk::createAsterAgentRunbook(
+      project.value, temp_root / "projects" / "demo", runbook_options, workspace_options);
+  assert(runbook.instructions.files.size() == 2u);
+  assert(!runbook.command_policy.rules().empty());
+  assert(runbook.contractStamp() != 0u);
+  assert(runbook.summarizeMarkdown().find("Aster Agent Runbook") != std::string::npos);
+  std::filesystem::remove_all(temp_root);
+}
+
+void testAgentAssetBriefReviewGate() {
+  const aster::sdk::AsterAgentAssetBrief brief =
+      aster::sdk::makeIndustrialPipeAssetBrief("reference/industrial_pipe.png");
+  assert(brief.target_asset == "asset_graph.pipe_lab.rusted_pipe");
+  assert(!brief.required_signals.empty());
+  assert(!brief.forbidden_signals.empty());
+  assert(brief.minimum_score > 0.8f);
+
+  const std::string prompt = aster::sdk::makeAsterAgentAssetPrompt(brief);
+  assert(prompt.find("reference/industrial_pipe.png") != std::string::npos);
+  assert(prompt.find("smooth_black_pipe") != std::string::npos);
+  assert(prompt.find("z_fight_free_surface_attachments") != std::string::npos);
+  assert(prompt.find("Aster Agent Asset Iteration Report") != std::string::npos);
+
+  aster::sdk::AsterAgentAssetIteration weak_iteration;
+  weak_iteration.id = "candidate.black_pipe";
+  weak_iteration.artifact = "assets/screenshots/industrial_pipe.png";
+  weak_iteration.notes = "smooth_black_pipe with missing_weld_rings";
+  weak_iteration.claimed_signals = {"smooth_black_pipe"};
+  const aster::sdk::AsterAgentAssetReview weak_review =
+      aster::sdk::reviewAsterAgentAssetIteration(brief, weak_iteration);
+  assert(!weak_review.passed());
+  assert(!weak_review.missing_required_signals.empty());
+  assert(!weak_review.present_forbidden_signals.empty());
+
+  aster::sdk::AsterAgentAssetIteration strong_iteration;
+  strong_iteration.id = "candidate.reference_matched";
+  strong_iteration.artifact = "assets/screenshots/industrial_pipe.png";
+  strong_iteration.claimed_signals = {"corroded_orange_brown_rust",
+                                      "dark_oxide_cavities",
+                                      "raised_weld_rings",
+                                      "weld_contact_skirts",
+                                      "open_hollow_rims",
+                                      "soft_beveled_rims",
+                                      "uneven_pitting",
+                                      "layered_corrosion_stack",
+                                      "physical_roughness_metalness_split",
+                                      "axial_scratches",
+                                      "z_fight_free_surface_attachments",
+                                      "reference_silhouette"};
+  strong_iteration.rejected_signals = {"smooth_black_pipe",
+                                       "decorative_bolts_without_reference",
+                                       "clean_plastic_surface",
+                                       "monochrome_material",
+                                       "missing_weld_rings",
+                                       "floating_weld_rings",
+                                       "coplanar_seam_stripe",
+                                       "knife_edge_rims",
+                                       "single_layer_orange_oxide"};
+  const aster::sdk::AsterAgentAssetReview strong_review =
+      aster::sdk::reviewAsterAgentAssetIteration(brief, strong_iteration);
+  assert(strong_review.passed());
+  assert(strong_review.score >= brief.minimum_score);
+  assert(aster::sdk::asterAgentAssetReviewStatusName(strong_review.status) == "passed");
+}
+
 } // namespace
 
 int main() {
   testLumenProjectAuthoringDocumentsLoad();
   testSchemaDiagnosticsRejectInvalidDocuments();
   testWorldRejectsDuplicateEntityInstances();
+  testAgentWorkspacePlanning();
+  testAgentRunbookInstructionsAndCommandPolicy();
+  testAgentAssetBriefReviewGate();
   std::cout << "game_sdk_public_consumer passed.\n";
   return 0;
 }

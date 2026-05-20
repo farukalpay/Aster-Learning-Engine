@@ -503,19 +503,27 @@ tool.history = "on"
   assert(config.explain("render.samples").find("project") != std::string::npos);
   assert(resolution.stamp != 0u);
 
-  aster::SessionJournal journal({.max_bytes = 1000u});
+  aster::SessionJournal journal({.max_bytes = 2000u});
   journal.appendCommand("studio", "open material lab", "asset-db");
   journal.appendCommand("studio", "inspect cook lineage", "material.cli");
   journal.append({.session_id = "assetc", .kind = "tool", .text = "catalog-audit"});
+  journal.appendAssetProduction("pipe-lab",
+                                {.asset_id = "asset_graph.pipe_lab.rusted_pipe",
+                                 .graph_hash = "hash.graph",
+                                 .preview_artifact_hash = "hash.preview",
+                                 .quality_gate = "production-ready",
+                                 .cook_steps = {"graph-inspect", "graph-package", "preview-render"}});
   assert(!journal.empty());
   assert(journal.contractStamp() != 0u);
   assert(journal.toJsonLines().find("\"session_id\":\"studio\"") != std::string::npos);
-  assert(journal.byteSize() <= 1000u);
+  assert(journal.toJsonLines().find("\"kind\":\"asset-production\"") != std::string::npos);
+  assert(journal.toJsonLines().find("preview_artifact_hash=hash.preview") != std::string::npos);
+  assert(journal.byteSize() <= 2000u);
 
   const std::filesystem::path path =
       std::filesystem::temp_directory_path() / "aster_session_journal_core_test.jsonl";
   assert(journal.save(path));
-  const aster::SessionJournal loaded = aster::SessionJournal::load(path, {.max_bytes = 1000u});
+  const aster::SessionJournal loaded = aster::SessionJournal::load(path, {.max_bytes = 2000u});
   assert(!loaded.empty());
   assert(loaded.entriesFor("studio").size() >= 1u);
 

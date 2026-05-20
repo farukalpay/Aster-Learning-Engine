@@ -3,12 +3,14 @@
 
 #include "aster/asset/procedural_asset_graph.hpp"
 
+#include "aster/asset/asset_factory.hpp"
 #include "aster/asset/json_document.hpp"
 #include "aster/asset/pipe_runtime_asset.hpp"
 #include "aster/geometry/primate_anatomy.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <string_view>
 
@@ -164,6 +166,17 @@ void readFallbackArray(const Value &fallback, const std::string_view key,
   return edges;
 }
 
+[[nodiscard]] float materialParamOr(const MaterialAsset &material, const std::string_view key,
+                                    const float fallback) {
+  const auto found = material.params.find(std::string(key));
+  return found == material.params.end() ? fallback : found->second;
+}
+
+[[nodiscard]] int materialParamIntOr(const MaterialAsset &material, const std::string_view key,
+                                     const int fallback) {
+  return static_cast<int>(std::lround(materialParamOr(material, key, static_cast<float>(fallback))));
+}
+
 [[nodiscard]] ProceduralAssetGraphQualityReport qualityFrom(const Value &json) {
   ProceduralAssetGraphQualityReport quality;
   const Value *quality_json = objectField(json, "quality");
@@ -181,6 +194,80 @@ void readFallbackArray(const Value &fallback, const std::string_view key,
     }
   }
   return quality;
+}
+
+[[nodiscard]] ProceduralAssetGraphProductionSession productionSessionFrom(const Value &json) {
+  ProceduralAssetGraphProductionSession session;
+  const Value *session_json = objectField(json, "production_session");
+  if (session_json == nullptr) {
+    return session;
+  }
+  session.session_id = asset_json::textOr(*session_json, "session_id");
+  session.graph_hash = asset_json::textOr(*session_json, "graph_hash");
+  session.preview_artifact_hash = asset_json::textOr(*session_json, "preview_artifact_hash");
+  session.quality_gate = asset_json::textOr(*session_json, "quality_gate");
+  if (const Value *steps = arrayField(*session_json, "cook_steps")) {
+    for (const Value &step : steps->array) {
+      if (step.kind == Value::Kind::String) {
+        session.cook_steps.push_back(step.string);
+      }
+    }
+  }
+  return session;
+}
+
+[[nodiscard]] std::vector<std::string> stringArrayFrom(const Value &json,
+                                                       const std::string_view key) {
+  std::vector<std::string> out;
+  const Value *array = json.find(key);
+  if (array == nullptr || array->kind != Value::Kind::Array) {
+    return out;
+  }
+  out.reserve(array->array.size());
+  for (const Value &entry : array->array) {
+    if (entry.kind == Value::Kind::String) {
+      out.push_back(entry.string);
+    }
+  }
+  return out;
+}
+
+[[nodiscard]] ProceduralAssetGraphFactoryReport factoryReportFrom(const Value &json) {
+  ProceduralAssetGraphFactoryReport report;
+  const Value *factory_json = objectField(json, "factory_report");
+  if (factory_json == nullptr) {
+    return report;
+  }
+  report.stable_recipe_hash = asset_json::textOr(*factory_json, "stable_recipe_hash");
+  report.visual_brief_claims = stringArrayFrom(*factory_json, "visual_brief_claims");
+  report.visual_brief_rejections =
+      stringArrayFrom(*factory_json, "visual_brief_rejections");
+
+  if (const Value *stages = arrayField(*factory_json, "stage_diagnostics")) {
+    report.stage_diagnostics.reserve(stages->array.size());
+    for (const Value &stage_json : stages->array) {
+      ProceduralAssetGraphFactoryStageReport stage;
+      stage.id = asset_json::textOr(stage_json, "id");
+      stage.kind = asset_json::textOr(stage_json, "kind");
+      stage.status = asset_json::textOr(stage_json, "status");
+      stage.diagnostics = stringArrayFrom(stage_json, "diagnostics");
+      report.stage_diagnostics.push_back(std::move(stage));
+    }
+  }
+  if (const Value *signals = arrayField(*factory_json, "surface_signal_coverage")) {
+    report.surface_signal_coverage.reserve(signals->array.size());
+    for (const Value &signal_json : signals->array) {
+      report.surface_signal_coverage.push_back(
+          {.signal = asset_json::textOr(signal_json, "signal"),
+           .average = asset_json::f32Or(signal_json, "average"),
+           .coverage = asset_json::f32Or(signal_json, "coverage"),
+           .status = asset_json::textOr(signal_json, "status")});
+    }
+  }
+  if (const Value *summary = objectField(*factory_json, "collision_proxy_summary")) {
+    report.collision_proxy_summary = stringMapFrom(*summary);
+  }
+  return report;
 }
 
 [[nodiscard]] MaterialAsset materialFrom(const Value &root,
@@ -208,6 +295,12 @@ void readFallbackArray(const Value &fallback, const std::string_view key,
   }
   material.provenance["runtime_model"] = package.runtime_model;
   material.provenance["source_graph"] = package.id;
+  if (!package.production_session.session_id.empty()) {
+    material.provenance["production_session"] = package.production_session.session_id;
+  }
+  if (!package.production_session.preview_artifact_hash.empty()) {
+    material.provenance["preview_artifact_hash"] = package.production_session.preview_artifact_hash;
+  }
   material.quality_profile["asset_graph_score"] = std::to_string(package.quality.score);
   material.quality_profile["asset_graph_production_ready"] =
       package.quality.production_ready ? "true" : "false";
@@ -260,6 +353,8 @@ ProceduralAssetGraphPackage loadProceduralAssetGraphPackage(const std::filesyste
   package.runtime_model = asset_json::textOr(root, "runtime_model");
   package.nodes = nodesFrom(root);
   package.edges = edgesFrom(root);
+  package.production_session = productionSessionFrom(root);
+  package.factory_report = factoryReportFrom(root);
   package.quality = qualityFrom(root);
 
   if (const Value *material = objectField(root, "material")) {
@@ -316,15 +411,50 @@ CpuMesh proceduralAssetGraphMesh(const ProceduralAssetGraphPackage &package) {
   }
   if (primitive == "rusted-pipe" || primitive == "industrial-pipe" ||
       primitive == "production-rusted-pipe") {
-    return makeAsterPipeRenderMesh({.asset_id = package.id,
-                                    .length = 5.2f,
-                                    .outer_radius = 0.54f,
-                                    .wall_thickness = 0.075f,
-                                    .radial_segments = 96,
-                                    .length_segments = 24,
-                                    .bolt_count_per_flange = 10,
-                                    .rust_strength = 0.86f,
-                                    .wetness_strength = 0.24f});
+    AsterPipeAssetSpec spec{.asset_id = package.id,
+                            .length = 5.2f,
+                            .outer_radius = 0.54f,
+                            .wall_thickness = 0.090f,
+                            .radial_segments = 96,
+                            .length_segments = 24,
+                            .include_longitudinal_seam = false,
+                            .include_flanges = false,
+                            .include_bolts = false,
+                            .bolt_count_per_flange = 10,
+                            .rust_strength =
+                                materialParamOr(package.material, "rust_strength", 0.86f),
+                            .wetness_strength =
+                                materialParamOr(package.material, "wetness", 0.24f),
+                            .pitting_density =
+                                materialParamOr(package.material, "pitting_density", 0.72f),
+                            .pitting_depth =
+                                materialParamOr(package.material, "pitting_depth", 0.0022f),
+                            .oxide_layering =
+                                materialParamOr(package.material, "oxide_layering", 0.86f),
+                            .cavity_grime_strength =
+                                materialParamOr(package.material, "cavity_grime", 0.70f),
+                            .edge_polish_strength =
+                                materialParamOr(package.material, "edge_polish", 0.36f),
+                            .weld_heat_tint_strength =
+                                materialParamOr(package.material, "weld_heat_tint", 0.48f),
+                            .axial_scratch_strength =
+                                materialParamOr(package.material, "axial_scratches", 0.66f),
+                            .rust_bloom_strength =
+                                materialParamOr(package.material, "rust_bloom", 0.86f),
+                            .black_scab_strength =
+                                materialParamOr(package.material, "black_scab", 0.74f),
+                            .paint_remnant_strength =
+                                materialParamOr(package.material, "paint_remnant", 0.18f),
+                            .weld_slag_strength =
+                                materialParamOr(package.material, "weld_slag", 0.82f),
+                            .rim_soot_strength =
+                                materialParamOr(package.material, "rim_soot", 0.88f),
+                            .wet_streak_count =
+                                materialParamIntOr(package.material, "wet_streaks", 7)};
+    const AsterPipeFactoryVariant variant =
+        primitive == "industrial-pipe" ? AsterPipeFactoryVariant::IndustrialHardware
+                                       : AsterPipeFactoryVariant::ReferenceSilhouette;
+    return buildAsterAssetFactoryRecipe(makeAsterPipeFactoryRecipe(spec, variant)).mesh;
   }
   if (primitive == "sphere" || primitive == "uv-sphere") {
     return makeUvSphere(32, 16, 1.0f);

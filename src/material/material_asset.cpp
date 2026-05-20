@@ -978,13 +978,37 @@ Material resolveMaterialAssetFallback(const MaterialAsset &asset) {
                                       paramOr(asset, "emission_b", desc.emission_color.z)};
   desc.detail_scale = paramOr(asset, "triplanar_scale", paramOr(asset, "detail_scale", 1.0f));
   desc.detail_strength = paramOr(asset, "detail_strength", 0.0f);
+  desc.edge_wear = paramOr(asset, "edge_wear", paramOr(asset, "edge_polish", desc.edge_wear));
   desc.ambient_occlusion = paramOr(asset, "ambient_occlusion", paramOr(asset, "ao", 1.0f));
   desc.procedural.wetness = paramOr(asset, "wetness_strength", paramOr(asset, "wetness", 0.0f));
   desc.procedural.macro_variation = paramOr(asset, "macro_variation", 0.0f);
   desc.procedural.micro_normal_strength =
       paramOr(asset, "micro_normal_strength", materialFeatureSet(asset).normal_map ? 0.28f : 0.0f);
   desc.procedural.roughness_variation = paramOr(asset, "roughness_variation", 0.0f);
+  desc.procedural.physical_texel_density =
+      paramOr(asset, "physical_texel_density", paramOr(asset, "texel_density", 512.0f));
+  desc.procedural.height_normal_coupling =
+      paramOr(asset, "height_normal_coupling", materialFeatureSet(asset).height ? 0.82f : 0.0f);
+  desc.procedural.roughness_height_coupling =
+      paramOr(asset, "roughness_height_coupling", materialFeatureSet(asset).height ? 0.56f : 0.0f);
+  desc.procedural.macro_frequency_breakup =
+      paramOr(asset, "macro_frequency_breakup", desc.procedural.macro_variation * 0.45f);
+  desc.procedural.micro_frequency_breakup =
+      paramOr(asset, "micro_frequency_breakup", desc.procedural.micro_normal_strength * 0.60f);
   desc.procedural.height_shading = paramOr(asset, "height_shading", materialFeatureSet(asset).height ? 0.18f : 0.0f);
+  desc.procedural.pitting_density = paramOr(asset, "pitting_density", 0.0f);
+  desc.procedural.pitting_depth = paramOr(asset, "pitting_depth", 0.0f);
+  desc.procedural.oxide_layering = paramOr(asset, "oxide_layering", 0.0f);
+  desc.procedural.cavity_grime = paramOr(asset, "cavity_grime", paramOr(asset, "seam_grime", 0.0f));
+  desc.procedural.edge_polish = paramOr(asset, "edge_polish", paramOr(asset, "exposed_edge_ratio", 0.0f));
+  desc.procedural.weld_heat_tint = paramOr(asset, "weld_heat_tint", 0.0f);
+  desc.procedural.axial_scratches = paramOr(asset, "axial_scratches", 0.0f);
+  desc.procedural.wet_streaks = paramOr(asset, "wet_streaks", 0.0f);
+  desc.procedural.rust_bloom = paramOr(asset, "rust_bloom", 0.0f);
+  desc.procedural.black_scab = paramOr(asset, "black_scab", 0.0f);
+  desc.procedural.paint_remnant = paramOr(asset, "paint_remnant", 0.0f);
+  desc.procedural.weld_slag = paramOr(asset, "weld_slag", 0.0f);
+  desc.procedural.rim_soot = paramOr(asset, "rim_soot", 0.0f);
   desc.pattern_scale = {desc.detail_scale, desc.detail_scale};
   desc.pattern_depth = paramOr(asset, "pattern_depth", desc.procedural.height_shading);
   desc.pattern_contrast = paramOr(asset, "pattern_contrast", 0.0f);

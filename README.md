@@ -117,7 +117,7 @@ Run built-in lab scenes:
   strict validation events, explicit texture/material/render-target lifecycle,
   frame schedule reports, and an install-tree `external_app_minimal/` proof.
 - A source-level game SDK for schema-versioned project, scene, prefab, material,
-  item, and action graph authoring documents.
+  item, action graph, and agent authoring documents.
 - Aster-native classic simulation systems for deterministic commands/replay,
   lump archive lookup, actor combat states, world mechanisms, automap/HUD/wipe
   presentation, and lockstep command packets.
@@ -170,6 +170,7 @@ Run built-in lab scenes:
 | [docs/RENDERING_PIPELINE.md](docs/RENDERING_PIPELINE.md) | Scene-to-render-graph-to-backend flow |
 | [docs/MATERIALS_AND_SHADERS.md](docs/MATERIALS_AND_SHADERS.md) | Material authoring, shader library, typed graph |
 | [docs/SCENE_AND_MESH_PIPELINE.md](docs/SCENE_AND_MESH_PIPELINE.md) | Scene objects and procedural/custom mesh path |
+| [docs/AGENT_AUTHORING.md](docs/AGENT_AUTHORING.md) | Agent-safe project plans, batches, and handoffs |
 | [docs/RENDERER_BACKEND_MATRIX.md](docs/RENDERER_BACKEND_MATRIX.md) | Backend capabilities, pass support, gaps, conformance |
 | [docs/LUMEN_RUN_AS_SAMPLE.md](docs/LUMEN_RUN_AS_SAMPLE.md) | How the sample game uses the engine |
 | [docs/ENGINE_INTERNALS/ENGINE_KERNEL.md](docs/ENGINE_INTERNALS/ENGINE_KERNEL.md) | ABI and public/internal boundary |
@@ -206,14 +207,14 @@ Run the sample game and tools:
 ./build/aster_material_lab --material showcases/material_lab/wet_rock.astermat --output /tmp/wet_rock.ppm
 cargo run -p aster_assetc --bin aster_materialc -- package --input showcases/material_lab/wet_rock.astermat --asset-root showcases/material_lab --output /tmp/aster_material_package
 cargo run -p aster_assetc --bin aster_texturec -- package --input showcases/material_lab/wet_rock_albedo.ktx2 --role albedo --output /tmp/aster_texture_package
-cargo run -p aster_assetc -- material-inspect --input showcases/material_lab/wet_rock.astermat --asset-root showcases/material_lab
-cargo run -p aster_assetc -- graph-inspect --input showcases/material_lab/procedural_wet_rock.astergraph
-cargo run -p aster_assetc -- graph-package --input showcases/material_lab/procedural_wet_rock.astergraph --output /tmp/aster_asset_graph_package
-cargo run -p aster_assetc -- cook --project showcases/material_lab/material_lab.asterproj --platform desktop --output showcases/material_lab/cooked/desktop
-cargo run -p aster_assetc -- report --db showcases/material_lab/cooked/desktop/assetdb.asterdb.json
+cargo run -p aster_assetc --bin aster_assetc -- material-inspect --input showcases/material_lab/wet_rock.astermat --asset-root showcases/material_lab
+cargo run -p aster_assetc --bin aster_assetc -- graph-inspect --input showcases/material_lab/procedural_wet_rock.astergraph
+cargo run -p aster_assetc --bin aster_assetc -- graph-package --input showcases/material_lab/procedural_wet_rock.astergraph --output /tmp/aster_asset_graph_package
+cargo run -p aster_assetc --bin aster_assetc -- cook --project showcases/material_lab/material_lab.asterproj --platform desktop --output showcases/material_lab/cooked/desktop
+cargo run -p aster_assetc --bin aster_assetc -- report --db showcases/material_lab/cooked/desktop/assetdb.asterdb.json
 ./build/aster_material_lab --graph showcases/material_lab/cooked/desktop/asset_graphs/asset_graph.material_lab.wet_rock.assetgraphbin --output /tmp/wet_rock_graph.ppm
-cargo run -p aster_assetc -- graph-package --input showcases/pipe_lab/rusted_pipe.astergraph --output /tmp/aster_pipe_graph_package
-cargo run -p aster_assetc -- cook --project showcases/pipe_lab/pipe_lab.asterproj --platform desktop --output /tmp/aster_pipe_lab_cooked
+cargo run -p aster_assetc --bin aster_assetc -- graph-package --input showcases/pipe_lab/rusted_pipe.astergraph --output /tmp/aster_pipe_graph_package
+cargo run -p aster_assetc --bin aster_assetc -- cook --project showcases/pipe_lab/pipe_lab.asterproj --platform desktop --output /tmp/aster_pipe_lab_cooked
 ```
 
 `.astergraph` is the V1 procedural asset graph format and cooks to

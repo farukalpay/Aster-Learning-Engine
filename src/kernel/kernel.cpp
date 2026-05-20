@@ -11,6 +11,7 @@
 #include "aster/render/frame_capture.hpp"
 #include "aster/render/mesh.hpp"
 #include "aster/render/render_device.hpp"
+#include "aster/render/render_quality.hpp"
 #include "aster/scene/scene.hpp"
 #include "aster/shader/shader_compiler.hpp"
 
@@ -18,6 +19,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -189,6 +191,36 @@ AsterStatus makeStatus(const AsterStatusCode code, const char *message) {
 template <typename Struct> bool validStruct(const Struct *value) {
   return value != nullptr && value->size >= sizeof(Struct) &&
          value->version == ASTER_KERNEL_STRUCT_VERSION_1;
+}
+
+template <typename Struct> Struct copyAbiStruct(const Struct *value) {
+  Struct out{};
+  if (value == nullptr) {
+    return out;
+  }
+  const std::size_t byte_count = std::min<std::size_t>(value->size, sizeof(Struct));
+  std::memcpy(&out, value, byte_count);
+  out.size = sizeof(Struct);
+  return out;
+}
+
+bool validTailExtendedStruct(const void *value, const std::size_t size,
+                             const std::uint32_t version,
+                             const std::size_t minimum_supported_size) {
+  return value != nullptr && size >= minimum_supported_size &&
+         version == ASTER_KERNEL_STRUCT_VERSION_1;
+}
+
+bool validCameraDesc(const AsterCameraDesc *value) {
+  return validTailExtendedStruct(value, value == nullptr ? 0u : value->size,
+                                 value == nullptr ? 0u : value->version,
+                                 offsetof(AsterCameraDesc, focal_length_mm));
+}
+
+bool validRendererSettings(const AsterRendererSettings *value) {
+  return validTailExtendedStruct(value, value == nullptr ? 0u : value->size,
+                                 value == nullptr ? 0u : value->version,
+                                 offsetof(AsterRendererSettings, quality_tier));
 }
 
 bool validFrameForensicsDetailCounts(const AsterFrameForensicsDetailCounts *value) {
@@ -618,6 +650,166 @@ aster::MaterialAlphaMode alphaMode(const AsterKernelMaterialAlphaMode mode) {
   }
 }
 
+aster::RenderQualityTier renderQualityTier(const std::uint32_t tier) {
+  switch (tier) {
+  case ASTER_KERNEL_RENDER_QUALITY_PROTOTYPE:
+    return aster::RenderQualityTier::Prototype;
+  case ASTER_KERNEL_RENDER_QUALITY_CINEMATIC:
+    return aster::RenderQualityTier::Cinematic;
+  case ASTER_KERNEL_RENDER_QUALITY_PRODUCTION:
+  default:
+    return aster::RenderQualityTier::Production;
+  }
+}
+
+aster::ToneMapper toneMapper(const std::uint32_t mapper) {
+  switch (mapper) {
+  case ASTER_KERNEL_TONE_MAPPER_FILMIC_ACES:
+    return aster::ToneMapper::FilmicAces;
+  case ASTER_KERNEL_TONE_MAPPER_REINHARD:
+    return aster::ToneMapper::Reinhard;
+  case ASTER_KERNEL_TONE_MAPPER_PBR_NEUTRAL:
+  default:
+    return aster::ToneMapper::PbrNeutral;
+  }
+}
+
+bool hasRenderSettingFlag(const AsterRendererSettings &settings, const std::uint32_t flag) {
+  return (settings.flags & flag) != 0u;
+}
+
+float positiveOr(const float value, const float fallback) {
+  return finiteValue(value) && value > 0.0f ? value : fallback;
+}
+
+std::uint32_t positiveOr(const std::uint32_t value, const std::uint32_t fallback) {
+  return value > 0u ? value : fallback;
+}
+
+float cameraVerticalFov(const AsterCameraDesc &camera, const std::uint32_t width,
+                        const std::uint32_t height) {
+  const float fallback =
+      camera.vertical_fov_radians > 0.0f ? camera.vertical_fov_radians : aster::radians(45.0f);
+  if ((camera.camera_flags & ASTER_KERNEL_CAMERA_FLAG_USE_PHYSICAL_LENS) == 0u) {
+    return fallback;
+  }
+  const float focal_length = positiveOr(camera.focal_length_mm, 46.0f);
+  const float sensor_width = positiveOr(camera.sensor_width_mm, 36.0f);
+  const float aspect =
+      width > 0u && height > 0u ? static_cast<float>(width) / static_cast<float>(height)
+                                : 16.0f / 9.0f;
+  const float sensor_height = sensor_width / std::max(aspect, 0.01f);
+  const float physical_fov = 2.0f * std::atan((sensor_height * 0.5f) / focal_length);
+  return std::clamp(physical_fov, aster::radians(12.0f), aster::radians(85.0f));
+}
+
+aster::RendererSettings rendererSettingsFromAbi(const AsterRendererSettings &settings,
+                                                const AsterCameraDesc &camera) {
+  aster::RendererSettings out;
+  aster::applyRenderQualityProfile(
+      out, aster::makeRenderQualityProfile(renderQualityTier(settings.quality_tier)));
+
+  out.pipeline.clear_color = vec(settings.clear_color);
+  out.exposure = positiveOr(settings.exposure, out.exposure);
+  out.ambient_strength = positiveOr(settings.ambient_strength, out.ambient_strength);
+  out.ambient_floor = positiveOr(settings.ambient_floor, out.ambient_floor);
+  out.pipeline.tone_mapper = toneMapper(settings.tone_mapper);
+  out.post.bloom_threshold = positiveOr(settings.bloom_threshold, out.post.bloom_threshold);
+  out.post.bloom_intensity = positiveOr(settings.bloom_intensity, out.post.bloom_intensity);
+  out.post.bloom = out.post.bloom || out.post.bloom_intensity > 0.0f ||
+                   hasRenderSettingFlag(settings, ASTER_KERNEL_RENDER_SETTING_BLOOM);
+  out.post.fxaa = out.post.fxaa ||
+                  hasRenderSettingFlag(settings, ASTER_KERNEL_RENDER_SETTING_FXAA);
+
+  out.shadows.directional_cascades =
+      positiveOr(settings.shadow_cascades, out.shadows.directional_cascades);
+  out.shadows.atlas_size = positiveOr(settings.shadow_atlas_size, out.shadows.atlas_size);
+  out.shadows.max_distance = positiveOr(settings.shadow_max_distance, out.shadows.max_distance);
+  out.shadows.receiver_bias =
+      positiveOr(settings.shadow_receiver_bias, out.shadows.receiver_bias);
+  out.shadows.normal_bias = positiveOr(settings.shadow_normal_bias, out.shadows.normal_bias);
+  out.shadows.pcf_radius = positiveOr(settings.shadow_softness, out.shadows.pcf_radius);
+  if (hasRenderSettingFlag(settings, ASTER_KERNEL_RENDER_SETTING_CASCADED_SHADOWS)) {
+    out.shadows.enabled = true;
+    out.shadows.cascaded_directional = true;
+    out.shadows.directional_cascades = std::max(out.shadows.directional_cascades, 3u);
+  }
+
+  out.occlusion.radius = positiveOr(settings.occlusion_radius, out.occlusion.radius);
+  out.occlusion.thickness = positiveOr(settings.occlusion_thickness, out.occlusion.thickness);
+  out.occlusion.strength = positiveOr(settings.occlusion_strength, out.occlusion.strength);
+  out.occlusion.sample_count =
+      positiveOr(settings.occlusion_sample_count, out.occlusion.sample_count);
+  out.occlusion.contact_hardening =
+      positiveOr(settings.occlusion_contact_hardening, out.occlusion.contact_hardening);
+  if (hasRenderSettingFlag(settings, ASTER_KERNEL_RENDER_SETTING_SURFACE_OCCLUSION)) {
+    out.occlusion.enabled = true;
+    out.occlusion.mode = aster::RendererOcclusionMode::Hybrid;
+  }
+
+  out.grounding.contact_shadow_strength =
+      positiveOr(settings.contact_shadow_strength, out.grounding.contact_shadow_strength);
+  out.grounding.contact_shadow_radius_scale =
+      positiveOr(settings.contact_shadow_radius_scale, out.grounding.contact_shadow_radius_scale);
+  out.grounding.contact_shadow_receiver_height = positiveOr(
+      settings.contact_shadow_receiver_height, out.grounding.contact_shadow_receiver_height);
+  out.grounding.contact_shadow_receiver_bias = positiveOr(
+      settings.contact_shadow_receiver_bias, out.grounding.contact_shadow_receiver_bias);
+  if (hasRenderSettingFlag(settings, ASTER_KERNEL_RENDER_SETTING_CONTACT_SHADOWS)) {
+    out.grounding.enabled = true;
+    out.grounding.contact_shadows = true;
+    out.grounding.auto_contact_shadows = true;
+  }
+
+  out.surface_scale.physical_texel_density =
+      positiveOr(settings.physical_texel_density, out.surface_scale.physical_texel_density);
+  out.surface_scale.macro_frequency_breakup =
+      positiveOr(settings.macro_frequency_breakup, out.surface_scale.macro_frequency_breakup);
+  out.surface_scale.micro_frequency_breakup =
+      positiveOr(settings.micro_frequency_breakup, out.surface_scale.micro_frequency_breakup);
+  out.surface_scale.height_normal_coupling =
+      positiveOr(settings.height_normal_coupling, out.surface_scale.height_normal_coupling);
+  out.surface_scale.roughness_height_coupling = positiveOr(
+      settings.roughness_height_coupling, out.surface_scale.roughness_height_coupling);
+
+  out.atmosphere.fog_start = positiveOr(settings.fog_start, out.atmosphere.fog_start);
+  out.atmosphere.fog_end = positiveOr(settings.fog_end, out.atmosphere.fog_end);
+  out.atmosphere.fog_strength = positiveOr(settings.fog_strength, out.atmosphere.fog_strength);
+  if (hasRenderSettingFlag(settings, ASTER_KERNEL_RENDER_SETTING_VOLUMETRIC_FOG) ||
+      settings.fog_strength > 0.0f) {
+    out.atmosphere.enabled = true;
+    out.atmosphere.fog_falloff = aster::AtmosphereFogFalloff::Powered;
+    out.atmosphere.fog_power = 1.18f;
+  }
+
+  out.reflections.fallback_intensity =
+      positiveOr(settings.reflection_intensity, out.reflections.fallback_intensity);
+  if (hasRenderSettingFlag(settings, ASTER_KERNEL_RENDER_SETTING_REFLECTION_PROBES)) {
+    out.reflections.enabled = true;
+    out.reflections.static_local_probes = true;
+    out.reflections.max_active_probes = std::max(out.reflections.max_active_probes, 8u);
+  }
+
+  if (hasRenderSettingFlag(settings, ASTER_KERNEL_RENDER_SETTING_PROCEDURAL_SURFACE_NORMALS)) {
+    out.procedural_surface_normals = true;
+  }
+  if (hasRenderSettingFlag(settings, ASTER_KERNEL_RENDER_SETTING_PRESENTATION_LENS) ||
+      (camera.camera_flags & ASTER_KERNEL_CAMERA_FLAG_USE_PHYSICAL_LENS) != 0u) {
+    out.presentation.focal_length_mm =
+        positiveOr(camera.focal_length_mm, out.presentation.focal_length_mm);
+    out.presentation.sensor_width_mm =
+        positiveOr(camera.sensor_width_mm, out.presentation.sensor_width_mm);
+    out.presentation.composition_weight =
+        positiveOr(camera.composition_weight, out.presentation.composition_weight);
+    out.presentation.scale_reference_m =
+        positiveOr(camera.scale_reference_m, out.presentation.scale_reference_m);
+  }
+
+  out.sun_light.enabled = true;
+  out.sun_light.intensity = std::max(out.sun_light.intensity, 1.0f);
+  return out;
+}
+
 AsterKernelBackendKind backendKind(const aster::RenderBackendKind kind) {
   switch (kind) {
   case aster::RenderBackendKind::SoftwareReference:
@@ -711,6 +903,8 @@ AsterKernelRenderGraphPass renderGraphPass(const aster::RenderGraphPass pass) {
     return ASTER_KERNEL_RENDER_PASS_OPAQUE;
   case aster::RenderGraphPass::ContactShadow:
     return ASTER_KERNEL_RENDER_PASS_CONTACT_SHADOW;
+  case aster::RenderGraphPass::SurfaceOcclusion:
+    return ASTER_KERNEL_RENDER_PASS_SURFACE_OCCLUSION;
   case aster::RenderGraphPass::SceneLighting:
     return ASTER_KERNEL_RENDER_PASS_SCENE_LIGHTING;
   case aster::RenderGraphPass::VolumetricFog:
@@ -733,10 +927,14 @@ AsterKernelRenderGraphResource renderGraphResource(const aster::RenderGraphResou
   switch (resource) {
   case aster::RenderGraphResource::SceneDepth:
     return ASTER_KERNEL_RENDER_RESOURCE_SCENE_DEPTH;
+  case aster::RenderGraphResource::SurfaceAttributes:
+    return ASTER_KERNEL_RENDER_RESOURCE_SURFACE_ATTRIBUTES;
   case aster::RenderGraphResource::LightClusters:
     return ASTER_KERNEL_RENDER_RESOURCE_LIGHT_CLUSTERS;
   case aster::RenderGraphResource::ShadowAtlas:
     return ASTER_KERNEL_RENDER_RESOURCE_SHADOW_ATLAS;
+  case aster::RenderGraphResource::SurfaceOcclusion:
+    return ASTER_KERNEL_RENDER_RESOURCE_SURFACE_OCCLUSION;
   case aster::RenderGraphResource::VolumetricFog:
     return ASTER_KERNEL_RENDER_RESOURCE_VOLUMETRIC_FOG;
   case aster::RenderGraphResource::ReflectionProbes:
@@ -910,6 +1108,8 @@ AsterKernelFrameDiagnosticKind diagnosticKind(const aster::FrameDiagnosticKind k
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_TEXTURE_ROLE_DEGRADED;
   case aster::FrameDiagnosticKind::MeshAttributeDegraded:
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_MESH_ATTRIBUTE_DEGRADED;
+  case aster::FrameDiagnosticKind::SurfacePresentationWarning:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_SURFACE_PRESENTATION_WARNING;
   case aster::FrameDiagnosticKind::BackendFallback:
   default:
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_BACKEND_FALLBACK;
@@ -1691,38 +1891,51 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
   if (!validScene(scene)) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "scene handle is invalid");
   }
-  if (!validStruct(camera) || !validStruct(settings)) {
+  if (!validCameraDesc(camera) || !validRendererSettings(settings)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH, "render frame struct version is not supported");
   }
-  if (settings->render_target != nullptr) {
-    return aster_kernel_renderer_render_frame_to_target(renderer, scene, settings->render_target,
-                                                        camera, settings);
+  const AsterCameraDesc camera_desc = copyAbiStruct(camera);
+  const AsterRendererSettings settings_desc = copyAbiStruct(settings);
+  if (settings_desc.render_target != nullptr) {
+    return aster_kernel_renderer_render_frame_to_target(renderer, scene, settings_desc.render_target,
+                                                        &camera_desc, &settings_desc);
   }
   try {
     auto [width, height] = framebufferSizeFor(renderer->bound_window);
-    if (settings->framebuffer_width > 0u) {
-      width = settings->framebuffer_width;
+    if (settings_desc.framebuffer_width > 0u) {
+      width = settings_desc.framebuffer_width;
     }
-    if (settings->framebuffer_height > 0u) {
-      height = settings->framebuffer_height;
+    if (settings_desc.framebuffer_height > 0u) {
+      height = settings_desc.framebuffer_height;
     }
     aster::OrbitCamera orbit;
-    orbit.target = vec(camera->target);
-    orbit.yaw = camera->yaw_radians;
-    orbit.pitch = camera->pitch_radians;
-    orbit.radius = std::max(camera->radius, 0.01f);
-    orbit.vertical_fov =
-        camera->vertical_fov_radians > 0.0f ? camera->vertical_fov_radians : aster::radians(45.0f);
-    orbit.near_plane = camera->near_plane > 0.0f ? camera->near_plane : 0.01f;
-    orbit.far_plane = camera->far_plane > orbit.near_plane ? camera->far_plane : 100.0f;
+    orbit.target = vec(camera_desc.target);
+    orbit.yaw = camera_desc.yaw_radians;
+    orbit.pitch = camera_desc.pitch_radians;
+    orbit.radius = std::max(camera_desc.radius, 0.01f);
+    orbit.vertical_fov = cameraVerticalFov(camera_desc, width, height);
+    orbit.near_plane = camera_desc.near_plane > 0.0f ? camera_desc.near_plane : 0.01f;
+    orbit.far_plane =
+        camera_desc.far_plane > orbit.near_plane ? camera_desc.far_plane : 100.0f;
+    if (hasRenderSettingFlag(settings_desc, ASTER_KERNEL_RENDER_SETTING_PRESENTATION_LENS) ||
+        (camera_desc.camera_flags & ASTER_KERNEL_CAMERA_FLAG_USE_PHYSICAL_LENS) != 0u) {
+      const float composition = std::clamp(
+          camera_desc.composition_weight > 0.0f ? camera_desc.composition_weight : 0.58f, 0.0f,
+          1.0f);
+      const float scale_reference =
+          std::clamp(camera_desc.scale_reference_m > 0.0f ? camera_desc.scale_reference_m : 1.80f,
+                     0.25f, 64.0f);
+      const float focal_length =
+          std::clamp(camera_desc.focal_length_mm > 0.0f ? camera_desc.focal_length_mm : 46.0f,
+                     16.0f, 240.0f);
+      const float compression = std::clamp((focal_length - 35.0f) / 105.0f, 0.0f, 1.0f);
+      orbit.radius = std::max(0.01f, orbit.radius * (1.0f + compression * 0.18f));
+      orbit.target.y += (composition - 0.50f) * scale_reference * 0.16f;
+      orbit.pitch = std::clamp(orbit.pitch - compression * 0.035f, aster::radians(-80.0f),
+                               aster::radians(80.0f));
+    }
 
-    aster::RendererSettings render_settings;
-    render_settings.pipeline.clear_color = vec(settings->clear_color);
-    render_settings.exposure = settings->exposure > 0.0f ? settings->exposure : 1.0f;
-    render_settings.ambient_strength =
-        settings->ambient_strength > 0.0f ? settings->ambient_strength : 0.18f;
-    render_settings.sun_light.enabled = true;
-    render_settings.sun_light.intensity = 1.0f;
+    aster::RendererSettings render_settings = rendererSettingsFromAbi(settings_desc, camera_desc);
 
     renderer->renderer->prepareScene(scene->scene);
     const double frame_seconds =
@@ -1750,10 +1963,12 @@ AsterStatus aster_kernel_renderer_render_frame_to_target(
   if (!validScene(scene)) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "scene handle is invalid");
   }
-  if (!validStruct(camera) || !validStruct(settings)) {
+  if (!validCameraDesc(camera) || !validRendererSettings(settings)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
                       "render target frame struct version is not supported");
   }
+  const AsterCameraDesc camera_desc = copyAbiStruct(camera);
+  const AsterRendererSettings settings_desc = copyAbiStruct(settings);
   if (retiredRenderTarget(target)) {
     appendRendererValidation(renderer, ASTER_VALIDATION_DESTROYED_HANDLE_USE,
                              ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR, "renderer.render_frame",
@@ -1766,8 +1981,9 @@ AsterStatus aster_kernel_renderer_render_frame_to_target(
                              "render-target", "render target handle is invalid");
     return makeStatus(ASTER_STATUS_VALIDATION_ERROR, "render target handle is invalid");
   }
-  if ((settings->framebuffer_width > 0u && settings->framebuffer_width != target->width) ||
-      (settings->framebuffer_height > 0u && settings->framebuffer_height != target->height)) {
+  if ((settings_desc.framebuffer_width > 0u && settings_desc.framebuffer_width != target->width) ||
+      (settings_desc.framebuffer_height > 0u &&
+       settings_desc.framebuffer_height != target->height)) {
     appendRendererValidation(renderer, ASTER_VALIDATION_RENDER_TARGET_MISMATCH,
                              ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR, "renderer.render_frame",
                              target->label, "render target dimensions do not match settings");
@@ -1788,12 +2004,12 @@ AsterStatus aster_kernel_renderer_render_frame_to_target(
                       "render target exceeds backend capability table");
   }
 
-  AsterRendererSettings target_settings = *settings;
+  AsterRendererSettings target_settings = settings_desc;
   target_settings.render_target = nullptr;
   target_settings.framebuffer_width = target->width;
   target_settings.framebuffer_height = target->height;
   const AsterStatus status =
-      aster_kernel_renderer_render_frame(renderer, scene, camera, &target_settings);
+      aster_kernel_renderer_render_frame(renderer, scene, &camera_desc, &target_settings);
   if (status.code == ASTER_STATUS_OK) {
     renderer->active_target = target;
   }

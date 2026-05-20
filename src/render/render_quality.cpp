@@ -115,6 +115,9 @@ RenderQualityProfile makeRenderQualityProfile(const RenderQualityTier tier) {
   case RenderQualityTier::Prototype:
     profile.surface_fidelity.require_energy_conserving_bsdf = false;
     profile.surface_fidelity.require_tangent_basis_policy = false;
+    profile.surface_fidelity.require_physical_texel_density = false;
+    profile.surface_fidelity.require_height_normal_coupling = false;
+    profile.surface_fidelity.require_frequency_breakup = false;
     profile.surface_fidelity.minimum_area_light_radius = 0.06f;
     profile.materials.require_normal = false;
     profile.materials.require_roughness_or_orm = false;
@@ -130,12 +133,25 @@ RenderQualityProfile makeRenderQualityProfile(const RenderQualityTier tier) {
                        .softness = 0.42f};
     profile.environment.ambient_strength = 0.28f;
     profile.post.bloom_intensity = 0.0f;
+    profile.occlusion = {.enabled = true,
+                         .mode = RendererOcclusionMode::SurfaceCavity,
+                         .radius = 0.62f,
+                         .thickness = 0.12f,
+                         .strength = 0.18f,
+                         .sample_count = 4u,
+                         .contact_hardening = 0.12f};
+    profile.surface_scale = {.physical_texel_density = 128.0f,
+                             .macro_frequency_breakup = 0.12f,
+                             .micro_frequency_breakup = 0.16f,
+                             .height_normal_coupling = 0.22f,
+                             .roughness_height_coupling = 0.18f};
     profile.fog.enabled = true;
     profile.fog.density = 0.08f;
     profile.reflections.mode = ReflectionProbeMode::Disabled;
     break;
   case RenderQualityTier::Production:
     profile.surface_fidelity.minimum_area_light_radius = 0.18f;
+    profile.surface_fidelity.minimum_physical_texel_density = 384.0f;
     profile.shadows = {.technique = ShadowTechnique::CascadedDirectional,
                        .directional_cascades = 3u,
                        .map_size = 2048u,
@@ -148,6 +164,23 @@ RenderQualityProfile makeRenderQualityProfile(const RenderQualityTier tier) {
     profile.post.tone_mapper = ToneMapper::PbrNeutral;
     profile.post.bloom_threshold = 2.2f;
     profile.post.bloom_intensity = 0.12f;
+    profile.occlusion = {.enabled = true,
+                         .mode = RendererOcclusionMode::Hybrid,
+                         .radius = 1.12f,
+                         .thickness = 0.18f,
+                         .strength = 0.38f,
+                         .sample_count = 12u,
+                         .contact_hardening = 0.30f};
+    profile.presentation = {.focal_length_mm = 46.0f,
+                            .camera_height_m = 1.55f,
+                            .scale_reference_m = 1.80f,
+                            .composition_weight = 0.60f,
+                            .vignette_strength = 0.08f};
+    profile.surface_scale = {.physical_texel_density = 512.0f,
+                             .macro_frequency_breakup = 0.34f,
+                             .micro_frequency_breakup = 0.48f,
+                             .height_normal_coupling = 0.84f,
+                             .roughness_height_coupling = 0.58f};
     profile.fog.enabled = true;
     profile.fog.volumetric = false;
     profile.fog.start = 7.0f;
@@ -161,6 +194,7 @@ RenderQualityProfile makeRenderQualityProfile(const RenderQualityTier tier) {
     break;
   case RenderQualityTier::Cinematic:
     profile.surface_fidelity.minimum_area_light_radius = 0.36f;
+    profile.surface_fidelity.minimum_physical_texel_density = 768.0f;
     profile.textures.minimum_dimension = 1024u;
     profile.materials.require_occlusion = true;
     profile.shadows = {.technique = ShadowTechnique::CascadedDirectional,
@@ -178,6 +212,23 @@ RenderQualityProfile makeRenderQualityProfile(const RenderQualityTier tier) {
     profile.post.contrast = 1.05f;
     profile.post.bloom_threshold = 1.9f;
     profile.post.bloom_intensity = 0.22f;
+    profile.occlusion = {.enabled = true,
+                         .mode = RendererOcclusionMode::Hybrid,
+                         .radius = 1.45f,
+                         .thickness = 0.24f,
+                         .strength = 0.48f,
+                         .sample_count = 20u,
+                         .contact_hardening = 0.42f};
+    profile.presentation = {.focal_length_mm = 54.0f,
+                            .camera_height_m = 1.50f,
+                            .scale_reference_m = 1.80f,
+                            .composition_weight = 0.66f,
+                            .vignette_strength = 0.12f};
+    profile.surface_scale = {.physical_texel_density = 1024.0f,
+                             .macro_frequency_breakup = 0.46f,
+                             .micro_frequency_breakup = 0.62f,
+                             .height_normal_coupling = 0.92f,
+                             .roughness_height_coupling = 0.72f};
     profile.fog.enabled = true;
     profile.fog.volumetric = true;
     profile.fog.start = 5.5f;
@@ -229,11 +280,33 @@ void applyRenderQualityProfile(RendererSettings &settings, const RenderQualityPr
   settings.reflections.fallback_intensity = profile.reflections.mode == ReflectionProbeMode::Disabled
                                                 ? 0.0f
                                                 : profile.environment.ambient_strength;
+  settings.occlusion.enabled = profile.occlusion.enabled;
+  settings.occlusion.mode = profile.occlusion.mode;
+  settings.occlusion.radius = profile.occlusion.radius;
+  settings.occlusion.thickness = profile.occlusion.thickness;
+  settings.occlusion.strength = profile.occlusion.strength;
+  settings.occlusion.sample_count = profile.occlusion.sample_count;
+  settings.occlusion.contact_hardening = profile.occlusion.contact_hardening;
+  settings.occlusion.micro_shadowing = profile.surface_scale.micro_frequency_breakup * 0.36f;
+  settings.presentation.focal_length_mm = profile.presentation.focal_length_mm;
+  settings.presentation.camera_height_m = profile.presentation.camera_height_m;
+  settings.presentation.scale_reference_m = profile.presentation.scale_reference_m;
+  settings.presentation.composition_weight = profile.presentation.composition_weight;
+  settings.presentation.vignette_strength = profile.presentation.vignette_strength;
+  settings.surface_scale.physical_texel_density = profile.surface_scale.physical_texel_density;
+  settings.surface_scale.macro_frequency_breakup = profile.surface_scale.macro_frequency_breakup;
+  settings.surface_scale.micro_frequency_breakup = profile.surface_scale.micro_frequency_breakup;
+  settings.surface_scale.height_normal_coupling = profile.surface_scale.height_normal_coupling;
+  settings.surface_scale.roughness_height_coupling =
+      profile.surface_scale.roughness_height_coupling;
   settings.grounding.enabled = profile.shadows.technique != ShadowTechnique::Disabled;
   settings.grounding.contact_shadows = profile.shadows.technique != ShadowTechnique::Disabled;
   settings.grounding.auto_contact_shadows = profile.shadows.technique != ShadowTechnique::Disabled;
   settings.grounding.contact_shadow_strength = profile.shadows.softness;
   settings.grounding.contact_shadow_receiver_bias = profile.shadows.receiver_bias;
+  settings.grounding.surface_occlusion_strength = profile.occlusion.strength;
+  settings.grounding.surface_occlusion_mix = 0.38f + profile.occlusion.contact_hardening * 0.22f;
+  settings.grounding.surface_occlusion_height = profile.occlusion.radius;
   settings.atmosphere.enabled = profile.fog.enabled;
   settings.atmosphere.fog_color = profile.fog.color;
   settings.atmosphere.fog_start = profile.fog.start;
@@ -353,6 +426,38 @@ MaterialQualityReport evaluateMaterialQuality(const MaterialAsset &asset,
   if (profile.surface_fidelity.require_artist_preview && asset.preview.empty()) {
     addIssue(report, RenderQualityIssueSeverity::Info, "surface-fidelity",
              "Material has no artist-facing preview rig metadata.");
+  }
+  const auto param_or = [&asset](const std::string_view key, const float fallback) {
+    const auto found = asset.params.find(std::string(key));
+    return found == asset.params.end() ? fallback : found->second;
+  };
+  const float texel_density =
+      param_or("physical_texel_density", param_or("texel_density", 0.0f));
+  if (lit && profile.surface_fidelity.require_physical_texel_density &&
+      texel_density < profile.surface_fidelity.minimum_physical_texel_density &&
+      !assetHasAnyMetadata(asset, {"physical_texel_density", "texel_density", "meters_per_texel"})) {
+    addIssue(report, RenderQualityIssueSeverity::Warning, "surface-scale",
+             "Material does not declare a physical texel-density policy for scale-readable detail.");
+  }
+  if (lit && displacement_like && profile.surface_fidelity.require_height_normal_coupling) {
+    const float height_normal = param_or("height_normal_coupling", 0.0f);
+    const float roughness_height = param_or("roughness_height_coupling", 0.0f);
+    if ((height_normal <= 0.0f || roughness_height <= 0.0f) &&
+        !assetHasAnyMetadata(asset, {"height_normal_coupling", "roughness_height_coupling",
+                                    "height_roughness_response"})) {
+      addIssue(report, RenderQualityIssueSeverity::Warning, "surface-stack",
+               "Height, normal, and roughness response are not authored as a coupled surface stack.");
+    }
+  }
+  if (lit && profile.surface_fidelity.require_frequency_breakup) {
+    const float macro_breakup = param_or("macro_frequency_breakup", 0.0f);
+    const float micro_breakup = param_or("micro_frequency_breakup", 0.0f);
+    if ((macro_breakup <= 0.0f || micro_breakup <= 0.0f) &&
+        !assetHasAnyMetadata(asset, {"macro_frequency_breakup", "micro_frequency_breakup",
+                                    "surface_frequency_breakup"})) {
+      addIssue(report, RenderQualityIssueSeverity::Info, "surface-stack",
+               "Material has no macro/micro frequency breakup metadata for non-repeating detail.");
+    }
   }
 
   for (const std::string &diagnostic : textures.diagnostics) {

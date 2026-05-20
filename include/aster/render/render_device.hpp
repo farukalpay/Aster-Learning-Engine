@@ -196,6 +196,26 @@ struct GroundingSettings {
   float contact_shadow_detail_scale = 9.0f;
 };
 
+enum class RendererOcclusionMode : std::uint32_t {
+  Disabled,
+  SurfaceCavity,
+  HorizonSearch,
+  Hybrid,
+};
+
+struct RendererOcclusionSettings {
+  bool enabled = false;
+  RendererOcclusionMode mode = RendererOcclusionMode::Hybrid;
+  float radius = 1.10f;
+  float thickness = 0.18f;
+  float strength = 0.36f;
+  float distance_falloff = 1.60f;
+  std::uint32_t sample_count = 12u;
+  float cavity_bias = 0.045f;
+  float contact_hardening = 0.28f;
+  float micro_shadowing = 0.18f;
+};
+
 struct AtmosphereSettings {
   bool enabled = false;
   Vec3 fog_color{0.12f, 0.14f, 0.15f};
@@ -261,6 +281,24 @@ struct RendererReflectionSettings {
   float fallback_intensity = 1.0f;
 };
 
+struct PresentationLensSettings {
+  float focal_length_mm = 46.0f;
+  float sensor_width_mm = 36.0f;
+  float camera_height_m = 1.55f;
+  float scale_reference_m = 1.80f;
+  float composition_weight = 0.58f;
+  float vignette_strength = 0.08f;
+  float shoulder_strength = 0.16f;
+};
+
+struct SurfaceScaleSettings {
+  float physical_texel_density = 512.0f;
+  float macro_frequency_breakup = 0.32f;
+  float micro_frequency_breakup = 0.46f;
+  float height_normal_coupling = 0.82f;
+  float roughness_height_coupling = 0.56f;
+};
+
 struct RendererForensicsSettings {
   bool detailed_traces = true;
   bool capture_payloads = true;
@@ -291,12 +329,15 @@ struct RendererSettings {
   RenderLightPolicy light_policy{};
   ClusteredLightPolicy clustered_lighting{};
   GroundingSettings grounding{};
+  RendererOcclusionSettings occlusion{};
   AtmosphereSettings atmosphere{};
   GraphicsPipelineState pipeline{};
   LineOfSightFadeSettings line_of_sight_fade{};
   RendererPostSettings post{};
   RendererShadowSettings shadows{};
   RendererReflectionSettings reflections{};
+  PresentationLensSettings presentation{};
+  SurfaceScaleSettings surface_scale{};
   RendererForensicsSettings forensics{};
   RenderStyleProfile style{};
   MaterialDebugView material_debug_view = MaterialDebugView::Beauty;
@@ -367,6 +408,8 @@ enum class RendererDebugView : std::uint32_t {
   Overdraw,
   LightClusters,
   ShadowMask,
+  SurfaceAttributes,
+  SurfaceOcclusion,
   Fog,
   ReflectionProbe,
 };
@@ -534,11 +577,26 @@ struct ObjectRenderFateTrace {
   std::uint64_t contribution_hash = 0u;
 };
 
+struct SurfacePresentationTrace {
+  std::string object_name;
+  std::size_t object_index = 0u;
+  float physical_texel_density = 0.0f;
+  float height_normal_coupling = 0.0f;
+  float roughness_height_coupling = 0.0f;
+  float cavity_strength = 0.0f;
+  float contact_hardening = 0.0f;
+  float scale_reference_m = 0.0f;
+  bool surface_occlusion_enabled = false;
+  bool contact_shadow_receiver = false;
+  std::uint64_t trace_hash = 0u;
+};
+
 enum class FrameDebuggerTimelineEventKind : std::uint32_t {
   Visibility,
   MaterialBinding,
   LightCluster,
   Shadow,
+  SurfaceOcclusion,
   Fog,
   Probe,
   PassOutput,
@@ -637,6 +695,7 @@ enum class FrameDiagnosticKind : std::uint32_t {
   AssetProvenanceWarning,
   TextureRoleDegraded,
   MeshAttributeDegraded,
+  SurfacePresentationWarning,
 };
 
 struct FrameDiagnosticEvent {
@@ -668,6 +727,7 @@ struct FrameForensics {
   std::vector<MeshVisibilityTrace> mesh_visibility;
   std::vector<ObjectClusterMembershipTrace> object_clusters;
   std::vector<ObjectRenderFateTrace> object_fates;
+  std::vector<SurfacePresentationTrace> surface_traces;
   std::vector<FrameDebuggerTimelineEvent> debug_timeline;
   std::vector<FrameResourceProvenance> resource_provenance;
   std::vector<FrameRegressionGalleryEntry> regression_gallery;

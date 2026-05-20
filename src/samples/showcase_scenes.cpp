@@ -274,24 +274,44 @@ Scene makeIndustrialPipeScene() {
   const AsterPipeAsset pipe_asset = makeAsterPipeAsset({.asset_id = "asset_graph.pipe_lab.rusted_pipe",
                                                         .length = 5.2f,
                                                         .outer_radius = 0.54f,
-                                                        .wall_thickness = 0.075f,
+                                                        .wall_thickness = 0.090f,
                                                         .radial_segments = 96,
                                                         .length_segments = 24,
+                                                        .include_longitudinal_seam = false,
+                                                        .include_flanges = false,
+                                                        .include_bolts = false,
                                                         .bolt_count_per_flange = 10,
-                                                        .rust_strength = 0.86f,
-                                                        .wetness_strength = 0.24f});
+                                                        .rust_strength = 0.98f,
+                                                        .wetness_strength = 0.18f,
+                                                        .pitting_density = 1.32f,
+                                                        .pitting_depth = 0.0048f,
+                                                        .oxide_layering = 0.92f,
+                                                        .cavity_grime_strength = 0.84f,
+                                                        .edge_polish_strength = 0.36f,
+                                                        .weld_heat_tint_strength = 0.48f,
+                                                        .axial_scratch_strength = 0.66f,
+                                                        .rust_bloom_strength = 0.92f,
+                                                        .black_scab_strength = 0.78f,
+                                                        .paint_remnant_strength = 0.06f,
+                                                        .weld_slag_strength = 0.88f,
+                                                        .rim_soot_strength = 0.92f,
+                                                        .attachment_clearance = 0.0065f,
+                                                        .weld_contact_skirt_width = 0.040f,
+                                                        .seam_inset_depth = 0.004f,
+                                                        .rim_normal_feather = 0.78f,
+                                                        .wet_streak_count = 7});
   for (const AsterPipeAssetPart &part : pipe_asset.parts) {
     RenderObject object;
     object.name = "runtime rusted pipe " + part.name;
     object.primitive = MeshPrimitive::Box;
     object.custom_mesh = std::make_shared<const CpuMesh>(part.mesh);
-    object.transform.position = {0.0f, 0.62f, 0.0f};
+    object.transform.position = {0.0f, 0.57f, 0.0f};
     object.transform.rotation = quatFromEulerXyz({0.0f, 0.0f, -0.045f});
     object.material = makeAsterPipeMaterial(part.material_slot);
     object.material_asset_id = "asset_graph.pipe_lab.rusted_pipe/" + part.material_slot;
     object.casts_contact_shadow = true;
-    object.contact_shadow_strength = part.material_slot == "pipe.weld" ? 0.36f : 0.44f;
-    object.contact_shadow_radius_scale = part.material_slot == "pipe.body" ? 1.35f : 0.92f;
+    object.contact_shadow_strength = part.material_slot == "pipe.weld" ? 0.52f : 0.64f;
+    object.contact_shadow_radius_scale = part.material_slot == "pipe.body" ? 1.55f : 1.08f;
     scene.objects().push_back(std::move(object));
   }
 

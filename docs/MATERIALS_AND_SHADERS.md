@@ -25,14 +25,14 @@ Single-material validation is available through:
 ```bash
 cargo run -p aster_assetc --bin aster_materialc -- inspect --input path/to/material.astermat --asset-root path/to/assets
 cargo run -p aster_assetc --bin aster_materialc -- package --input path/to/material.astermat --asset-root path/to/assets --output /tmp/material_package
-cargo run -p aster_assetc -- material-inspect --input path/to/material.astermat --asset-root path/to/assets
+cargo run -p aster_assetc --bin aster_assetc -- material-inspect --input path/to/material.astermat --asset-root path/to/assets
 ```
 
 Single-graph validation and package output is available through:
 
 ```bash
-cargo run -p aster_assetc -- graph-inspect --input path/to/material.astergraph
-cargo run -p aster_assetc -- graph-package --input path/to/material.astergraph --output /tmp/asset_graph_package
+cargo run -p aster_assetc --bin aster_assetc -- graph-inspect --input path/to/material.astergraph
+cargo run -p aster_assetc --bin aster_assetc -- graph-package --input path/to/material.astergraph --output /tmp/asset_graph_package
 ```
 
 Single-texture validation and package output is available through:
@@ -85,8 +85,10 @@ Feature presence is not treated as visual quality by itself. `RenderQualityProfi
 now carries a surface-fidelity policy that asks whether a LitPBR material can
 survive the conditions that players actually see: energy-conserving BSDF intent,
 environment/reflection response, nonzero area-light radius, shadow filtering,
-tangent-space policy for normal maps, temporal stability budget for height or
-micro-detail, and artist-facing preview rig metadata.
+tangent-space policy for normal maps, physical texel-density metadata,
+height-normal coupling, roughness-height coupling, macro/micro frequency
+breakup, temporal stability budget for height or micro-detail, and
+artist-facing preview rig metadata.
 
 `evaluateMaterialQuality` reports those checks under the `surface-fidelity`
 category. Material Lab separates them from generic cook issues so an artist sees
@@ -97,11 +99,13 @@ compression, descriptor, and provenance data, but those details are support
 evidence rather than the definition of quality.
 
 Applying a production or cinematic `RenderQualityProfile` also gives preview and
-runtime light rigs a minimum source radius, so area-light response is not only a
-label in the material report. Texture sampling keeps full mip-chain checks and
-runtime anisotropy policy in the texture/runtime path; normal-mapped materials
-must declare how their tangent basis is authored or generated before the audit
-can be considered quiet.
+runtime light rigs a minimum source radius, surface occlusion/contact-hardening
+settings, lens/composition defaults, and physical texel-density floors, so
+area-light response and scale reading are not only labels in the material
+report. Texture sampling keeps full mip-chain checks and runtime anisotropy
+policy in the texture/runtime path; normal-mapped materials must declare how
+their tangent basis is authored or generated before the audit can be considered
+quiet.
 
 ## Hero Material Suite
 
@@ -118,12 +122,13 @@ with the intended surface. The canonical suite is:
   `showcases/material_lab/procedural_wet_decal_soot.astergraph`.
 - Biological surface: `showcases/primate_lab/cercopithecidae.astergraph`.
 
-Each material in that suite must carry albedo, normal, ORM, height, wetness, and
-roughness-response evidence; a named debug view; the selected shader variant; a
-fallback or no-fallback reason; mip-chain and anisotropy behavior; and a
-software/Metal/D3D12 backend-diff record. A material that only validates roles
-and color spaces but cannot explain the visible response is not production
-ready.
+Each material in that suite must carry albedo, normal, ORM, height, wetness,
+roughness-response evidence, physical texel density, height/normal/roughness
+coupling, macro/micro frequency breakup, and cavity/edge response proof; a named
+debug view; the selected shader variant; a fallback or no-fallback reason;
+mip-chain and anisotropy behavior; and a software/Metal/D3D12 backend-diff
+record. A material that only validates roles and color spaces but cannot explain
+the visible response is not production ready.
 
 Cooked material records include texture source hash, cooked hash, source format,
 runtime format, dimensions, mip count, byte cost, color-space decision,
@@ -155,9 +160,10 @@ failure came from a missing UV channel, generated or missing tangent basis,
 incomplete mip chain, wrong color space, fallback texture, unknown texture role,
 backend sampling degrade, unsupported procedural node, or procedural reference
 path. Debug view names exist for base color, normal, roughness, metallic, AO,
-emissive, UV, mip level, overdraw, light clusters, shadow mask, fog, and
-reflection probes. Software frame captures now carry RGBA payloads plus content
-hashes for the final frame and reference shadow/fog/probe resources. Mesh
+emissive, UV, mip level, overdraw, light clusters, surface attributes, surface
+occlusion, shadow mask, fog, and reflection probes. Software frame captures now
+carry RGBA payloads plus content hashes for the final frame and reference
+surface-attribute/surface-occlusion/shadow/fog/probe resources. Mesh
 visibility traces and object cluster membership traces sit next to the material
 binding and asset traces so a debugger can connect material, visibility,
 lighting, and asset-production decisions.

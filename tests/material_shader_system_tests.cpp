@@ -112,6 +112,11 @@ material TestWetRock {
     wetness_strength: 0.72
     micro_normal_strength: 0.40
     height_shading: 0.22
+    physical_texel_density: 768.0
+    height_normal_coupling: 0.82
+    roughness_height_coupling: 0.58
+    macro_frequency_breakup: 0.34
+    micro_frequency_breakup: 0.48
   }
 
   features {

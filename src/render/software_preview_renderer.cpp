@@ -4,6 +4,7 @@
 #include "aster/render/software_preview_renderer.hpp"
 
 #include "aster/math/color.hpp"
+#include "aster/material/procedural_surface.hpp"
 
 #include <algorithm>
 #include <array>
@@ -418,38 +419,145 @@ Vec3 courseCellAlbedo(const Hit &hit) {
 }
 
 Vec3 corrodedMetalAlbedo(const Hit &hit) {
+  const AsterPipeSurfaceSignals signals =
+      sampleAsterPipeSurface({.position = hit.position,
+                              .normal = hit.normal,
+                              .uv = hit.uv,
+                              .detail_scale = hit.material.detail_scale},
+                             hit.material.procedural, hit.material.edge_wear,
+                             hit.material.pattern_depth);
   const float detail = std::max(hit.material.detail_scale, 0.001f);
-  const float broad = projectedFbm(hit.position, hit.normal, detail * 0.16f, 307.0f);
-  const float fine = projectedFbm(hit.position + hit.normal * 0.05f, hit.normal, detail * 0.74f,
-                                  331.0f);
-  const float pitting = ridge(projectedFbm(hit.position, hit.normal, detail * 1.38f, 359.0f));
-  const float upward = smoothstep(0.14f, 0.80f, hit.normal.y);
-  const float oxide =
-      smoothstep(0.42f, 0.95f,
-                 broad * 0.48f + pitting * 0.34f + upward * hit.material.pattern_depth * 0.42f);
-  const float dark_scale = 0.60f + fine * 0.22f;
-  const Vec3 cool_steel = hit.material.base_color * Vec3{0.82f, 0.88f, 0.92f} * dark_scale;
+  const Vec3 n = normalize(hit.normal);
+  const float lower = 1.0f - smoothstep(-0.55f, 0.42f, n.y);
+  const float rim = smoothstep(2.44f, 2.60f, std::abs(hit.position.x));
+  const float weld = std::max(1.0f - smoothstep(0.035f, 0.34f, std::abs(hit.position.x + 1.55f)),
+                              1.0f - smoothstep(0.035f, 0.34f, std::abs(hit.position.x - 1.42f)));
+  const Vec3 warp{projectedFbm(hit.position + Vec3{0.37f, 0.0f, -0.11f}, hit.normal,
+                               detail * 0.090f, 307.0f) -
+                      0.5f,
+                  projectedFbm(hit.position + Vec3{-0.17f, 0.29f, 0.0f}, hit.normal,
+                               detail * 0.073f, 311.0f) -
+                      0.5f,
+                  projectedFbm(hit.position + Vec3{0.0f, -0.19f, 0.41f}, hit.normal,
+                               detail * 0.081f, 313.0f) -
+                      0.5f};
+  const Vec3 layered_position = hit.position + warp * 0.34f + hit.normal * (weld * 0.025f);
+  const float broad = projectedFbm(layered_position, hit.normal, detail * 0.060f, 307.0f);
+  const float medium =
+      projectedFbm(layered_position + hit.normal * 0.05f, hit.normal, detail * 0.42f, 331.0f);
+  const float fine = ridge(projectedFbm(hit.position, hit.normal, detail * 1.35f, 359.0f));
+  const float flake = smoothstep(
+      0.55f, 0.92f,
+      ridge(projectedFbm(layered_position + Vec3{0.13f, -0.17f, 0.29f}, hit.normal,
+                         detail * 0.28f, 887.0f)) *
+              0.28f +
+          medium * 0.22f + signals.pit_edge * 0.08f);
+  const float soot_cloud =
+      projectedFbm(layered_position + Vec3{-0.41f, 0.22f, 0.17f}, hit.normal, detail * 0.115f,
+                   811.0f);
+  const float pitting = smoothstep(0.58f, 0.96f, signals.pit * 0.46f + fine * 0.08f);
+  const float upward = smoothstep(0.14f, 0.80f, n.y);
+  const float oxide = smoothstep(0.20f, 0.74f,
+                                 broad * 0.36f + medium * 0.30f + lower * 0.16f +
+                                     weld * 0.12f + rim * 0.14f +
+                                     hit.material.pattern_depth * upward * 0.10f +
+                                     signals.rust_bloom * 0.42f +
+                                     signals.orange_rust * 0.16f + flake * 0.04f);
+  const float dark_scale = 0.38f + medium * 0.24f - lower * 0.08f - weld * 0.04f;
+  const Vec3 cool_steel = hit.material.base_color * Vec3{0.66f, 0.74f, 0.78f} * dark_scale;
   const Vec3 exposed_edge =
-      hit.material.base_color * Vec3{1.18f, 1.16f, 1.06f} * (0.66f + pitting * 0.16f);
-  const Vec3 orange_rust{0.42f, 0.15f, 0.045f};
-  const Vec3 black_rust{0.085f, 0.060f, 0.043f};
-  Vec3 color = mixVec(cool_steel, mixVec(black_rust, orange_rust, fine), oxide);
-  color = mixVec(color, exposed_edge, hit.material.edge_wear * smoothstep(0.72f, 0.98f, pitting));
+      hit.material.base_color * Vec3{1.34f, 1.28f, 1.10f} * (0.54f + pitting * 0.20f);
+  const Vec3 orange_rust{0.45f, 0.155f, 0.040f};
+  const Vec3 dusty_rust{0.54f, 0.245f, 0.075f};
+  const Vec3 black_rust{0.040f, 0.035f, 0.030f};
+  const Vec3 cool_oxide{0.072f, 0.095f, 0.100f};
+  const Vec3 aged_paint{0.34f, 0.325f, 0.275f};
+  const float gray_stain =
+      projectedFbm(layered_position + Vec3{-0.19f, 0.0f, 0.23f}, hit.normal, detail * 0.18f,
+                   733.0f);
+  const float rust_tone =
+      std::clamp(medium * 0.56f + broad * 0.28f + signals.orange_rust * 0.10f, 0.0f, 1.0f);
+  Vec3 rust_layer = mixVec(black_rust, orange_rust, rust_tone);
+  rust_layer = mixVec(rust_layer, dusty_rust,
+                      smoothstep(0.36f, 0.88f, broad + medium + signals.orange_rust) * 0.34f);
+  Vec3 color = mixVec(cool_steel, rust_layer,
+                      saturate(oxide * 0.58f + signals.rust_bloom * 0.28f +
+                               signals.orange_rust * 0.10f));
+  const float dark_mottle = smoothstep(
+      0.25f, 0.72f,
+      soot_cloud * 0.50f + gray_stain * 0.36f + flake * 0.04f +
+          signals.black_oxide * 0.22f + signals.black_scab * 0.46f);
+  const float gray_oxide = smoothstep(0.18f, 0.72f,
+                                      gray_stain * 0.42f + (1.0f - medium) * 0.20f +
+                                          lower * 0.18f + weld * 0.20f + rim * 0.20f +
+                                          signals.black_oxide * 0.24f +
+                                          signals.weld_scorch * 0.20f +
+                                          dark_mottle * 0.15f);
+  const float cavity = saturate(signals.cavity_grime * 0.34f + weld * 0.35f + rim * 0.34f +
+                                lower * 0.25f + pitting * 0.10f + dark_mottle * 0.20f +
+                                signals.rim_soot * 0.26f + signals.weld_scorch * 0.20f);
+  color = mixVec(color, aged_paint, signals.paint_remnant * 0.16f * (1.0f - dark_mottle));
+  color = mixVec(color, cool_oxide, gray_oxide * 0.78f);
+  color = mixVec(color, black_rust,
+                 cavity * 0.28f + dark_mottle * 0.40f + signals.black_scab * 0.42f +
+                     signals.rim_soot * 0.34f + signals.weld_scorch * 0.26f);
+  const float pinhole = smoothstep(0.82f, 0.98f, signals.pit + signals.pit_edge * 0.50f);
+  color = mixVec(color, black_rust, pinhole * 0.10f);
+  const float scratch_polish =
+      smoothstep(0.68f, 0.96f, signals.axial_scratch * (0.64f + medium * 0.36f)) *
+      (1.0f - saturate(cavity * 0.55f + signals.black_scab * 0.28f));
+  color = mixVec(color, exposed_edge * Vec3{0.92f, 0.96f, 1.02f},
+                 scratch_polish * 0.18f + signals.edge_polish * 0.10f);
+  color = mixVec(color, exposed_edge,
+                 signals.edge_polish * 0.16f + hit.material.edge_wear *
+                                                   smoothstep(0.72f, 0.98f, pitting) * 0.18f);
+  color = mixVec(color, color * Vec3{0.60f, 0.66f, 0.72f} + Vec3{0.010f, 0.012f, 0.014f},
+                 signals.wet_film * 0.12f);
+  const float pepper =
+      ridge(projectedFbm(layered_position + Vec3{0.21f, 0.31f, -0.14f}, hit.normal,
+                         detail * 2.25f, 941.0f));
+  color *= 0.76f + medium * 0.13f + pepper * 0.020f - dark_mottle * 0.10f - cavity * 0.04f;
   return clamp(color, 0.0f, 4.0f);
 }
 
 Vec3 weldBeadAlbedo(const Hit &hit) {
+  const AsterPipeSurfaceSignals signals =
+      sampleAsterPipeSurface({.position = hit.position,
+                              .normal = hit.normal,
+                              .uv = hit.uv,
+                              .detail_scale = hit.material.detail_scale},
+                             hit.material.procedural, hit.material.edge_wear,
+                             hit.material.pattern_depth);
   const float bead_ripple =
       0.5f + 0.5f * std::sin(hit.uv.y * std::max(hit.material.pattern_scale.y, 0.001f) * kTau +
                               projectedFbm(hit.position, hit.normal, hit.material.detail_scale,
                                            401.0f) *
                                   3.8f);
-  const float heat_band = smoothstep(0.05f, 0.58f, ridge(hit.uv.x));
-  const Vec3 base = hit.material.base_color * (0.76f + bead_ripple * 0.28f);
-  const Vec3 straw{0.72f, 0.38f, 0.12f};
-  const Vec3 blue_heat{0.11f, 0.16f, 0.30f};
-  Vec3 color = mixVec(base, straw, heat_band * 0.24f);
-  color = mixVec(color, blue_heat, heat_band * (1.0f - bead_ripple) * 0.16f);
+  const float heat_band = saturate(smoothstep(0.05f, 0.58f, ridge(hit.uv.x)) + signals.heat_tint);
+  const float contact_grime = 1.0f - smoothstep(0.18f, 0.42f, ridge(hit.uv.x));
+  const float slag = ridge(projectedFbm(hit.position + hit.normal * 0.035f, hit.normal,
+                                        hit.material.detail_scale * 1.14f, 413.0f));
+  const float center = 1.0f - smoothstep(0.0f, 0.48f, std::abs(hit.uv.x - 0.50f));
+  const Vec3 weld_metal = Vec3{0.235f, 0.215f, 0.180f} * (0.70f + bead_ripple * 0.20f);
+  const Vec3 polished_lip{0.36f, 0.330f, 0.260f};
+  const Vec3 straw{0.66f, 0.34f, 0.10f};
+  const Vec3 blue_heat{0.08f, 0.13f, 0.25f};
+  const Vec3 soot{0.040f, 0.034f, 0.030f};
+  const Vec3 rust_dust{0.40f, 0.135f, 0.038f};
+  Vec3 color = mixVec(weld_metal, polished_lip, center * (0.055f + bead_ripple * 0.045f));
+  color *= 0.82f + bead_ripple * 0.12f;
+  color = mixVec(color, straw, heat_band * 0.16f);
+  color = mixVec(color, blue_heat, heat_band * (1.0f - bead_ripple) * 0.20f);
+  color = mixVec(color, soot,
+                 signals.cavity_grime * 0.30f + contact_grime * 0.54f +
+                     signals.weld_scorch * 0.34f);
+  color = mixVec(color, rust_dust,
+                 contact_grime * (0.26f + signals.orange_rust * 0.20f) +
+                     signals.weld_slag * 0.16f);
+  color = mixVec(color, color * 0.52f + Vec3{0.050f, 0.044f, 0.036f},
+                 slag * 0.18f + signals.weld_slag * 0.22f);
+  color = mixVec(color, soot, smoothstep(0.70f, 0.96f, slag + signals.black_scab * 0.45f) * 0.28f);
+  color = mixVec(color, color * Vec3{0.55f, 0.62f, 0.70f}, signals.wet_film * 0.18f);
   return clamp(color, 0.0f, 4.0f);
 }
 
@@ -531,13 +639,79 @@ Vec3 previewAlbedo(const Hit &hit) {
 }
 
 float effectiveRoughness(const Hit &hit) {
+  float roughness = std::clamp(hit.material.roughness, 0.045f, 1.0f);
+  const MaterialSurfaceProfile profile = resolveMaterialSurfaceProfile(hit.material);
+  const AsterPipeSurfaceSignals signals =
+      profile == MaterialSurfaceProfile::CorrodedMetal || profile == MaterialSurfaceProfile::WeldBead
+          ? sampleAsterPipeSurface({.position = hit.position,
+                                    .normal = hit.normal,
+                                    .uv = hit.uv,
+                                    .detail_scale = hit.material.detail_scale},
+                                   hit.material.procedural, hit.material.edge_wear,
+                                   hit.material.pattern_depth)
+          : AsterPipeSurfaceSignals{};
   const float variation = hit.material.procedural.roughness_variation;
-  if (variation <= 0.0001f) {
-    return std::clamp(hit.material.roughness, 0.045f, 1.0f);
+  if (variation > 0.0001f) {
+    const float noise = projectedFbm(hit.position, hit.normal,
+                                     std::max(hit.material.detail_scale, 1.0f), 503.0f);
+    roughness += (noise - 0.5f) * variation * 0.24f;
   }
-  const float noise = projectedFbm(hit.position, hit.normal, std::max(hit.material.detail_scale, 1.0f),
-                                   503.0f);
-  return std::clamp(hit.material.roughness + (noise - 0.5f) * variation * 0.24f, 0.045f, 1.0f);
+  if (profile == MaterialSurfaceProfile::CorrodedMetal || profile == MaterialSurfaceProfile::WeldBead) {
+    const float height_coupling =
+        std::clamp(hit.material.procedural.roughness_height_coupling, 0.0f, 1.50f);
+    const float rust_plate = saturate(signals.rust_bloom * 0.54f + signals.orange_rust * 0.24f +
+                                      signals.black_scab * 0.42f + signals.cavity_grime * 0.24f);
+    roughness = std::lerp(roughness, 0.97f, rust_plate * 0.66f);
+    roughness += signals.pit * (0.12f + height_coupling * 0.06f) +
+                 signals.weld_slag * (0.08f + height_coupling * 0.04f);
+    roughness = std::lerp(roughness, 0.99f, signals.height * height_coupling * 0.18f);
+    roughness = std::lerp(roughness, 0.58f, signals.paint_remnant * 0.20f);
+    roughness = std::lerp(roughness, 0.46f, signals.axial_scratch * 0.16f);
+  }
+  roughness = std::lerp(roughness, std::min(roughness, 0.17f), signals.wet_film * 0.72f);
+  roughness = std::lerp(roughness, 0.25f, signals.edge_polish * 0.38f);
+  return std::clamp(roughness, 0.045f, 1.0f);
+}
+
+float effectiveMetallic(const Hit &hit) {
+  float metallic = std::clamp(hit.material.metallic, 0.0f, 1.0f);
+  const MaterialSurfaceProfile profile = resolveMaterialSurfaceProfile(hit.material);
+  if (profile == MaterialSurfaceProfile::CorrodedMetal || profile == MaterialSurfaceProfile::WeldBead) {
+    const AsterPipeSurfaceSignals signals =
+        sampleAsterPipeSurface({.position = hit.position,
+                                .normal = hit.normal,
+                                .uv = hit.uv,
+                                .detail_scale = hit.material.detail_scale},
+                               hit.material.procedural, hit.material.edge_wear,
+                               hit.material.pattern_depth);
+    metallic += signals.edge_polish * 0.08f;
+    const float rust_plate = saturate(signals.rust_bloom * 0.42f + signals.black_scab * 0.58f +
+                                      signals.cavity_grime * 0.28f + signals.pit * 0.18f);
+    metallic = std::lerp(metallic, 0.035f, rust_plate * 0.74f);
+    metallic = std::lerp(metallic, 0.78f, signals.edge_polish * 0.28f);
+    metallic = std::lerp(metallic, 0.62f, signals.axial_scratch * 0.12f);
+    metallic -= signals.wet_film * 0.04f;
+  }
+  return std::clamp(metallic, 0.0f, 1.0f);
+}
+
+float effectiveAmbientOcclusion(const Hit &hit) {
+  float ao = std::clamp(hit.material.ambient_occlusion, 0.0f, 1.0f);
+  const MaterialSurfaceProfile profile = resolveMaterialSurfaceProfile(hit.material);
+  if (profile == MaterialSurfaceProfile::CorrodedMetal || profile == MaterialSurfaceProfile::WeldBead) {
+    const AsterPipeSurfaceSignals signals =
+        sampleAsterPipeSurface({.position = hit.position,
+                                .normal = hit.normal,
+                                .uv = hit.uv,
+                                .detail_scale = hit.material.detail_scale},
+                               hit.material.procedural, hit.material.edge_wear,
+                               hit.material.pattern_depth);
+    ao *= std::clamp(1.0f - signals.cavity_grime * 0.28f - signals.black_scab * 0.16f -
+                         signals.rim_soot * 0.26f - signals.weld_scorch * 0.20f -
+                         signals.weld_slag * 0.16f,
+                     0.36f, 1.0f);
+  }
+  return ao;
 }
 
 Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
@@ -548,26 +722,36 @@ Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings) {
   const float normal_strength = std::max(hit.material.procedural.micro_normal_strength,
                                          hit.material.detail_strength * 0.16f);
   if (normal_strength > 0.0001f) {
-    const Vec3 bump{
-        projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.10f, 607.0f) -
-            0.5f,
-        projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.35f, 619.0f) -
-            0.5f,
-        projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.58f, 631.0f) -
-            0.5f};
-    normal = normalize(normal + bump * std::clamp(normal_strength, 0.0f, 0.90f));
+    const MaterialSurfaceProfile profile = resolveMaterialSurfaceProfile(hit.material);
+    if (profile == MaterialSurfaceProfile::CorrodedMetal || profile == MaterialSurfaceProfile::WeldBead) {
+      normal = perturbAsterSurfaceNormal({.position = sample_hit.position,
+                                          .normal = normal,
+                                          .uv = sample_hit.uv,
+                                          .detail_scale = hit.material.detail_scale},
+                                         hit.material.procedural, {1.0f, 0.0f, 0.0f},
+                                         std::clamp(normal_strength, 0.0f, 0.92f));
+    } else {
+      const Vec3 bump{
+          projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.10f, 607.0f) -
+              0.5f,
+          projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.35f, 619.0f) -
+              0.5f,
+          projectedFbm(sample_hit.position, normal, hit.material.detail_scale * 1.58f, 631.0f) -
+              0.5f};
+      normal = normalize(normal + bump * std::clamp(normal_strength, 0.0f, 0.90f));
+    }
   }
 
   const Vec3 view = normalize(ray.origin - hit.position);
   const float sky = saturate(normal.y * 0.5f + 0.5f);
-  const float ambient = std::max(settings.ambient_strength * hit.material.ambient_occlusion,
-                                 settings.ambient_floor);
+  const float ambient =
+      std::max(settings.ambient_strength * effectiveAmbientOcclusion(sample_hit), settings.ambient_floor);
   Vec3 color = mixVec(settings.ground_ambient_color, settings.sky_ambient_color, sky) * albedo *
                    ambient +
                albedo * std::max(settings.indirect_albedo_floor, 0.0f);
 
-  const float metallic = std::clamp(hit.material.metallic, 0.0f, 1.0f);
   const float roughness = effectiveRoughness(sample_hit);
+  const float metallic = effectiveMetallic(sample_hit);
   if (settings.material_debug_view != MaterialDebugView::Beauty) {
     switch (settings.material_debug_view) {
     case MaterialDebugView::BaseColor:

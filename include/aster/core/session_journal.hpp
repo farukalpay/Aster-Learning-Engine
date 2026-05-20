@@ -60,6 +60,14 @@ struct SessionJournalOptions {
   bool persistence_enabled = true;
 };
 
+struct AssetProductionSessionRecord {
+  std::string asset_id;
+  std::string graph_hash;
+  std::string preview_artifact_hash;
+  std::string quality_gate;
+  std::vector<std::string> cook_steps;
+};
+
 struct SessionDiagnosticSnapshot {
   std::size_t config_layers = 0u;
   std::size_t config_values = 0u;
@@ -76,6 +84,7 @@ public:
 
   void append(SessionJournalEntry entry);
   void appendCommand(std::string session_id, std::string command, std::string detail = {});
+  void appendAssetProduction(std::string session_id, AssetProductionSessionRecord record);
   void clear();
 
   [[nodiscard]] bool empty() const noexcept;

@@ -255,6 +255,24 @@ void SessionJournal::appendCommand(std::string session_id, std::string command,
           .detail = std::move(detail)});
 }
 
+void SessionJournal::appendAssetProduction(std::string session_id,
+                                           AssetProductionSessionRecord record) {
+  std::ostringstream detail;
+  detail << "asset_id=" << record.asset_id << ";graph_hash=" << record.graph_hash
+         << ";preview_artifact_hash=" << record.preview_artifact_hash
+         << ";quality_gate=" << record.quality_gate << ";steps=";
+  for (std::size_t i = 0u; i < record.cook_steps.size(); ++i) {
+    if (i > 0u) {
+      detail << ",";
+    }
+    detail << record.cook_steps[i];
+  }
+  append({.session_id = std::move(session_id),
+          .kind = "asset-production",
+          .text = std::move(record.asset_id),
+          .detail = detail.str()});
+}
+
 void SessionJournal::clear() {
   entries_.clear();
   next_sequence_ = 1u;

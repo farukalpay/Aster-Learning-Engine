@@ -5,6 +5,7 @@
 #include "aster/render/camera.hpp"
 #include "aster/render/render_device.hpp"
 #include "aster/render/software_preview_renderer.hpp"
+#include "aster/render/visual_regression.hpp"
 #include "aster/samples/showcase_scenes.hpp"
 #include "aster/scene/scene.hpp"
 
@@ -156,6 +157,18 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
       aster::Light{{0.8f, 3.4f, -3.4f}, {7.5f, 6.4f, 5.0f}, 1.0f, 1.1f},
       aster::Light{{0.0f, 1.0f, 3.4f}, {1.8f, 2.1f, 2.5f}, 1.0f, 1.2f},
   };
+  settings.occlusion.enabled = true;
+  settings.occlusion.radius = 1.05f;
+  settings.occlusion.thickness = 0.16f;
+  settings.occlusion.strength = 0.34f;
+  settings.occlusion.sample_count = 12u;
+  settings.occlusion.contact_hardening = 0.28f;
+  settings.surface_scale.physical_texel_density = 512.0f;
+  settings.surface_scale.height_normal_coupling = 0.82f;
+  settings.surface_scale.roughness_height_coupling = 0.56f;
+  settings.presentation.focal_length_mm = 46.0f;
+  settings.presentation.camera_height_m = 1.55f;
+  settings.presentation.scale_reference_m = 1.80f;
 
   if (scene_name == "architecture") {
     settings.exposure = 1.16f;
@@ -175,6 +188,22 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
     settings.grounding.contact_shadows = true;
     settings.grounding.auto_contact_shadows = true;
     settings.grounding.contact_shadow_strength = 0.34f;
+  }
+  if (scene_name == "industrial-pipe") {
+    settings.exposure = 0.92f;
+    settings.ambient_strength = 0.18f;
+    settings.ambient_floor = 0.010f;
+    settings.sun_light.direction_to_light = {-0.52f, 0.80f, 0.30f};
+    settings.sun_light.intensity = 2.35f;
+    settings.grounding.enabled = true;
+    settings.grounding.contact_shadows = true;
+    settings.grounding.auto_contact_shadows = true;
+    settings.grounding.contact_shadow_strength = 0.56f;
+    settings.grounding.contact_shadow_radius_scale = 1.22f;
+    settings.shadows.enabled = true;
+    settings.shadows.cascaded_directional = true;
+    settings.shadows.directional_cascades = 2u;
+    settings.shadows.atlas_size = 256u;
   }
   if (scene_name == "mesh-lab") {
     settings.exposure = 1.04f;
@@ -227,6 +256,16 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
     settings.shadows.cascaded_directional = true;
     settings.shadows.directional_cascades = 2u;
     settings.shadows.atlas_size = 128u;
+    settings.occlusion.radius = 1.28f;
+    settings.occlusion.strength = 0.46f;
+    settings.occlusion.sample_count = 16u;
+    settings.occlusion.contact_hardening = 0.38f;
+    settings.surface_scale.physical_texel_density = 768.0f;
+    settings.surface_scale.macro_frequency_breakup = 0.44f;
+    settings.surface_scale.micro_frequency_breakup = 0.60f;
+    settings.surface_scale.height_normal_coupling = 0.90f;
+    settings.surface_scale.roughness_height_coupling = 0.70f;
+    settings.presentation.focal_length_mm = 52.0f;
     settings.reflections.enabled = true;
     settings.reflections.static_local_probes = true;
     settings.reflections.probe_resolution = 16u;
@@ -258,6 +297,13 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
     settings.shadows.cascaded_directional = true;
     settings.shadows.directional_cascades = 2u;
     settings.shadows.atlas_size = 128u;
+    settings.occlusion.radius = 1.18f;
+    settings.occlusion.strength = 0.40f;
+    settings.occlusion.sample_count = 14u;
+    settings.occlusion.contact_hardening = 0.32f;
+    settings.surface_scale.physical_texel_density = 640.0f;
+    settings.surface_scale.macro_frequency_breakup = 0.38f;
+    settings.surface_scale.micro_frequency_breakup = 0.54f;
     settings.reflections.enabled = true;
     settings.reflections.static_local_probes = true;
     settings.reflections.probe_resolution = 16u;
@@ -309,7 +355,11 @@ int main(int argc, char **argv) {
                                                 .settings = makeSettings(scene_name)};
     const aster::SoftwareFrameBuffer framebuffer =
         aster::renderSoftwarePreview(scene, makeCamera(scene_name), options);
-    framebuffer.writePpm(output, width, height);
+    if (output.extension() == ".png") {
+      aster::writeFrameBufferPng(framebuffer, output, width, height);
+    } else {
+      framebuffer.writePpm(output, width, height);
+    }
 
     std::cout << "Wrote preview: " << output << '\n';
   } catch (const std::exception &error) {

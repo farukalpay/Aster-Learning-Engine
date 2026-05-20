@@ -3,6 +3,8 @@
 
 #include "test_support.hpp"
 
+#include "aster/asset/asset_factory.hpp"
+
 namespace {
 
 void testContactVolumes() {
@@ -94,9 +96,11 @@ void testPhysicsDistanceConstraint() {
 }
 
 void testPhysicsQueriesAndDynamicContact() {
+  constexpr std::uint32_t world_layer = 1u << 0u;
+  constexpr std::uint32_t dynamic_layer = 1u << 1u;
   aster::PhysicsWorld world;
   world.setSettings({{0.0f, 0.0f, 0.0f}, 8, 1.0f / 120.0f});
-  [[maybe_unused]] const aster::PhysicsBodyHandle wall =
+  const aster::PhysicsBodyHandle wall =
       world.addBody({aster::PhysicsBodyType::Static,
                      aster::PhysicsShapeType::Box,
                      {0.0f, 0.0f, -2.0f},
@@ -115,16 +119,27 @@ void testPhysicsQueriesAndDynamicContact() {
                                                         0.25f,
                                                         1.0f,
                                                         {0.35f, 0.0f}});
+  world.body(wall).filter = {world_layer, dynamic_layer | world_layer};
+  world.body(left).filter = {dynamic_layer, dynamic_layer | world_layer};
+  world.body(right).filter = {dynamic_layer, dynamic_layer | world_layer};
 
   world.step(1.0f / 60.0f);
   assert(aster::length(world.body(left).position - world.body(right).position) >= 0.49f);
 
   aster::PhysicsRayHit ray_hit;
-  assert(world.raycast({{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 3.0f}, ray_hit));
+  assert(world.raycast({{0.0f, 0.0f, 0.0f},
+                        {0.0f, 0.0f, -1.0f},
+                        3.0f,
+                        {.collides_with = world_layer}},
+                       ray_hit));
   assert(aster::samePhysicsHandle(ray_hit.body, wall));
 
   aster::PhysicsShapeCastHit cast_hit;
-  assert(world.castSphere({{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -3.0f}, 0.25f}, cast_hit));
+  assert(world.castSphere({{0.0f, 0.0f, 0.0f},
+                           {0.0f, 0.0f, -3.0f},
+                           0.25f,
+                           {.collides_with = world_layer}},
+                          cast_hit));
   assert(aster::samePhysicsHandle(cast_hit.body, wall));
 
   const std::vector<aster::PhysicsOverlapHit> overlaps =
@@ -216,14 +231,18 @@ void testPhysicsCharacterController() {
   character_desc.allow_sleep = false;
   const aster::PhysicsBodyHandle character = world.addBody(character_desc);
 
+  aster::CharacterControllerSettings controller;
+  controller.ground_probe_distance = 0.32f;
   for (int i = 0; i < 80; ++i) {
-    (void)world.moveCharacter(character, {{1.6f, 0.0f, 0.0f}, false}, {}, 1.0f / 60.0f);
+    (void)world.moveCharacter(character, {{1.6f, 0.0f, 0.0f}, false}, controller,
+                              1.0f / 60.0f);
     world.step(1.0f / 60.0f);
   }
 
   aster::CharacterMoveResult state =
-      world.moveCharacter(character, {{0.0f, 0.0f, 0.0f}, false}, {}, 1.0f / 60.0f);
+      world.moveCharacter(character, {{0.0f, 0.0f, 0.0f}, false}, controller, 1.0f / 60.0f);
   assert(state.grounded);
+  assert(state.ground_normal.y > 0.9f);
   assert(world.body(character).position.x > 0.4f);
 }
 
@@ -483,6 +502,62 @@ void testPhysicsBroadphaseGeneratedParity() {
   assert(pairs == expected);
 }
 
+void testAssetFactoryPipePhysicsProxyQueries() {
+  aster::AsterPipeAssetSpec dry_spec{.asset_id = "physics.factory.pipe.dry",
+                                     .radial_segments = 48,
+                                     .length_segments = 12,
+                                     .rust_strength = 0.92f,
+                                     .wetness_strength = 0.0f,
+                                     .pitting_density = 0.92f,
+                                     .oxide_layering = 0.88f,
+                                     .cavity_grime_strength = 0.78f,
+                                     .axial_scratch_strength = 0.72f,
+                                     .weld_slag_strength = 0.84f,
+                                     .rim_soot_strength = 0.86f};
+  aster::AsterPipeAssetSpec wet_spec = dry_spec;
+  wet_spec.asset_id = "physics.factory.pipe.wet";
+  wet_spec.wetness_strength = 0.46f;
+
+  const aster::AsterAssetFactoryBuildResult dry =
+      aster::buildAsterAssetFactoryRecipe(aster::makeAsterPipeFactoryRecipe(dry_spec));
+  const aster::AsterAssetFactoryBuildResult wet =
+      aster::buildAsterAssetFactoryRecipe(aster::makeAsterPipeFactoryRecipe(wet_spec));
+  assert(dry.production_ready);
+  assert(wet.production_ready);
+  assert(dry.physics_bodies.size() == 1u);
+  assert(wet.physics_bodies.size() == 1u);
+  assert(dry.physics_bodies.front().material.friction >
+         wet.physics_bodies.front().material.friction);
+  assert(wet.physics_bodies.front().filter.query_enabled);
+
+  aster::PhysicsWorld world;
+  world.setSettings({{0.0f, -9.81f, 0.0f}, 8, 1.0f / 120.0f});
+  const aster::PhysicsBodyHandle pipe = world.addBody(wet.physics_bodies.front());
+
+  aster::PhysicsRayHit ray_hit;
+  assert(world.raycast({{0.0f, 1.45f, 0.0f}, {0.0f, -1.0f, 0.0f}, 2.4f}, ray_hit));
+  assert(aster::samePhysicsHandle(ray_hit.body, pipe));
+  assert(ray_hit.normal.y > 0.9f);
+
+  aster::PhysicsShapeCastHit sphere_hit;
+  assert(world.castSphere({{0.0f, 1.45f, 0.0f}, {0.0f, -2.2f, 0.0f}, 0.14f}, sphere_hit));
+  assert(aster::samePhysicsHandle(sphere_hit.body, pipe));
+
+  const aster::PhysicsBodyHandle probe =
+      world.addBody({aster::PhysicsBodyType::Dynamic,
+                     aster::PhysicsShapeType::Sphere,
+                     {0.0f, 1.35f, 0.0f},
+                     {0.18f, 0.18f, 0.18f},
+                     0.18f,
+                     1.0f,
+                     {0.42f, 0.0f}});
+  for (int i = 0; i < 100; ++i) {
+    world.step(1.0f / 60.0f);
+  }
+  assert(world.body(probe).position.y > 0.55f);
+  assert(!world.contacts().empty());
+}
+
 } // namespace
 
 int main() {
@@ -502,6 +577,7 @@ int main() {
   testContinuousHorizontalCollisionBlocksFastSweep();
   testPhysicsFluidVolumeDragAndBuoyancy();
   testPhysicsBroadphaseGeneratedParity();
+  testAssetFactoryPipePhysicsProxyQueries();
   std::cout << "physics_tests passed.\n";
   return 0;
 }

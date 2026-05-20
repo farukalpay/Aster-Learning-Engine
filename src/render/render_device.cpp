@@ -6,6 +6,7 @@
 #include "aster/asset/mesh_pipeline.hpp"
 #include "aster/core/profiler.hpp"
 #include "aster/math/color.hpp"
+#include "aster/material/procedural_surface.hpp"
 #include "aster/render/material_compiler.hpp"
 #include "aster/render/render_conformance.hpp"
 #include "aster/render/render_graph_executor.hpp"
@@ -89,12 +90,18 @@ struct SoftwareProbeSample {
 struct SoftwareFrameResources {
   std::uint32_t frame_width = 0u;
   std::uint32_t frame_height = 0u;
+  std::uint32_t surface_width = 0u;
+  std::uint32_t surface_height = 0u;
+  std::uint32_t occlusion_width = 0u;
+  std::uint32_t occlusion_height = 0u;
   std::uint32_t shadow_atlas_size = 0u;
   std::uint32_t fog_width = 0u;
   std::uint32_t fog_height = 0u;
   std::uint32_t reflection_width = 0u;
   std::uint32_t reflection_height = 0u;
   std::vector<SoftwareShadowCascade> cascades;
+  std::vector<std::uint8_t> surface_attributes_rgba8;
+  std::vector<std::uint8_t> surface_occlusion_rgba8;
   std::vector<float> shadow_depths;
   std::vector<std::uint8_t> shadow_rgba8;
   std::vector<float> fog_factors;
@@ -102,6 +109,8 @@ struct SoftwareFrameResources {
   std::vector<SoftwareProbeSample> probes;
   std::vector<std::uint8_t> reflection_rgba8;
   bool shadow_ready = false;
+  bool surface_attributes_ready = false;
+  bool surface_occlusion_ready = false;
   bool fog_ready = false;
   bool reflection_ready = false;
 };
@@ -135,6 +144,13 @@ std::uint64_t hashDebugBytes(const std::vector<std::uint8_t> &bytes) {
   return hash;
 }
 
+aster::Vec2 hammersley2d(std::uint32_t index, std::uint32_t count);
+float fractValue(float value);
+float valueNoise(aster::Vec3 p);
+float projectedFbm(const aster::Material &material, aster::Vec3 world_position,
+                   aster::Vec3 normal, float multiplier, float salt);
+float ridge(float value);
+
 float evaluateFogFactor(const aster::AtmosphereSettings &atmosphere,
                         const float distance_to_camera) {
   if (!atmosphere.enabled || atmosphere.fog_strength <= 0.0f) {
@@ -156,6 +172,122 @@ float evaluateFogFactor(const aster::AtmosphereSettings &atmosphere,
     break;
   }
   return saturate(curve * std::clamp(atmosphere.fog_strength, 0.0f, 1.0f));
+}
+
+struct SurfaceBasis {
+  aster::Vec3 normal{0.0f, 1.0f, 0.0f};
+  aster::Vec3 tangent{1.0f, 0.0f, 0.0f};
+  aster::Vec3 bitangent{0.0f, 0.0f, 1.0f};
+};
+
+SurfaceBasis makeSurfaceBasis(aster::Vec3 normal) {
+  normal = aster::normalizeOr(normal, {0.0f, 1.0f, 0.0f});
+  aster::Vec3 tangent =
+      std::abs(normal.y) < 0.92f ? aster::cross({0.0f, 1.0f, 0.0f}, normal)
+                                 : aster::cross({1.0f, 0.0f, 0.0f}, normal);
+  tangent = aster::normalizeOr(tangent, {1.0f, 0.0f, 0.0f});
+  const aster::Vec3 bitangent = aster::normalizeOr(aster::cross(normal, tangent),
+                                                   {0.0f, 0.0f, 1.0f});
+  return {.normal = normal, .tangent = tangent, .bitangent = bitangent};
+}
+
+aster::Vec3 sampleSurfaceHemisphere(const SurfaceBasis &basis, const aster::Vec2 sample) {
+  const float phi = sample.x * kTau;
+  const float cos_theta = std::sqrt(std::clamp(1.0f - sample.y * 0.82f, 0.0f, 1.0f));
+  const float sin_theta = std::sqrt(std::clamp(1.0f - cos_theta * cos_theta, 0.0f, 1.0f));
+  return aster::normalizeOr(basis.tangent * (std::cos(phi) * sin_theta) +
+                                basis.bitangent * (std::sin(phi) * sin_theta) +
+                                basis.normal * cos_theta,
+                            basis.normal);
+}
+
+struct SurfaceOcclusionEval {
+  float visibility = 1.0f;
+  float cavity = 0.0f;
+  float micro_shadow = 0.0f;
+  aster::Vec3 bent_normal{0.0f, 1.0f, 0.0f};
+};
+
+SurfaceOcclusionEval evaluateSurfaceOcclusion(const aster::Vec3 world_position,
+                                              const aster::Vec3 normal,
+                                              const float material_ao,
+                                              const aster::RendererSettings &settings) {
+  SurfaceOcclusionEval eval;
+  eval.bent_normal = aster::normalizeOr(normal, {0.0f, 1.0f, 0.0f});
+  if (!settings.occlusion.enabled || settings.occlusion.strength <= 0.0f) {
+    return eval;
+  }
+  const float radius = std::max(settings.occlusion.radius, 0.001f);
+  const float above_reference = std::max(world_position.y - settings.grounding.reference_y, 0.0f);
+  const float contact = 1.0f - smoothstep(0.0f, radius, above_reference);
+  const float vertical_receiver =
+      (1.0f - smoothstep(0.46f, 0.94f, std::clamp(normal.y, -1.0f, 1.0f))) * 0.44f;
+  const float cavity = std::clamp(1.0f - material_ao + settings.occlusion.cavity_bias, 0.0f, 1.0f);
+  const float horizon = std::pow(contact, std::max(settings.occlusion.distance_falloff, 0.25f)) *
+                        (0.56f + vertical_receiver);
+  const SurfaceBasis basis = makeSurfaceBasis(normal);
+  const std::uint32_t sample_count = std::clamp(settings.occlusion.sample_count, 4u, 20u);
+  const float texel_scale =
+      std::clamp(settings.surface_scale.physical_texel_density / 768.0f, 0.42f, 2.25f);
+  const float macro_breakup = std::clamp(settings.surface_scale.macro_frequency_breakup, 0.0f, 2.0f);
+  const float micro_breakup = std::clamp(settings.surface_scale.micro_frequency_breakup, 0.0f, 2.0f);
+  const float jitter = valueNoise(world_position * 0.091f + aster::Vec3{2.7f, 5.1f, 1.3f});
+  float sampled_horizon = 0.0f;
+  float sampled_micro = 0.0f;
+  aster::Vec3 bent_accum = basis.normal * (0.72f + material_ao * 0.18f);
+  for (std::uint32_t sample_index = 0u; sample_index < sample_count; ++sample_index) {
+    aster::Vec2 xi = hammersley2d(sample_index, sample_count);
+    xi.x = fractValue(xi.x + jitter * 0.37f);
+    xi.y = fractValue(xi.y + jitter * 0.61f);
+    const aster::Vec3 direction = sampleSurfaceHemisphere(basis, xi);
+    const float sample_radius = radius * (0.16f + std::sqrt(std::max(xi.y, 0.0f)) * 0.84f);
+    const aster::Vec3 probe = world_position + direction * sample_radius;
+    const float broad =
+        valueNoise(probe * (0.42f + macro_breakup * 0.36f) +
+                   aster::Vec3{11.0f, 3.7f, 19.0f});
+    const float fine =
+        valueNoise(probe * (1.90f + micro_breakup * 2.70f) +
+                   basis.normal * (0.21f + texel_scale * 0.13f));
+    const float ridged =
+        ridge(valueNoise(probe * (3.8f + micro_breakup * 4.2f) +
+                         aster::Vec3{0.31f, 0.73f, 1.19f}));
+    const float low_angle = 1.0f - std::clamp(aster::dot(direction, basis.normal), 0.0f, 1.0f);
+    const float local_cavity = smoothstep(0.56f, 0.94f, broad * 0.34f + fine * 0.34f +
+                                                         ridged * 0.32f);
+    const float ground_block =
+        1.0f - smoothstep(0.0f, radius * 0.82f,
+                          std::max(probe.y - settings.grounding.reference_y, 0.0f));
+    const float occluder =
+        std::max(local_cavity * (0.42f + low_angle * 0.58f),
+                 ground_block * contact * (0.30f + vertical_receiver));
+    const float distance_weight = 1.0f - smoothstep(radius * 0.20f, radius, sample_radius);
+    sampled_horizon += occluder * distance_weight;
+    sampled_micro += ridged * local_cavity;
+    bent_accum = bent_accum + direction * (1.0f - occluder);
+  }
+  sampled_horizon /= static_cast<float>(sample_count);
+  sampled_micro /= static_cast<float>(sample_count);
+  const float micro = std::clamp(cavity * (0.50f + settings.occlusion.micro_shadowing) +
+                                     sampled_horizon *
+                                         (0.18f + settings.occlusion.thickness * 0.72f) +
+                                     sampled_micro * settings.occlusion.micro_shadowing * 0.30f,
+                                 0.0f, 1.0f);
+  const float raw = horizon * settings.occlusion.contact_hardening + micro;
+  eval.visibility = std::clamp(1.0f - raw * settings.occlusion.strength, 0.32f, 1.0f);
+  eval.cavity = cavity;
+  eval.micro_shadow = micro;
+  eval.bent_normal = aster::normalizeOr(bent_accum, basis.normal);
+  return eval;
+}
+
+float evaluateSpecularOcclusion(const float ao, const float perceptual_roughness,
+                                const float n_dot_v) {
+  const float clamped_ao = std::clamp(ao, 0.0f, 1.0f);
+  const float roughness = std::clamp(perceptual_roughness, 0.045f, 1.0f);
+  const float exponent = std::lerp(2.45f, 0.58f, roughness);
+  const float visibility =
+      std::pow(std::clamp(n_dot_v + clamped_ao, 0.0f, 1.0f), exponent) - 1.0f + clamped_ao;
+  return std::clamp(visibility, 0.08f, 1.0f);
 }
 
 float sampleSoftwareShadowVisibility(const SoftwareFrameResources *resources,
@@ -331,6 +463,20 @@ float hash31(aster::Vec3 p) {
   const float d = p.x * (p.y + 19.19f) + p.y * (p.z + 19.19f) + p.z * (p.x + 19.19f);
   p = p + aster::Vec3{d, d, d};
   return fractValue((p.x + p.y) * p.z);
+}
+
+float radicalInverseVdc(std::uint32_t bits) {
+  bits = (bits << 16u) | (bits >> 16u);
+  bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+  bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+  bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+  bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+  return static_cast<float>(bits) * 2.3283064365386963e-10f;
+}
+
+aster::Vec2 hammersley2d(const std::uint32_t index, const std::uint32_t count) {
+  return {static_cast<float>(index) / static_cast<float>(std::max(count, 1u)),
+          radicalInverseVdc(index)};
 }
 
 float valueNoise(const aster::Vec3 p) {
@@ -675,37 +821,153 @@ aster::Vec3 amberAlbedo(const aster::Material &material, const aster::Vec3 world
 }
 
 aster::Vec3 corrodedMetalAlbedo(const aster::Material &material, const aster::Vec3 world_position,
-                                const aster::Vec3 normal) {
-  const float detail = std::max(material.detail_scale, 0.001f);
-  const float broad = projectedFbm(material, world_position, normal, 0.16f, 307.0f);
-  const float fine = projectedFbm(material, world_position + normal * 0.05f, normal, 0.74f, 331.0f);
-  const float pitting = ridge(projectedFbm(material, world_position, normal, 1.38f, 359.0f));
-  const float upward = smoothstep(0.14f, 0.80f, normal.y);
-  const float oxide =
-      smoothstep(0.42f, 0.95f,
-                 broad * 0.48f + pitting * 0.34f + upward * material.pattern_depth * 0.42f);
+                                const aster::Vec3 normal, const aster::Vec2 uv) {
+  const aster::AsterPipeSurfaceSignals signals =
+      aster::sampleAsterPipeSurface({.position = world_position,
+                                     .normal = normal,
+                                     .uv = uv,
+                                     .detail_scale = material.detail_scale},
+                                    material.procedural, material.edge_wear,
+                                    material.pattern_depth);
+  const aster::Vec3 n = aster::normalize(normal);
+  const float lower = 1.0f - smoothstep(-0.55f, 0.42f, n.y);
+  const float rim = smoothstep(2.44f, 2.60f, std::abs(world_position.x));
+  const float weld = std::max(1.0f - smoothstep(0.035f, 0.34f, std::abs(world_position.x + 1.55f)),
+                              1.0f - smoothstep(0.035f, 0.34f, std::abs(world_position.x - 1.42f)));
+  const aster::Vec3 warp{
+      projectedFbm(material, world_position + aster::Vec3{0.37f, 0.0f, -0.11f}, normal, 0.090f,
+                   307.0f) -
+          0.5f,
+      projectedFbm(material, world_position + aster::Vec3{-0.17f, 0.29f, 0.0f}, normal, 0.073f,
+                   311.0f) -
+          0.5f,
+      projectedFbm(material, world_position + aster::Vec3{0.0f, -0.19f, 0.41f}, normal, 0.081f,
+                   313.0f) -
+          0.5f};
+  const aster::Vec3 layered_position = world_position + warp * 0.34f + normal * (weld * 0.025f);
+  const float broad = projectedFbm(material, layered_position, normal, 0.060f, 307.0f);
+  const float medium =
+      projectedFbm(material, layered_position + normal * 0.05f, normal, 0.42f, 331.0f);
+  const float fine = ridge(projectedFbm(material, world_position, normal, 1.35f, 359.0f));
+  const float flake = smoothstep(
+      0.55f, 0.92f,
+      ridge(projectedFbm(material, layered_position + aster::Vec3{0.13f, -0.17f, 0.29f}, normal,
+                         0.28f, 887.0f)) *
+              0.28f +
+          medium * 0.22f + signals.pit_edge * 0.08f);
+  const float soot_cloud = projectedFbm(
+      material, layered_position + aster::Vec3{-0.41f, 0.22f, 0.17f}, normal, 0.115f, 811.0f);
+  const float pitting = smoothstep(0.58f, 0.96f, signals.pit * 0.46f + fine * 0.08f);
+  const float upward = smoothstep(0.14f, 0.80f, n.y);
+  const float oxide = smoothstep(0.20f, 0.74f,
+                                 broad * 0.36f + medium * 0.30f + lower * 0.16f +
+                                     weld * 0.12f + rim * 0.14f +
+                                     material.pattern_depth * upward * 0.10f +
+                                     signals.rust_bloom * 0.42f +
+                                     signals.orange_rust * 0.16f + flake * 0.04f);
+  const float dark_scale = 0.38f + medium * 0.24f - lower * 0.08f - weld * 0.04f;
   const aster::Vec3 cool_steel =
-      material.base_color * aster::Vec3{0.82f, 0.88f, 0.92f} * (0.60f + fine * 0.22f);
-  const aster::Vec3 exposed =
-      material.base_color * aster::Vec3{1.18f, 1.16f, 1.06f} * (0.66f + pitting * 0.16f);
-  const aster::Vec3 orange_rust{0.42f, 0.15f, 0.045f};
-  const aster::Vec3 black_rust{0.085f, 0.060f, 0.043f};
-  aster::Vec3 color = mixVec(cool_steel, mixVec(black_rust, orange_rust, fine), oxide);
-  color = mixVec(color, exposed, material.edge_wear * smoothstep(0.72f, 0.98f, pitting));
-  return aster::clamp(color * (0.98f + detail * 0.002f), 0.0f, 4.0f);
+      material.base_color * aster::Vec3{0.66f, 0.74f, 0.78f} * dark_scale;
+  const aster::Vec3 exposed_edge =
+      material.base_color * aster::Vec3{1.34f, 1.28f, 1.10f} * (0.54f + pitting * 0.20f);
+  const aster::Vec3 orange_rust{0.45f, 0.155f, 0.040f};
+  const aster::Vec3 dusty_rust{0.54f, 0.245f, 0.075f};
+  const aster::Vec3 black_rust{0.040f, 0.035f, 0.030f};
+  const aster::Vec3 cool_oxide{0.072f, 0.095f, 0.100f};
+  const aster::Vec3 aged_paint{0.34f, 0.325f, 0.275f};
+  const float gray_stain =
+      projectedFbm(material, layered_position + aster::Vec3{-0.19f, 0.0f, 0.23f}, normal, 0.18f,
+                   733.0f);
+  const float rust_tone =
+      std::clamp(medium * 0.56f + broad * 0.28f + signals.orange_rust * 0.10f, 0.0f,
+                 1.0f);
+  aster::Vec3 rust_layer = mixVec(black_rust, orange_rust, rust_tone);
+  rust_layer =
+      mixVec(rust_layer, dusty_rust,
+             smoothstep(0.36f, 0.88f, broad + medium + signals.orange_rust) * 0.34f);
+  aster::Vec3 color =
+      mixVec(cool_steel, rust_layer,
+             aster::saturate(oxide * 0.58f + signals.rust_bloom * 0.28f +
+                             signals.orange_rust * 0.10f));
+  const float dark_mottle = smoothstep(
+      0.25f, 0.72f,
+      soot_cloud * 0.50f + gray_stain * 0.36f + flake * 0.04f +
+          signals.black_oxide * 0.22f + signals.black_scab * 0.46f);
+  const float gray_oxide = smoothstep(0.18f, 0.72f,
+                                      gray_stain * 0.42f + (1.0f - medium) * 0.20f +
+                                          lower * 0.18f + weld * 0.20f + rim * 0.20f +
+                                          signals.black_oxide * 0.24f +
+                                          signals.weld_scorch * 0.20f +
+                                          dark_mottle * 0.15f);
+  const float cavity = aster::saturate(signals.cavity_grime * 0.34f + weld * 0.35f +
+                                       rim * 0.34f + lower * 0.25f + pitting * 0.10f +
+                                       dark_mottle * 0.20f + signals.rim_soot * 0.26f +
+                                       signals.weld_scorch * 0.20f);
+  color = mixVec(color, aged_paint, signals.paint_remnant * 0.16f * (1.0f - dark_mottle));
+  color = mixVec(color, cool_oxide, gray_oxide * 0.78f);
+  color = mixVec(color, black_rust,
+                 cavity * 0.28f + dark_mottle * 0.40f + signals.black_scab * 0.42f +
+                     signals.rim_soot * 0.34f + signals.weld_scorch * 0.26f);
+  const float pinhole = smoothstep(0.82f, 0.98f, signals.pit + signals.pit_edge * 0.50f);
+  color = mixVec(color, black_rust, pinhole * 0.10f);
+  const float scratch_polish =
+      smoothstep(0.68f, 0.96f, signals.axial_scratch * (0.64f + medium * 0.36f)) *
+      (1.0f - aster::saturate(cavity * 0.55f + signals.black_scab * 0.28f));
+  color = mixVec(color, exposed_edge * aster::Vec3{0.92f, 0.96f, 1.02f},
+                 scratch_polish * 0.18f + signals.edge_polish * 0.10f);
+  color = mixVec(color, exposed_edge,
+                 signals.edge_polish * 0.16f +
+                     material.edge_wear * smoothstep(0.72f, 0.98f, pitting) * 0.18f);
+  color = mixVec(color, color * aster::Vec3{0.60f, 0.66f, 0.72f} +
+                            aster::Vec3{0.010f, 0.012f, 0.014f},
+                 signals.wet_film * 0.12f);
+  const float pepper =
+      ridge(projectedFbm(material, layered_position + aster::Vec3{0.21f, 0.31f, -0.14f}, normal,
+                         2.25f, 941.0f));
+  color *= 0.76f + medium * 0.13f + pepper * 0.020f - dark_mottle * 0.10f - cavity * 0.04f;
+  return aster::clamp(color, 0.0f, 4.0f);
 }
 
 aster::Vec3 weldBeadAlbedo(const aster::Material &material, const aster::Vec3 world_position,
                            const aster::Vec3 normal, const aster::Vec2 uv) {
+  const aster::AsterPipeSurfaceSignals signals =
+      aster::sampleAsterPipeSurface({.position = world_position,
+                                     .normal = normal,
+                                     .uv = uv,
+                                     .detail_scale = material.detail_scale},
+                                    material.procedural, material.edge_wear,
+                                    material.pattern_depth);
   const float bead_ripple =
       0.5f + 0.5f * std::sin(uv.y * std::max(material.pattern_scale.y, 0.001f) * kTau +
                               projectedFbm(material, world_position, normal, 1.0f, 401.0f) * 3.8f);
-  const float heat_band = smoothstep(0.05f, 0.58f, ridge(uv.x));
-  const aster::Vec3 base = material.base_color * (0.76f + bead_ripple * 0.28f);
-  const aster::Vec3 straw{0.72f, 0.38f, 0.12f};
-  const aster::Vec3 blue_heat{0.11f, 0.16f, 0.30f};
-  aster::Vec3 color = mixVec(base, straw, heat_band * 0.24f);
-  color = mixVec(color, blue_heat, heat_band * (1.0f - bead_ripple) * 0.16f);
+  const float heat_band = saturate(smoothstep(0.05f, 0.58f, ridge(uv.x)) + signals.heat_tint);
+  const float contact_grime = 1.0f - smoothstep(0.18f, 0.42f, ridge(uv.x));
+  const float slag =
+      ridge(projectedFbm(material, world_position + normal * 0.035f, normal, 1.14f, 413.0f));
+  const float center = 1.0f - smoothstep(0.0f, 0.48f, std::abs(uv.x - 0.50f));
+  const aster::Vec3 weld_metal = aster::Vec3{0.235f, 0.215f, 0.180f} *
+                                 (0.70f + bead_ripple * 0.20f);
+  const aster::Vec3 polished_lip{0.36f, 0.330f, 0.260f};
+  const aster::Vec3 straw{0.66f, 0.34f, 0.10f};
+  const aster::Vec3 blue_heat{0.08f, 0.13f, 0.25f};
+  const aster::Vec3 soot{0.040f, 0.034f, 0.030f};
+  const aster::Vec3 rust_dust{0.40f, 0.135f, 0.038f};
+  aster::Vec3 color =
+      mixVec(weld_metal, polished_lip, center * (0.055f + bead_ripple * 0.045f));
+  color *= 0.82f + bead_ripple * 0.12f;
+  color = mixVec(color, straw, heat_band * 0.16f);
+  color = mixVec(color, blue_heat, heat_band * (1.0f - bead_ripple) * 0.20f);
+  color = mixVec(color, soot,
+                 signals.cavity_grime * 0.30f + contact_grime * 0.54f +
+                     signals.weld_scorch * 0.34f);
+  color = mixVec(color, rust_dust,
+                 contact_grime * (0.26f + signals.orange_rust * 0.20f) +
+                     signals.weld_slag * 0.16f);
+  color = mixVec(color, color * 0.52f + aster::Vec3{0.050f, 0.044f, 0.036f},
+                 slag * 0.18f + signals.weld_slag * 0.22f);
+  color = mixVec(color, soot,
+                 smoothstep(0.70f, 0.96f, slag + signals.black_scab * 0.45f) * 0.28f);
+  color = mixVec(color, color * aster::Vec3{0.55f, 0.62f, 0.70f}, signals.wet_film * 0.18f);
   return aster::clamp(color, 0.0f, 4.0f);
 }
 
@@ -798,7 +1060,8 @@ aster::Vec3 applyProceduralLayer(const aster::Material &material, const aster::V
 }
 
 aster::Vec3 proceduralSurfaceNormal(const aster::Material &material,
-                                    const aster::Vec3 world_position, const aster::Vec3 normal) {
+                                    const aster::Vec3 world_position, const aster::Vec3 normal,
+                                    const aster::RendererSettings &settings) {
   const aster::MaterialSurfaceProfile profile = aster::resolveMaterialSurfaceProfile(material);
   if (profile == aster::MaterialSurfaceProfile::ContactShadow ||
       profile == aster::MaterialSurfaceProfile::Liquid) {
@@ -814,16 +1077,80 @@ aster::Vec3 proceduralSurfaceNormal(const aster::Material &material,
   }
 
   const float detail = std::max(material.detail_scale, 0.001f);
-  const float macro_gain = 1.0f + std::max(material.procedural.macro_variation, 0.0f) * 0.34f;
+  const float macro_gain =
+      1.0f + std::max(material.procedural.macro_variation, 0.0f) * 0.34f +
+      std::clamp(settings.surface_scale.macro_frequency_breakup, 0.0f, 2.0f) * 0.10f;
+  const float micro_gain =
+      1.0f + std::clamp(settings.surface_scale.micro_frequency_breakup, 0.0f, 2.0f) * 0.16f;
   const float profile_id = static_cast<float>(aster::materialSurfaceProfileId(profile));
   const aster::Vec3 p =
-      world_position * (0.55f * detail * macro_gain) +
+      world_position * (0.55f * detail * macro_gain * micro_gain) +
       aster::Vec3{profile_id * 0.23f, 0.0f, profile_id * 0.41f};
   const aster::Vec3 bump{valueNoise(p + aster::Vec3{11.1f, 2.3f, 0.7f}) - 0.5f,
                          (valueNoise(p + aster::Vec3{5.7f, 13.1f, 3.2f}) - 0.5f) * 0.35f,
                          valueNoise(p + aster::Vec3{2.9f, 7.4f, 17.6f}) - 0.5f};
+  if (profile == aster::MaterialSurfaceProfile::CorrodedMetal ||
+      profile == aster::MaterialSurfaceProfile::WeldBead) {
+    return aster::perturbAsterSurfaceNormal({.position = world_position,
+                                             .normal = normal,
+                                             .uv = {},
+                                             .detail_scale = material.detail_scale},
+                                            material.procedural, {1.0f, 0.0f, 0.0f}, strength);
+  }
   const aster::Vec3 adjusted = aster::normalize(normal + bump * strength);
   return aster::length(adjusted) > 0.0001f ? adjusted : normal;
+}
+
+aster::Vec3 applyScalePresentationNormal(const aster::Material &material,
+                                         const aster::Vec3 world_position,
+                                         const aster::Vec3 normal,
+                                         const aster::RendererSettings &settings) {
+  const aster::MaterialSurfaceProfile profile = aster::resolveMaterialSurfaceProfile(material);
+  if (profile == aster::MaterialSurfaceProfile::ContactShadow ||
+      profile == aster::MaterialSurfaceProfile::Liquid ||
+      settings.surface_scale.height_normal_coupling <= 0.0001f) {
+    return normal;
+  }
+
+  const float coupling = std::clamp(settings.surface_scale.height_normal_coupling, 0.0f, 1.5f);
+  const float density =
+      std::clamp(settings.surface_scale.physical_texel_density / 768.0f, 0.45f, 2.25f);
+  const float macro_breakup = std::clamp(settings.surface_scale.macro_frequency_breakup, 0.0f, 2.0f);
+  const float micro_breakup = std::clamp(settings.surface_scale.micro_frequency_breakup, 0.0f, 2.0f);
+  const float surface_gain =
+      std::clamp(material.pattern_depth * 0.55f + material.edge_wear * 0.42f +
+                     material.procedural.height_shading * 0.68f + material.detail_strength * 0.16f,
+                 0.0f, 1.0f);
+  if (surface_gain <= 0.0001f) {
+    return normal;
+  }
+
+  const SurfaceBasis basis = makeSurfaceBasis(normal);
+  const float step =
+      (0.018f / std::sqrt(std::max(material.detail_scale, 0.001f) + 1.0f)) /
+      std::sqrt(density);
+  const float profile_id = static_cast<float>(aster::materialSurfaceProfileId(profile));
+  const auto height_at = [&](const aster::Vec3 position) {
+    const float secondary =
+        projectedFbm(material, position, basis.normal, 0.12f + macro_breakup * 0.035f,
+                     719.0f + profile_id);
+    const float edge_energy =
+        ridge(projectedFbm(material, position + basis.normal * 0.027f, basis.normal,
+                           0.76f + micro_breakup * 0.18f, 733.0f + profile_id));
+    const float micro =
+        projectedFbm(material, position - basis.normal * 0.019f, basis.normal,
+                     1.72f + micro_breakup * 0.42f, 751.0f + profile_id);
+    return secondary * 0.42f + edge_energy * 0.34f + micro * 0.24f;
+  };
+  const float center = height_at(world_position);
+  const float dx = height_at(world_position + basis.tangent * step) - center;
+  const float dy = height_at(world_position + basis.bitangent * step) - center;
+  const float gain = coupling * surface_gain * (5.0f + density * 1.4f);
+  const aster::Vec3 adjusted =
+      aster::normalizeOr(basis.normal - basis.tangent * dx * gain -
+                             basis.bitangent * dy * gain,
+                         basis.normal);
+  return adjusted;
 }
 
 aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 world_position,
@@ -917,7 +1244,7 @@ aster::Vec3 materialAlbedo(const aster::Material &material, const aster::Vec3 wo
   }
   case aster::MaterialSurfaceProfile::CorrodedMetal:
     return applyProceduralLayer(material, world_position, normal,
-                                corrodedMetalAlbedo(material, world_position, normal));
+                                corrodedMetalAlbedo(material, world_position, normal, uv));
   case aster::MaterialSurfaceProfile::WeldBead:
     return applyProceduralLayer(material, world_position, normal,
                                 weldBeadAlbedo(material, world_position, normal, uv));
@@ -984,6 +1311,50 @@ aster::Vec3 applyRuntimeNormalMap(const aster::RuntimeTextureSet *textures, aste
                             normal);
 }
 
+float sampleRuntimeHeight(const aster::RuntimeTexture &texture, const aster::Vec2 uv) {
+  return std::clamp(aster::sampleRuntimeTextureChannel(texture, uv, 0u), 0.0f, 1.0f);
+}
+
+aster::Vec3 applyRuntimeHeightNormal(const aster::RuntimeTextureSet *textures, aster::Vec3 normal,
+                                     const aster::Vec4 tangent_handedness,
+                                     const aster::Vec2 uv,
+                                     const aster::RendererSettings &settings) {
+  const aster::RuntimeTexture *height_texture = textureForRole(textures, "height");
+  const float coupling = std::clamp(settings.surface_scale.height_normal_coupling, 0.0f, 1.5f);
+  if (!hasAuthoredRuntimeTexture(height_texture) || coupling <= 0.0001f) {
+    return normal;
+  }
+  normal = aster::normalizeOr(normal, {0.0f, 1.0f, 0.0f});
+  aster::Vec3 tangent{tangent_handedness.x, tangent_handedness.y, tangent_handedness.z};
+  tangent = tangent - normal * aster::dot(normal, tangent);
+  if (aster::length(tangent) <= 0.0001f) {
+    tangent = std::abs(normal.y) < 0.92f ? aster::normalize(aster::cross({0.0f, 1.0f, 0.0f}, normal))
+                                         : aster::normalize(aster::cross({1.0f, 0.0f, 0.0f}, normal));
+  } else {
+    tangent = aster::normalize(tangent);
+  }
+  const float handedness = tangent_handedness.w < 0.0f ? -1.0f : 1.0f;
+  const aster::Vec3 bitangent = aster::normalize(aster::cross(normal, tangent)) * handedness;
+  const float texel_u = 1.0f / static_cast<float>(std::max(height_texture->width, 1u));
+  const float texel_v = 1.0f / static_cast<float>(std::max(height_texture->height, 1u));
+  const float left = sampleRuntimeHeight(*height_texture, {uv.x - texel_u, uv.y});
+  const float right = sampleRuntimeHeight(*height_texture, {uv.x + texel_u, uv.y});
+  const float down = sampleRuntimeHeight(*height_texture, {uv.x, uv.y - texel_v});
+  const float up = sampleRuntimeHeight(*height_texture, {uv.x, uv.y + texel_v});
+  const float texel_density =
+      std::clamp(settings.surface_scale.physical_texel_density / 512.0f, 0.25f, 2.25f);
+  const float breakup =
+      0.65f + settings.surface_scale.micro_frequency_breakup * 0.25f +
+      settings.surface_scale.macro_frequency_breakup * 0.10f;
+  const float strength = coupling * texel_density * breakup * 3.0f;
+  const aster::Vec3 tangent_space =
+      aster::normalizeOr(aster::Vec3{-(right - left) * strength, -(up - down) * strength, 1.0f},
+                         aster::Vec3{0.0f, 0.0f, 1.0f});
+  return aster::normalizeOr(tangent * tangent_space.x + bitangent * tangent_space.y +
+                                normal * std::max(tangent_space.z, 0.0f),
+                            normal);
+}
+
 struct RuntimeMaterialSample {
   aster::Vec3 albedo{};
   float roughness = 0.55f;
@@ -991,13 +1362,79 @@ struct RuntimeMaterialSample {
   float ambient_occlusion = 1.0f;
   float opacity = 1.0f;
   float wetness = 0.0f;
+  float height = 0.5f;
   aster::Vec3 emissive{};
 };
+
+void applyHeightResponse(RuntimeMaterialSample &sample, const float height,
+                         const float roughness_coupling, const float response_strength) {
+  const float strength = std::clamp(response_strength, 0.0f, 1.5f);
+  const float coupling = std::clamp(roughness_coupling * strength, 0.0f, 1.75f);
+  if (coupling <= 0.0001f) {
+    sample.height = height;
+    return;
+  }
+  const float cavity = 1.0f - smoothstep(0.22f, 0.78f, height);
+  const float crest = smoothstep(0.54f, 0.96f, height);
+  sample.height = height;
+  sample.albedo *= 0.92f + height * 0.14f - cavity * 0.055f * strength;
+  sample.roughness = std::clamp(sample.roughness + cavity * coupling * 0.16f -
+                                    crest * coupling * 0.045f,
+                                0.045f, 1.0f);
+  sample.ambient_occlusion *=
+      std::clamp(1.0f - cavity * (0.14f + coupling * 0.08f), 0.46f, 1.0f);
+  sample.wetness = std::max(sample.wetness, cavity * coupling * 0.085f);
+}
+
+float sampleProceduralHeightSignal(const aster::Material &material,
+                                   const aster::Vec3 world_position,
+                                   const aster::Vec3 normal, const aster::Vec2 uv) {
+  const aster::MaterialSurfaceProfile profile = aster::resolveMaterialSurfaceProfile(material);
+  if (profile == aster::MaterialSurfaceProfile::ContactShadow ||
+      profile == aster::MaterialSurfaceProfile::Liquid) {
+    return 0.5f;
+  }
+  if (profile == aster::MaterialSurfaceProfile::CorrodedMetal ||
+      profile == aster::MaterialSurfaceProfile::WeldBead) {
+    const aster::AsterPipeSurfaceSignals signals =
+        aster::sampleAsterPipeSurface({.position = world_position,
+                                       .normal = normal,
+                                       .uv = uv,
+                                       .detail_scale = material.detail_scale},
+                                      material.procedural, material.edge_wear,
+                                      material.pattern_depth);
+    return std::clamp(0.42f + signals.height * 0.58f + signals.pit * 0.22f +
+                          signals.cavity_grime * 0.16f + signals.weld_slag * 0.18f +
+                          signals.rim_soot * 0.12f,
+                      0.0f, 1.0f);
+  }
+
+  const float active_height =
+      std::max({std::abs(material.pattern_depth), material.procedural.height_shading,
+                material.procedural.roughness_height_coupling, material.detail_strength * 0.35f});
+  if (active_height <= 0.0001f) {
+    return 0.5f;
+  }
+  const float profile_id = static_cast<float>(aster::materialSurfaceProfileId(profile));
+  const float macro =
+      projectedFbm(material, world_position, normal, 0.10f, 811.0f + profile_id);
+  const float mid =
+      ridge(projectedFbm(material, world_position + normal * 0.041f, normal, 0.62f,
+                         829.0f + profile_id));
+  const float fine =
+      projectedFbm(material, world_position - normal * 0.023f, normal, 1.48f,
+                   853.0f + profile_id);
+  const float upward = smoothstep(0.12f, 0.86f, aster::normalizeOr(normal, {0.0f, 1.0f, 0.0f}).y);
+  return std::clamp(0.5f + (macro - 0.5f) * 0.36f + (mid - 0.5f) * 0.30f +
+                        (fine - 0.5f) * 0.18f + upward * material.procedural.height_shading * 0.18f,
+                    0.0f, 1.0f);
+}
 
 RuntimeMaterialSample sampleRuntimeMaterial(const aster::Material &material,
                                             const aster::RuntimeTextureSet *textures,
                                             const aster::Vec3 world_position,
                                             const aster::Vec3 normal, const aster::Vec2 uv,
+                                            const aster::RendererSettings &settings,
                                             const double frame_seconds) {
   RuntimeMaterialSample sample;
   sample.albedo = materialAlbedo(material, world_position, normal, uv, frame_seconds);
@@ -1035,13 +1472,68 @@ RuntimeMaterialSample sampleRuntimeMaterial(const aster::Material &material,
   }
   if (const aster::RuntimeTexture *height_texture = textureForRole(textures, "height");
       hasAuthoredRuntimeTexture(height_texture)) {
-    const float height = aster::sampleRuntimeTextureChannel(*height_texture, uv, 0u);
-    sample.albedo *= 0.88f + height * 0.22f;
+    const float height = sampleRuntimeHeight(*height_texture, uv);
+    const float roughness_coupling =
+        std::clamp(settings.surface_scale.roughness_height_coupling +
+                       material.procedural.roughness_height_coupling * 0.35f,
+                   0.0f, 1.75f);
+    applyHeightResponse(sample, height, roughness_coupling, 1.0f);
+  } else {
+    const float procedural_height =
+        sampleProceduralHeightSignal(material, world_position, normal, uv);
+    const float procedural_coupling =
+        std::clamp(settings.surface_scale.roughness_height_coupling * 0.72f +
+                       material.procedural.roughness_height_coupling * 0.48f,
+                   0.0f, 1.75f);
+    applyHeightResponse(sample, procedural_height, procedural_coupling, 0.72f);
   }
   if (const aster::RuntimeTexture *wetness_texture = textureForRole(textures, "wetness");
       hasAuthoredRuntimeTexture(wetness_texture)) {
     sample.wetness =
         std::max(sample.wetness, aster::sampleRuntimeTextureChannel(*wetness_texture, uv, 0u));
+  }
+  const aster::MaterialSurfaceProfile profile = aster::resolveMaterialSurfaceProfile(material);
+  if (profile == aster::MaterialSurfaceProfile::CorrodedMetal ||
+      profile == aster::MaterialSurfaceProfile::WeldBead) {
+    const aster::AsterPipeSurfaceSignals signals =
+        aster::sampleAsterPipeSurface({.position = world_position,
+                                       .normal = normal,
+                                       .uv = uv,
+                                       .detail_scale = material.detail_scale},
+                                      material.procedural, material.edge_wear,
+                                      material.pattern_depth);
+    const float rust_plate = aster::saturate(signals.rust_bloom * 0.54f +
+                                             signals.orange_rust * 0.24f +
+                                             signals.black_scab * 0.42f +
+                                             signals.cavity_grime * 0.24f);
+    const float height_coupling =
+        std::clamp(material.procedural.roughness_height_coupling, 0.0f, 1.50f);
+    sample.height = std::max(sample.height, signals.height);
+    sample.roughness = std::lerp(sample.roughness, 0.97f, rust_plate * 0.66f);
+    sample.roughness = std::clamp(sample.roughness +
+                                      signals.pit * (0.12f + height_coupling * 0.06f) +
+                                      signals.weld_slag * (0.08f + height_coupling * 0.04f),
+                                  0.045f, 1.0f);
+    sample.roughness =
+        std::lerp(sample.roughness, 0.99f, signals.height * height_coupling * 0.18f);
+    sample.roughness = std::lerp(sample.roughness, 0.58f, signals.paint_remnant * 0.20f);
+    sample.roughness = std::lerp(sample.roughness, 0.46f, signals.axial_scratch * 0.16f);
+    sample.roughness = std::lerp(sample.roughness, 0.25f, signals.edge_polish * 0.38f);
+    const float corrosion_plate =
+        aster::saturate(signals.rust_bloom * 0.42f + signals.black_scab * 0.58f +
+                        signals.cavity_grime * 0.28f + signals.pit * 0.18f);
+    sample.metallic = std::lerp(sample.metallic, 0.035f, corrosion_plate * 0.74f);
+    sample.metallic = std::lerp(sample.metallic, 0.78f, signals.edge_polish * 0.28f);
+    sample.metallic = std::lerp(sample.metallic, 0.62f, signals.axial_scratch * 0.12f);
+    sample.metallic = std::clamp(sample.metallic - signals.wet_film * 0.04f, 0.0f, 1.0f);
+    sample.wetness = std::max(sample.wetness, signals.wet_film);
+    sample.ambient_occlusion *= std::clamp(1.0f - signals.cavity_grime * 0.30f -
+                                               signals.pit * 0.10f -
+                                               signals.black_scab * 0.16f -
+                                               signals.rim_soot * 0.26f -
+                                               signals.weld_scorch * 0.20f -
+                                               signals.weld_slag * 0.16f,
+                                           0.45f, 1.0f);
   }
   if (sample.wetness > 0.0001f) {
     const float wet = std::clamp(sample.wetness, 0.0f, 1.0f);
@@ -1076,19 +1568,25 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
   const aster::Vec3 material_sample_position =
       snapProceduralSamplePosition(world_position, settings.style);
   if (settings.procedural_surface_normals) {
-    normal = proceduralSurfaceNormal(material, material_sample_position, normal);
+    normal = proceduralSurfaceNormal(material, material_sample_position, normal, settings);
   }
   normal = applyRuntimeNormalMap(textures, normal, tangent_handedness, uv);
+  normal = applyRuntimeHeightNormal(textures, normal, tangent_handedness, uv, settings);
+  normal = applyScalePresentationNormal(material, material_sample_position, normal, settings);
 
   const RuntimeMaterialSample material_sample =
-      sampleRuntimeMaterial(material, textures, material_sample_position, normal, uv, frame_seconds);
+      sampleRuntimeMaterial(material, textures, material_sample_position, normal, uv, settings,
+                            frame_seconds);
   const aster::Vec3 albedo = material_sample.albedo;
-  const float sky_factor = saturate(normal.y * 0.5f + 0.5f);
+  const SurfaceOcclusionEval surface_occlusion =
+      evaluateSurfaceOcclusion(world_position, normal, material_sample.ambient_occlusion, settings);
+  const float sky_factor = saturate(surface_occlusion.bent_normal.y * 0.5f + 0.5f);
   const aster::Vec3 ambient_color =
       mixVec(settings.ground_ambient_color, settings.sky_ambient_color, sky_factor);
   const float geometry_ao =
-      std::clamp(material_sample.ambient_occlusion * std::clamp(vertex_ao, 0.0f, 1.0f), 0.0f,
-                 1.0f);
+      std::clamp(material_sample.ambient_occlusion * std::clamp(vertex_ao, 0.0f, 1.0f) *
+                     surface_occlusion.visibility,
+                 0.0f, 1.0f);
   const float ambient_level =
       std::max(settings.ambient_strength * geometry_ao, settings.ambient_floor);
   aster::Vec3 color =
@@ -1103,19 +1601,30 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
   const float alpha = perceptual_roughness * perceptual_roughness;
   const float alpha2 = std::max(alpha * alpha, 0.0005f);
   const float k = ((perceptual_roughness + 1.0f) * (perceptual_roughness + 1.0f)) * 0.125f;
+  const float specular_visibility =
+      evaluateSpecularOcclusion(geometry_ao, perceptual_roughness, n_dot_v);
 
   if (settings.reflections.enabled && settings.reflections.fallback_intensity > 0.0f) {
     const aster::Vec3 incident = -view;
     const aster::Vec3 reflection =
         aster::normalizeOr(incident - normal * (2.0f * aster::dot(incident, normal)), normal);
+    const float probe_mix = smoothstep(0.22f, 0.96f, perceptual_roughness);
+    const aster::Vec3 dominant_reflection =
+        aster::normalizeOr(mixVec(reflection, surface_occlusion.bent_normal,
+                                  probe_mix * (0.26f + surface_occlusion.cavity * 0.18f)),
+                            reflection);
     const aster::Vec3 env_color =
-        softwareReflectionEnvironment(frame_resources, world_position, reflection, settings);
+        mixVec(softwareReflectionEnvironment(frame_resources, world_position, dominant_reflection,
+                                             settings),
+               ambient_color, probe_mix * 0.34f);
     const aster::Vec3 fresnel =
         f0 + (aster::Vec3{1.0f, 1.0f, 1.0f} - f0) * std::pow(1.0f - n_dot_v, 5.0f);
-    const float roughness_visibility = std::pow(1.0f - perceptual_roughness * 0.72f, 2.0f);
+    const float roughness_visibility =
+        std::pow(1.0f - perceptual_roughness * 0.62f, 2.0f) *
+        (0.72f + (1.0f - probe_mix) * 0.28f);
     const float material_visibility = 0.24f + metallic * 0.76f;
     color += env_color * fresnel *
-             (roughness_visibility * material_visibility *
+             (roughness_visibility * material_visibility * specular_visibility *
               std::clamp(settings.reflections.fallback_intensity, 0.0f, 2.0f));
   }
 
@@ -1132,7 +1641,8 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
     const float geometry_v = n_dot_v / std::max(n_dot_v * (1.0f - k) + k, 0.001f);
     const aster::Vec3 fresnel =
         f0 + (aster::Vec3{1.0f, 1.0f, 1.0f} - f0) * std::pow(1.0f - h_dot_v, 5.0f);
-    const aster::Vec3 specular = fresnel * (distribution * geometry_l * geometry_v);
+    const aster::Vec3 specular =
+        fresnel * (distribution * geometry_l * geometry_v * specular_visibility);
     const aster::Vec3 diffuse = albedo * ((1.0f - metallic) * 0.82f);
     color = color + (diffuse + specular) * (radiance * n_dot_l);
   };
@@ -1167,7 +1677,8 @@ aster::Vec3 shadeVertex(const aster::Material &material, const aster::Vec3 world
                                    0.18f),
                  std::clamp(settings.style.unlit_mix, 0.0f, 1.0f));
 
-  if (settings.grounding.enabled && settings.grounding.surface_occlusion_strength > 0.0f) {
+  if (!settings.occlusion.enabled && settings.grounding.enabled &&
+      settings.grounding.surface_occlusion_strength > 0.0f) {
     const float height = std::max(settings.grounding.surface_occlusion_height, 0.001f);
     const float above_reference = std::max(world_position.y - settings.grounding.reference_y, 0.0f);
     const float proximity = 1.0f - smoothstep(0.0f, height, above_reference);
@@ -1206,7 +1717,8 @@ aster::FrameColor shadedFrameColor(const aster::Material &material,
                                    const aster::RuntimeTextureSet *textures,
                                    const SoftwareFrameResources *frame_resources) {
   const RuntimeMaterialSample material_sample =
-      sampleRuntimeMaterial(material, textures, world_position, normal, uv, frame_seconds);
+      sampleRuntimeMaterial(material, textures, world_position, normal, uv, settings,
+                            frame_seconds);
   return aster::frameColor(shadeVertex(material, world_position, normal, tangent_handedness, uv,
                                        vertex_ao, camera_position, settings, frame_seconds,
                                        textures, frame_resources),
@@ -1304,14 +1816,74 @@ void applySoftwareFxaa(std::vector<std::uint8_t> &pixels, const int width, const
   }
 }
 
+void applySoftwarePresentationGrade(std::vector<std::uint8_t> &pixels, const int width,
+                                    const int height,
+                                    const aster::PresentationLensSettings &presentation) {
+  const float vignette = std::clamp(presentation.vignette_strength, 0.0f, 0.65f);
+  const float shoulder = std::clamp(presentation.shoulder_strength, 0.0f, 1.0f);
+  const float composition = std::clamp(presentation.composition_weight, 0.0f, 1.2f);
+  const float scale_reference = std::clamp(presentation.scale_reference_m / 1.8f, 0.35f, 3.0f);
+  const float detail_gain = composition * (0.020f + scale_reference * 0.018f);
+  const float grain_strength = composition * std::clamp(scale_reference, 0.4f, 1.6f) * 0.0035f;
+  if ((vignette <= 0.0001f && shoulder <= 0.0001f && detail_gain <= 0.0001f &&
+       grain_strength <= 0.0001f) ||
+      width <= 0 || height <= 0) {
+    return;
+  }
+  const std::vector<std::uint8_t> source = pixels;
+  const float inv_width = 1.0f / static_cast<float>(std::max(width, 1));
+  const float inv_height = 1.0f / static_cast<float>(std::max(height, 1));
+  for (int y = 0; y < height; ++y) {
+    const float ny = ((static_cast<float>(y) + 0.5f) * inv_height) * 2.0f - 1.0f;
+    for (int x = 0; x < width; ++x) {
+      const float nx = ((static_cast<float>(x) + 0.5f) * inv_width) * 2.0f - 1.0f;
+      const float radial = std::sqrt(nx * nx + ny * ny);
+      const float vignette_gain = 1.0f - smoothstep(0.42f, 1.18f, radial) * vignette;
+      const std::size_t base = static_cast<std::size_t>(y * width + x) * 4u;
+      const float luma = byteLuma(source, base);
+      float local_average = luma;
+      if (x > 0 && x + 1 < width && y > 0 && y + 1 < height) {
+        local_average =
+            (byteLuma(source, static_cast<std::size_t>(y * width + x - 1) * 4u) +
+             byteLuma(source, static_cast<std::size_t>(y * width + x + 1) * 4u) +
+             byteLuma(source, static_cast<std::size_t>((y - 1) * width + x) * 4u) +
+             byteLuma(source, static_cast<std::size_t>((y + 1) * width + x) * 4u)) *
+            0.25f;
+      }
+      const float local_detail = std::clamp(luma - local_average, -0.22f, 0.22f);
+      const float grain =
+          fractValue(52.9829189f *
+                     fractValue(0.06711056f * static_cast<float>(x) +
+                                0.00583715f * static_cast<float>(y) +
+                                presentation.focal_length_mm * 0.00017f)) -
+          0.5f;
+      const float shoulder_weight = smoothstep(0.62f, 1.0f, luma) * shoulder;
+      for (std::size_t channel = 0u; channel < 3u; ++channel) {
+        float value = static_cast<float>(source[base + channel]) / 255.0f;
+        value *= vignette_gain;
+        value += local_detail * detail_gain;
+        value += grain * grain_strength * (1.0f - smoothstep(0.04f, 0.84f, luma));
+        value = std::lerp(value, value / (1.0f + value * 0.42f), shoulder_weight);
+        pixels[base + channel] = static_cast<std::uint8_t>(
+            std::clamp(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f), 0l, 255l));
+      }
+    }
+  }
+}
+
 void applySoftwarePostProcess(aster::SoftwareFrameBuffer &framebuffer,
                               const aster::RendererSettings &settings) {
-  if (framebuffer.empty() || (!settings.post.bloom && !settings.post.fxaa)) {
+  if (framebuffer.empty() ||
+      (!settings.post.bloom && !settings.post.fxaa &&
+       settings.presentation.vignette_strength <= 0.0001f &&
+       settings.presentation.shoulder_strength <= 0.0001f)) {
     return;
   }
   std::vector<std::uint8_t> pixels(framebuffer.rgba8().begin(), framebuffer.rgba8().end());
   applySoftwareBloom(pixels, framebuffer.width(), framebuffer.height(), settings.post);
   applySoftwareFxaa(pixels, framebuffer.width(), framebuffer.height(), settings.post);
+  applySoftwarePresentationGrade(pixels, framebuffer.width(), framebuffer.height(),
+                                 settings.presentation);
   framebuffer.replaceRgba8(framebuffer.width(), framebuffer.height(), pixels);
 }
 
@@ -1583,6 +2155,279 @@ void buildSoftwareShadowAtlas(const aster::Scene &scene, const aster::OrbitCamer
     }
   }
   resources.shadow_ready = true;
+}
+
+void buildSoftwareSurfaceAttributes(const aster::Scene &scene, const aster::OrbitCamera &camera,
+                                    const aster::RendererSettings &settings,
+                                    SoftwareFrameResources &resources) {
+  resources.surface_width = std::max(resources.frame_width, 1u);
+  resources.surface_height = std::max(resources.frame_height, 1u);
+  resources.surface_attributes_rgba8.assign(static_cast<std::size_t>(resources.surface_width) *
+                                                resources.surface_height * 4u,
+                                            0u);
+  const float texel_density = std::max(settings.surface_scale.physical_texel_density, 1.0f);
+  const float macro_breakup = std::clamp(settings.surface_scale.macro_frequency_breakup, 0.0f, 2.0f);
+  const float micro_breakup = std::clamp(settings.surface_scale.micro_frequency_breakup, 0.0f, 2.0f);
+  const float coupling = std::clamp(settings.surface_scale.height_normal_coupling, 0.0f, 1.5f);
+  const float roughness_coupling =
+      std::clamp(settings.surface_scale.roughness_height_coupling, 0.0f, 1.75f);
+  const std::uint32_t surface_samples =
+      std::clamp(settings.occlusion.sample_count, 4u, 24u);
+  for (std::uint32_t y = 0u; y < resources.surface_height; ++y) {
+    const float fy = (static_cast<float>(y) + 0.5f) /
+                     static_cast<float>(std::max(resources.surface_height, 1u));
+    for (std::uint32_t x = 0u; x < resources.surface_width; ++x) {
+      const float fx = (static_cast<float>(x) + 0.5f) /
+                       static_cast<float>(std::max(resources.surface_width, 1u));
+      float macro = 0.0f;
+      float micro = 0.0f;
+      float directional = 0.0f;
+      for (std::uint32_t sample = 0u; sample < surface_samples; ++sample) {
+        const aster::Vec2 h = hammersley2d(sample, surface_samples);
+        const float angle = h.x * kTau + texel_density * 0.00013f;
+        const float radius = std::sqrt(h.y) * 0.018f * (1.0f + macro_breakup);
+        const aster::Vec2 offset{std::cos(angle) * radius, std::sin(angle) * radius};
+        const aster::Vec3 sample_position{
+            (fx + offset.x) * (5.0f + macro_breakup * 8.0f),
+            (fy + offset.y) * (4.0f + macro_breakup * 6.0f),
+            texel_density * 0.00031f + static_cast<float>(sample) * 0.071f};
+        macro += valueNoise(sample_position);
+        micro += valueNoise(sample_position * (7.0f + micro_breakup * 8.0f) +
+                            aster::Vec3{0.13f, 0.37f, 1.91f});
+        directional += ridge(valueNoise(sample_position * (2.4f + micro_breakup) +
+                                        aster::Vec3{2.1f, 0.5f, 0.7f}));
+      }
+      const float inv_samples = 1.0f / static_cast<float>(surface_samples);
+      macro *= inv_samples;
+      micro *= inv_samples;
+      directional *= inv_samples;
+      const float normal_x = 0.5f + (macro - 0.5f) * 0.22f * coupling;
+      const float normal_y = 0.74f + (directional - 0.5f) * 0.18f * coupling;
+      const float roughness =
+          std::clamp(0.50f + macro_breakup * 0.10f +
+                         directional * (0.10f + roughness_coupling * 0.035f) -
+                         micro * (0.13f - roughness_coupling * 0.020f) +
+                         (1.0f - macro) * roughness_coupling * 0.045f,
+                     0.05f, 0.96f);
+      const float ao =
+          std::clamp(0.84f - macro * 0.12f - micro * (0.07f + roughness_coupling * 0.025f) -
+                         directional * 0.06f,
+                     0.36f, 1.0f);
+      const std::size_t base =
+          (static_cast<std::size_t>(y) * resources.surface_width + x) * 4u;
+      resources.surface_attributes_rgba8[base + 0u] = debugByte(normal_x);
+      resources.surface_attributes_rgba8[base + 1u] = debugByte(normal_y);
+      resources.surface_attributes_rgba8[base + 2u] = debugByte(roughness);
+      resources.surface_attributes_rgba8[base + 3u] = debugByte(ao);
+    }
+  }
+
+  const aster::Vec3 camera_position = camera.position();
+  const float view_radius = std::max(aster::length(camera_position - camera.target), 0.001f);
+  for (const aster::RenderObject &object : scene.objects()) {
+    if (isContactShadowUtility(object)) {
+      continue;
+    }
+    const LocalBounds bounds = objectLocalBounds(object);
+    const aster::Vec2 half_extents = objectContactHalfExtents(object, bounds);
+    const float sx = (object.transform.position.x - camera.target.x) / view_radius;
+    const float sy = (object.transform.position.z - camera.target.z) / view_radius;
+    const float center_x = (0.5f + sx * 0.32f) * static_cast<float>(resources.surface_width);
+    const float center_y = (0.58f - sy * 0.26f) * static_cast<float>(resources.surface_height);
+    const float radius_x = std::max(half_extents.x * 0.18f, 0.035f) *
+                           static_cast<float>(resources.surface_width);
+    const float radius_y = std::max(half_extents.y * 0.18f, 0.035f) *
+                           static_cast<float>(resources.surface_height);
+    const int min_x = std::max(0, static_cast<int>(std::floor(center_x - radius_x)));
+    const int max_x =
+        std::min(static_cast<int>(resources.surface_width) - 1,
+                 static_cast<int>(std::ceil(center_x + radius_x)));
+    const int min_y = std::max(0, static_cast<int>(std::floor(center_y - radius_y)));
+    const int max_y =
+        std::min(static_cast<int>(resources.surface_height) - 1,
+                 static_cast<int>(std::ceil(center_y + radius_y)));
+    for (int py = min_y; py <= max_y; ++py) {
+      for (int px = min_x; px <= max_x; ++px) {
+        const float dx = (static_cast<float>(px) + 0.5f - center_x) / std::max(radius_x, 0.001f);
+        const float dy = (static_cast<float>(py) + 0.5f - center_y) / std::max(radius_y, 0.001f);
+        const float falloff = 1.0f - smoothstep(0.15f, 1.0f, dx * dx + dy * dy);
+        if (falloff <= 0.0f) {
+          continue;
+        }
+        const std::size_t base =
+            (static_cast<std::size_t>(py) * resources.surface_width +
+             static_cast<std::size_t>(px)) *
+            4u;
+        const float authored_density =
+            object.material.procedural.physical_texel_density > 0.0f
+                ? object.material.procedural.physical_texel_density
+                : settings.surface_scale.physical_texel_density;
+        const float density_mark =
+            std::clamp(authored_density / std::max(settings.surface_scale.physical_texel_density, 1.0f),
+                       0.25f, 2.0f);
+        float material_roughness = object.material.roughness;
+        float material_ao_drop = object.material.procedural.cavity_grime * 0.26f;
+        float normal_lift = falloff * 0.08f;
+        const aster::MaterialSurfaceProfile profile =
+            aster::resolveMaterialSurfaceProfile(object.material);
+        if (profile == aster::MaterialSurfaceProfile::CorrodedMetal ||
+            profile == aster::MaterialSurfaceProfile::WeldBead) {
+          const aster::Vec3 signal_position =
+              object.transform.position +
+              aster::Vec3{dx * std::max(half_extents.x, 0.001f), 0.0f,
+                          dy * std::max(half_extents.y, 0.001f)};
+          const aster::AsterPipeSurfaceSignals signals =
+              aster::sampleAsterPipeSurface({.position = signal_position,
+                                             .normal = {0.0f, 1.0f, 0.0f},
+                                             .uv = {0.5f + dx * 0.5f, 0.5f + dy * 0.5f},
+                                             .detail_scale = object.material.detail_scale},
+                                            object.material.procedural,
+                                            object.material.edge_wear,
+                                            object.material.pattern_depth);
+          const float corrosion = std::clamp(signals.rust_bloom * 0.45f +
+                                                 signals.black_scab * 0.35f +
+                                                 signals.cavity_grime * 0.24f +
+                                                 signals.weld_slag * 0.20f,
+                                             0.0f, 1.0f);
+          material_roughness =
+              std::clamp(std::lerp(material_roughness, 0.96f, corrosion * 0.72f) -
+                             signals.edge_polish * 0.18f,
+                         0.045f, 1.0f);
+          material_ao_drop += corrosion * 0.20f + signals.pit * 0.12f + signals.rim_soot * 0.18f;
+          normal_lift += (signals.height - 0.5f) * 0.18f * coupling;
+        }
+        const float roughness =
+            std::clamp(static_cast<float>(resources.surface_attributes_rgba8[base + 2u]) / 255.0f +
+                           (material_roughness - 0.55f) * 0.35f,
+                       0.0f, 1.0f);
+        const float ao =
+            std::clamp(static_cast<float>(resources.surface_attributes_rgba8[base + 3u]) / 255.0f -
+                           falloff * (0.10f + material_ao_drop),
+                       0.20f, 1.0f);
+        resources.surface_attributes_rgba8[base + 0u] =
+            debugByte(0.5f + (density_mark - 1.0f) * 0.12f + normal_lift);
+        resources.surface_attributes_rgba8[base + 1u] = debugByte(0.78f + falloff * 0.10f + normal_lift * 0.35f);
+        resources.surface_attributes_rgba8[base + 2u] = debugByte(roughness);
+        resources.surface_attributes_rgba8[base + 3u] = debugByte(ao);
+      }
+    }
+  }
+  resources.surface_attributes_ready = true;
+}
+
+void buildSoftwareSurfaceOcclusion(const aster::Scene &scene, const aster::OrbitCamera &camera,
+                                   const aster::RendererSettings &settings,
+                                   SoftwareFrameResources &resources) {
+  if (!resources.surface_attributes_ready) {
+    buildSoftwareSurfaceAttributes(scene, camera, settings, resources);
+  }
+  resources.occlusion_width = std::max(resources.frame_width, 1u);
+  resources.occlusion_height = std::max(resources.frame_height, 1u);
+  resources.surface_occlusion_rgba8.assign(static_cast<std::size_t>(resources.occlusion_width) *
+                                               resources.occlusion_height * 4u,
+                                           255u);
+  const float strength =
+      settings.occlusion.enabled ? std::clamp(settings.occlusion.strength, 0.0f, 1.0f) : 0.0f;
+  const std::uint32_t occlusion_samples =
+      std::clamp(settings.occlusion.sample_count, 4u, 24u);
+  for (std::uint32_t y = 0u; y < resources.occlusion_height; ++y) {
+    const float fy = (static_cast<float>(y) + 0.5f) /
+                     static_cast<float>(std::max(resources.occlusion_height, 1u));
+    for (std::uint32_t x = 0u; x < resources.occlusion_width; ++x) {
+      const float fx = (static_cast<float>(x) + 0.5f) /
+                       static_cast<float>(std::max(resources.occlusion_width, 1u));
+      const std::size_t attr_base =
+          (static_cast<std::size_t>(
+               std::min(resources.surface_height - 1u,
+                        static_cast<std::uint32_t>(fy * static_cast<float>(resources.surface_height)))) *
+               resources.surface_width +
+           std::min(resources.surface_width - 1u,
+                    static_cast<std::uint32_t>(fx * static_cast<float>(resources.surface_width)))) *
+          4u;
+      const float packed_ao =
+          resources.surface_attributes_rgba8.empty()
+              ? 1.0f
+              : static_cast<float>(resources.surface_attributes_rgba8[attr_base + 3u]) / 255.0f;
+      const float floor_contact = 1.0f - smoothstep(0.52f, 0.98f, fy);
+      const float horizon = std::pow(floor_contact, std::max(settings.occlusion.distance_falloff, 0.25f));
+      float micro_average = 0.0f;
+      for (std::uint32_t sample = 0u; sample < occlusion_samples; ++sample) {
+        const aster::Vec2 h = hammersley2d(sample, occlusion_samples);
+        const float angle = h.x * kTau;
+        const float radius = std::sqrt(h.y) * 0.012f * (1.0f + settings.occlusion.radius);
+        micro_average += valueNoise({(fx + std::cos(angle) * radius) *
+                                         (32.0f + settings.surface_scale.micro_frequency_breakup * 24.0f),
+                                     (fy + std::sin(angle) * radius) *
+                                         (24.0f + settings.surface_scale.micro_frequency_breakup * 18.0f),
+                                     static_cast<float>(sample) * 0.23f});
+      }
+      const float micro =
+          micro_average / static_cast<float>(occlusion_samples) *
+          settings.occlusion.micro_shadowing;
+      const float occlusion =
+          std::clamp(1.0f - (1.0f - packed_ao + horizon * settings.occlusion.contact_hardening +
+                             micro) *
+                                strength,
+                     0.28f, 1.0f);
+      const std::size_t base =
+          (static_cast<std::size_t>(y) * resources.occlusion_width + x) * 4u;
+      resources.surface_occlusion_rgba8[base + 0u] = debugByte(occlusion);
+      resources.surface_occlusion_rgba8[base + 1u] = debugByte(occlusion);
+      resources.surface_occlusion_rgba8[base + 2u] = debugByte(occlusion);
+      resources.surface_occlusion_rgba8[base + 3u] = 255u;
+    }
+  }
+
+  const aster::Vec3 camera_position = camera.position();
+  const float view_radius = std::max(aster::length(camera_position - camera.target), 0.001f);
+  for (const aster::RenderObject &object : scene.objects()) {
+    if (isContactShadowUtility(object) || !object.material.receives_shadows) {
+      continue;
+    }
+    const LocalBounds bounds = objectLocalBounds(object);
+    const aster::Vec2 half_extents = objectContactHalfExtents(object, bounds);
+    const float sx = (object.transform.position.x - camera.target.x) / view_radius;
+    const float sy = (object.transform.position.z - camera.target.z) / view_radius;
+    const float center_x = (0.5f + sx * 0.32f) * static_cast<float>(resources.occlusion_width);
+    const float center_y = (0.60f - sy * 0.26f) * static_cast<float>(resources.occlusion_height);
+    const float radius_x = std::max(half_extents.x * 0.24f, 0.045f) *
+                           static_cast<float>(resources.occlusion_width);
+    const float radius_y = std::max(half_extents.y * 0.24f, 0.045f) *
+                           static_cast<float>(resources.occlusion_height);
+    const int min_x = std::max(0, static_cast<int>(std::floor(center_x - radius_x)));
+    const int max_x =
+        std::min(static_cast<int>(resources.occlusion_width) - 1,
+                 static_cast<int>(std::ceil(center_x + radius_x)));
+    const int min_y = std::max(0, static_cast<int>(std::floor(center_y - radius_y)));
+    const int max_y =
+        std::min(static_cast<int>(resources.occlusion_height) - 1,
+                 static_cast<int>(std::ceil(center_y + radius_y)));
+    const float contact_weight =
+        std::clamp(settings.occlusion.strength * (0.22f + settings.occlusion.contact_hardening), 0.0f,
+                   0.80f);
+    for (int py = min_y; py <= max_y; ++py) {
+      for (int px = min_x; px <= max_x; ++px) {
+        const float dx = (static_cast<float>(px) + 0.5f - center_x) / std::max(radius_x, 0.001f);
+        const float dy = (static_cast<float>(py) + 0.5f - center_y) / std::max(radius_y, 0.001f);
+        const float falloff = 1.0f - smoothstep(0.10f, 1.0f, dx * dx + dy * dy);
+        if (falloff <= 0.0f) {
+          continue;
+        }
+        const std::size_t base =
+            (static_cast<std::size_t>(py) * resources.occlusion_width +
+             static_cast<std::size_t>(px)) *
+            4u;
+        const float current =
+            static_cast<float>(resources.surface_occlusion_rgba8[base + 0u]) / 255.0f;
+        const float value =
+            std::clamp(current * (1.0f - falloff * contact_weight), 0.18f, 1.0f);
+        resources.surface_occlusion_rgba8[base + 0u] = debugByte(value);
+        resources.surface_occlusion_rgba8[base + 1u] = debugByte(value);
+        resources.surface_occlusion_rgba8[base + 2u] = debugByte(value);
+      }
+    }
+  }
+  resources.surface_occlusion_ready = true;
 }
 
 void buildSoftwareVolumetricFog(const aster::OrbitCamera &camera,
@@ -1934,6 +2779,8 @@ std::string_view frameDebuggerTimelineEventKindName(
     return "light-cluster";
   case FrameDebuggerTimelineEventKind::Shadow:
     return "shadow";
+  case FrameDebuggerTimelineEventKind::SurfaceOcclusion:
+    return "surface-occlusion";
   case FrameDebuggerTimelineEventKind::Fog:
     return "fog";
   case FrameDebuggerTimelineEventKind::Probe:
@@ -2258,8 +3105,10 @@ RenderBackendCapabilities softwareCapabilities() {
   const std::uint32_t graph_resources =
       renderGraphResourceBit(RenderGraphResource::SceneColor) |
       renderGraphResourceBit(RenderGraphResource::SceneDepth) |
+      renderGraphResourceBit(RenderGraphResource::SurfaceAttributes) |
       renderGraphResourceBit(RenderGraphResource::LightClusters) |
       renderGraphResourceBit(RenderGraphResource::ShadowAtlas) |
+      renderGraphResourceBit(RenderGraphResource::SurfaceOcclusion) |
       renderGraphResourceBit(RenderGraphResource::VolumetricFog) |
       renderGraphResourceBit(RenderGraphResource::ReflectionProbes) |
       renderGraphResourceBit(RenderGraphResource::UiOverlay) |
@@ -2330,6 +3179,9 @@ rhi::ImageExtent resourceCostExtent(const RenderGraphResource resource,
     const std::uint32_t atlas = std::max(settings.shadows.atlas_size, 1u);
     return {atlas, atlas, 1u};
   }
+  case RenderGraphResource::SurfaceAttributes:
+  case RenderGraphResource::SurfaceOcclusion:
+    return {std::max(frame_width, 1u), std::max(frame_height, 1u), 1u};
   case RenderGraphResource::VolumetricFog:
     return {std::max(frame_width / 4u, 1u), std::max(frame_height / 4u, 1u), 1u};
   case RenderGraphResource::ReflectionProbes: {
@@ -2775,6 +3627,23 @@ std::uint64_t estimatedBytesFor(const aster::framegraph::ResourceDesc &desc) {
   return width * height * depth * bytes_per_pixel;
 }
 
+aster::RendererDebugView debugViewForResource(const aster::RenderGraphResource resource) {
+  switch (resource) {
+  case aster::RenderGraphResource::ShadowAtlas:
+    return aster::RendererDebugView::ShadowMask;
+  case aster::RenderGraphResource::SurfaceAttributes:
+    return aster::RendererDebugView::SurfaceAttributes;
+  case aster::RenderGraphResource::SurfaceOcclusion:
+    return aster::RendererDebugView::SurfaceOcclusion;
+  case aster::RenderGraphResource::VolumetricFog:
+    return aster::RendererDebugView::Fog;
+  case aster::RenderGraphResource::ReflectionProbes:
+    return aster::RendererDebugView::ReflectionProbe;
+  default:
+    return aster::RendererDebugView::FinalColor;
+  }
+}
+
 void appendFrameGraphForensics(const aster::FixedRenderGraph &graph,
                                const aster::RenderBackendCapabilities &capabilities,
                                const int framebuffer_width,
@@ -2807,13 +3676,7 @@ void appendFrameGraphForensics(const aster::FixedRenderGraph &graph,
       for (const aster::RenderGraphResourceBindingDesc &output : declaration->outputs) {
         forensics.captures.push_back(
             {.pass = semantic,
-             .view = output.resource == aster::RenderGraphResource::ShadowAtlas
-                         ? aster::RendererDebugView::ShadowMask
-                         : (output.resource == aster::RenderGraphResource::VolumetricFog
-                                ? aster::RendererDebugView::Fog
-                                : (output.resource == aster::RenderGraphResource::ReflectionProbes
-                                       ? aster::RendererDebugView::ReflectionProbe
-                                       : aster::RendererDebugView::FinalColor)),
+             .view = debugViewForResource(output.resource),
              .resource = output.resource,
              .label = pass.name + ":" +
                       std::string(aster::renderGraphResourceName(output.resource)),
@@ -2928,6 +3791,14 @@ void appendSoftwareCapturePayloads(const SoftwareFrameResources &resources,
     if (capture.resource == aster::RenderGraphResource::ShadowAtlas && resources.shadow_ready) {
       updateCapturePayload(capture, resources.shadow_atlas_size, resources.shadow_atlas_size,
                            resources.shadow_rgba8);
+    } else if (capture.resource == aster::RenderGraphResource::SurfaceAttributes &&
+               resources.surface_attributes_ready) {
+      updateCapturePayload(capture, resources.surface_width, resources.surface_height,
+                           resources.surface_attributes_rgba8);
+    } else if (capture.resource == aster::RenderGraphResource::SurfaceOcclusion &&
+               resources.surface_occlusion_ready) {
+      updateCapturePayload(capture, resources.occlusion_width, resources.occlusion_height,
+                           resources.surface_occlusion_rgba8);
     } else if (capture.resource == aster::RenderGraphResource::VolumetricFog &&
                resources.fog_ready) {
       updateCapturePayload(capture, resources.fog_width, resources.fog_height,
@@ -3002,6 +3873,7 @@ bool hasReadAfterWriteEvidence(const aster::FrameForensics &forensics,
 
 bool requiresNativeCaptureProof(const aster::RenderGraphResource resource) {
   return resource == aster::RenderGraphResource::ShadowAtlas ||
+         resource == aster::RenderGraphResource::SurfaceOcclusion ||
          resource == aster::RenderGraphResource::VolumetricFog ||
          resource == aster::RenderGraphResource::ReflectionProbes ||
          resource == aster::RenderGraphResource::CaptureReadback;
@@ -3052,6 +3924,8 @@ bool graphResourceExercised(const aster::RenderGraphResource resource,
   switch (resource) {
   case aster::RenderGraphResource::ShadowAtlas:
     return settings.shadows.enabled;
+  case aster::RenderGraphResource::SurfaceOcclusion:
+    return settings.occlusion.enabled && settings.occlusion.strength > 0.0f;
   case aster::RenderGraphResource::VolumetricFog:
     return settings.atmosphere.enabled && settings.atmosphere.fog_strength > 0.0f;
   case aster::RenderGraphResource::ReflectionProbes:
@@ -3093,6 +3967,7 @@ void appendResourceCertification(const aster::FixedRenderGraph &graph,
     const bool capture_ok = !requiresNativeCaptureProof(resource) || hasAvailableCapture(forensics, resource);
     const bool sampling_ok =
         resource == aster::RenderGraphResource::ShadowAtlas ||
+                resource == aster::RenderGraphResource::SurfaceOcclusion ||
                 resource == aster::RenderGraphResource::VolumetricFog ||
                 resource == aster::RenderGraphResource::ReflectionProbes
             ? hasReadAfterWriteEvidence(forensics, resource)
@@ -3669,6 +4544,70 @@ std::uint64_t objectFateHash(const aster::ObjectRenderFateTrace &fate) {
   return appendEvidenceText(hash, fate.final_contribution);
 }
 
+std::uint64_t surfacePresentationHash(const aster::SurfacePresentationTrace &trace) {
+  std::uint64_t hash = 1469598103934665603ull;
+  hash = appendEvidenceValue(hash, trace.object_index);
+  hash = appendEvidenceText(hash, trace.object_name);
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(
+                                       std::lround(trace.physical_texel_density * 10.0f)));
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(
+                                       std::lround(trace.height_normal_coupling * 1000.0f)));
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(
+                                       std::lround(trace.roughness_height_coupling * 1000.0f)));
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(
+                                       std::lround(trace.cavity_strength * 1000.0f)));
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(
+                                       std::lround(trace.contact_hardening * 1000.0f)));
+  hash = appendEvidenceValue(hash, trace.surface_occlusion_enabled ? 1u : 0u);
+  return appendEvidenceValue(hash, trace.contact_shadow_receiver ? 1u : 0u);
+}
+
+void appendSurfacePresentationTraces(const aster::Scene &scene,
+                                     const aster::RendererSettings &settings,
+                                     aster::FrameForensics &forensics) {
+  forensics.surface_traces.clear();
+  forensics.surface_traces.reserve(scene.objects().size());
+  for (std::size_t object_index = 0u; object_index < scene.objects().size(); ++object_index) {
+    const aster::RenderObject &object = scene.objects()[object_index];
+    if (isContactShadowUtility(object)) {
+      continue;
+    }
+    const aster::ProceduralSurfaceLayer &surface = object.material.procedural;
+    aster::SurfacePresentationTrace trace;
+    trace.object_name = objectDiagnosticLabel(object, object_index);
+    trace.object_index = object_index;
+    trace.physical_texel_density = surface.physical_texel_density > 0.0f
+                                       ? surface.physical_texel_density
+                                       : settings.surface_scale.physical_texel_density;
+    trace.height_normal_coupling = surface.height_normal_coupling > 0.0f
+                                       ? surface.height_normal_coupling
+                                       : settings.surface_scale.height_normal_coupling;
+    trace.roughness_height_coupling = surface.roughness_height_coupling > 0.0f
+                                          ? surface.roughness_height_coupling
+                                          : settings.surface_scale.roughness_height_coupling;
+    trace.cavity_strength = std::clamp(surface.cavity_grime + object.material.edge_wear * 0.35f,
+                                       0.0f, 1.0f);
+    trace.contact_hardening = settings.occlusion.contact_hardening;
+    trace.scale_reference_m = settings.presentation.scale_reference_m;
+    trace.surface_occlusion_enabled = settings.occlusion.enabled;
+    trace.contact_shadow_receiver = object.material.receives_shadows &&
+                                    settings.grounding.enabled &&
+                                    settings.grounding.contact_shadows;
+    trace.trace_hash = surfacePresentationHash(trace);
+    if (settings.occlusion.enabled &&
+        trace.physical_texel_density < settings.surface_scale.physical_texel_density * 0.50f) {
+      forensics.events.push_back(
+          {.kind = aster::FrameDiagnosticKind::SurfacePresentationWarning,
+           .severity = aster::FrameDiagnosticSeverity::Warning,
+           .pass = "surface-presentation",
+           .label = trace.object_name,
+           .message = "Object surface texel density is below the presentation scale policy.",
+           .value = object_index});
+    }
+    forensics.surface_traces.push_back(std::move(trace));
+  }
+}
+
 void appendObjectRenderFateTraces(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
                                   const aster::RendererSettings &settings,
                                   const aster::MaterialResourceLibrary *library,
@@ -3904,7 +4843,7 @@ void appendTimelineEvent(std::vector<aster::FrameDebuggerTimelineEvent> &timelin
 
 void rebuildFrameDebuggerTimeline(aster::FrameForensics &forensics) {
   forensics.debug_timeline.clear();
-  forensics.debug_timeline.reserve(forensics.passes.size() + forensics.object_fates.size() * 6u +
+  forensics.debug_timeline.reserve(forensics.passes.size() + forensics.object_fates.size() * 7u +
                                    forensics.material_bindings.size() +
                                    forensics.object_clusters.size());
 
@@ -3984,6 +4923,18 @@ void rebuildFrameDebuggerTimeline(aster::FrameForensics &forensics) {
                                          forensics, aster::RenderGraphResource::ShadowAtlas)
                                          ? "shadow-capture-available"
                                          : "shadow-capture-missing"});
+
+    appendTimelineEvent(forensics.debug_timeline,
+                        {.kind = aster::FrameDebuggerTimelineEventKind::SurfaceOcclusion,
+                         .pass = aster::RenderGraphPass::SurfaceOcclusion,
+                         .resource = aster::RenderGraphResource::SurfaceOcclusion,
+                         .object_name = fate.object_name,
+                         .object_index = fate.object_index,
+                         .label = "surface-occlusion-resource",
+                         .evidence = hasAvailableCaptureFor(
+                                         forensics, aster::RenderGraphResource::SurfaceOcclusion)
+                                         ? "surface-occlusion-capture-available"
+                                         : "surface-occlusion-capture-missing"});
 
     appendTimelineEvent(forensics.debug_timeline,
                         {.kind = aster::FrameDebuggerTimelineEventKind::Fog,
@@ -4625,6 +5576,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                            last_forensics_);
     appendObjectRenderFateTraces(scene, plan, settings, material_library_.get(),
                                  active_capabilities, last_forensics_);
+    appendSurfacePresentationTraces(scene, settings, last_forensics_);
     last_forensics_.events.insert(last_forensics_.events.end(),
                                   std::make_move_iterator(material_summary.events.begin()),
                                   std::make_move_iterator(material_summary.events.end()));
@@ -4722,19 +5674,20 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     native_stats.backend_kind_value =
         static_cast<std::uint32_t>(native_backend_->capabilities().kind);
     native_stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
-    if (capture_forensics && native_backend_->capabilities().supports_capture) {
-      appendFramebufferCapturePayloads(framebuffer, last_forensics_);
-    }
-    if (certify_forensics) {
-      certifyBackendFrame(render_graph_, native_backend_->capabilities(), settings, native_stats,
-                          last_forensics_);
-    }
-    enrichFramePassCostMap(last_forensics_, render_graph_, settings,
-                           static_cast<std::uint32_t>(framebuffer_width),
-                           static_cast<std::uint32_t>(framebuffer_height), material_summary);
-    if (detailed_forensics) {
-      finalizeObjectRenderFates(last_forensics_);
-    }
+	    if (capture_forensics && native_backend_->capabilities().supports_capture) {
+	      appendFramebufferCapturePayloads(framebuffer, last_forensics_);
+	    }
+	    if (certify_forensics) {
+	      certifyBackendFrame(render_graph_, native_backend_->capabilities(), settings, native_stats,
+	                          last_forensics_);
+	    }
+	    enrichFramePassCostMap(last_forensics_, render_graph_, settings,
+	                           static_cast<std::uint32_t>(framebuffer_width),
+	                           static_cast<std::uint32_t>(framebuffer_height), material_summary);
+	    if (detailed_forensics) {
+	      appendMathDiagnosticsToFrame(last_forensics_.events);
+	      finalizeObjectRenderFates(last_forensics_);
+	    }
     if (graph_forensics || detailed_forensics || capture_forensics) {
       rebuildFrameEvidenceProducts(render_graph_, native_backend_->capabilities(), last_forensics_);
     }
@@ -4796,6 +5749,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     case RenderGraphPass::ShadowAtlas:
       buildSoftwareShadowAtlas(scene, camera, settings, software_resources);
       break;
+    case RenderGraphPass::SurfaceOcclusion:
+      buildSoftwareSurfaceOcclusion(scene, camera, settings, software_resources);
+      break;
     case RenderGraphPass::SceneLighting:
       break;
     case RenderGraphPass::VolumetricFog:
@@ -4810,6 +5766,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
           draw_planned_group(group);
         }
       }
+      buildSoftwareSurfaceAttributes(scene, camera, settings, software_resources);
       break;
     case RenderGraphPass::ContactShadow:
       draw_contact_shadows();
@@ -4856,15 +5813,16 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.registry_retired_resources = registry_stats.retired_resources;
   stats.resource_lifetime_warnings = registry_stats.retired_resources;
   stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
-  if (certify_forensics) {
-    certifyBackendFrame(render_graph_, softwareCapabilities(), settings, stats, last_forensics_);
-  }
-  enrichFramePassCostMap(last_forensics_, render_graph_, settings,
-                         static_cast<std::uint32_t>(framebuffer_width),
-                         static_cast<std::uint32_t>(framebuffer_height), material_summary);
-  if (detailed_forensics) {
-    finalizeObjectRenderFates(last_forensics_);
-  }
+	  if (certify_forensics) {
+	    certifyBackendFrame(render_graph_, softwareCapabilities(), settings, stats, last_forensics_);
+	  }
+	  enrichFramePassCostMap(last_forensics_, render_graph_, settings,
+	                         static_cast<std::uint32_t>(framebuffer_width),
+	                         static_cast<std::uint32_t>(framebuffer_height), material_summary);
+	  if (detailed_forensics) {
+	    appendMathDiagnosticsToFrame(last_forensics_.events);
+	    finalizeObjectRenderFates(last_forensics_);
+	  }
   if (graph_forensics || detailed_forensics || capture_forensics) {
     rebuildFrameEvidenceProducts(render_graph_, softwareCapabilities(), last_forensics_);
   }

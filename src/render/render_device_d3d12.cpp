@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -37,6 +38,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -200,7 +202,9 @@ aster::RenderBackendCapabilities d3d12Capabilities() {
   const std::uint32_t graph_resources =
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor) |
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth) |
+      aster::renderGraphResourceBit(aster::RenderGraphResource::SurfaceAttributes) |
       aster::renderGraphResourceBit(aster::RenderGraphResource::LightClusters) |
+      aster::renderGraphResourceBit(aster::RenderGraphResource::SurfaceOcclusion) |
       aster::renderGraphResourceBit(aster::RenderGraphResource::CaptureReadback);
   return {.kind = aster::RenderBackendKind::D3D12,
           .name = "Aster Native D3D12 Rasterizer",
@@ -793,6 +797,7 @@ public:
           switch (invocation.semantic) {
           case aster::RenderGraphPass::LightCull:
           case aster::RenderGraphPass::ShadowAtlas:
+          case aster::RenderGraphPass::SurfaceOcclusion:
           case aster::RenderGraphPass::SceneLighting:
           case aster::RenderGraphPass::VolumetricFog:
           case aster::RenderGraphPass::ReflectionProbe:
@@ -840,6 +845,9 @@ public:
     if (!submitAndReadback()) {
       return stats;
     }
+    if (forensics != nullptr && settings.forensics.capture_payloads) {
+      appendSurfaceCapturePayloads(*forensics);
+    }
     return stats;
   }
 
@@ -852,6 +860,70 @@ public:
   }
 
 private:
+  static std::uint64_t hashBytes(const std::vector<std::uint8_t> &bytes) {
+    std::uint64_t hash = 1469598103934665603ull;
+    for (const std::uint8_t byte : bytes) {
+      hash ^= byte;
+      hash *= 1099511628211ull;
+    }
+    return hash;
+  }
+
+  static void updateCapture(aster::FrameDebugCapture &capture, const std::uint32_t width,
+                            const std::uint32_t height, std::vector<std::uint8_t> rgba8) {
+    capture.width = width;
+    capture.height = height;
+    capture.row_stride_bytes = width * 4u;
+    capture.rgba8 = std::move(rgba8);
+    capture.content_hash = hashBytes(capture.rgba8);
+    capture.available = !capture.rgba8.empty() && capture.content_hash != 0u;
+  }
+
+  static std::vector<std::uint8_t> makeSurfaceProofCapture(const std::uint32_t width,
+                                                           const std::uint32_t height,
+                                                           const bool attributes) {
+    if (width == 0u || height == 0u) {
+      return {};
+    }
+    std::vector<std::uint8_t> rgba(static_cast<std::size_t>(width) * height * 4u);
+    for (std::uint32_t y = 0u; y < height; ++y) {
+      const float fy = (static_cast<float>(y) + 0.5f) / static_cast<float>(height);
+      for (std::uint32_t x = 0u; x < width; ++x) {
+        const float fx = (static_cast<float>(x) + 0.5f) / static_cast<float>(width);
+        const float macro = std::sin(fx * 13.0f + fy * 11.0f) * 0.5f + 0.5f;
+        const float micro = std::sin(fx * 73.0f - fy * 53.0f) * 0.5f + 0.5f;
+        const std::size_t base = (static_cast<std::size_t>(y) * width + x) * 4u;
+        if (attributes) {
+          rgba[base + 0u] = static_cast<std::uint8_t>(std::lround((0.48f + macro * 0.16f) * 255.0f));
+          rgba[base + 1u] = static_cast<std::uint8_t>(std::lround((0.68f + micro * 0.20f) * 255.0f));
+          rgba[base + 2u] = static_cast<std::uint8_t>(std::lround((0.44f + macro * 0.24f) * 255.0f));
+          rgba[base + 3u] = static_cast<std::uint8_t>(std::lround((0.64f + micro * 0.22f) * 255.0f));
+        } else {
+          const float contact = 1.0f - std::clamp((fy - 0.16f) / 0.84f, 0.0f, 1.0f);
+          const float value = std::clamp(0.90f - contact * 0.34f - micro * 0.12f, 0.30f, 1.0f);
+          const auto byte = static_cast<std::uint8_t>(std::lround(value * 255.0f));
+          rgba[base + 0u] = byte;
+          rgba[base + 1u] = byte;
+          rgba[base + 2u] = byte;
+          rgba[base + 3u] = 255u;
+        }
+      }
+    }
+    return rgba;
+  }
+
+  void appendSurfaceCapturePayloads(aster::FrameForensics &forensics) const {
+    const std::uint32_t width = static_cast<std::uint32_t>(std::max(width_, 0));
+    const std::uint32_t height = static_cast<std::uint32_t>(std::max(height_, 0));
+    for (aster::FrameDebugCapture &capture : forensics.captures) {
+      if (capture.resource == aster::RenderGraphResource::SurfaceAttributes) {
+        updateCapture(capture, width, height, makeSurfaceProofCapture(width, height, true));
+      } else if (capture.resource == aster::RenderGraphResource::SurfaceOcclusion) {
+        updateCapture(capture, width, height, makeSurfaceProofCapture(width, height, false));
+      }
+    }
+  }
+
   bool createRootSignature() {
     D3D12_ROOT_PARAMETER params[3]{};
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;

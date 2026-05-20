@@ -913,7 +913,45 @@ pub struct AssetGraphQualityIssue {
 pub struct AssetGraphQualityReport {
     pub score: u32,
     pub production_ready: bool,
+    pub presentation_quality: BTreeMap<String, String>,
+    pub surface_stack: BTreeMap<String, String>,
+    pub visual_proof_expectations: Vec<String>,
     pub issues: Vec<AssetGraphQualityIssue>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetGraphProductionSession {
+    pub session_id: String,
+    pub graph_hash: String,
+    pub preview_artifact_hash: String,
+    pub quality_gate: String,
+    pub cook_steps: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetGraphFactoryStageReport {
+    pub id: String,
+    pub kind: String,
+    pub status: String,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct AssetGraphFactorySignalCoverage {
+    pub signal: String,
+    pub average: f32,
+    pub coverage: f32,
+    pub status: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct AssetGraphFactoryReport {
+    pub stable_recipe_hash: String,
+    pub stage_diagnostics: Vec<AssetGraphFactoryStageReport>,
+    pub surface_signal_coverage: Vec<AssetGraphFactorySignalCoverage>,
+    pub collision_proxy_summary: BTreeMap<String, String>,
+    pub visual_brief_claims: Vec<String>,
+    pub visual_brief_rejections: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -943,6 +981,10 @@ pub struct AssetGraphBin {
     pub nodes: Vec<ProceduralGraphNode>,
     pub edges: Vec<ProceduralGraphEdge>,
     pub preview: BTreeMap<String, String>,
+    #[serde(default)]
+    pub production_session: AssetGraphProductionSession,
+    #[serde(default)]
+    pub factory_report: AssetGraphFactoryReport,
     pub quality: AssetGraphQualityReport,
     pub derived_hashes: AssetDerivedHashes,
     pub diagnostics: Vec<AssetCookDiagnostic>,
@@ -1910,8 +1952,37 @@ fn graph_node_capability_status(kind: &str) -> &'static str {
         | "lod_generator"
         | "pipe_body"
         | "bevel_modifier"
+        | "soft_rim_normals"
         | "weld_seam"
+        | "contact_skirt"
+        | "seam_inset"
+        | "depth_bias_policy"
+        | "layered_corrosion"
+        | "roughness_metalness_split"
+        | "weld_slag"
+        | "rust_bloom"
+        | "black_scab"
+        | "paint_remnant"
+        | "weld_scorch"
+        | "weld_bead_displacement"
+        | "rim_soot"
         | "rust_mask"
+        | "voronoi_pitting"
+        | "oxide_layer"
+        | "cavity_occlusion"
+        | "edge_angle_wear"
+        | "weld_heat_tint"
+        | "wet_film"
+        | "axial_scratch"
+        | "triplanar_domain"
+        | "baked_mask_preview"
+        | "factory_recipe"
+        | "factory_stage"
+        | "surface_contract"
+        | "physics_proxy"
+        | "lod_recipe"
+        | "quality_signal"
+        | "visual_brief_claim"
         | "anatomy_landmark"
         | "ellipsoid_section"
         | "sweep_limb"
@@ -2160,7 +2231,25 @@ fn parse_asset_graph_source(
         ("macro_variation", 0.0),
         ("micro_normal_strength", 0.0),
         ("roughness_variation", 0.0),
+        ("physical_texel_density", 512.0),
+        ("height_normal_coupling", 0.0),
+        ("roughness_height_coupling", 0.0),
+        ("macro_frequency_breakup", 0.0),
+        ("micro_frequency_breakup", 0.0),
         ("height_shading", 0.0),
+        ("pitting_density", 0.0),
+        ("pitting_depth", 0.0),
+        ("oxide_layering", 0.0),
+        ("cavity_grime", 0.0),
+        ("edge_polish", 0.0),
+        ("weld_heat_tint", 0.0),
+        ("axial_scratches", 0.0),
+        ("wet_streaks", 0.0),
+        ("rust_bloom", 0.0),
+        ("black_scab", 0.0),
+        ("paint_remnant", 0.0),
+        ("weld_slag", 0.0),
+        ("rim_soot", 0.0),
     ] {
         parsed.params.entry(name.to_string()).or_insert(fallback);
     }
@@ -2188,10 +2277,38 @@ fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
             "height_baker" => set(12),
             "collision_proxy" => set(13),
             "lod_generator" => set(14),
+            "factory_recipe" => set(57),
+            "factory_stage" => set(58),
+            "surface_contract" => set(59),
+            "physics_proxy" => set(60),
+            "lod_recipe" => set(61),
+            "quality_signal" => set(62),
+            "visual_brief_claim" => set(63),
             "pipe_body" => set(39),
             "bevel_modifier" => set(40),
             "weld_seam" => set(41),
+            "soft_rim_normals" => set(51),
+            "contact_skirt" => set(52),
+            "seam_inset" => set(53),
+            "depth_bias_policy" => set(54),
+            "layered_corrosion"
+            | "weld_slag"
+            | "rust_bloom"
+            | "black_scab"
+            | "paint_remnant"
+            | "weld_scorch"
+            | "weld_bead_displacement"
+            | "rim_soot" => set(55),
+            "roughness_metalness_split" => set(56),
             "rust_mask" => set(42),
+            "voronoi_pitting" => set(43),
+            "oxide_layer" => set(44),
+            "cavity_occlusion" => set(45),
+            "edge_angle_wear" => set(46),
+            "weld_heat_tint" => set(47),
+            "wet_film" => set(48),
+            "axial_scratch" => set(49),
+            "triplanar_domain" | "baked_mask_preview" => set(50),
             "probe_helper" | "prefab_variant" | "cook_export" | "diagnostic" => set(15),
             "anatomy_landmark" | "measurement_probe" => set(20),
             "ellipsoid_section" | "sweep_limb" => set(21),
@@ -2269,6 +2386,9 @@ fn asset_graph_quality_report(
         "cook_export",
         "diagnostic",
     ] {
+        if required == "mesh_primitive" && has_kind("pipe_body") {
+            continue;
+        }
         if !has_kind(required) {
             push_issue(
                 "warning",
@@ -2301,6 +2421,108 @@ fn asset_graph_quality_report(
                     "biological integument graphs should expose this runtime-supported node family",
                 );
             }
+        }
+    }
+    let normalized_primitive = parsed.primitive.replace('_', "-").to_ascii_lowercase();
+    let is_rusted_pipe = normalized_primitive.contains("pipe")
+        || matches!(
+            normalized_surface_profile.as_str(),
+            "corroded-metal" | "weathered-metal" | "rusted-metal"
+        );
+    if is_rusted_pipe {
+        for required in [
+            "pipe_body",
+            "factory_recipe",
+            "factory_stage",
+            "surface_contract",
+            "physics_proxy",
+            "lod_recipe",
+            "quality_signal",
+            "visual_brief_claim",
+            "bevel_modifier",
+            "soft_rim_normals",
+            "weld_seam",
+            "contact_skirt",
+            "seam_inset",
+            "depth_bias_policy",
+            "layered_corrosion",
+            "roughness_metalness_split",
+            "rust_bloom",
+            "black_scab",
+            "paint_remnant",
+            "rust_mask",
+            "voronoi_pitting",
+            "oxide_layer",
+            "cavity_occlusion",
+            "edge_angle_wear",
+            "weld_scorch",
+            "weld_slag",
+            "weld_bead_displacement",
+            "rim_soot",
+            "wet_film",
+            "axial_scratch",
+            "normal_height",
+        ] {
+            if !has_kind(required) {
+                push_issue(
+                    "warning",
+                    "pipe-realism",
+                    required,
+                    "rusted pipe graphs should expose this material realism node family",
+                );
+            }
+        }
+        if parsed.params.get("pitting_density").copied().unwrap_or(0.0) < 0.20 {
+            push_issue(
+                "warning",
+                "pipe-realism",
+                "voronoi_pitting",
+                "pitting density is too low for the industrial pipe realism profile",
+            );
+        }
+        if parsed.params.get("oxide_layering").copied().unwrap_or(0.0) < 0.20 {
+            push_issue(
+                "warning",
+                "pipe-realism",
+                "oxide_layer",
+                "oxide layering is too narrow to separate dark metal from rust",
+            );
+        }
+        if parsed.params.get("cavity_grime").copied().unwrap_or(0.0) < 0.20 {
+            push_issue(
+                "warning",
+                "pipe-realism",
+                "cavity_occlusion",
+                "cavity grime is too low for weld, flange, and bolt contact areas",
+            );
+        }
+        if parsed.params.get("rust_bloom").copied().unwrap_or(0.0) < 0.30 {
+            push_issue(
+                "warning",
+                "pipe-realism",
+                "rust_bloom",
+                "rust bloom is too weak; the pipe may read as painted clay instead of layered corrosion",
+            );
+        }
+        if parsed.params.get("black_scab").copied().unwrap_or(0.0) < 0.25 {
+            push_issue(
+                "warning",
+                "pipe-realism",
+                "black_scab",
+                "black oxide/scab response is too low for aged industrial metal",
+            );
+        }
+        if !parsed
+            .preview
+            .values()
+            .any(|value| value.contains("pipe") || value.contains("inspection"))
+        {
+            push_issue(
+                "warning",
+                "preview",
+                "rig",
+                "rusted pipe graph should name an inspection or pipe preview rig",
+            );
         }
     }
     if parsed
@@ -2394,10 +2616,253 @@ fn asset_graph_quality_report(
     let penalty = (diagnostic_errors + issue_errors) as u32 * 30
         + (diagnostic_warnings + issue_warnings) as u32 * 8;
     let score = 100u32.saturating_sub(penalty);
+    let param = |name: &str, fallback: f32| parsed.params.get(name).copied().unwrap_or(fallback);
+    let mut presentation_quality = BTreeMap::new();
+    presentation_quality.insert(
+        "scale_cues".to_string(),
+        if parsed.preview.values().any(|value| {
+            value.contains("scale") || value.contains("inspection") || value.contains("cave")
+        }) {
+            "declared".to_string()
+        } else {
+            "implicit".to_string()
+        },
+    );
+    presentation_quality.insert(
+        "contact_shadows".to_string(),
+        if has_kind("contact_skirt") || has_kind("shadow_receiver") {
+            "authored".to_string()
+        } else {
+            "renderer-grounding".to_string()
+        },
+    );
+    presentation_quality.insert(
+        "surface_occlusion".to_string(),
+        if has_kind("cavity_occlusion") || param("cavity_grime", 0.0) > 0.0 {
+            "authored".to_string()
+        } else {
+            "renderer-surface-occlusion".to_string()
+        },
+    );
+    presentation_quality.insert(
+        "camera_language".to_string(),
+        parsed
+            .preview
+            .get("rig")
+            .cloned()
+            .unwrap_or_else(|| "production-frame-required".to_string()),
+    );
+    let mut surface_stack = BTreeMap::new();
+    surface_stack.insert(
+        "physical_texel_density".to_string(),
+        format!(
+            "{:.3}",
+            param("physical_texel_density", param("texel_density", 512.0))
+        ),
+    );
+    surface_stack.insert(
+        "height_normal_coupling".to_string(),
+        format!("{:.3}", param("height_normal_coupling", 0.0)),
+    );
+    surface_stack.insert(
+        "roughness_height_coupling".to_string(),
+        format!("{:.3}", param("roughness_height_coupling", 0.0)),
+    );
+    surface_stack.insert(
+        "macro_frequency_breakup".to_string(),
+        format!("{:.3}", param("macro_frequency_breakup", 0.0)),
+    );
+    surface_stack.insert(
+        "micro_frequency_breakup".to_string(),
+        format!("{:.3}", param("micro_frequency_breakup", 0.0)),
+    );
     AssetGraphQualityReport {
         score,
         production_ready: diagnostic_errors == 0 && issue_errors == 0 && score >= 60,
+        presentation_quality,
+        surface_stack,
+        visual_proof_expectations: vec![
+            "scale cues visible".to_string(),
+            "contact shadows visible".to_string(),
+            "surface occlusion visible".to_string(),
+            "height normal roughness coupling declared".to_string(),
+            "preview artifact listed".to_string(),
+        ],
         issues,
+    }
+}
+
+fn asset_graph_factory_report(parsed: &ParsedAssetGraphSource) -> AssetGraphFactoryReport {
+    let factory_nodes = parsed
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind.as_str(),
+                "factory_recipe"
+                    | "factory_stage"
+                    | "surface_contract"
+                    | "physics_proxy"
+                    | "lod_recipe"
+                    | "quality_signal"
+                    | "visual_brief_claim"
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let stable_recipe_hash = format!(
+        "0x{:016x}",
+        graph_hash_u64(
+            "aster.assetfactory.recipe.v1",
+            &(
+                parsed.id.as_str(),
+                parsed.primitive.as_str(),
+                parsed.params.clone(),
+                factory_nodes.clone(),
+                parsed.edges.clone()
+            ),
+        )
+    );
+
+    let stage_diagnostics = parsed
+        .nodes
+        .iter()
+        .filter(|node| node.kind == "factory_stage")
+        .map(|node| {
+            let kind = node
+                .params
+                .get("kind")
+                .cloned()
+                .unwrap_or_else(|| "unspecified".to_string());
+            let mut diagnostics = Vec::new();
+            if kind == "unspecified" {
+                diagnostics.push("warning: factory stage is missing a kind".to_string());
+            }
+            if node.capability_status == "unsupported" {
+                diagnostics
+                    .push("error: factory stage is unsupported by runtime reference".to_string());
+            }
+            AssetGraphFactoryStageReport {
+                id: node.id.clone(),
+                kind,
+                status: if diagnostics
+                    .iter()
+                    .any(|message| message.starts_with("error:"))
+                {
+                    "failed".to_string()
+                } else {
+                    "ready".to_string()
+                },
+                diagnostics,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let param = |name: &str, fallback: f32| parsed.params.get(name).copied().unwrap_or(fallback);
+    let signal =
+        |name: &str, average: f32, coverage: f32, floor: f32| AssetGraphFactorySignalCoverage {
+            signal: name.to_string(),
+            average,
+            coverage,
+            status: if average >= floor {
+                "claimed".to_string()
+            } else {
+                "needs-work".to_string()
+            },
+        };
+    let rust = param("rust_strength", param("rust_bloom", 0.0));
+    let oxide = param("oxide_layering", 0.0);
+    let pitting = param("pitting_density", 0.0);
+    let cavity = param("cavity_grime", 0.0);
+    let wet = param("wetness", 0.0);
+    let scratches = param("axial_scratches", 0.0);
+    let rim = param("rim_soot", 0.0);
+    let weld = param("weld_slag", 0.0).max(param("weld_heat_tint", 0.0));
+    let surface_signal_coverage = vec![
+        signal(
+            "corroded_orange_brown_rust",
+            (rust * oxide).min(1.0),
+            rust.min(1.0),
+            0.50,
+        ),
+        signal(
+            "dark_oxide_cavities",
+            (oxide * cavity).min(1.0),
+            cavity.min(1.0),
+            0.35,
+        ),
+        signal("uneven_pitting", pitting.min(1.0), pitting.min(1.0), 0.35),
+        signal(
+            "axial_scratches",
+            scratches.min(1.0),
+            scratches.min(1.0),
+            0.30,
+        ),
+        signal("open_hollow_rims", rim.min(1.0), rim.min(1.0), 0.30),
+        signal("raised_weld_rings", weld.min(1.0), weld.min(1.0), 0.30),
+        signal("moisture_response", wet.min(1.0), wet.min(1.0), 0.05),
+    ];
+
+    let mut collision_proxy_summary = BTreeMap::new();
+    collision_proxy_summary.insert("declared".to_string(), parsed.collision_proxy.clone());
+    if let Some(proxy) = parsed
+        .nodes
+        .iter()
+        .find(|node| node.kind == "physics_proxy")
+    {
+        collision_proxy_summary.insert(
+            "shape".to_string(),
+            proxy
+                .params
+                .get("shape")
+                .cloned()
+                .unwrap_or_else(|| parsed.collision_proxy.clone()),
+        );
+        if let Some(triangles) = proxy.params.get("triangles") {
+            collision_proxy_summary.insert("triangle_budget".to_string(), triangles.clone());
+        }
+        if let Some(material) = proxy.params.get("material") {
+            collision_proxy_summary.insert("material".to_string(), material.clone());
+        }
+    }
+    collision_proxy_summary
+        .entry("lod_policy".to_string())
+        .or_insert_with(|| parsed.lod_policy.clone());
+
+    let mut visual_brief_claims = parsed
+        .nodes
+        .iter()
+        .filter(|node| node.kind == "visual_brief_claim")
+        .filter_map(|node| node.params.get("signal").cloned())
+        .collect::<Vec<_>>();
+    if visual_brief_claims.is_empty()
+        && (parsed.primitive.contains("pipe") || parsed.surface_profile.contains("metal"))
+    {
+        visual_brief_claims = vec![
+            "corroded_orange_brown_rust".to_string(),
+            "dark_oxide_cavities".to_string(),
+            "raised_weld_rings".to_string(),
+            "open_hollow_rims".to_string(),
+            "uneven_pitting".to_string(),
+            "axial_scratches".to_string(),
+            "reference_silhouette".to_string(),
+        ];
+    }
+
+    let visual_brief_rejections = vec![
+        "smooth_black_pipe".to_string(),
+        "decorative_bolts_without_reference".to_string(),
+        "clean_plastic_surface".to_string(),
+        "monochrome_material".to_string(),
+    ];
+
+    AssetGraphFactoryReport {
+        stable_recipe_hash,
+        stage_diagnostics,
+        surface_signal_coverage,
+        collision_proxy_summary,
+        visual_brief_claims,
+        visual_brief_rejections,
     }
 }
 
@@ -2451,6 +2916,34 @@ fn build_asset_graph_bin(
         )),
     };
     let quality = asset_graph_quality_report(&parsed, &parsed.diagnostics);
+    let production_session = AssetGraphProductionSession {
+        session_id: format!("asset-production:{}", parsed.id),
+        graph_hash: derived_hashes.source_hash.clone(),
+        preview_artifact_hash: hash_hex_text(&format!(
+            "{}:{}:{}:{}",
+            parsed.id,
+            feature_mask,
+            quality.score,
+            parsed
+                .preview
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join("|")
+        )),
+        quality_gate: if quality.production_ready {
+            "production-ready".to_string()
+        } else {
+            "needs-review".to_string()
+        },
+        cook_steps: vec![
+            "graph-inspect".to_string(),
+            "graph-package".to_string(),
+            "cook-project".to_string(),
+            "preview-render".to_string(),
+        ],
+    };
+    let factory_report = asset_graph_factory_report(&parsed);
     AssetGraphBin {
         schema_version: ASSET_GRAPH_BIN_SCHEMA_VERSION,
         asset_guid,
@@ -2491,6 +2984,8 @@ fn build_asset_graph_bin(
         nodes: parsed.nodes,
         edges: parsed.edges,
         preview: parsed.preview,
+        production_session,
+        factory_report,
         quality,
         derived_hashes,
         diagnostics: parsed.diagnostics,
@@ -8297,6 +8792,212 @@ edge mat.wet material.assign wetness
             .iter()
             .any(|edge| edge.role == "wetness"));
         fs::remove_dir_all(project.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn pipe_asset_graph_reports_surface_realism_nodes() {
+        let dir = fixture_dir("pipe_asset_graph_realism");
+        fs::create_dir_all(&dir).expect("dir");
+        let graph = dir.join("rusted_pipe.astergraph");
+        fs::write(
+            &graph,
+            r#"astergraph asset_graph.pipe_test
+schema_version 1
+name "Pipe Test"
+material_id material.pipe_test
+surface_profile corroded-metal
+primitive rusted-pipe
+uv_policy pipe-triplanar-uv-islands
+tangent_policy validate-or-generate
+collision_proxy pipe-runtime-bounds
+lod_policy lod0-lod1-lod2
+base_color 0.18 0.17 0.16
+roughness 0.78
+metallic 0.82
+param wetness 0.24
+param macro_variation 0.72
+param micro_normal_strength 0.58
+param roughness_variation 0.74
+param physical_texel_density 1024
+param height_normal_coupling 0.92
+param roughness_height_coupling 0.74
+param macro_frequency_breakup 0.48
+param micro_frequency_breakup 0.66
+param height_shading 0.46
+param pitting_density 1.10
+param pitting_depth 0.020
+param oxide_layering 0.82
+param cavity_grime 0.68
+param edge_polish 0.34
+param weld_heat_tint 0.46
+param axial_scratches 0.62
+param wet_streaks 7
+param rust_bloom 0.82
+param black_scab 0.70
+param paint_remnant 0.18
+param weld_slag 0.84
+param rim_soot 0.76
+param attachment_clearance 0.0065
+param weld_contact_skirt_width 0.040
+param seam_inset_depth 0.004
+param rim_normal_feather 0.78
+feature triplanar true
+feature normal_map true
+preview rig pipe-lab-three-quarter
+node mesh.pipe pipe_body role=mesh primitive=rusted-pipe
+node factory.recipe factory_recipe role=factory target=rusted-pipe variant=reference-silhouette owner=aster
+node factory.stage.source factory_stage role=factory kind=source-geometry order=0
+node factory.stage.modifiers factory_stage role=factory kind=modifier-stack order=1
+node factory.stage.surface factory_stage role=factory kind=surface-contract order=2
+node factory.stage.lod factory_stage role=factory kind=lod-recipe order=3
+node factory.stage.physics factory_stage role=factory kind=physics-proxy order=4
+node factory.stage.quality factory_stage role=factory kind=quality-gate order=5
+node factory.surface surface_contract role=factory signal=corroded_orange_brown_rust texel_density=1024 height_normal_coupling=0.92 roughness_height_coupling=0.74
+node factory.physics physics_proxy role=factory shape=pipe-runtime-bounds triangles=48 material=corroded-wet-metal
+node factory.lod lod_recipe role=factory levels=3 policy=lod0-lod1-lod2
+node factory.signal.rust quality_signal role=factory signal=corroded_orange_brown_rust threshold=0.82
+node factory.signal.oxide quality_signal role=factory signal=dark_oxide_cavities threshold=0.68
+node factory.signal.rim quality_signal role=factory signal=open_hollow_rims threshold=0.76
+node factory.claim.rust visual_brief_claim role=factory signal=corroded_orange_brown_rust
+node factory.claim.oxide visual_brief_claim role=factory signal=dark_oxide_cavities
+node factory.claim.weld visual_brief_claim role=factory signal=raised_weld_rings
+node factory.claim.rim visual_brief_claim role=factory signal=open_hollow_rims
+node factory.claim.pitting visual_brief_claim role=factory signal=uneven_pitting
+node factory.claim.scratches visual_brief_claim role=factory signal=axial_scratches
+node factory.claim.silhouette visual_brief_claim role=factory signal=reference_silhouette
+node modifier.bevel bevel_modifier role=modifier
+node modifier.soft_rim soft_rim_normals role=modifier
+node seam.pipe weld_seam role=geometry
+node seam.inset seam_inset role=geometry
+node seam.contact contact_skirt role=geometry
+node render.depth_bias depth_bias_policy role=render
+node material.assign material_assignment role=material
+node uv.pipe uv_policy role=uv mapping=pipe-triplanar-uv-islands
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node mask.rust rust_mask role=material
+node mask.rust_bloom rust_bloom role=material
+node mask.pits voronoi_pitting role=material
+node mask.layer_stack layered_corrosion role=material
+node mask.oxide oxide_layer role=material
+node mask.black_scab black_scab role=material
+node mask.paint paint_remnant role=material
+node mask.cavity cavity_occlusion role=material
+node mask.edge edge_angle_wear role=material
+node mask.wet wet_film role=material
+node mask.flow wetness_flow role=material
+node mask.rim_soot rim_soot role=material
+node shade.weld_scorch weld_scorch role=material
+node shade.weld_slag weld_slag role=material
+node shade.roughmetal roughness_metalness_split role=material
+node normal.scratches axial_scratch role=normal
+node normal.weld_displacement weld_bead_displacement role=normal
+node normal.pipe normal_height role=material
+node collision.proxy collision_proxy role=collision shape=pipe-runtime-bounds
+node lod.chain lod_generator role=lod policy=lod0-lod1-lod2
+node export.runtime cook_export role=package
+node diagnostic.quality diagnostic role=quality
+edge factory.recipe factory.stage.source factory_order
+edge factory.stage.source factory.stage.modifiers factory_order
+edge factory.stage.modifiers factory.stage.surface factory_order
+edge factory.stage.surface factory.stage.lod factory_order
+edge factory.stage.lod factory.stage.physics factory_order
+edge factory.stage.physics factory.stage.quality factory_order
+edge factory.stage.surface factory.surface surface_contract
+edge factory.stage.physics factory.physics physics_proxy
+edge factory.stage.lod factory.lod lod_recipe
+edge factory.surface factory.signal.rust quality_signal
+edge factory.surface factory.signal.oxide quality_signal
+edge factory.surface factory.signal.rim quality_signal
+edge factory.signal.rust factory.claim.rust visual_brief_claim
+edge factory.signal.oxide factory.claim.oxide visual_brief_claim
+edge factory.signal.rim factory.claim.rim visual_brief_claim
+edge modifier.bevel modifier.soft_rim rim_normal_feather
+edge seam.pipe seam.contact contact_skirt
+edge seam.contact render.depth_bias attachment_bias
+edge mask.pits mask.layer_stack pitting_layer
+edge mask.pits mask.rust pitting_seed
+edge mask.rust_bloom mask.layer_stack bloom_layer
+edge mask.black_scab mask.layer_stack black_scab_layer
+"#,
+        )
+        .expect("pipe graph");
+        let packaged = package_asset_graph(&graph, dir.join("package")).expect("package pipe");
+        assert!(packaged.graph_bin.quality.production_ready);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 43) != 0);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 44) != 0);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 45) != 0);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 48) != 0);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 51) != 0);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 52) != 0);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 53) != 0);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 54) != 0);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 55) != 0);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 56) != 0);
+        for bit in 57..=63 {
+            assert!(packaged.graph_bin.material.feature_mask & (1u64 << bit) != 0);
+        }
+        assert!(packaged
+            .graph_bin
+            .factory_report
+            .stable_recipe_hash
+            .starts_with("0x"));
+        assert!(packaged.graph_bin.factory_report.stage_diagnostics.len() >= 6);
+        assert!(packaged
+            .graph_bin
+            .factory_report
+            .surface_signal_coverage
+            .iter()
+            .any(|signal| signal.signal == "raised_weld_rings" && signal.status == "claimed"));
+        assert_eq!(
+            packaged
+                .graph_bin
+                .factory_report
+                .collision_proxy_summary
+                .get("shape")
+                .map(String::as_str),
+            Some("pipe-runtime-bounds")
+        );
+        assert!(packaged
+            .graph_bin
+            .factory_report
+            .visual_brief_claims
+            .iter()
+            .any(|claim| claim == "reference_silhouette"));
+        assert_eq!(
+            packaged
+                .graph_bin
+                .quality
+                .surface_stack
+                .get("physical_texel_density")
+                .map(String::as_str),
+            Some("1024.000")
+        );
+        assert_eq!(
+            packaged
+                .graph_bin
+                .quality
+                .presentation_quality
+                .get("surface_occlusion")
+                .map(String::as_str),
+            Some("authored")
+        );
+        assert!(packaged
+            .graph_bin
+            .quality
+            .visual_proof_expectations
+            .iter()
+            .any(|value| value == "contact shadows visible"));
+        assert_eq!(
+            packaged.graph_bin.production_session.quality_gate,
+            "production-ready"
+        );
+        assert!(packaged
+            .graph_bin
+            .production_session
+            .cook_steps
+            .iter()
+            .any(|step| step == "preview-render"));
+        fs::remove_dir_all(dir).ok();
     }
 
     #[test]

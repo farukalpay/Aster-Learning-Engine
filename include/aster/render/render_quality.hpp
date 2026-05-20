@@ -62,7 +62,11 @@ struct SurfaceFidelityPolicy {
   bool require_tangent_basis_policy = true;
   bool require_temporal_stability_budget = true;
   bool require_artist_preview = true;
+  bool require_physical_texel_density = true;
+  bool require_height_normal_coupling = true;
+  bool require_frequency_breakup = true;
   float minimum_area_light_radius = 0.18f;
+  float minimum_physical_texel_density = 256.0f;
 };
 
 struct ShadowSystemSettings {
@@ -112,6 +116,32 @@ struct ReflectionProbeSystemSettings {
   float influence_radius = 8.0f;
 };
 
+struct SurfaceOcclusionQualitySettings {
+  bool enabled = true;
+  RendererOcclusionMode mode = RendererOcclusionMode::Hybrid;
+  float radius = 1.10f;
+  float thickness = 0.18f;
+  float strength = 0.36f;
+  std::uint32_t sample_count = 12u;
+  float contact_hardening = 0.28f;
+};
+
+struct PresentationQualitySettings {
+  float focal_length_mm = 46.0f;
+  float camera_height_m = 1.55f;
+  float scale_reference_m = 1.80f;
+  float composition_weight = 0.58f;
+  float vignette_strength = 0.08f;
+};
+
+struct SurfaceScaleQualitySettings {
+  float physical_texel_density = 512.0f;
+  float macro_frequency_breakup = 0.32f;
+  float micro_frequency_breakup = 0.46f;
+  float height_normal_coupling = 0.82f;
+  float roughness_height_coupling = 0.56f;
+};
+
 struct RenderAssetPipelinePolicy {
   bool validate_materials = true;
   bool bake_texture_mips = true;
@@ -130,6 +160,9 @@ struct RenderQualityProfile {
   PostProcessSettings post{};
   VolumetricFogSettings fog{};
   ReflectionProbeSystemSettings reflections{};
+  SurfaceOcclusionQualitySettings occlusion{};
+  PresentationQualitySettings presentation{};
+  SurfaceScaleQualitySettings surface_scale{};
   RenderAssetPipelinePolicy asset_pipeline{};
 };
 

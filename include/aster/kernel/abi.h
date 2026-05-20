@@ -175,6 +175,18 @@ typedef enum AsterKernelMaterialAlphaMode {
   ASTER_KERNEL_MATERIAL_ALPHA_BLEND = 3
 } AsterKernelMaterialAlphaMode;
 
+typedef enum AsterKernelRenderQualityTier {
+  ASTER_KERNEL_RENDER_QUALITY_PRODUCTION = 0,
+  ASTER_KERNEL_RENDER_QUALITY_PROTOTYPE = 1,
+  ASTER_KERNEL_RENDER_QUALITY_CINEMATIC = 2
+} AsterKernelRenderQualityTier;
+
+typedef enum AsterKernelToneMapper {
+  ASTER_KERNEL_TONE_MAPPER_PBR_NEUTRAL = 0,
+  ASTER_KERNEL_TONE_MAPPER_FILMIC_ACES = 1,
+  ASTER_KERNEL_TONE_MAPPER_REINHARD = 2
+} AsterKernelToneMapper;
+
 typedef enum AsterKernelRenderGraphPass {
   ASTER_KERNEL_RENDER_PASS_SCENE_COLOR_DEPTH = 0,
   ASTER_KERNEL_RENDER_PASS_LIGHT_CULL = 1,
@@ -186,7 +198,8 @@ typedef enum AsterKernelRenderGraphPass {
   ASTER_KERNEL_RENDER_PASS_REFLECTION_PROBE = 7,
   ASTER_KERNEL_RENDER_PASS_TRANSPARENT = 8,
   ASTER_KERNEL_RENDER_PASS_UI_COMPOSITE = 9,
-  ASTER_KERNEL_RENDER_PASS_CAPTURE = 10
+  ASTER_KERNEL_RENDER_PASS_CAPTURE = 10,
+  ASTER_KERNEL_RENDER_PASS_SURFACE_OCCLUSION = 11
 } AsterKernelRenderGraphPass;
 
 typedef enum AsterKernelRenderGraphResource {
@@ -197,7 +210,9 @@ typedef enum AsterKernelRenderGraphResource {
   ASTER_KERNEL_RENDER_RESOURCE_VOLUMETRIC_FOG = 4,
   ASTER_KERNEL_RENDER_RESOURCE_REFLECTION_PROBES = 5,
   ASTER_KERNEL_RENDER_RESOURCE_UI_OVERLAY = 6,
-  ASTER_KERNEL_RENDER_RESOURCE_CAPTURE_READBACK = 7
+  ASTER_KERNEL_RENDER_RESOURCE_CAPTURE_READBACK = 7,
+  ASTER_KERNEL_RENDER_RESOURCE_SURFACE_ATTRIBUTES = 8,
+  ASTER_KERNEL_RENDER_RESOURCE_SURFACE_OCCLUSION = 9
 } AsterKernelRenderGraphResource;
 
 typedef enum AsterKernelRhiResourceState {
@@ -271,7 +286,8 @@ typedef enum AsterKernelFrameDiagnosticKind {
   ASTER_KERNEL_FRAME_DIAGNOSTIC_PREDICATE_UNCERTAINTY = 14,
   ASTER_KERNEL_FRAME_DIAGNOSTIC_ASSET_PROVENANCE_WARNING = 15,
   ASTER_KERNEL_FRAME_DIAGNOSTIC_TEXTURE_ROLE_DEGRADED = 16,
-  ASTER_KERNEL_FRAME_DIAGNOSTIC_MESH_ATTRIBUTE_DEGRADED = 17
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_MESH_ATTRIBUTE_DEGRADED = 17,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_SURFACE_PRESENTATION_WARNING = 18
 } AsterKernelFrameDiagnosticKind;
 
 typedef enum AsterValidationKind {
@@ -354,6 +370,16 @@ enum {
   ASTER_KERNEL_WINDOW_FLAG_HEADLESS = 1u << 0u,
   ASTER_KERNEL_RENDERER_FLAG_FORCE_SOFTWARE = 1u << 0u,
   ASTER_KERNEL_RENDERER_FLAG_FORCE_NULL = 1u << 1u,
+  ASTER_KERNEL_CAMERA_FLAG_USE_PHYSICAL_LENS = 1u << 0u,
+  ASTER_KERNEL_RENDER_SETTING_CONTACT_SHADOWS = 1u << 0u,
+  ASTER_KERNEL_RENDER_SETTING_SURFACE_OCCLUSION = 1u << 1u,
+  ASTER_KERNEL_RENDER_SETTING_CASCADED_SHADOWS = 1u << 2u,
+  ASTER_KERNEL_RENDER_SETTING_REFLECTION_PROBES = 1u << 3u,
+  ASTER_KERNEL_RENDER_SETTING_VOLUMETRIC_FOG = 1u << 4u,
+  ASTER_KERNEL_RENDER_SETTING_PROCEDURAL_SURFACE_NORMALS = 1u << 5u,
+  ASTER_KERNEL_RENDER_SETTING_FXAA = 1u << 6u,
+  ASTER_KERNEL_RENDER_SETTING_BLOOM = 1u << 7u,
+  ASTER_KERNEL_RENDER_SETTING_PRESENTATION_LENS = 1u << 8u,
   ASTER_KERNEL_BACKEND_CAP_GPU = 1u << 0u,
   ASTER_KERNEL_BACKEND_CAP_SHADER_MATERIALS = 1u << 1u,
   ASTER_KERNEL_BACKEND_CAP_TEXTURE_SAMPLING = 1u << 2u,
@@ -828,6 +854,11 @@ typedef struct AsterCameraDesc {
   float vertical_fov_radians;
   float near_plane;
   float far_plane;
+  float focal_length_mm;
+  float sensor_width_mm;
+  float composition_weight;
+  float scale_reference_m;
+  uint32_t camera_flags;
 } AsterCameraDesc;
 
 typedef struct AsterRendererSettings {
@@ -840,6 +871,35 @@ typedef struct AsterRendererSettings {
   uint32_t framebuffer_height;
   uint32_t flags;
   AsterRenderTargetHandle render_target;
+  uint32_t quality_tier;
+  uint32_t tone_mapper;
+  float ambient_floor;
+  uint32_t shadow_cascades;
+  uint32_t shadow_atlas_size;
+  float shadow_max_distance;
+  float shadow_receiver_bias;
+  float shadow_normal_bias;
+  float shadow_softness;
+  float occlusion_radius;
+  float occlusion_thickness;
+  float occlusion_strength;
+  uint32_t occlusion_sample_count;
+  float occlusion_contact_hardening;
+  float contact_shadow_strength;
+  float contact_shadow_radius_scale;
+  float contact_shadow_receiver_height;
+  float contact_shadow_receiver_bias;
+  float physical_texel_density;
+  float macro_frequency_breakup;
+  float micro_frequency_breakup;
+  float height_normal_coupling;
+  float roughness_height_coupling;
+  float fog_start;
+  float fog_end;
+  float fog_strength;
+  float reflection_intensity;
+  float bloom_threshold;
+  float bloom_intensity;
 } AsterRendererSettings;
 
 typedef struct AsterFrameStats {

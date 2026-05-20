@@ -10,7 +10,9 @@ Recommended path:
 3. Render a lab scene with `aster_preview --scene material-lab`.
 4. Read `RENDERING_PIPELINE.md` and `MATERIALS_AND_SHADERS.md`.
 5. Inspect `SCENE_AND_MESH_PIPELINE.md`.
-6. Use `LUMEN_RUN_AS_SAMPLE.md` only after the engine loop is clear.
+6. For agent-led content work, read `AGENT_AUTHORING.md` and generate an
+   `aster_assetc agent-plan` report before editing.
+7. Use `LUMEN_RUN_AS_SAMPLE.md` only after the engine loop is clear.
 
 Core proof points:
 
