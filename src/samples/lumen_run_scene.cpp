@@ -263,6 +263,7 @@ void LumenRun::rebuildScene() {
   cave_sections_.clear();
   cave_entrance_light_position_ = {};
   cave_collision_meshes_.clear();
+  cave_floor_supports_.clear();
   cave_exterior_hidden_objects_.clear();
   cave_webs_.clear();
   scenery_collision_boxes_.clear();
@@ -293,7 +294,6 @@ void LumenRun::rebuildScene() {
   support_surfaces_.clear();
   support_surfaces_.setTerrain(&terrain_);
   support_surfaces_.setTerrainPlacementValidator(terrain_placement);
-  cave_support_surfaces_.clear();
   SupportSurfaceSet decorative_ground_surfaces;
   decorative_ground_surfaces.setTerrain(&terrain_);
   decorative_ground_surfaces.setTerrainPlacementValidator(terrain_placement);
@@ -2016,22 +2016,26 @@ void LumenRun::rebuildScene() {
   appendGeneratedScenery("Walkable cave entrance threshold", cave_portal_floor_mesh,
                          {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, cave_floor);
   support_surfaces_.addMesh({cave_portal_floor_mesh, {}, 0.46f});
-  cave_support_surfaces_.addMesh({cave_portal_floor_mesh, {}, 0.36f});
   decorative_ground_surfaces.addMesh({cave_portal_floor_mesh, {}, 0.46f});
   const std::shared_ptr<const CpuMesh> cave_floor_mesh =
       makeSharedMesh(std::move(cave_complex.floor_mesh));
   appendGeneratedScenery("Walkable packed cave floor", cave_floor_mesh, {0.0f, 0.0f, 0.0f},
                          {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, cave_floor);
   support_surfaces_.addMesh({cave_floor_mesh, {}, 0.36f});
-  cave_support_surfaces_.addMesh({cave_floor_mesh, {}, 0.30f});
   decorative_ground_surfaces.addMesh({cave_floor_mesh, {}, 0.36f});
   const std::shared_ptr<const CpuMesh> deep_cave_floor_mesh =
       makeSharedMesh(std::move(deep_cave_complex.floor_mesh));
   appendGeneratedScenery("Walkable deep cave floor", deep_cave_floor_mesh, {0.0f, 0.0f, 0.0f},
                          {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, cave_floor);
   support_surfaces_.addMesh({deep_cave_floor_mesh, {}, 0.36f});
-  cave_support_surfaces_.addMesh({deep_cave_floor_mesh, {}, 0.30f});
   decorative_ground_surfaces.addMesh({deep_cave_floor_mesh, {}, 0.36f});
+  cave_floor_supports_.push_back({.tunnel = cave_spec.tunnel,
+                                  .floor_mesh = cave_floor_mesh,
+                                  .portal_floor_mesh = cave_portal_floor_mesh,
+                                  .min_normal_y = 0.30f});
+  cave_floor_supports_.push_back({.tunnel = deep_cave_spec.tunnel,
+                                  .floor_mesh = deep_cave_floor_mesh,
+                                  .min_normal_y = 0.30f});
   std::size_t cave_chunk_index = 0;
   for (CpuMesh &chunk : cave_complex.tunnel_chunks) {
     const Material &chunk_material = cave_chunk_index < 2u ? cave_entrance_wall : cave_wall;

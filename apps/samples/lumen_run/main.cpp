@@ -446,6 +446,8 @@ std::uint64_t lumenFrameProofHash(const aster::LumenWorldForensics &world,
           aster::stableHash32(world.cave_gate.perceptual_salience_score)));
   hash = aster::hashCombine64(hash, world.cave_gate.perceptual_continuity_report_hash);
   hash = aster::hashCombine64(hash, world.coal_mining_reaction.reaction_package_hash);
+  hash = aster::hashCombine64(hash, world.perceptual_state.perceptual_state_hash);
+  hash = aster::hashCombine64(hash, world.perceptual_state.semantic_budget_hash);
   return hash;
 }
 
@@ -1445,6 +1447,7 @@ int main(int argc, char **argv) {
           world_forensics.coal_mining_reaction.readability_audit_hash);
       renderer.stampLastFramePerceptionLedger(world_forensics.perception_ledger,
                                               world_forensics.perception_object_traces);
+      renderer.stampLastFramePerceptualState(world_forensics.perceptual_state);
       if (collect_frame_sample) {
         render_times.addSample(clock.now() - render_start);
         ++render_counter_samples;
@@ -1614,6 +1617,10 @@ int main(int argc, char **argv) {
                   << " nav_valid_frames=" << world_navigation_valid_sum
                   << " salience_mean=" << world_perceptual_salience_sum / samples
                   << " actor_delta_count=" << world.actor_delta_count
+                  << " perceptual_state_hash=" << world.perceptual_state.perceptual_state_hash
+                  << " continuity_debt=" << world.perceptual_state.continuity_debt
+                  << " perceptual_runtime_accepted="
+                  << (world.perceptual_state.accepted ? 1 : 0)
                   << " render_extraction_hash=" << world.render_extraction_hash
                   << " frame_submission_hash=" << world.frame_submission_hash << '\n';
       }

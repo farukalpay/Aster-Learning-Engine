@@ -48,6 +48,12 @@ that records material memory, contact history, lighting exposure, atmosphere
 membership, occlusion role, gameplay affordance, wear continuity, semantic LOD,
 and audio/visual cue budget. The existing perceptual continuity budget is the
 compatibility aggregate of that ledger, not a substitute for the ledger.
+The ledger is evidence, not the whole experience model. `PerceptualWorldRuntime`
+now sits between world delta proof and render extraction as the stateful
+continuity layer: it accumulates exposure over a long-horizon window, carries
+material memory and interaction residue forward, and emits continuity debt,
+traversal pressure, lighting believability, occlusion trust, ecology signal,
+player-readable cause, and a semantic render budget for the next frame.
 
 Generated cave regions are proof-gated twice:
 
@@ -167,7 +173,10 @@ capability, and fallback/degradation reason.
 Production placement adds one more contract: assets must declare how they feed
 the perception ledger. A material or graph package can still prove texture roles
 and backend binding in isolation, but Lumen Run treats those proofs as inputs to
-cell-level sensory memory rather than as the final player-facing truth.
+cell-level sensory memory rather than as the final player-facing truth. The
+runtime continuity layer consumes that evidence with traversal, residue, cause,
+and ecology signals so an asset can become a remembered world object instead of
+only a renderer-valid surface.
 
 ## Authoring Studio
 

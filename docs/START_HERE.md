@@ -29,6 +29,10 @@ Core proof points:
 - `WorldForensics` is the primary proof surface. `FrameForensics` remains
   required, but it is linked to world transition evidence when a frame comes
   from a world extraction.
+- `WorldPerceptionLedger` is deterministic evidence for sensory channels.
+  `PerceptualWorldRuntime` is the source-level continuity layer that tracks
+  exposure, memory, residue, traversal pressure, occlusion trust, ecology
+  signal, and player-readable cause over time before render extraction.
 - `tests/golden/render/*.ppm` are deterministic software-reference baselines.
 - `aster_render_backend_conformance_tests` compares native captures against the
   software reference and writes diff artifacts on mismatch.

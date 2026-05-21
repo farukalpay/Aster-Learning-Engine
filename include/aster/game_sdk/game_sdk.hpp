@@ -427,6 +427,15 @@ struct CavePerceptionLedgerDocument {
   std::vector<CavePerceptionLedgerCellDocument> cells;
 };
 
+struct CavePerceptualRuntimeDocument {
+  std::string id;
+  float exposure_horizon_seconds = 47.0f;
+  float minimum_continuity_score = 0.62f;
+  float minimum_occlusion_trust = 0.45f;
+  float minimum_lighting_believability = 0.45f;
+  float minimum_player_readable_cause = 0.45f;
+};
+
 struct CaveValidationDocument {
   std::vector<CaveRouteValidationDocument> walkable_routes;
   std::vector<CaveVolumeValidationDocument> spawn_volumes;
@@ -438,6 +447,7 @@ struct CaveValidationDocument {
   std::optional<CavePerceptualBudgetDocument> perceptual_budget;
   std::optional<CavePerceptualContinuityBudgetDocument> perceptual_continuity_budget;
   std::optional<CavePerceptionLedgerDocument> perception_ledger;
+  std::optional<CavePerceptualRuntimeDocument> perceptual_runtime;
 };
 
 struct CaveDocument {

@@ -3,6 +3,7 @@
 
 #include "test_support.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 
@@ -65,6 +66,10 @@ void testLumenWorldForensicsContract() {
   assert(world.streaming_region_id == gate.region_id);
   assert(world.perception_ledger.accepted);
   assert(world.perception_ledger.ledger_hash != 0u);
+  assert(world.perceptual_state.perceptual_state_hash != 0u);
+  assert(world.perceptual_state.semantic_budget_hash != 0u);
+  assert(world.perceptual_state.material_memory > 0.0f);
+  assert(world.perceptual_state.occlusion_trust > 0.0f);
   assert(!world.perception_object_traces.empty());
 
   run.noteRenderExtraction(0xA57E1001u, 0xA57E2002u);
@@ -99,7 +104,10 @@ void testLumenCoalMiningReactionContinuity() {
 
   const std::uint64_t before_hash =
       run.worldForensics().coal_mining_reaction.reaction_package_hash;
+  const std::uint64_t before_perceptual_hash =
+      run.worldForensics().perceptual_state.perceptual_state_hash;
   run.interactFocused();
+  run.update(1.0f / 60.0f, {}, false, false);
   const aster::LumenReactionPackageReport &reaction =
       run.worldForensics().coal_mining_reaction;
   assert(reaction.accepted);
@@ -116,6 +124,31 @@ void testLumenCoalMiningReactionContinuity() {
   assert(reaction.readability_audit_hash != 0u);
   assert(run.worldForensics().perception_ledger.accepted);
   assert(run.worldForensics().perception_ledger.wear_continuity_hash != 0u);
+  assert(run.worldForensics().perceptual_state.perceptual_state_hash != 0u);
+  assert(run.worldForensics().perceptual_state.perceptual_state_hash != before_perceptual_hash);
+  assert(run.worldForensics().perceptual_state.interaction_residue > 0.0f);
+  assert(run.worldForensics().perceptual_state.player_readable_cause > 0.0f);
+}
+
+void testLumenPerceptualWorldRuntimeExposure() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  const aster::Vec3 cave_position = run.caveFrameReportPosition(18.0f);
+  run.relocatePlayer(cave_position, run.caveFrameReportCameraYaw(18.0f));
+  const int steps = static_cast<int>(std::ceil(47.0f / 0.05f));
+  for (int i = 0; i < steps; ++i) {
+    run.update(0.05f, {}, false, false);
+  }
+  const aster::PerceptualFrameState &state = run.worldForensics().perceptual_state;
+  assert(state.accepted);
+  assert(state.exposure_seconds >= 46.90f);
+  assert(state.continuity_debt < 0.08f);
+  assert(state.material_memory > 0.50f);
+  assert(state.traversal_pressure > 0.45f);
+  assert(state.lighting_believability > 0.45f);
+  assert(state.occlusion_trust > 0.45f);
+  assert(state.ecology_signal > 0.35f);
+  assert(state.player_readable_cause > 0.45f);
+  assert(state.semantic_budget_hash != 0u);
 }
 
 void testLumenCameraCollisionCanBeatComfortRadius() {
@@ -311,6 +344,7 @@ void testLumenCaveVisualContracts() {
   const aster::RenderObject *cave_floor_object = nullptr;
   const aster::RenderObject *deep_cave_floor_object = nullptr;
   const aster::RenderObject *parkour_chest_base = nullptr;
+  std::vector<const aster::RenderObject *> cave_shell_objects;
   int coal_ore_count = 0;
 
   for (const aster::RenderObject &object : run.scene().objects()) {
@@ -410,6 +444,7 @@ void testLumenCaveVisualContracts() {
     }
     if (object.name == "Authored cave interior") {
       saw_authored_cave = true;
+      cave_shell_objects.push_back(&object);
       assert(object.material.opacity >= 0.999f);
       assert(object.material.cull_mode == aster::FaceCullMode::Back);
       assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
@@ -427,6 +462,7 @@ void testLumenCaveVisualContracts() {
     }
     if (object.name == "Authored deep cave interior") {
       saw_deep_cave = true;
+      cave_shell_objects.push_back(&object);
       assert(object.material.opacity >= 0.999f);
       assert(object.material.cull_mode == aster::FaceCullMode::Back);
       assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
@@ -530,6 +566,31 @@ void testLumenCaveVisualContracts() {
   assert(parkour_chest_base != nullptr);
   assert(cave_floor_object != nullptr);
   assert(cave_floor_object->custom_mesh != nullptr);
+  assert(deep_cave_floor_object != nullptr);
+  assert(deep_cave_floor_object->custom_mesh != nullptr);
+  assert(!cave_shell_objects.empty());
+  const auto assert_floor_has_no_shell_overlap = [&](const aster::RenderObject &floor_object) {
+    std::size_t checked_centerline_samples = 0u;
+    for (const aster::Vertex &vertex : floor_object.custom_mesh->vertices) {
+      if (std::abs(vertex.uv.x - 0.50f) > 0.015f) {
+        continue;
+      }
+      const aster::Vec3 point = aster::transformPoint(floor_object.transform, vertex.position);
+      const aster::SurfaceSupportQuery shell_query{{point.x, point.z}, point.y + 0.08f, 0.08f,
+                                                   0.16f};
+      for (const aster::RenderObject *shell : cave_shell_objects) {
+        assert(shell != nullptr);
+        assert(shell->custom_mesh != nullptr);
+        const aster::TerrainSurfaceSample overlap =
+            aster::sampleMeshSupport(*shell->custom_mesh, shell->transform, shell_query, 0.20f);
+        assert(!overlap.valid);
+      }
+      ++checked_centerline_samples;
+    }
+    assert(checked_centerline_samples >= 8u);
+  };
+  assert_floor_has_no_shell_overlap(*cave_floor_object);
+  assert_floor_has_no_shell_overlap(*deep_cave_floor_object);
   float chest_floor_height = -1000.0f;
   for (const aster::Vec3 local_offset :
        {aster::Vec3{0.0f, 0.0f, 0.0f},
@@ -724,6 +785,19 @@ void testLumenCaveTraversalAndLightingContracts() {
   const aster::Vec3 snapped_cave_position = run.playerPosition();
   require_lumen_transition(std::abs(snapped_cave_position.y - traversal_target.y) < 0.45f,
                            "player snapped to an upper terrain/roof surface instead of the cave floor");
+  for (const float progress : {8.0f, 16.0f, 24.0f, 32.0f}) {
+    const aster::Vec3 expected_floor = run.caveFrameReportPosition(progress);
+    run.relocatePlayer(expected_floor + aster::Vec3{0.0f, 2.25f, 0.0f},
+                       run.caveFrameReportCameraYaw(progress));
+    const aster::Vec3 snapped = run.playerPosition();
+    const aster::Vec2 planar_delta{snapped.x - expected_floor.x, snapped.z - expected_floor.z};
+    require_lumen_transition(aster::length(planar_delta) < 0.35f,
+                             "deep cave relocation drifted to another chunk footprint");
+    require_lumen_transition(std::abs(snapped.y - expected_floor.y) < 0.45f,
+                             "deep cave relocation chose hidden shell support instead of the visible floor");
+    require_lumen_transition(aster::length({snapped.x, 0.0f, snapped.z}) > 40.0f,
+                             "deep cave relocation reset the player toward the spawn arena");
+  }
   const auto planar_distance_to_target = [&](const aster::Vec3 position) {
     const aster::Vec2 delta{traversal_target.x - position.x, traversal_target.z - position.z};
     return aster::length(delta);
@@ -903,6 +977,7 @@ int main() {
   testLumenSceneCoherenceReport();
   testLumenWorldForensicsContract();
   testLumenCoalMiningReactionContinuity();
+  testLumenPerceptualWorldRuntimeExposure();
   testLumenCameraCollisionCanBeatComfortRadius();
   testLumenInnerPondSeamHasSupport();
   testLumenSupportSurfacesRenderOpaque();

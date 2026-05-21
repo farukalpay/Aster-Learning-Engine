@@ -362,6 +362,14 @@
           ]
         }
       ]
+    },
+    "perceptual_runtime": {
+      "id": "entry_perceptual_world_runtime",
+      "exposure_horizon_seconds": 47.0,
+      "minimum_continuity_score": 0.62,
+      "minimum_occlusion_trust": 0.45,
+      "minimum_lighting_believability": 0.45,
+      "minimum_player_readable_cause": 0.45
     }
   }
 }

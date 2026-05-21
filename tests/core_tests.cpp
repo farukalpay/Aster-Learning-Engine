@@ -5,6 +5,7 @@
 
 #include "aster/core/job_graph.hpp"
 #include "aster/core/module_registry.hpp"
+#include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/session_journal.hpp"
 #include "aster/core/signal.hpp"
 #include "aster/core/world_perception_ledger.hpp"
@@ -629,6 +630,121 @@ void testWorldPerceptionLedgerContracts() {
   assert(ledger.ledger_hash != 0u);
 }
 
+aster::WorldPerceptionLedgerReport makeFullPerceptualLedger() {
+  const std::uint32_t required =
+      aster::worldPerceptionLedgerChannelBit("material_memory") |
+      aster::worldPerceptionLedgerChannelBit("contact_history") |
+      aster::worldPerceptionLedgerChannelBit("lighting_exposure") |
+      aster::worldPerceptionLedgerChannelBit("atmosphere_cell") |
+      aster::worldPerceptionLedgerChannelBit("occlusion_role") |
+      aster::worldPerceptionLedgerChannelBit("gameplay_affordance") |
+      aster::worldPerceptionLedgerChannelBit("wear_continuity") |
+      aster::worldPerceptionLedgerChannelBit("streaming_semantic_lod") |
+      aster::worldPerceptionLedgerChannelBit("audio_visual_cue_budget");
+  aster::WorldPerceptionLedgerCellDesc cell;
+  cell.region_id = 0x47u;
+  cell.cell_id = "long-horizon-cave";
+  cell.required_channel_mask = required;
+  cell.minimum_score = 1.0f;
+  cell.evidence = {
+      {aster::WorldPerceptionLedgerChannel::MaterialMemory, 0x101u, 1.0f},
+      {aster::WorldPerceptionLedgerChannel::ContactHistory, 0x202u, 1.0f},
+      {aster::WorldPerceptionLedgerChannel::LightingExposure, 0x303u, 1.0f},
+      {aster::WorldPerceptionLedgerChannel::AtmosphereCell, 0x404u, 1.0f},
+      {aster::WorldPerceptionLedgerChannel::OcclusionRole, 0x505u, 1.0f},
+      {aster::WorldPerceptionLedgerChannel::GameplayAffordance, 0x606u, 1.0f},
+      {aster::WorldPerceptionLedgerChannel::WearContinuity, 0x707u, 1.0f},
+      {aster::WorldPerceptionLedgerChannel::StreamingSemanticLod, 0x808u, 1.0f},
+      {aster::WorldPerceptionLedgerChannel::AudioVisualCueBudget, 0x909u, 1.0f},
+  };
+  return aster::summarizeWorldPerceptionLedger(
+      0x47u, required, 1.0f, {aster::evaluateWorldPerceptionLedgerCell(cell)});
+}
+
+aster::PerceptualWorldObservation makeStrongPerceptualObservation() {
+  aster::PerceptualWorldObservation observation =
+      aster::makePerceptualWorldObservation(makeFullPerceptualLedger());
+  observation.delta_seconds = 1.0f;
+  observation.world_transition_hash = 0xA57E1001u;
+  observation.visibility_set_hash = 0xA57E2002u;
+  observation.player_position = {1.0f, 0.0f, 0.0f};
+  observation.navigation_valid = true;
+  observation.perceptual_salience_score = 1.0f;
+  observation.traversal_speed = 2.2f;
+  observation.encounter_pressure = 0.75f;
+  observation.resource_pressure = 0.85f;
+  observation.explicit_player_readable_cause = 1.0f;
+  observation.reaction_package_hash = 0x1111u;
+  observation.material_memory_hash = 0x2222u;
+  observation.contact_history_hash = 0x3333u;
+  observation.lighting_atmosphere_hash = 0x4444u;
+  observation.wear_continuity_hash = 0x5555u;
+  observation.ai_attention_hash = 0x6666u;
+  observation.streaming_residency_lod_hash = 0x7777u;
+  observation.resource_state_hash = 0x8888u;
+  observation.event_residue_hash = 0x9999u;
+  observation.audio_visual_cue_budget_hash = 0xAAA1u;
+  observation.readability_audit_hash = 0xBBB2u;
+  return observation;
+}
+
+void testPerceptualWorldRuntimeContracts() {
+  const aster::PerceptualWorldRuntimeOptions options{
+      .region_id = 0x47u,
+      .id = "core-test-perceptual-runtime",
+      .exposure_horizon_seconds = 47.0f,
+      .minimum_continuity_score = 0.62f,
+      .minimum_occlusion_trust = 0.45f,
+      .minimum_lighting_believability = 0.45f,
+      .minimum_player_readable_cause = 0.45f};
+  aster::PerceptualWorldRuntime first(options);
+  aster::PerceptualWorldRuntime second(options);
+  aster::PerceptualWorldObservation strong = makeStrongPerceptualObservation();
+  for (int i = 0; i < 47; ++i) {
+    strong.player_position.x += 0.10f;
+    const aster::PerceptualFrameState first_state = first.advance(strong);
+    const aster::PerceptualFrameState second_state = second.advance(strong);
+    assert(first_state.perceptual_state_hash == second_state.perceptual_state_hash);
+  }
+  const aster::PerceptualFrameState mature = first.lastState();
+  assert(mature.accepted);
+  assert(mature.exposure_seconds >= 47.0f);
+  assert(mature.continuity_debt < 0.05f);
+  assert(mature.material_memory > 0.70f);
+  assert(mature.traversal_pressure > 0.55f);
+  assert(mature.occlusion_trust > 0.55f);
+  assert(mature.ecology_signal > 0.50f);
+  assert(mature.player_readable_cause > 0.50f);
+  assert(mature.semantic_budget_hash != 0u);
+
+  aster::PerceptualWorldRuntime debt_runtime(options);
+  aster::PerceptualWorldObservation weak;
+  weak.delta_seconds = 1.0f;
+  weak.region_id = 0x47u;
+  for (int i = 0; i < 6; ++i) {
+    (void)debt_runtime.advance(weak);
+  }
+  const float weak_debt = debt_runtime.lastState().continuity_debt;
+  for (int i = 0; i < 47; ++i) {
+    (void)debt_runtime.advance(strong);
+  }
+  assert(weak_debt > debt_runtime.lastState().continuity_debt);
+  assert(debt_runtime.lastState().accepted);
+
+  aster::PerceptualWorldObservation no_occlusion = strong;
+  no_occlusion.ledger.occlusion_role_hash = 0u;
+  no_occlusion.visibility_set_hash = 0u;
+  (void)first.advance(no_occlusion);
+  assert(first.lastState().occlusion_trust > 0.45f);
+
+  aster::PerceptualWorldObservation no_residue = strong;
+  no_residue.reaction_package_hash = 0u;
+  no_residue.event_residue_hash = 0u;
+  no_residue.audio_visual_cue_budget_hash = 0u;
+  (void)first.advance(no_residue);
+  assert(first.lastState().interaction_residue > 0.45f);
+}
+
 void testSourceBoundaryContracts() {
   const std::filesystem::path project_root =
       std::filesystem::path(__FILE__).parent_path().parent_path();
@@ -733,6 +849,7 @@ int main() {
   testAsterCoreRuntimeContracts();
   testWorldStateTransitionContracts();
   testWorldPerceptionLedgerContracts();
+  testPerceptualWorldRuntimeContracts();
   testSourceBoundaryContracts();
   testConfigLayerStackAndSessionJournal();
   std::cout << "core_tests passed.\n";

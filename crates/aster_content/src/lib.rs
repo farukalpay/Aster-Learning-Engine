@@ -4120,16 +4120,155 @@ fn cave_world_gate_report(
             "perceptual continuity score {continuity_score:.2} is below minimum {continuity_minimum:.2}"
         ));
     }
+    let runtime_budget = validation.get("perceptual_runtime");
+    let runtime_id = runtime_budget
+        .and_then(|value| value.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("perceptual_world_runtime");
+    let exposure_horizon_seconds = runtime_budget
+        .and_then(|value| value.get("exposure_horizon_seconds"))
+        .and_then(Value::as_f64)
+        .unwrap_or(47.0)
+        .max(0.001);
+    let minimum_runtime_continuity = runtime_budget
+        .and_then(|value| value.get("minimum_continuity_score"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.62)
+        .clamp(0.0, 1.0);
+    let minimum_occlusion_trust = runtime_budget
+        .and_then(|value| value.get("minimum_occlusion_trust"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.45)
+        .clamp(0.0, 1.0);
+    let minimum_lighting_believability = runtime_budget
+        .and_then(|value| value.get("minimum_lighting_believability"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.45)
+        .clamp(0.0, 1.0);
+    let minimum_player_readable_cause = runtime_budget
+        .and_then(|value| value.get("minimum_player_readable_cause"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.45)
+        .clamp(0.0, 1.0);
+    let runtime_material_memory =
+        if ledger_observed & perception_ledger_channel_bit("material_memory") != 0 {
+            0.84
+        } else {
+            0.0
+        };
+    let runtime_interaction_residue =
+        if ledger_observed & perception_ledger_channel_bit("contact_history") != 0
+            || ledger_observed & perception_ledger_channel_bit("wear_continuity") != 0
+            || continuity_observed & perceptual_continuity_channel_bit("event_residue") != 0
+        {
+            0.78
+        } else {
+            0.0
+        };
+    let runtime_traversal_pressure = (if nav_valid && checked_steps > 0 {
+        0.62
+    } else {
+        0.0
+    } + (route_count as f64 * 0.08).min(0.18)
+        + if ledger_observed & perception_ledger_channel_bit("streaming_semantic_lod") != 0 {
+            0.16
+        } else {
+            0.0
+        })
+    .clamp(0.0, 1.0);
+    let runtime_lighting_believability =
+        (if ledger_observed & perception_ledger_channel_bit("lighting_exposure") != 0 {
+            0.38
+        } else {
+            0.0
+        } + if ledger_observed & perception_ledger_channel_bit("atmosphere_cell") != 0 {
+            0.24
+        } else {
+            0.0
+        } + if fixture_count > 0 { 0.20 } else { 0.0 }
+            + salience_score * 0.18)
+            .clamp(0.0, 1.0);
+    let runtime_occlusion_trust: f64 =
+        (if ledger_observed & perception_ledger_channel_bit("occlusion_role") != 0 {
+            0.44_f64
+        } else {
+            0.0_f64
+        } + if collision_count > 0 {
+            0.18_f64
+        } else {
+            0.0_f64
+        } + if nav_valid { 0.18_f64 } else { 0.0_f64 }
+            + if checked_steps > 0 { 0.12_f64 } else { 0.0_f64 })
+        .clamp(0.0_f64, 1.0_f64);
+    let runtime_ecology_signal: f64 = ((resource_capacity as f64 * 0.025).min(0.26)
+        + (encounter_count as f64 * 0.18).min(0.28)
+        + if ledger_observed & perception_ledger_channel_bit("gameplay_affordance") != 0 {
+            0.28
+        } else {
+            0.0
+        }
+        + if reaction_packages_valid { 0.12 } else { 0.0 })
+    .clamp(0.0, 1.0);
+    let runtime_player_readable_cause: f64 =
+        (if reaction_packages_valid {
+            0.26_f64
+        } else {
+            0.0_f64
+        } + if resource_capacity > 0 {
+            0.18_f64
+        } else {
+            0.0_f64
+        } + if fixture_count > 0 { 0.16_f64 } else { 0.0_f64 }
+            + if encounter_count > 0 {
+                0.16_f64
+            } else {
+                0.0_f64
+            }
+            + if continuity_observed & perceptual_continuity_channel_bit("sensory_feedback") != 0 {
+                0.18_f64
+            } else {
+                0.0_f64
+            })
+        .clamp(0.0_f64, 1.0_f64);
+    let runtime_continuity_score = ((runtime_material_memory
+        + runtime_interaction_residue
+        + runtime_traversal_pressure
+        + runtime_lighting_believability
+        + runtime_occlusion_trust
+        + runtime_ecology_signal
+        + runtime_player_readable_cause)
+        / 7.0)
+        .clamp(0.0, 1.0);
+    let runtime_continuity_debt = (minimum_runtime_continuity - runtime_continuity_score)
+        .max(0.0)
+        .clamp(0.0, 1.0);
+    let runtime_valid = runtime_continuity_score + f64::EPSILON >= minimum_runtime_continuity
+        && runtime_occlusion_trust + f64::EPSILON >= minimum_occlusion_trust
+        && runtime_lighting_believability + f64::EPSILON >= minimum_lighting_believability
+        && runtime_player_readable_cause + f64::EPSILON >= minimum_player_readable_cause
+        && nav_valid;
+    if !runtime_valid {
+        reasons.push(format!(
+            "perceptual runtime score {runtime_continuity_score:.2} is below minimum {minimum_runtime_continuity:.2}"
+        ));
+    }
+    let runtime_semantic_budget_hash = hash_hex_text(&format!(
+        "{id}:perceptual-runtime:budget:{runtime_lighting_believability:.3}:{runtime_occlusion_trust:.3}:{runtime_player_readable_cause:.3}:{runtime_ecology_signal:.3}"
+    ));
+    let runtime_state_hash = hash_hex_text(&format!(
+        "{id}:perceptual-runtime:{runtime_id}:{exposure_horizon_seconds:.3}:{runtime_continuity_score:.3}:{runtime_continuity_debt:.3}:{runtime_semantic_budget_hash}"
+    ));
     let verdict = nav_valid
         && resource_valid
         && encounter_valid
         && perceptual_valid
         && continuity_valid
         && ledger_valid
+        && runtime_valid
         && checked_steps > 0;
     let region_id = hash_hex_text(&format!("{id}:{guid}:{source_hash}:region"));
     let probe_trace_hash = hash_hex_text(&format!(
-        "{id}:{source_hash}:{checked_steps}:{blocked_steps}:{resource_capacity}:{encounter_count}:{salience_score:.3}:{continuity_score:.3}:{continuity_required}:{continuity_observed}:{ledger_hash}"
+        "{id}:{source_hash}:{checked_steps}:{blocked_steps}:{resource_capacity}:{encounter_count}:{salience_score:.3}:{continuity_score:.3}:{continuity_required}:{continuity_observed}:{ledger_hash}:{runtime_state_hash}"
     ));
     let nav_report_hash = hash_hex_text(&format!(
         "{id}:nav:{checked_steps}:{blocked_steps}:{}",
@@ -4227,6 +4366,26 @@ fn cave_world_gate_report(
             "streaming_semantic_lod_hash": ledger_streaming_semantic_lod_hash,
             "audio_visual_cue_budget_hash": ledger_audio_visual_cue_budget_hash,
             "cells": ledger_cells,
+        },
+        "perceptual_runtime": {
+            "id": runtime_id,
+            "accepted": runtime_valid,
+            "exposure_horizon_seconds": exposure_horizon_seconds,
+            "minimum_continuity_score": minimum_runtime_continuity,
+            "minimum_occlusion_trust": minimum_occlusion_trust,
+            "minimum_lighting_believability": minimum_lighting_believability,
+            "minimum_player_readable_cause": minimum_player_readable_cause,
+            "perceptual_state_hash": runtime_state_hash,
+            "continuity_debt": runtime_continuity_debt,
+            "material_memory": runtime_material_memory,
+            "interaction_residue": runtime_interaction_residue,
+            "traversal_pressure": runtime_traversal_pressure,
+            "lighting_believability": runtime_lighting_believability,
+            "occlusion_trust": runtime_occlusion_trust,
+            "ecology_signal": runtime_ecology_signal,
+            "player_readable_cause": runtime_player_readable_cause,
+            "semantic_budget_hash": runtime_semantic_budget_hash,
+            "continuity_score": runtime_continuity_score,
         },
         "diagnostic": diagnostic,
     });
@@ -9463,6 +9622,14 @@ mod tests {
           ]
         }}
       ]
+    }},
+    "perceptual_runtime": {{
+      "id": "entry_perceptual_world_runtime",
+      "exposure_horizon_seconds": 47.0,
+      "minimum_continuity_score": 0.62,
+      "minimum_occlusion_trust": 0.45,
+      "minimum_lighting_believability": 0.45,
+      "minimum_player_readable_cause": 0.45
     }}
   }}
 }}
@@ -9677,6 +9844,35 @@ edge mat.wet material.assign wetness
                 >= 16
         );
         assert_eq!(report["perception_ledger"]["cell_count"], 1);
+        assert_eq!(report["perceptual_runtime"]["accepted"], true);
+        assert_eq!(
+            report["perceptual_runtime"]["id"],
+            "entry_perceptual_world_runtime"
+        );
+        assert_eq!(
+            report["perceptual_runtime"]["exposure_horizon_seconds"],
+            47.0
+        );
+        assert!(
+            report["perceptual_runtime"]["perceptual_state_hash"]
+                .as_str()
+                .expect("perceptual state hash")
+                .len()
+                >= 16
+        );
+        assert!(
+            report["perceptual_runtime"]["semantic_budget_hash"]
+                .as_str()
+                .expect("semantic budget hash")
+                .len()
+                >= 16
+        );
+        assert!(
+            report["perceptual_runtime"]["occlusion_trust"]
+                .as_f64()
+                .expect("occlusion trust")
+                >= 0.45
+        );
         assert_eq!(report["perceptual_continuity_budget"]["accepted"], true);
         assert_eq!(
             report["perceptual_continuity_budget"]["missing_channel_mask"],
@@ -9711,6 +9907,7 @@ edge mat.wet material.assign wetness
             false
         );
         assert_eq!(blocked_report["perception_ledger"]["accepted"], false);
+        assert_eq!(blocked_report["perceptual_runtime"]["accepted"], false);
         assert_ne!(
             blocked_report["perception_ledger"]["missing_channel_mask"],
             0

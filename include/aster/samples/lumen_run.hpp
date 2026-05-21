@@ -4,6 +4,7 @@
 #pragma once
 
 #include "aster/game_sdk/game_sdk.hpp"
+#include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/world_perception_ledger.hpp"
 #include "aster/core/world_state.hpp"
 #include "aster/systems/animation_system.hpp"
@@ -186,6 +187,7 @@ struct LumenWorldForensics {
   LumenCaveWorldGateReport cave_gate;
   LumenReactionPackageReport coal_mining_reaction;
   WorldPerceptionLedgerReport perception_ledger;
+  PerceptualFrameState perceptual_state;
   std::vector<WorldPerceptionObjectTrace> perception_object_traces;
   bool render_extraction_ready = false;
 };
@@ -377,6 +379,13 @@ private:
     std::array<std::size_t, 3> horizontal_guards{};
   };
 
+  struct CaveFloorSupportSurface {
+    CaveTunnelProfile tunnel{};
+    std::shared_ptr<const CpuMesh> floor_mesh{};
+    std::shared_ptr<const CpuMesh> portal_floor_mesh{};
+    float min_normal_y = 0.30f;
+  };
+
   struct AuthoredCaveSection {
     CaveTunnelProfile tunnel{};
     std::vector<CaveWallFixturePlacement> wall_fixtures;
@@ -444,10 +453,15 @@ private:
   void updateSceneObjects(float animation_dt);
   void resetWorldProof();
   void rebuildCaveWorldGate();
+  [[nodiscard]] PerceptualWorldRuntimeOptions perceptualRuntimeOptions(
+      std::uint64_t region_id) const;
   [[nodiscard]] WorldPerceptionLedgerReport buildPerceptionLedgerReport(
       std::uint64_t region_id) const;
   [[nodiscard]] std::vector<WorldPerceptionObjectTrace>
   buildPerceptionObjectTraces(const WorldPerceptionLedgerReport &ledger) const;
+  [[nodiscard]] PerceptualWorldObservation
+  makePerceptualObservation(float dt, Vec2 move_axis, Vec3 previous_player_position) const;
+  void advancePerceptualRuntime(float dt, Vec2 move_axis, Vec3 previous_player_position);
   void advanceWorldProof(float dt, Vec2 move_axis, bool run_requested, bool jump_requested,
                          Vec3 previous_player_position);
   void updatePlayerPhysics(float dt, Vec2 move_axis, bool run_requested, bool jump_requested);
@@ -508,12 +522,12 @@ private:
   LumenAuthoringData authoring_{};
   LumenStatus status_{};
   WorldState world_state_{};
+  PerceptualWorldRuntime perceptual_runtime_{};
   LumenWorldForensics world_forensics_{};
   std::uint64_t next_world_epoch_ = 1u;
   Scene scene_{};
   TerrainHeightField terrain_{};
   SupportSurfaceSet support_surfaces_{};
-  SupportSurfaceSet cave_support_surfaces_{};
   Vec3 player_position_{0.0f, 0.28f, 0.0f};
   Vec3 player_velocity_{};
   AvatarRig player_avatar_{};
@@ -596,6 +610,7 @@ private:
   float classic_gauntlet_hurt_seconds_ = 0.0f;
   Vec3 cave_entrance_light_position_{};
   std::vector<std::shared_ptr<const CpuMesh>> cave_collision_meshes_;
+  std::vector<CaveFloorSupportSurface> cave_floor_supports_;
   std::vector<std::size_t> cave_exterior_hidden_objects_;
   ViewerCullVolume cave_viewer_cull_volume_{};
   bool cave_debug_overlay_enabled_ = false;

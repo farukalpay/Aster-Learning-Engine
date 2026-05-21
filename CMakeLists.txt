@@ -150,6 +150,7 @@ set(ASTER_CORE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/frame_time_stats.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/job_graph.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/module_registry.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/perceptual_world_runtime.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/profiler.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/session_journal.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/work_budget.cpp"

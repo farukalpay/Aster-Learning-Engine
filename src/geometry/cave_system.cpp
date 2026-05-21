@@ -245,8 +245,35 @@ float ringRadiusNoise(const aster::CaveTunnelProfile &profile, const aster::Vec3
   return aster::clamp(1.0f + (n * 2.0f - 1.0f) * std::max(profile.wall_noise, 0.0f), 0.68f, 1.36f);
 }
 
+enum class TunnelSurfaceBand {
+  FullShell,
+  WallAndCeiling,
+};
+
+bool omitTunnelFloorBand(const aster::CaveTunnelProfile &profile, const float t,
+                         const int radial, const int radial_segments,
+                         const TunnelSurfaceBand band) {
+  if (band == TunnelSurfaceBand::FullShell) {
+    return false;
+  }
+
+  const float u = (static_cast<float>(radial) + 0.5f) / static_cast<float>(radial_segments);
+  const float theta = u * kPi * 2.0f;
+  const float sin_theta = std::sin(theta);
+  if (sin_theta > -0.10f) {
+    return false;
+  }
+
+  const float width_scale = tunnelWidthScale(profile, aster::clamp(t, 0.0f, 1.0f));
+  const float horizontal_radius = std::max(profile.half_width * width_scale, 0.001f);
+  const float floor_half_width = profile.floor_width * width_scale * 0.5f + 0.10f;
+  const float lateral = std::abs(std::cos(theta) * horizontal_radius);
+  return lateral <= floor_half_width;
+}
+
 aster::CpuMesh makeTunnelChunk(const aster::CaveTunnelProfile &profile, const int first_segment,
-                               const int last_segment) {
+                               const int last_segment,
+                               const TunnelSurfaceBand band = TunnelSurfaceBand::FullShell) {
   const int radial_segments = std::max(profile.radial_segments, 8);
   const int segment_count = std::max(last_segment - first_segment, 1);
   const int rings = segment_count + 1;
@@ -287,7 +314,12 @@ aster::CpuMesh makeTunnelChunk(const aster::CaveTunnelProfile &profile, const in
   }
 
   for (int ring = 0; ring < segment_count; ++ring) {
+    const float t_mid =
+        (static_cast<float>(first_segment + ring) + 0.5f) / static_cast<float>(total_segments);
     for (int radial = 0; radial < radial_segments; ++radial) {
+      if (omitTunnelFloorBand(profile, t_mid, radial, radial_segments, band)) {
+        continue;
+      }
       const std::uint32_t a = static_cast<std::uint32_t>(ring * ring_vertices + radial);
       const std::uint32_t b = static_cast<std::uint32_t>((ring + 1) * ring_vertices + radial);
       const std::uint32_t c = b + 1u;
@@ -1444,8 +1476,9 @@ CaveComplex buildCaveComplex(const CaveComplexSpec &spec) {
       std::clamp(static_cast<int>(std::ceil(clamp(spec.tunnel.collision_end_t, 0.05f, 1.0f) *
                                             static_cast<float>(spec.tunnel.length_segments))),
                  first_collision_segment + 1, spec.tunnel.length_segments);
-  complex.collision_mesh =
-      makeTunnelChunk(spec.tunnel, first_collision_segment, last_collision_segment);
+  complex.collision_mesh = makeTunnelChunk(spec.tunnel, first_collision_segment,
+                                           last_collision_segment,
+                                           TunnelSurfaceBand::WallAndCeiling);
   if (spec.tunnel.end_constraint_enabled && last_collision_segment >= spec.tunnel.length_segments) {
     appendMesh(complex.collision_mesh, makeTunnelEndCap(spec.tunnel));
   }
@@ -1458,7 +1491,7 @@ CaveComplex buildCaveComplex(const CaveComplexSpec &spec) {
   for (int start = first_visible_segment; start < spec.tunnel.length_segments;
        start += chunk_segments) {
     const int end = std::min(start + chunk_segments, spec.tunnel.length_segments);
-    CpuMesh chunk = makeTunnelChunk(spec.tunnel, start, end);
+    CpuMesh chunk = makeTunnelChunk(spec.tunnel, start, end, TunnelSurfaceBand::WallAndCeiling);
     if (spec.tunnel.end_constraint_enabled && end == spec.tunnel.length_segments) {
       appendMesh(chunk, makeTunnelEndCap(spec.tunnel));
     }

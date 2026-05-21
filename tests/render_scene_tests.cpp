@@ -749,6 +749,23 @@ void testFrameDebuggerPerceptionLedgerTrace() {
                 .observed_channel_mask = cell.observed_channel_mask,
                 .object_hash = 0x333u,
                 .ledger_hash = cell.ledger_hash}});
+  aster::PerceptualWorldRuntime runtime(
+      {.region_id = 0xA57E77u,
+       .id = "frame-debugger-perceptual-runtime",
+       .exposure_horizon_seconds = 1.0f,
+       .minimum_continuity_score = 0.20f,
+       .minimum_occlusion_trust = 0.10f,
+       .minimum_lighting_believability = 0.0f,
+       .minimum_player_readable_cause = 0.0f});
+  aster::PerceptualWorldObservation observation = aster::makePerceptualWorldObservation(ledger);
+  observation.delta_seconds = 1.0f;
+  observation.region_id = ledger.region_id;
+  observation.visibility_set_hash = 0x444u;
+  observation.navigation_valid = true;
+  observation.perceptual_salience_score = 1.0f;
+  observation.traversal_speed = 1.0f;
+  const aster::PerceptualFrameState perceptual_state = runtime.advance(observation);
+  renderer.stampLastFramePerceptualState(perceptual_state);
 
   const aster::FrameForensics &forensics = renderer.lastFrameForensics();
   assert(forensics.perception_ledger_accepted);
@@ -758,6 +775,10 @@ void testFrameDebuggerPerceptionLedgerTrace() {
   assert(forensics.perception_object_traces.size() == 1u);
   assert(forensics.perception_object_traces[0].object_name == object.name);
   assert(forensics.perception_object_traces[0].ledger_hash == cell.ledger_hash);
+  assert(forensics.perceptual_state_hash == perceptual_state.perceptual_state_hash);
+  assert(forensics.perceptual_semantic_budget_hash == perceptual_state.semantic_budget_hash);
+  assert(forensics.perceptual_material_memory > 0.0f);
+  assert(forensics.perceptual_occlusion_trust > 0.0f);
 
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }

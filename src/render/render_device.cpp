@@ -6267,6 +6267,20 @@ void RenderDevice::stampLastFramePerceptionLedger(
   last_forensics_.perception_object_traces = std::move(object_traces);
 }
 
+void RenderDevice::stampLastFramePerceptualState(const PerceptualFrameState &state) {
+  last_forensics_.perceptual_state_hash = state.perceptual_state_hash;
+  last_forensics_.perceptual_continuity_debt = state.continuity_debt;
+  last_forensics_.perceptual_material_memory = state.material_memory;
+  last_forensics_.perceptual_interaction_residue = state.interaction_residue;
+  last_forensics_.perceptual_traversal_pressure = state.traversal_pressure;
+  last_forensics_.perceptual_lighting_believability = state.lighting_believability;
+  last_forensics_.perceptual_occlusion_trust = state.occlusion_trust;
+  last_forensics_.perceptual_ecology_signal = state.ecology_signal;
+  last_forensics_.perceptual_player_readable_cause = state.player_readable_cause;
+  last_forensics_.perceptual_semantic_budget_hash = state.semantic_budget_hash;
+  last_forensics_.perceptual_state_accepted = state.accepted;
+}
+
 const std::shared_ptr<const MaterialResourceLibrary> &RenderDevice::materialResourceLibrary()
     const noexcept {
   return material_library_;

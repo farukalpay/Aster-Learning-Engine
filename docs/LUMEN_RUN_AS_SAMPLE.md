@@ -30,10 +30,15 @@ perceptual signal for light/fog/wetness to affect decisions. That proof now
 runs through the World Perception Ledger: each cave cell must carry material
 memory, contact history, lighting exposure, atmosphere membership, occlusion
 role, gameplay affordance, wear continuity, semantic LOD, and audio/visual cue
-budget before it is publishable. `aster_assetc cook` emits both the ledger block
-and the compatibility perceptual-continuity aggregate for authored cave inputs,
-and runtime streaming validates candidate generated chunks before they are
-published.
+budget before it is publishable. The ledger remains deterministic evidence; the
+source-level `PerceptualWorldRuntime` is the continuous player-facing regime
+above it. Runtime cave updates accumulate exposure, material memory,
+interaction residue, traversal pressure, lighting believability, occlusion
+trust, ecology signal, player-readable cause, and continuity debt before the
+frame is extracted. `aster_assetc cook` emits the ledger block, the compatibility
+perceptual-continuity aggregate, and the authored perceptual-runtime contract
+for cave inputs, and runtime streaming validates candidate generated chunks
+before they are published.
 
 After that gate passes, each stress station binds a visible artifact to
 frame-forensics evidence: authored scale cues and camera framing, contact shadow
@@ -53,6 +58,9 @@ verdicts, ledger hash, ledger cell count, world transition hash, capture, image
 diff status, pass cost map, resource transitions, material binding trace,
 backend feature proof, object perception traces, and asset provenance that
 explain why the player-visible result failed.
+For long-horizon cave reports, it also needs the perceptual runtime state hash,
+semantic budget hash, continuity debt, and accepted/rejected runtime verdict so
+authors can see whether the space still carries the player's prior behavior.
 
 ## Classic Gauntlet
 

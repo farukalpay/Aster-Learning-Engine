@@ -322,21 +322,29 @@ float LumenRun::caveWebSlowScaleAt(const Vec3 position) const {
 }
 
 TerrainSurfaceSample LumenRun::sampleCaveFloorSupport(const SurfaceSupportQuery &query) const {
-  if (!std::isfinite(query.reference_y) || cave_sections_.empty()) {
+  if (!std::isfinite(query.reference_y) || cave_floor_supports_.empty()) {
     return {};
   }
 
-  CaveInteriorSample cave_sample{};
   const Vec3 reference{query.world_position.x, query.reference_y, query.world_position.y};
-  const AuthoredCaveSection *section = caveSectionAt(reference, &cave_sample);
-  if (section == nullptr) {
+  std::size_t best_index = cave_floor_supports_.size();
+  CaveInteriorSample best_sample{};
+  for (std::size_t i = 0; i < cave_floor_supports_.size(); ++i) {
+    const CaveInteriorSample candidate =
+        sampleCaveInteriorVolume(cave_floor_supports_[i].tunnel, reference);
+    if (best_index == cave_floor_supports_.size() || candidate.interior > best_sample.interior) {
+      best_index = i;
+      best_sample = candidate;
+    }
+  }
+  if (best_index >= cave_floor_supports_.size()) {
     return {};
   }
 
   const bool inside_cave_plan =
-      cave_sample.tunnel_t >= section->tunnel.collision_start_t - 0.04f &&
-      cave_sample.lateral <= cave_sample.half_width * 1.28f &&
-      cave_sample.vertical >= -0.80f && cave_sample.vertical <= cave_sample.height * 2.15f;
+      best_sample.tunnel_t >= cave_floor_supports_[best_index].tunnel.collision_start_t - 0.04f &&
+      best_sample.lateral <= best_sample.half_width * 1.28f && best_sample.vertical >= -0.80f &&
+      best_sample.vertical <= best_sample.height * 2.15f;
   if (!inside_cave_plan) {
     return {};
   }
@@ -344,7 +352,19 @@ TerrainSurfaceSample LumenRun::sampleCaveFloorSupport(const SurfaceSupportQuery 
   SurfaceSupportQuery cave_query = query;
   cave_query.max_above = std::max(cave_query.max_above, 0.42f);
   cave_query.max_below = std::max(cave_query.max_below, 4.20f);
-  return cave_support_surfaces_.sample(cave_query);
+  const CaveFloorSupportSurface &floor = cave_floor_supports_[best_index];
+  TerrainSurfaceSample best =
+      floor.floor_mesh != nullptr
+          ? sampleMeshSupport(*floor.floor_mesh, {}, cave_query, floor.min_normal_y)
+          : TerrainSurfaceSample{};
+  if (floor.portal_floor_mesh != nullptr) {
+    const TerrainSurfaceSample portal =
+        sampleMeshSupport(*floor.portal_floor_mesh, {}, cave_query, floor.min_normal_y);
+    if (!best.valid || (portal.valid && portal.height > best.height)) {
+      best = portal;
+    }
+  }
+  return best;
 }
 
 TerrainSurfaceSample LumenRun::sampleWorldSupport(const SurfaceSupportQuery &query) const {
@@ -353,10 +373,7 @@ TerrainSurfaceSample LumenRun::sampleWorldSupport(const SurfaceSupportQuery &que
   if (!cave_floor.valid) {
     return world;
   }
-  if (!world.valid || world.height > cave_floor.height + 0.28f) {
-    return cave_floor;
-  }
-  return world;
+  return cave_floor;
 }
 
 void LumenRun::updateFishingVisual() {

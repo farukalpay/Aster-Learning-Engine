@@ -982,6 +982,29 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
   return out;
 }
 
+[[nodiscard]] CavePerceptualRuntimeDocument parseCavePerceptualRuntimeDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
+  CavePerceptualRuntimeDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readStringOr(value, "id", diagnostics, source, path, {});
+  out.exposure_horizon_seconds = readFloatOr(value, "exposure_horizon_seconds", diagnostics,
+                                             source, path, out.exposure_horizon_seconds);
+  out.minimum_continuity_score = readFloatOr(value, "minimum_continuity_score", diagnostics,
+                                             source, path, out.minimum_continuity_score);
+  out.minimum_occlusion_trust = readFloatOr(value, "minimum_occlusion_trust", diagnostics,
+                                            source, path, out.minimum_occlusion_trust);
+  out.minimum_lighting_believability =
+      readFloatOr(value, "minimum_lighting_believability", diagnostics, source, path,
+                  out.minimum_lighting_believability);
+  out.minimum_player_readable_cause =
+      readFloatOr(value, "minimum_player_readable_cause", diagnostics, source, path,
+                  out.minimum_player_readable_cause);
+  return out;
+}
+
 [[nodiscard]] CaveValidationDocument parseCaveValidationDocument(
     const Json &root, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
     const std::string &path) {
@@ -1076,6 +1099,10 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
   if (const Json *ledger = member(root, "perception_ledger")) {
     out.perception_ledger = parseCavePerceptionLedgerDocument(
         *ledger, diagnostics, source, childPath(path, "perception_ledger"));
+  }
+  if (const Json *runtime = member(root, "perceptual_runtime")) {
+    out.perceptual_runtime = parseCavePerceptualRuntimeDocument(
+        *runtime, diagnostics, source, childPath(path, "perceptual_runtime"));
   }
   return out;
 }
@@ -2394,6 +2421,37 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
                    "unknown perception ledger channel '" + channel + "'");
         }
       }
+    }
+  }
+
+  if (cave.validation.perceptual_runtime.has_value()) {
+    const CavePerceptualRuntimeDocument &runtime = *cave.validation.perceptual_runtime;
+    const auto scoreInRange = [](const float value) {
+      return value >= 0.0f && value <= 1.0f;
+    };
+    if (runtime.id.empty()) {
+      addError("$.validation.perceptual_runtime.id",
+               "perceptual runtime id must not be empty");
+    }
+    if (runtime.exposure_horizon_seconds <= 0.0f) {
+      addError("$.validation.perceptual_runtime.exposure_horizon_seconds",
+               "perceptual runtime exposure_horizon_seconds must be positive");
+    }
+    if (!scoreInRange(runtime.minimum_continuity_score)) {
+      addError("$.validation.perceptual_runtime.minimum_continuity_score",
+               "perceptual runtime minimum_continuity_score must be in [0, 1]");
+    }
+    if (!scoreInRange(runtime.minimum_occlusion_trust)) {
+      addError("$.validation.perceptual_runtime.minimum_occlusion_trust",
+               "perceptual runtime minimum_occlusion_trust must be in [0, 1]");
+    }
+    if (!scoreInRange(runtime.minimum_lighting_believability)) {
+      addError("$.validation.perceptual_runtime.minimum_lighting_believability",
+               "perceptual runtime minimum_lighting_believability must be in [0, 1]");
+    }
+    if (!scoreInRange(runtime.minimum_player_readable_cause)) {
+      addError("$.validation.perceptual_runtime.minimum_player_readable_cause",
+               "perceptual runtime minimum_player_readable_cause must be in [0, 1]");
     }
   }
 

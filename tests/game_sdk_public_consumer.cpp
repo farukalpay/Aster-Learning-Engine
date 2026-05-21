@@ -60,6 +60,10 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(cave.value.validation.perception_ledger->minimum_score > 0.0f);
   assert(cave.value.validation.perception_ledger->required_channels.size() == 9u);
   assert(cave.value.validation.perception_ledger->cells.size() == 2u);
+  assert(cave.value.validation.perceptual_runtime.has_value());
+  assert(cave.value.validation.perceptual_runtime->id == "entry_perceptual_world_runtime");
+  assert(cave.value.validation.perceptual_runtime->exposure_horizon_seconds >= 47.0f);
+  assert(cave.value.validation.perceptual_runtime->minimum_occlusion_trust > 0.0f);
   const std::vector<aster::sdk::Diagnostic> cave_diagnostics =
       aster::sdk::validateCaveDocument(cave.value, &project.value, &scene.value,
                                        project_root / "caves" / "cave_entry.cave");
@@ -188,7 +192,12 @@ void testSchemaDiagnosticsRejectInvalidDocuments() {
     ],
     "validation": {
       "walkable_routes": [{ "id": "dead_end", "points": [[0, 0, 0]] }],
-      "spawn_volumes": [{ "id": "blocked", "center": [0, 0, 0], "half_extents": [0, 0.5, 0.5] }]
+      "spawn_volumes": [{ "id": "blocked", "center": [0, 0, 0], "half_extents": [0, 0.5, 0.5] }],
+      "perceptual_runtime": {
+        "id": "",
+        "exposure_horizon_seconds": -1,
+        "minimum_continuity_score": 2.0
+      }
     }
   })json");
   assert(bad_cave.ok());
