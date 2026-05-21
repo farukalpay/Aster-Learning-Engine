@@ -34,6 +34,12 @@ backend supplies native work, captures or samples when required, resource
 transition evidence, and conformance results. Declared graph passes without
 native proof remain unsupported.
 
+The current renderer is still a contract-first spine. Frame forensics, resource
+provenance, and RHI reports are valuable only when attached to backend work that
+applies real GPU pressure. D3D12 presentation, native HDR/MSAA, GPU timestamp
+queries, GPU consumption of clustered-light buffers, and D3D12 shadow/fog/probe
+parity remain product gaps until the backend proves them.
+
 The debugger is a required product surface, not a bonus overlay. Each frame must
 explain visibility, material binding, light clusters, shadow, fog, probe, pass
 outputs, overdraw, and fallback reasons on one timeline. Pass entries must read
@@ -77,7 +83,7 @@ visible and reproducible from the command line. `.astergraph` is the canonical
 full asset graph format; `.astermat` remains the legacy/import material path.
 
 The V1 authoring kernel is deliberately bounded but end to end. `pipe_lab`
-is the first production-runtime asset proof: a rusted pipe graph must produce
+is the first runtime asset-contract proof: a rusted pipe graph must produce
 mesh parts, material masks, UV islands, LODs, collision proxy metadata, cook
 diagnostics, and a live Lumen Run placement from the same Aster-owned asset
 contract.
@@ -94,11 +100,13 @@ Procedural Graph
   -> Frame Forensics
 ```
 
-Material Lab is the acceptance gate for V1. Complex mesh operators can start as
-deterministic descriptors plus diagnostics, but graph-authored materials must
-execute through renderer-facing procedural IR and trace back to graph GUID, node
-ID, shader variant, pipeline key, backend capability, and fallback/degradation
-reason.
+Material Lab is the acceptance gate for V1 contracts. It can prove texture
+roles, procedural material IR, debug views, and backend traces, but a sterile
+lab rig is not the same thing as production art in a lived scene. Complex mesh
+operators can start as deterministic descriptors plus diagnostics, but
+graph-authored materials must execute through renderer-facing procedural IR and
+trace back to graph GUID, node ID, shader variant, pipeline key, backend
+capability, and fallback/degradation reason.
 
 ## Authoring Studio
 

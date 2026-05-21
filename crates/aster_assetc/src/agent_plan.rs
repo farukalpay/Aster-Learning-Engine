@@ -1,5 +1,5 @@
-// Author: Faruk Alpay
-// Do not remove this notice.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Faruk Alpay
 
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -203,6 +203,80 @@ fn handoff_policy() -> Value {
             "Record skipped validation with the concrete reason."
         ]
     })
+}
+
+fn header_policy() -> Value {
+    json!({
+        "core_license": "Apache-2.0",
+        "content_license": "LicenseRef-Aster-Content",
+        "allowed_license_ids": [
+            "Apache-2.0",
+            "LicenseRef-Aster-Content"
+        ],
+        "copyright": "Copyright (c) 2026 Faruk Alpay",
+        "source_header": {
+            "slash_comment": [
+                "// SPDX-License-Identifier: Apache-2.0",
+                "// Copyright (c) 2026 Faruk Alpay"
+            ],
+            "hash_comment": [
+                "# SPDX-License-Identifier: Apache-2.0",
+                "# Copyright (c) 2026 Faruk Alpay"
+            ]
+        },
+        "rules": [
+            "Add the SPDX/copyright header to new engine source and Cargo/CMake metadata files.",
+            "Do not add source headers to binary, cooked, or commentless content formats.",
+            "Aster sample content and branding remain under the content license unless a file says otherwise."
+        ]
+    })
+}
+
+fn ownership_boundaries() -> Vec<Value> {
+    vec![
+        json!({
+            "path": "include/aster/kernel",
+            "owner": "stable C ABI",
+            "policy": "do not edit unless the task explicitly asks for a kernel contract update"
+        }),
+        json!({
+            "path": "include/aster/game_sdk",
+            "owner": "source Game SDK and agent authoring contracts",
+            "policy": "keep schema and batch reports stable for external consumers"
+        }),
+        json!({
+            "path": "src",
+            "owner": "internal reusable engine modules",
+            "policy": "keep sample content out of engine defaults"
+        }),
+        json!({
+            "path": "projects/lumen_run",
+            "owner": "sample content",
+            "policy": "prove features without defining engine architecture by accident"
+        }),
+        json!({
+            "path": "crates/aster_assetc",
+            "owner": "asset compiler and agent reports",
+            "policy": "prefer machine-readable reports for agent context"
+        }),
+    ]
+}
+
+fn dirty_worktree(project: &Path) -> String {
+    let repo = workspace_root_for(project);
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .arg("status")
+        .arg("--short")
+        .output()
+        .ok()
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .trim_end()
+                .to_string()
+        })
+        .unwrap_or_default()
 }
 
 fn project_asset_rows(root: &Value) -> Vec<Value> {
@@ -671,10 +745,14 @@ pub fn agent_plan_report_json(
         "instruction_stack": instruction_stack,
         "command_policy": command_policy_rows(),
         "handoff_policy": handoff_policy(),
+        "header_policy": header_policy(),
+        "ownership_boundaries": ownership_boundaries(),
+        "dirty_worktree": dirty_worktree(project),
         "validation": validation,
         "diagnostics": diagnostics,
         "rules": [
             "Keep ownership in Aster names, schemas, and modules.",
+            "Use the SPDX/copyright header for new Apache-2.0 engine source files.",
             "Prefer data documents before sample-specific runtime shortcuts.",
             "Do not add third-party notice files as part of an Aster agent batch.",
             "Leave a compact handoff with changed paths, decisions, validation, and remaining tasks."

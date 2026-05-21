@@ -18,6 +18,8 @@ What it is not yet:
 - A finished commercial RHI with full platform parity.
 - A bindless texture/material editor stack.
 - A completed Windows swapchain scene renderer.
+- A native HDR/MSAA renderer with GPU timestamp coverage on every backend.
+- A D3D12 parity backend for shadow atlas, volumetric fog, and reflection probes.
 - A gameplay feature backlog that can grow before backend and asset contracts
   are proven.
 

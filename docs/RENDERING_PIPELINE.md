@@ -41,6 +41,10 @@ surface attributes, surface occlusion, shadow atlas, volumetric fog, and
 reflection probes. Native backends that advertise those proof resources must
 populate matching capture and sampling evidence; otherwise certification records
 missing proof.
+This evidence layer is not a substitute for execution. A render-graph pass is
+only considered supported when the backend owns the resource lifetime, barriers,
+descriptor binding, pass output, readback or sample when required, and final
+frame consumption under that backend's presentation or capture path.
 Per-object visibility traces and object-to-cluster membership traces are
 recorded alongside the pass/resource data. Asset traces name the source asset,
 source node, source mesh, material slot, texture-role fate, mesh import
@@ -64,6 +68,8 @@ Backend roles today:
   surface-occlusion, shadow/fog/probe resource producers.
 - Metal: native macOS scene renderer and presentation path.
 - D3D12: native offscreen raster/readback path under conformance; Windows
-  presentation still uses the production software path.
+  presentation still uses the production software path. D3D12 shadow atlas,
+  volumetric fog, reflection probe resources, GPU timestamps, native HDR, MSAA,
+  and swapchain back-pressure are not complete renderer proof points yet.
 
 Use `docs/RENDERER_BACKEND_MATRIX.md` for current feature support.

@@ -1,5 +1,5 @@
-// Author: Faruk Alpay
-// Do not remove this notice.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Faruk Alpay
 
 use std::fs;
 use std::io::Write;
@@ -234,6 +234,42 @@ fn write_broken_material_project() -> PathBuf {
     )
     .expect("project");
     dir.join("project.asterproj")
+}
+
+fn write_agent_tool_repo() -> PathBuf {
+    let dir = fixture_dir();
+    fs::create_dir_all(dir.join("include/aster")).expect("include dir");
+    fs::create_dir_all(dir.join("src/runtime")).expect("src dir");
+    fs::create_dir_all(dir.join("projects/demo/materials")).expect("content dir");
+    let legacy_header = format!(
+        "// Author: Faruk {}\n// Do not remove {} notice.\n",
+        "Alpay", "this"
+    );
+    fs::write(
+        dir.join("include/aster/demo.hpp"),
+        format!("{legacy_header}\n#pragma once\nclass DemoAgentSurface {{}};\n"),
+    )
+    .expect("header");
+    fs::write(
+        dir.join("src/runtime/agent_runtime.cpp"),
+        "// SPDX-License-Identifier: Apache-2.0\n// Copyright (c) 2026 Faruk Alpay\n\n#include <aster/demo.hpp>\nvoid aster_agent_runtime_tool_surface() {}\n",
+    )
+    .expect("runtime");
+    fs::write(
+        dir.join("projects/demo/materials/test.astermat"),
+        format!("{legacy_header}\nmaterial DemoAgentMaterial {{}}\n"),
+    )
+    .expect("material");
+    fs::write(
+        dir.join("plan.json"),
+        r#"{
+  "objective": "audit Aster agent tooling",
+  "steps": ["agent-fix-headers", "agent-review"]
+}
+"#,
+    )
+    .expect("plan");
+    dir
 }
 
 #[test]
@@ -515,7 +551,118 @@ fn agent_plan_reports_batch_contracts() {
     assert!(stdout.contains("\"handoff_policy\""));
     assert!(stdout.contains("Aster Agent Batch Report"));
     assert!(stdout.contains("Do not add third-party notice files"));
+    assert!(stdout.contains("\"header_policy\""));
+    assert!(stdout.contains("\"allowed_license_ids\""));
+    assert!(stdout.contains("\"dirty_worktree\""));
     fs::remove_dir_all(project.parent().unwrap()).ok();
+}
+
+#[test]
+fn agent_maintenance_commands_audit_review_and_fix_headers() {
+    let repo = write_agent_tool_repo();
+    let binary = env!("CARGO_BIN_EXE_aster_assetc");
+
+    let check = Command::new(binary)
+        .arg("agent-fix-headers")
+        .arg("--repo")
+        .arg(&repo)
+        .arg("--check")
+        .output()
+        .expect("run header check");
+    assert!(!check.status.success());
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(stderr.contains("legacy-author-notice"));
+
+    let write = Command::new(binary)
+        .arg("agent-fix-headers")
+        .arg("--repo")
+        .arg(&repo)
+        .arg("--write")
+        .output()
+        .expect("run header write");
+    assert!(
+        write.status.success(),
+        "{}",
+        String::from_utf8_lossy(&write.stderr)
+    );
+    let write_stdout = String::from_utf8_lossy(&write.stdout);
+    assert!(write_stdout.contains("include/aster/demo.hpp"));
+    assert!(write_stdout.contains("projects/demo/materials/test.astermat"));
+
+    let fixed_header = fs::read_to_string(repo.join("include/aster/demo.hpp")).expect("header");
+    assert!(fixed_header.starts_with("// SPDX-License-Identifier: Apache-2.0"));
+    assert!(!fixed_header.contains("Do not remove"));
+    let fixed_material =
+        fs::read_to_string(repo.join("projects/demo/materials/test.astermat")).expect("material");
+    assert!(fixed_material.starts_with("// SPDX-License-Identifier: LicenseRef-Aster-Content"));
+
+    let clean_check = Command::new(binary)
+        .arg("agent-fix-headers")
+        .arg("--repo")
+        .arg(&repo)
+        .arg("--check")
+        .output()
+        .expect("run clean header check");
+    assert!(
+        clean_check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&clean_check.stderr)
+    );
+    assert!(String::from_utf8_lossy(&clean_check.stdout).contains("\"error_count\": 0"));
+
+    let audit = Command::new(binary)
+        .arg("agent-audit")
+        .arg("--repo")
+        .arg(&repo)
+        .arg("--json")
+        .output()
+        .expect("run agent audit");
+    assert!(audit.status.success());
+    let audit_stdout = String::from_utf8_lossy(&audit.stdout);
+    assert!(audit_stdout.contains("\"kind\": \"aster_agent_audit\""));
+    assert!(audit_stdout.contains("\"header_errors\": 0"));
+    assert!(audit_stdout.contains("LicenseRef-Aster-Content"));
+
+    let native_report = repo.join("native.md");
+    let native = Command::new(binary)
+        .arg("agent-native-audit")
+        .arg("--repo")
+        .arg(&repo)
+        .arg("--markdown")
+        .arg("--output")
+        .arg(&native_report)
+        .output()
+        .expect("run native audit");
+    assert!(native.status.success());
+    assert!(fs::read_to_string(&native_report)
+        .expect("native report")
+        .contains("Aster Native Audit"));
+
+    let runtime = Command::new(binary)
+        .arg("agent-runtime-audit")
+        .arg("--repo")
+        .arg(&repo)
+        .arg("--json")
+        .output()
+        .expect("run runtime audit");
+    assert!(runtime.status.success());
+    assert!(String::from_utf8_lossy(&runtime.stdout).contains("agent-contract"));
+
+    let review = Command::new(binary)
+        .arg("agent-review")
+        .arg("--plan")
+        .arg(repo.join("plan.json"))
+        .arg("--repo")
+        .arg(&repo)
+        .arg("--json")
+        .output()
+        .expect("run agent review");
+    assert!(review.status.success());
+    let review_stdout = String::from_utf8_lossy(&review.stdout);
+    assert!(review_stdout.contains("\"kind\": \"aster_agent_review\""));
+    assert!(review_stdout.contains("\"readiness\": \"ready\""));
+
+    fs::remove_dir_all(&repo).ok();
 }
 
 #[test]

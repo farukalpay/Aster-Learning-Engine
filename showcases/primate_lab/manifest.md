@@ -17,3 +17,8 @@ patterns today: bone AO/detail, enamel gloss, muscle fiber, tendon fiber,
 plantar pad roughening, and fur guard-hair guides. This lab is intentionally
 quarantined as anatomical research until topology, deformation, rigging,
 skinning, grooming, and identity checks are production-grade.
+
+The current preview should be read as procedural anatomy research. It is not a
+production character asset until bone, tissue, joint, deformation, topology, and
+grooming systems read as one coherent anatomical model rather than separated
+primitive studies.

@@ -1,5 +1,5 @@
-// Author: Faruk Alpay
-// Do not remove this notice.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Faruk Alpay
 
 float3 aster_clearcoat_specular(float3 normal, float3 view, float3 light_dir,
                                 float3 light_color, float roughness, float strength) {

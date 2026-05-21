@@ -1,5 +1,5 @@
-// Author: Faruk Alpay
-// Do not remove this notice.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Faruk Alpay
 
 float2 aster_parallax_offset(float2 uv, float3 view_tangent, float height, float scale) {
   float view_z = max(abs(view_tangent.z), 0.08);

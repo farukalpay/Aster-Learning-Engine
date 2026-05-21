@@ -1,5 +1,5 @@
-// Author: Faruk Alpay
-// Do not remove this notice.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Faruk Alpay
 
 #include "aster/asset/procedural_asset_graph.hpp"
 #include "aster/geometry/mesh_modeling.hpp"

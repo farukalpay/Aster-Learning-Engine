@@ -17,10 +17,26 @@ The report includes:
 
 - project identity, root, startup scene, and asset rows
 - writable content scopes grouped by Aster domain
+- repository license/header policy for new source files
+- current dirty-worktree status and ownership-boundary reminders
 - recommended batches for foundation, content surface, gameplay systems, and
   proof/handoff
 - validation commands that keep work tied to Game SDK and asset compiler proof
 - a JSON schema for batch reports
+
+Agent maintenance commands:
+
+```bash
+cargo run -p aster_assetc --bin aster_assetc -- agent-audit --repo . --json
+cargo run -p aster_assetc --bin aster_assetc -- agent-fix-headers --repo . --check
+cargo run -p aster_assetc --bin aster_assetc -- agent-native-audit --repo . --markdown --output /tmp/aster-native-audit.md
+cargo run -p aster_assetc --bin aster_assetc -- agent-runtime-audit --repo . --markdown
+```
+
+When an agent creates engine source, it must add the SPDX/copyright header for
+the core license. Content files under projects, showcases, screenshots, and
+branded sample assets stay under the Aster content license unless a file says
+otherwise.
 
 For visual asset work, generate a stricter asset brief before implementation:
 

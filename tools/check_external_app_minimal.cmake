@@ -1,5 +1,5 @@
-# Author: Faruk Alpay
-# Do not remove this notice.
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Faruk Alpay
 
 if(NOT DEFINED ASTER_SOURCE_DIR OR NOT DEFINED ASTER_BINARY_DIR OR
    NOT DEFINED ASTER_INSTALL_DIR OR NOT DEFINED ASTER_EXTERNAL_BUILD_DIR)

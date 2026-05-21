@@ -1,5 +1,5 @@
-// Author: Faruk Alpay
-// Do not remove this notice.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Faruk Alpay
 
 float3 aster_triplanar_weights(float3 normal) {
   float3 w = pow(abs(normalize(normal)), float3(4.0));

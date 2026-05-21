@@ -35,12 +35,14 @@ Start here: [docs/START_HERE.md](docs/START_HERE.md)
 ## 30-Second Regression Lab
 
 The checked-in captures are generated from the current build and are organized
-around visible renderer obligations, not sample-game marketing. A capture should
-show why a rock feels heavy, why wetness catches light, why a cave has air, and
-why shadows and reflection probes are stable. The proof data is still required,
-but it serves the image: image diff status, backend proof deltas, pass timings,
-asset hashes, shader variant keys, material fidelity issues, and the
-frame-forensics timeline explain what the viewer is seeing.
+around visible renderer obligations, not sample-game marketing. They are
+regression lab evidence, not a claim that every sample asset is production art.
+A capture should show why a rock feels heavy, why wetness catches light, why a
+cave has air, and why shadows and reflection probes are stable on the backend
+that can prove them. The proof data is still required, but it serves the image:
+image diff status, backend proof deltas, pass timings, asset hashes, shader
+variant keys, material fidelity issues, and the frame-forensics timeline explain
+what the viewer is seeing.
 
 ![Material Lab](assets/screenshots/material_lab.png)
 
@@ -130,14 +132,16 @@ Run built-in lab scenes:
   cave-conformance shadow/fog/probe resources, tonemapping, frame pacing, and
   UI composition.
 - A Windows D3D12 offscreen raster/readback backend for scene-contract and
-  capability conformance. Full Windows GPU presentation is future work.
+  capability conformance. Full Windows GPU presentation is not implemented yet.
 - Procedural geometry and mesh tooling for terrain, caves, tubes, cables,
   fracture pieces, water, architecture, vegetation, projected meshes, and
   generated scenery.
-- Aster production asset tooling, including the
+- Aster asset-contract tooling, including the
   `pipe_lab` rusted-pipe runtime asset with modifier-stack descriptors,
   bevel/weld/seam authoring, rust and wetness masks, UV island policy, LODs,
-  collision proxy metadata, and cook reports. The older `primate_lab`
+  collision proxy metadata, and cook reports. Its current captures are quality
+  gates for iteration, not a guarantee that the asset is final production art.
+  The older `primate_lab`
   biological-integument work remains a research lab, not a production character
   asset claim.
 - Material/shader contracts for strict `.astermat` cooking, required
@@ -315,16 +319,13 @@ Remove ignored build/cache artifacts only when they are no longer needed:
 git clean -fdX
 ```
 
-## Authorship
-
-Engine-owned source files include:
-
-```text
-Author: Faruk Alpay
-Do not remove this notice.
-```
-
 ## License
 
-Original Aster Learning Engine code and assets are available for educational,
-non-commercial, and nonprofit use with attribution. See [LICENSE](LICENSE).
+The engine core is Apache-2.0. Commercial games and applications may use the
+core without a runtime royalty.
+
+Aster-owned sample content, screenshots, showcase assets, project files, and
+branding are covered separately by
+[LICENSES/ASTER-CONTENT-LICENSE.md](LICENSES/ASTER-CONTENT-LICENSE.md).
+Commercial reuse of Aster-branded content or marks requires written permission.
+See [COMMERCIAL.md](COMMERCIAL.md) and [TRADEMARKS.md](TRADEMARKS.md).

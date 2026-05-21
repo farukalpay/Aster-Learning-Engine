@@ -1,8 +1,8 @@
 # Material Lab
 
-Material Lab is the renderer-facing material contract set used by README captures
-and backend conformance. It is intentionally capability-focused, not Lumen Run
-content.
+Material Lab is the renderer-facing material contract set used by README
+captures and backend conformance. It is intentionally capability-focused, not
+Lumen Run content or a production environment-art claim.
 
 Scenes:
 
@@ -12,6 +12,10 @@ Scenes:
 - Primary checks: procedural normals, roughness/metallic response, alpha blend sorting,
   contact shadows, fog/tone map stability, quality diagnostics, graph
   provenance, and capture readback.
+
+The lab rig is allowed to be sterile when it is testing parameters. A material
+does not become production-ready until the same response survives scene scale,
+ground contact, non-grid lighting, and backend-diff review.
 
 Preview:
 

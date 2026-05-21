@@ -1,5 +1,5 @@
-// Author: Faruk Alpay
-// Do not remove this notice.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Faruk Alpay
 
 float aster_alpha_cutout_coverage(float alpha, float cutoff) {
   return alpha >= cutoff ? 1.0 : 0.0;

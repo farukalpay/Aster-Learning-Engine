@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Faruk Alpay
+
 [workspace]
 members = [
   "crates/aster_content",
@@ -8,5 +11,5 @@ resolver = "2"
 
 [workspace.package]
 edition = "2021"
-license = "SEE LICENSE IN LICENSE"
+license = "Apache-2.0"
 authors = ["Faruk Alpay"]

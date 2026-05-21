@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Faruk Alpay
+
 #include "aster/geometry/voxel_cave.hpp"
 
 #include "aster/core/profiler.hpp"

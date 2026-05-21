@@ -1,5 +1,5 @@
-// Author: Faruk Alpay
-// Do not remove this notice.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Faruk Alpay
 
 #ifndef ASTER_KERNEL_ABI_H
 #define ASTER_KERNEL_ABI_H

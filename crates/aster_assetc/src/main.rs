@@ -1,7 +1,8 @@
-// Author: Faruk Alpay
-// Do not remove this notice.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Faruk Alpay
 
 mod agent_plan;
+mod agent_tools;
 
 use aster_content::{
     asset_database_diff_json, asset_fate_report_json, asset_foundry_report_json,
@@ -22,6 +23,12 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::agent_plan::{agent_plan_report_json, asset_brief_report_json};
+use crate::agent_tools::{
+    agent_audit_report_json, agent_audit_report_markdown, agent_fix_headers_report_json,
+    agent_native_audit_report_json, agent_native_audit_report_markdown, agent_review_report_json,
+    agent_review_report_markdown, agent_runtime_audit_report_json,
+    agent_runtime_audit_report_markdown,
+};
 
 fn self_check() {
     let object = AsterRuntimeRenderObject {
@@ -100,6 +107,11 @@ fn usage() -> &'static str {
   aster_assetc mesh-recipe-inspect --input <recipe.json>
   aster_assetc session-audit --input <history.jsonl> [--max-bytes <n>]
   aster_assetc agent-plan --project <file.asterproj> [--objective <text>] [--output-schema]
+  aster_assetc agent-audit --repo <path> [--json|--markdown] [--output <file>]
+  aster_assetc agent-fix-headers --repo <path> [--check|--write]
+  aster_assetc agent-native-audit --repo <path> [--json|--markdown] [--output <file>]
+  aster_assetc agent-runtime-audit --repo <path> [--json|--markdown] [--output <file>]
+  aster_assetc agent-review --plan <file> --repo <path> [--json|--markdown] [--output <file>]
   aster_assetc asset-brief --project <file.asterproj> --asset <id> --reference <image> [--target <text>] [--require <signal>] [--forbid <signal>] [--output-schema]
   aster_assetc graph --db <assetdb.asterdb.json>
   aster_assetc fate --db <assetdb.asterdb.json> --asset <id-or-guid>
@@ -120,6 +132,21 @@ fn values_after(args: &[String], name: &str) -> Vec<String> {
         .filter(|window| window[0] == name)
         .map(|window| window[1].clone())
         .collect()
+}
+
+fn write_or_print(args: &[String], text: String) -> Result<(), String> {
+    if let Some(output) = value_after(args, "--output").map(PathBuf::from) {
+        if let Some(parent) = output.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            }
+        }
+        fs::write(&output, text).map_err(|error| error.to_string())?;
+        println!("wrote {}", output.display());
+    } else {
+        println!("{text}");
+    }
+    Ok(())
 }
 
 fn compile_command(args: &[String]) -> Result<(), String> {
@@ -479,6 +506,75 @@ fn agent_plan_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn agent_audit_command(args: &[String]) -> Result<(), String> {
+    let repo = value_after(args, "--repo")
+        .map(PathBuf::from)
+        .ok_or_else(|| "agent-audit requires --repo <path>".to_string())?;
+    let markdown = args.iter().any(|arg| arg == "--markdown");
+    let text = if markdown {
+        agent_audit_report_markdown(&repo)?
+    } else {
+        agent_audit_report_json(&repo)?
+    };
+    write_or_print(args, text)
+}
+
+fn agent_fix_headers_command(args: &[String]) -> Result<(), String> {
+    let repo = value_after(args, "--repo")
+        .map(PathBuf::from)
+        .ok_or_else(|| "agent-fix-headers requires --repo <path>".to_string())?;
+    let write = args.iter().any(|arg| arg == "--write");
+    let check = args.iter().any(|arg| arg == "--check");
+    if write == check {
+        return Err("agent-fix-headers requires exactly one of --check or --write".to_string());
+    }
+    let text = agent_fix_headers_report_json(&repo, write)?;
+    println!("{text}");
+    Ok(())
+}
+
+fn agent_native_audit_command(args: &[String]) -> Result<(), String> {
+    let repo = value_after(args, "--repo")
+        .map(PathBuf::from)
+        .ok_or_else(|| "agent-native-audit requires --repo <path>".to_string())?;
+    let markdown = args.iter().any(|arg| arg == "--markdown");
+    let text = if markdown {
+        agent_native_audit_report_markdown(&repo)?
+    } else {
+        agent_native_audit_report_json(&repo)?
+    };
+    write_or_print(args, text)
+}
+
+fn agent_runtime_audit_command(args: &[String]) -> Result<(), String> {
+    let repo = value_after(args, "--repo")
+        .map(PathBuf::from)
+        .ok_or_else(|| "agent-runtime-audit requires --repo <path>".to_string())?;
+    let markdown = args.iter().any(|arg| arg == "--markdown");
+    let text = if markdown {
+        agent_runtime_audit_report_markdown(&repo)?
+    } else {
+        agent_runtime_audit_report_json(&repo)?
+    };
+    write_or_print(args, text)
+}
+
+fn agent_review_command(args: &[String]) -> Result<(), String> {
+    let repo = value_after(args, "--repo")
+        .map(PathBuf::from)
+        .ok_or_else(|| "agent-review requires --repo <path>".to_string())?;
+    let plan = value_after(args, "--plan")
+        .map(PathBuf::from)
+        .ok_or_else(|| "agent-review requires --plan <file>".to_string())?;
+    let markdown = args.iter().any(|arg| arg == "--markdown");
+    let text = if markdown {
+        agent_review_report_markdown(&plan, &repo)?
+    } else {
+        agent_review_report_json(&plan, &repo)?
+    };
+    write_or_print(args, text)
+}
+
 fn asset_brief_command(args: &[String]) -> Result<(), String> {
     let project = value_after(args, "--project")
         .map(PathBuf::from)
@@ -673,6 +769,11 @@ fn run() -> Result<(), String> {
         Some("mesh-recipe-inspect") => mesh_recipe_inspect_command(&args[2..]),
         Some("session-audit") => session_audit_command(&args[2..]),
         Some("agent-plan") => agent_plan_command(&args[2..]),
+        Some("agent-audit") => agent_audit_command(&args[2..]),
+        Some("agent-fix-headers") => agent_fix_headers_command(&args[2..]),
+        Some("agent-native-audit") => agent_native_audit_command(&args[2..]),
+        Some("agent-runtime-audit") => agent_runtime_audit_command(&args[2..]),
+        Some("agent-review") => agent_review_command(&args[2..]),
         Some("asset-brief") => asset_brief_command(&args[2..]),
         Some("graph") => graph_command(&args[2..]),
         Some("fate") => fate_command(&args[2..]),

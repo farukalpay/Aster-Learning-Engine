@@ -1,5 +1,5 @@
-# Author: Faruk Alpay
-# Do not remove this notice.
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Faruk Alpay
 
 if(NOT DEFINED ASTER_NM_EXECUTABLE)
   message(FATAL_ERROR "ASTER_NM_EXECUTABLE is required")

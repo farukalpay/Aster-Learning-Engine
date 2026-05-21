@@ -4,6 +4,9 @@ Aster values changes that improve the engine's long-term shape.
 
 ## Expectations
 
+- New source files in the Apache-2.0 engine core should start with:
+  `SPDX-License-Identifier: Apache-2.0` and
+  `Copyright (c) 2026 Faruk Alpay`.
 - Keep reusable engine logic in library layers.
 - Keep app files thin and explicit.
 - Preserve public contracts unless a contract change is the point of the work.
@@ -30,6 +33,13 @@ Aster v1 is standard C++ plus direct OS APIs in isolated platform files. Do not
 add engine library dependencies. If a future change truly needs an
 outside boundary, put it behind an engine contract, make the boundary explicit,
 and document why the code cannot stay engine-owned.
+
+## License Boundaries
+
+Engine code, public SDKs, tests, build scripts, and compiler/runtime crates are
+Apache-2.0. Aster-owned sample content, screenshots, showcase assets, and
+branding are not part of that source license; see
+`LICENSES/ASTER-CONTENT-LICENSE.md`, `COMMERCIAL.md`, and `TRADEMARKS.md`.
 
 ## Local Checks
 
