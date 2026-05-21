@@ -7,6 +7,7 @@
 #include "aster/core/module_registry.hpp"
 #include "aster/core/session_journal.hpp"
 #include "aster/core/signal.hpp"
+#include "aster/core/world_state.hpp"
 
 #include <atomic>
 #include <type_traits>
@@ -462,6 +463,132 @@ void testAsterCoreRuntimeContracts() {
   }
 }
 
+void testWorldStateTransitionContracts() {
+  aster::WorldState world({.fixed_step_seconds = 1.0 / 30.0,
+                           .seed = 0xA57E5300u,
+                           .label = "core-world"});
+  const aster::WorldEntityHandle entity = world.createEntity("entity.player");
+  assert(world.contains(entity));
+  const aster::WorldTickResult first_tick =
+      world.tick({.tick = 1u,
+                  .delta_seconds = 1.0 / 30.0,
+                  .input_event_hash = 0x11u,
+                  .asset_lineage_hash = 0x22u,
+                  .extraction_hash = 0x33u,
+                  .frame_submission_hash = 0x44u});
+  assert(first_tick.accepted);
+  assert(first_tick.tick == 1u);
+  assert(first_tick.world_hash != 0u);
+  assert(first_tick.trace_hash != 0u);
+  aster::WorldState mirror({.fixed_step_seconds = 1.0 / 30.0,
+                            .seed = 0xA57E5300u,
+                            .label = "core-world"});
+  const aster::WorldEntityHandle mirror_entity = mirror.createEntity("entity.player");
+  assert(mirror_entity == entity);
+  const aster::WorldTickResult mirror_tick =
+      mirror.tick({.tick = 1u,
+                   .delta_seconds = 1.0 / 30.0,
+                   .input_event_hash = 0x11u,
+                   .asset_lineage_hash = 0x22u,
+                   .extraction_hash = 0x33u,
+                   .frame_submission_hash = 0x44u});
+  assert(mirror_tick.accepted);
+  assert(mirror_tick.world_hash == first_tick.world_hash);
+  assert(mirror_tick.trace_hash == first_tick.trace_hash);
+  assert(!world.tick({.tick = 1u, .delta_seconds = 1.0 / 30.0}).accepted);
+
+  const aster::WorldTransactionInfo read_tx = world.beginTransaction(
+      {.label = "read-transform",
+       .provenance = "movement",
+       .accesses = {{.component = "Transform",
+                     .subject = "entity.player",
+                     .mode = aster::WorldComponentAccessMode::Read}}});
+  const aster::WorldTransactionInfo read_commit = world.commitTransaction(read_tx.transaction_id);
+  assert(read_commit.committed);
+  const aster::WorldTransactionInfo mirror_read_tx = mirror.beginTransaction(
+      {.label = "read-transform",
+       .provenance = "movement",
+       .accesses = {{.component = "Transform",
+                     .subject = "entity.player",
+                     .mode = aster::WorldComponentAccessMode::Read}}});
+  const aster::WorldTransactionInfo mirror_read_commit =
+      mirror.commitTransaction(mirror_read_tx.transaction_id);
+  assert(mirror_read_commit.committed);
+  assert(mirror_read_commit.deterministic_stamp == read_commit.deterministic_stamp);
+  assert(mirror_read_commit.post_world_hash == read_commit.post_world_hash);
+
+  const aster::WorldTransactionInfo write_tx = world.beginTransaction(
+      {.label = "write-transform",
+       .provenance = "animation",
+       .accesses = {{.component = "Transform",
+                     .subject = "entity.player",
+                     .mode = aster::WorldComponentAccessMode::Write}}});
+  const aster::WorldTransactionInfo rejected = world.commitTransaction(write_tx.transaction_id);
+  assert(!rejected.committed);
+  assert(rejected.diagnostic.find("component access hazard") != std::string::npos);
+
+  const std::vector<aster::ResidencyDecision> decisions = world.planResidency(
+      {.byte_budget = 100u},
+      {{.asset_id = "asset.visible.high",
+        .byte_cost = 60u,
+        .priority = 10.0f,
+        .visible = true,
+        .resident = false},
+       {.asset_id = "asset.visible.low",
+        .byte_cost = 60u,
+        .priority = 2.0f,
+        .visible = true,
+        .resident = true},
+       {.asset_id = "asset.hidden",
+        .byte_cost = 10u,
+        .priority = 100.0f,
+        .visible = false,
+        .resident = true}});
+  assert(decisions.size() == 3u);
+  assert(decisions[0].decision == aster::ResidencyDecisionKind::Load);
+  assert(decisions[1].decision == aster::ResidencyDecisionKind::Evict);
+  assert(decisions[2].decision == aster::ResidencyDecisionKind::Evict);
+  const std::vector<aster::ResidencyDecision> tie_decisions = world.planResidency(
+      {.byte_budget = 50u},
+      {{.asset_id = "asset.tie.b",
+        .byte_cost = 50u,
+        .priority = 1.0f,
+        .visible = true,
+        .resident = false},
+       {.asset_id = "asset.tie.a",
+        .byte_cost = 50u,
+        .priority = 1.0f,
+        .visible = true,
+        .resident = false}});
+  assert(tie_decisions.size() == 2u);
+  assert(tie_decisions[0].decision == aster::ResidencyDecisionKind::Reject);
+  assert(tie_decisions[1].decision == aster::ResidencyDecisionKind::Load);
+
+  const aster::WorldTraceCounts counts = world.counts();
+  assert(counts.tick == 1u);
+  assert(counts.entity_count == 1u);
+  assert(counts.validation_event_count >= 2u);
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "aster_world_state_core_test.txt";
+  std::string diagnostic;
+  assert(world.saveSnapshot(path, &diagnostic));
+  const aster::WorldReplayReport replay = world.replaySnapshot(path, counts.world_hash);
+  assert(replay.matched);
+  const aster::WorldReplayReport mismatch_replay =
+      world.replaySnapshot(path, counts.world_hash ^ 0x1u);
+  assert(!mismatch_replay.matched);
+  aster::WorldState loaded({.seed = 0xA57E5300u, .label = "core-world"});
+  const aster::WorldMigrationReport migration = loaded.loadSnapshot(path);
+  assert(migration.current_schema_version == 1u);
+  assert(migration.entity_count == 1u);
+  assert(migration.world_hash == counts.world_hash);
+  std::filesystem::remove(path);
+
+  assert(world.destroyEntity(entity, "test"));
+  assert(!world.contains(entity));
+  assert(!world.destroyEntity(entity, "stale"));
+}
+
 void testSourceBoundaryContracts() {
   const std::filesystem::path project_root =
       std::filesystem::path(__FILE__).parent_path().parent_path();
@@ -564,6 +691,7 @@ int main() {
   testProfilerCaptureExport();
   testBudgetedWorkQueueContracts();
   testAsterCoreRuntimeContracts();
+  testWorldStateTransitionContracts();
   testSourceBoundaryContracts();
   testConfigLayerStackAndSessionJournal();
   std::cout << "core_tests passed.\n";

@@ -44,7 +44,7 @@ include(CheckIncludeFileCXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-set(ASTER_KERNEL_PACKAGE_VERSION "5.1.0")
+set(ASTER_KERNEL_PACKAGE_VERSION "5.3.0")
 
 if(WIN32 AND NOT MINGW)
   set(ASTER_RUST_STATICLIB_NAME "aster_runtime.lib")
@@ -153,6 +153,7 @@ set(ASTER_CORE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/profiler.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/session_journal.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/work_budget.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/world_state.cpp"
   "${PROJECT_SOURCE_DIR}/src/math/transform.cpp"
 )
 

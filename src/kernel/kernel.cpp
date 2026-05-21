@@ -4,6 +4,7 @@
 #include "aster/kernel/abi.h"
 
 #include "aster/core/config.hpp"
+#include "aster/core/world_state.hpp"
 #include "aster/game_sdk/game_sdk.hpp"
 #include "aster/math/geometry.hpp"
 #include "aster/math/quat.hpp"
@@ -53,6 +54,7 @@ constexpr std::uint32_t kDescriptorHeapMagic = 0x41544448u;
 constexpr std::uint32_t kDescriptorSetMagic = 0x41544453u;
 constexpr std::uint32_t kPipelineCacheMagic = 0x41545043u;
 constexpr std::uint32_t kFrameScheduleMagic = 0x41544653u;
+constexpr std::uint32_t kSystemWorldMagic = 0x41545357u;
 constexpr std::uint32_t kAuthoringDocumentMagic = 0x41544144u;
 constexpr std::uint32_t kAuthoringExecutionMagic = 0x41544145u;
 constexpr std::uint32_t kRetiredMagic = 0xDEAD5A5Au;
@@ -113,6 +115,10 @@ struct AsterRendererHandle__ {
   AsterRenderTargetHandle active_target = nullptr;
   bool has_rendered_frame = false;
   std::chrono::steady_clock::time_point started_at = std::chrono::steady_clock::now();
+  std::uint64_t world_trace_hash = 0u;
+  std::uint64_t simulation_tick = 0u;
+  std::uint64_t extraction_hash = 0u;
+  std::uint64_t asset_lineage_hash = 0u;
 
   AsterRendererHandle__() {
     last_stats.size = sizeof(AsterFrameStats);
@@ -189,6 +195,16 @@ struct AsterFrameScheduleHandle__ {
   std::vector<KernelValidationRecord> validation_events;
 };
 
+struct AsterSystemWorldHandle__ {
+  std::uint32_t magic = kSystemWorldMagic;
+  AsterEngineHandle owner = nullptr;
+  aster::WorldState world;
+  std::list<std::string> string_scratch;
+
+  AsterSystemWorldHandle__(AsterEngineHandle engine, aster::WorldStateConfig config)
+      : owner(engine), world(std::move(config)) {}
+};
+
 struct AsterAuthoringDocumentHandle__ {
   std::uint32_t magic = kAuthoringDocumentMagic;
   AsterAuthoringDocumentKind kind = ASTER_AUTHORING_DOCUMENT_UNKNOWN;
@@ -251,6 +267,11 @@ bool validFrameForensicsDetailCounts(const AsterFrameForensicsDetailCounts *valu
   return value != nullptr &&
          value->size >= offsetof(AsterFrameForensicsDetailCounts, object_fate_count) &&
          value->version == ASTER_KERNEL_STRUCT_VERSION_1;
+}
+
+bool abiStructHasField(const std::size_t size, const std::size_t offset,
+                       const std::size_t field_size) {
+  return size >= offset + field_size;
 }
 
 bool validStringView(const AsterStringView view) {
@@ -344,6 +365,10 @@ bool validFrameSchedule(const AsterFrameScheduleHandle schedule) {
   return schedule != nullptr && schedule->magic == kFrameScheduleMagic;
 }
 
+bool validSystemWorld(const AsterSystemWorldHandle world) {
+  return world != nullptr && world->magic == kSystemWorldMagic;
+}
+
 bool validAuthoringDocument(const AsterAuthoringDocumentHandle document) {
   return document != nullptr && document->magic == kAuthoringDocumentMagic;
 }
@@ -374,6 +399,11 @@ AsterStringView authoringScratch(AsterAuthoringDocumentHandle document, std::str
 AsterStringView authoringScratch(AsterAuthoringActionExecutionHandle execution, std::string text) {
   execution->string_scratch.push_back(std::move(text));
   return viewFromString(execution->string_scratch.back());
+}
+
+AsterStringView systemWorldScratch(AsterSystemWorldHandle world, std::string text) {
+  world->string_scratch.push_back(std::move(text));
+  return viewFromString(world->string_scratch.back());
 }
 
 AsterAuthoringDiagnosticSeverity
@@ -427,6 +457,121 @@ AsterAuthoringInputDevice authoringInputDevice(const std::string_view device) {
     return ASTER_AUTHORING_INPUT_TOUCH;
   }
   return ASTER_AUTHORING_INPUT_UNKNOWN;
+}
+
+aster::WorldComponentAccessMode worldAccessMode(const AsterSystemComponentAccessMode mode) {
+  return mode == ASTER_SYSTEM_COMPONENT_ACCESS_WRITE ? aster::WorldComponentAccessMode::Write
+                                                     : aster::WorldComponentAccessMode::Read;
+}
+
+AsterSystemTraceEventKind abiWorldTraceEventKind(const aster::WorldTraceEventKind kind) {
+  switch (kind) {
+  case aster::WorldTraceEventKind::InputEvent:
+    return ASTER_SYSTEM_TRACE_INPUT_EVENT;
+  case aster::WorldTraceEventKind::SimulationTick:
+    return ASTER_SYSTEM_TRACE_SIMULATION_TICK;
+  case aster::WorldTraceEventKind::SchedulerDecision:
+    return ASTER_SYSTEM_TRACE_SCHEDULER_DECISION;
+  case aster::WorldTraceEventKind::AssetResolution:
+    return ASTER_SYSTEM_TRACE_ASSET_RESOLUTION;
+  case aster::WorldTraceEventKind::ResidencyDecision:
+    return ASTER_SYSTEM_TRACE_RESIDENCY_DECISION;
+  case aster::WorldTraceEventKind::RenderableExtraction:
+    return ASTER_SYSTEM_TRACE_RENDERABLE_EXTRACTION;
+  case aster::WorldTraceEventKind::FrameSubmission:
+    return ASTER_SYSTEM_TRACE_FRAME_SUBMISSION;
+  case aster::WorldTraceEventKind::TransactionBegin:
+    return ASTER_SYSTEM_TRACE_TRANSACTION_BEGIN;
+  case aster::WorldTraceEventKind::TransactionCommit:
+    return ASTER_SYSTEM_TRACE_TRANSACTION_COMMIT;
+  case aster::WorldTraceEventKind::TransactionAbort:
+    return ASTER_SYSTEM_TRACE_TRANSACTION_ABORT;
+  case aster::WorldTraceEventKind::EntityCreated:
+    return ASTER_SYSTEM_TRACE_ENTITY_CREATED;
+  case aster::WorldTraceEventKind::EntityDestroyed:
+    return ASTER_SYSTEM_TRACE_ENTITY_DESTROYED;
+  case aster::WorldTraceEventKind::SnapshotSaved:
+    return ASTER_SYSTEM_TRACE_SNAPSHOT_SAVED;
+  case aster::WorldTraceEventKind::SnapshotLoaded:
+    return ASTER_SYSTEM_TRACE_SNAPSHOT_LOADED;
+  case aster::WorldTraceEventKind::Migration:
+    return ASTER_SYSTEM_TRACE_MIGRATION;
+  case aster::WorldTraceEventKind::Replay:
+    return ASTER_SYSTEM_TRACE_REPLAY;
+  case aster::WorldTraceEventKind::ValidationError:
+  default:
+    return ASTER_SYSTEM_TRACE_VALIDATION_ERROR;
+  }
+}
+
+AsterSystemEntityHandle abiWorldEntity(const aster::WorldEntityHandle handle) {
+  return {.id = handle.id, .generation = handle.generation};
+}
+
+aster::WorldEntityHandle worldEntity(const AsterSystemEntityHandle handle) {
+  return {.id = handle.id, .generation = handle.generation};
+}
+
+aster::WorldComponentAccess worldComponentAccess(const AsterSystemComponentAccess &access) {
+  return {.component = stringFromView(access.component),
+          .subject = stringFromView(access.subject),
+          .mode = worldAccessMode(access.mode)};
+}
+
+std::vector<aster::WorldComponentAccess> worldComponentAccesses(const AsterSpan span,
+                                                                AsterStatus *status) {
+  std::vector<aster::WorldComponentAccess> out;
+  if (status != nullptr) {
+    *status = aster_kernel_status_ok();
+  }
+  if (span.size == 0u) {
+    return out;
+  }
+  if (span.data == nullptr || span.stride < sizeof(AsterSystemComponentAccess)) {
+    if (status != nullptr) {
+      *status = makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "component access span is invalid");
+    }
+    return out;
+  }
+  const auto *bytes = static_cast<const unsigned char *>(span.data);
+  out.reserve(span.size);
+  for (std::size_t index = 0u; index < span.size; ++index) {
+    const auto *access =
+        reinterpret_cast<const AsterSystemComponentAccess *>(bytes + index * span.stride);
+    if (!validStruct(access)) {
+      if (status != nullptr) {
+        *status =
+            makeStatus(ASTER_STATUS_ABI_MISMATCH, "component access version is not supported");
+      }
+      out.clear();
+      return out;
+    }
+    if (!validStringView(access->component) || !validStringView(access->subject) ||
+        access->component.size == 0u || access->subject.size == 0u) {
+      if (status != nullptr) {
+        *status =
+            makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                       "component access requires component and subject");
+      }
+      out.clear();
+      return out;
+    }
+    out.push_back(worldComponentAccess(*access));
+  }
+  return out;
+}
+
+AsterSystemTransactionInfo abiWorldTransactionInfo(AsterSystemWorldHandle world,
+                                                   const aster::WorldTransactionInfo &info) {
+  return {.size = sizeof(AsterSystemTransactionInfo),
+          .version = ASTER_KERNEL_STRUCT_VERSION_1,
+          .transaction_id = info.transaction_id,
+          .committed = info.committed ? 1u : 0u,
+          .access_count = info.access_count,
+          .parent_world_hash = info.parent_world_hash,
+          .post_world_hash = info.post_world_hash,
+          .deterministic_stamp = info.deterministic_stamp,
+          .diagnostic = systemWorldScratch(world, info.diagnostic)};
 }
 
 std::uint32_t componentFlags(const aster::sdk::ComponentSet &components) {
@@ -1819,6 +1964,315 @@ AsterStatus aster_kernel_engine_validation_event(const AsterEngineHandle engine,
   return validationEventAt(engine->validation_events, index, out_event);
 }
 
+AsterStatus aster_kernel_system_world_create(const AsterEngineHandle engine,
+                                             const AsterSystemWorldDesc *desc,
+                                             AsterSystemWorldHandle *out_world) {
+  if (!validEngine(engine)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "engine handle is invalid");
+  }
+  if (out_world == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_world is null");
+  }
+  *out_world = nullptr;
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "system world descriptor version is not supported");
+  }
+  if (!validStringView(desc->debug_label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world label has a size but no data");
+  }
+  aster::WorldStateConfig config;
+  config.fixed_step_seconds = desc->fixed_step_seconds > 0.0 ? desc->fixed_step_seconds
+                                                             : 1.0 / 60.0;
+  config.seed = desc->seed != 0u ? desc->seed : config.seed;
+  config.label = stringFromView(desc->debug_label);
+  try {
+    *out_world = new AsterSystemWorldHandle__(engine, std::move(config));
+  } catch (const std::bad_alloc &) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "system world allocation failed");
+  } catch (...) {
+    return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "system world creation failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_tick(const AsterSystemWorldHandle world,
+                                           const AsterSystemTickDesc *desc,
+                                           AsterSystemTickResult *out_result) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(desc) || !validStruct(out_result)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "system world tick struct version is not supported");
+  }
+  const aster::WorldTickResult result = world->world.tick({.tick = desc->tick,
+                                                           .delta_seconds = desc->delta_seconds,
+                                                           .input_event_hash = desc->input_event_hash,
+                                                           .asset_lineage_hash = desc->asset_lineage_hash,
+                                                           .extraction_hash = desc->extraction_hash,
+                                                           .frame_submission_hash = desc->frame_submission_hash});
+  out_result->accepted = result.accepted ? 1u : 0u;
+  out_result->tick = result.tick;
+  out_result->time_seconds = result.time_seconds;
+  out_result->events_emitted = result.events_emitted;
+  out_result->world_hash = result.world_hash;
+  out_result->trace_hash = result.trace_hash;
+  out_result->diagnostic = systemWorldScratch(world, result.diagnostic);
+  if (!result.accepted) {
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR, "system world tick was rejected");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_entity_create(const AsterSystemWorldHandle world,
+                                                    const AsterStringView label,
+                                                    AsterSystemEntityHandle *out_entity) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (out_entity == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_entity is null");
+  }
+  if (!validStringView(label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "entity label has a size but no data");
+  }
+  *out_entity = abiWorldEntity(world->world.createEntity(stringFromView(label)));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_entity_query(const AsterSystemWorldHandle world,
+                                                   const AsterSystemEntityHandle entity,
+                                                   AsterSystemEntityInfo *out_info) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "system entity info version is not supported");
+  }
+  const aster::WorldEntityHandle handle = worldEntity(entity);
+  const std::optional<std::string_view> label = world->world.entityLabel(handle);
+  out_info->handle = entity;
+  out_info->alive = label.has_value() ? 1u : 0u;
+  out_info->label =
+      label.has_value() ? systemWorldScratch(world, std::string(*label)) : AsterStringView{};
+  return label.has_value() ? aster_kernel_status_ok()
+                           : makeStatus(ASTER_STATUS_LIFETIME_ERROR,
+                                        "system entity handle is stale or invalid");
+}
+
+AsterStatus aster_kernel_system_world_entity_destroy(const AsterSystemWorldHandle world,
+                                                     const AsterSystemEntityHandle entity) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!world->world.destroyEntity(worldEntity(entity), "kernel-destroy")) {
+    return makeStatus(ASTER_STATUS_LIFETIME_ERROR, "system entity handle is stale or invalid");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_transaction_begin(
+    const AsterSystemWorldHandle world, const AsterSystemTransactionDesc *desc,
+    AsterSystemTransactionInfo *out_info) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(desc) || !validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "system transaction struct version is not supported");
+  }
+  if (!validStringView(desc->label) || !validStringView(desc->provenance)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "system transaction strings have a size but no data");
+  }
+  AsterStatus span_status = aster_kernel_status_ok();
+  std::vector<aster::WorldComponentAccess> accesses =
+      worldComponentAccesses(desc->accesses, &span_status);
+  if (span_status.code != ASTER_STATUS_OK) {
+    return span_status;
+  }
+  const aster::WorldTransactionInfo info =
+      world->world.beginTransaction({.label = stringFromView(desc->label),
+                                     .provenance = stringFromView(desc->provenance),
+                                     .accesses = std::move(accesses)});
+  *out_info = abiWorldTransactionInfo(world, info);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_transaction_append(
+    const AsterSystemWorldHandle world, const std::uint64_t transaction_id,
+    const AsterSystemComponentAccess *access) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(access)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "component access version is not supported");
+  }
+  if (!validStringView(access->component) || !validStringView(access->subject)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "component access strings have a size but no data");
+  }
+  std::string diagnostic;
+  if (!world->world.appendAccess(transaction_id, worldComponentAccess(*access), &diagnostic)) {
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR, "system transaction access was rejected");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_transaction_commit(
+    const AsterSystemWorldHandle world, const std::uint64_t transaction_id,
+    AsterSystemTransactionInfo *out_info) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "system transaction info version is not supported");
+  }
+  const aster::WorldTransactionInfo info = world->world.commitTransaction(transaction_id);
+  *out_info = abiWorldTransactionInfo(world, info);
+  if (!info.committed) {
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR, "system transaction was rejected");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_transaction_abort(
+    const AsterSystemWorldHandle world, const std::uint64_t transaction_id,
+    const AsterStringView reason, AsterSystemTransactionInfo *out_info) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(out_info)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "system transaction info version is not supported");
+  }
+  if (!validStringView(reason)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "abort reason has a size but no data");
+  }
+  const aster::WorldTransactionInfo info =
+      world->world.abortTransaction(transaction_id, stringFromView(reason));
+  *out_info = abiWorldTransactionInfo(world, info);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_trace_counts(const AsterSystemWorldHandle world,
+                                                   AsterSystemTraceCounts *out_counts) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(out_counts)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "system trace counts version is not supported");
+  }
+  const aster::WorldTraceCounts counts = world->world.counts();
+  out_counts->event_count = counts.event_count;
+  out_counts->entity_count = counts.entity_count;
+  out_counts->live_entity_count = counts.live_entity_count;
+  out_counts->transaction_count = counts.transaction_count;
+  out_counts->validation_event_count = counts.validation_event_count;
+  out_counts->tick = counts.tick;
+  out_counts->time_seconds = counts.time_seconds;
+  out_counts->world_hash = counts.world_hash;
+  out_counts->trace_hash = counts.trace_hash;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_trace_event(const AsterSystemWorldHandle world,
+                                                  const std::size_t index,
+                                                  AsterSystemTraceEvent *out_event) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(out_event)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "system trace event version is not supported");
+  }
+  const std::vector<aster::WorldTraceEvent> &events = world->world.traceEvents();
+  if (index >= events.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system trace event index is out of range");
+  }
+  const aster::WorldTraceEvent &event = events[index];
+  out_event->kind = abiWorldTraceEventKind(event.kind);
+  out_event->sequence = event.sequence;
+  out_event->tick = event.tick;
+  out_event->transaction_id = event.transaction_id;
+  out_event->entity = abiWorldEntity(event.entity);
+  out_event->label = systemWorldScratch(world, event.label);
+  out_event->subject = systemWorldScratch(world, event.subject);
+  out_event->component = systemWorldScratch(world, event.component);
+  out_event->detail = systemWorldScratch(world, event.detail);
+  out_event->parent_world_hash = event.parent_world_hash;
+  out_event->world_hash = event.world_hash;
+  out_event->trace_hash = event.trace_hash;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_save_snapshot(const AsterSystemWorldHandle world,
+                                                    const AsterWorldSnapshotDesc *desc) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "world snapshot descriptor version is not supported");
+  }
+  if (!validStringView(desc->path) || desc->path.size == 0u) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world snapshot path is invalid");
+  }
+  std::string diagnostic;
+  if (!world->world.saveSnapshot(stringFromView(desc->path), &diagnostic)) {
+    return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "world snapshot save failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_load_snapshot(const AsterSystemWorldHandle world,
+                                                    const AsterWorldSnapshotDesc *desc,
+                                                    AsterWorldMigrationReport *out_report) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(desc) || !validStruct(out_report)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "world migration report version is not supported");
+  }
+  if (!validStringView(desc->path) || desc->path.size == 0u) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world snapshot path is invalid");
+  }
+  const aster::WorldMigrationReport report = world->world.loadSnapshot(stringFromView(desc->path));
+  out_report->loaded_schema_version = report.loaded_schema_version;
+  out_report->current_schema_version = report.current_schema_version;
+  out_report->migration_applied = report.migration_applied ? 1u : 0u;
+  out_report->entity_count = report.entity_count;
+  out_report->world_hash = report.world_hash;
+  out_report->trace_hash = report.trace_hash;
+  out_report->diagnostic = systemWorldScratch(world, report.diagnostic);
+  return report.world_hash != 0u ? aster_kernel_status_ok()
+                                 : makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                                              "world snapshot load failed");
+}
+
+AsterStatus aster_kernel_system_world_replay_trace(const AsterSystemWorldHandle world,
+                                                   const AsterWorldSnapshotDesc *desc,
+                                                   AsterWorldReplayReport *out_report) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(desc) || !validStruct(out_report)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "world replay report version is not supported");
+  }
+  if (!validStringView(desc->path) || desc->path.size == 0u) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world snapshot path is invalid");
+  }
+  const aster::WorldReplayReport report =
+      world->world.replaySnapshot(stringFromView(desc->path), desc->expected_world_hash);
+  out_report->matched = report.matched ? 1u : 0u;
+  out_report->events_replayed = report.events_replayed;
+  out_report->expected_world_hash = report.expected_world_hash;
+  out_report->actual_world_hash = report.actual_world_hash;
+  out_report->actual_trace_hash = report.actual_trace_hash;
+  out_report->diagnostic = systemWorldScratch(world, report.diagnostic);
+  return report.matched ? aster_kernel_status_ok()
+                        : makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                                     "world replay hash mismatch");
+}
+
 AsterStatus aster_kernel_window_create(const AsterWindowDesc *desc,
                                        AsterWindowHandle *out_window) {
   if (out_window == nullptr) {
@@ -2125,9 +2579,17 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
     const aster::FrameStats stats =
         renderer->renderer->render(scene->scene, orbit, render_settings, static_cast<int>(width),
                                    static_cast<int>(height), frame_seconds);
+    renderer->renderer->stampLastFrameCausalTrace(settings_desc.world_trace_hash,
+                                                  settings_desc.simulation_tick,
+                                                  settings_desc.extraction_hash,
+                                                  settings_desc.asset_lineage_hash);
     renderer->last_stats = abiFrameStats(stats);
     renderer->active_target = nullptr;
     renderer->has_rendered_frame = true;
+    renderer->world_trace_hash = settings_desc.world_trace_hash;
+    renderer->simulation_tick = settings_desc.simulation_tick;
+    renderer->extraction_hash = settings_desc.extraction_hash;
+    renderer->asset_lineage_hash = settings_desc.asset_lineage_hash;
   } catch (...) {
     return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "render frame failed");
   }
@@ -2404,8 +2866,30 @@ AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
       forensics.certification.missing_proof_count;
   out_counts->certification_validation_error_count =
       forensics.certification.validation_error_count;
-  if (out_counts->size >= sizeof(AsterFrameForensicsDetailCounts)) {
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, object_fate_count),
+                        sizeof(out_counts->object_fate_count))) {
     out_counts->object_fate_count = forensics.object_fates.size();
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, world_trace_hash),
+                        sizeof(out_counts->world_trace_hash))) {
+    out_counts->world_trace_hash = forensics.world_trace_hash;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, simulation_tick),
+                        sizeof(out_counts->simulation_tick))) {
+    out_counts->simulation_tick = forensics.simulation_tick;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, extraction_hash),
+                        sizeof(out_counts->extraction_hash))) {
+    out_counts->extraction_hash = forensics.extraction_hash;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, asset_lineage_hash),
+                        sizeof(out_counts->asset_lineage_hash))) {
+    out_counts->asset_lineage_hash = forensics.asset_lineage_hash;
   }
   return aster_kernel_status_ok();
 }
@@ -3987,10 +4471,7 @@ AsterStatus aster_kernel_physics_world_destroy(const AsterPhysicsWorldHandle phy
 }
 
 AsterStatus aster_kernel_system_world_destroy(const AsterSystemWorldHandle system_world) {
-  if (system_world == nullptr) {
-    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is null");
-  }
-  return makeStatus(ASTER_STATUS_UNSUPPORTED, "system world creation is not public yet");
+  return destroyHandle(system_world, kSystemWorldMagic);
 }
 
 AsterStatus aster_kernel_sample_app_destroy(const AsterSampleAppHandle sample_app) {

@@ -46,6 +46,22 @@ static_assert(std::is_standard_layout_v<AsterAuthoringInputBindingInfo>);
 static_assert(std::is_standard_layout_v<AsterAuthoringActionContext>);
 static_assert(std::is_standard_layout_v<AsterAuthoringActionExecutionInfo>);
 static_assert(std::is_standard_layout_v<AsterAuthoringActionEventInfo>);
+static_assert(std::is_standard_layout_v<AsterSystemEntityHandle>);
+static_assert(std::is_standard_layout_v<AsterSystemWorldDesc>);
+static_assert(std::is_standard_layout_v<AsterSystemTickDesc>);
+static_assert(std::is_standard_layout_v<AsterSystemTickResult>);
+static_assert(std::is_standard_layout_v<AsterSystemEntityInfo>);
+static_assert(std::is_standard_layout_v<AsterSystemComponentAccess>);
+static_assert(std::is_standard_layout_v<AsterSystemTransactionDesc>);
+static_assert(std::is_standard_layout_v<AsterSystemTransactionInfo>);
+static_assert(std::is_standard_layout_v<AsterSystemTraceCounts>);
+static_assert(std::is_standard_layout_v<AsterSystemTraceEvent>);
+static_assert(std::is_standard_layout_v<AsterAssetLineageInfo>);
+static_assert(std::is_standard_layout_v<AsterResidencyBudget>);
+static_assert(std::is_standard_layout_v<AsterResidencyDecision>);
+static_assert(std::is_standard_layout_v<AsterWorldSnapshotDesc>);
+static_assert(std::is_standard_layout_v<AsterWorldMigrationReport>);
+static_assert(std::is_standard_layout_v<AsterWorldReplayReport>);
 static_assert(std::is_standard_layout_v<AsterShaderCompileDesc>);
 static_assert(std::is_standard_layout_v<AsterShaderCompileResult>);
 static_assert(std::is_standard_layout_v<AsterShaderReflectionBinding>);
@@ -248,7 +264,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 5u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 2u);
+  assert(version.minor == 3u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -737,6 +753,10 @@ void testRendererAbi5Lifecycle() {
   presentation_settings.reflection_intensity = 0.44f;
   presentation_settings.bloom_threshold = 1.9f;
   presentation_settings.bloom_intensity = 0.18f;
+  presentation_settings.world_trace_hash = 0xA57E000000000011ull;
+  presentation_settings.simulation_tick = 42u;
+  presentation_settings.extraction_hash = 0xA57E000000000022ull;
+  presentation_settings.asset_lineage_hash = 0xA57E000000000033ull;
   assert(aster_kernel_renderer_render_frame_to_target(renderer, scene, target, &physical_camera,
                                                       &presentation_settings)
              .code == ASTER_STATUS_OK);
@@ -760,6 +780,17 @@ void testRendererAbi5Lifecycle() {
   assert(detail_counts.resource_transition_count >= 1u);
   assert(detail_counts.object_fate_count >= 1u);
   assert(detail_counts.backend_feature_proof_count >= 1u);
+  assert(detail_counts.world_trace_hash == presentation_settings.world_trace_hash);
+  assert(detail_counts.simulation_tick == presentation_settings.simulation_tick);
+  assert(detail_counts.extraction_hash == presentation_settings.extraction_hash);
+  assert(detail_counts.asset_lineage_hash == presentation_settings.asset_lineage_hash);
+  AsterFrameForensicsDetailCounts legacy_detail_counts{};
+  legacy_detail_counts.size = offsetof(AsterFrameForensicsDetailCounts, world_trace_hash);
+  legacy_detail_counts.version = ASTER_KERNEL_STRUCT_VERSION_1;
+  assert(aster_kernel_renderer_frame_forensics_detail_counts(renderer, &legacy_detail_counts)
+             .code == ASTER_STATUS_OK);
+  assert(legacy_detail_counts.object_fate_count == detail_counts.object_fate_count);
+  assert(legacy_detail_counts.world_trace_hash == 0u);
   bool saw_surface_occlusion_pass = false;
   bool saw_surface_attributes_capture = false;
   bool saw_surface_occlusion_capture = false;
@@ -1370,6 +1401,142 @@ void testShaderCompilerAbi5() {
   assert(aster_kernel_engine_destroy(engine).code == ASTER_STATUS_OK);
 }
 
+void testSystemWorldAbi53Contracts() {
+  AsterEngineHandle engine = nullptr;
+  const AsterEngineDesc engine_desc{sizeof(AsterEngineDesc),
+                                    ASTER_KERNEL_STRUCT_VERSION_1,
+                                    {"world-contract-test", 19u},
+                                    0u};
+  assert(aster_kernel_engine_create(&engine_desc, &engine).code == ASTER_STATUS_OK);
+
+  AsterSystemWorldHandle world = nullptr;
+  const AsterSystemWorldDesc world_desc{sizeof(AsterSystemWorldDesc),
+                                        ASTER_KERNEL_STRUCT_VERSION_1,
+                                        1.0 / 60.0,
+                                        0xA57E5300u,
+                                        {"kernel-world", 12u}};
+  assert(aster_kernel_system_world_create(engine, &world_desc, &world).code == ASTER_STATUS_OK);
+
+  AsterSystemEntityHandle entity{};
+  assert(aster_kernel_system_world_entity_create(world, {"entity.player", 13u}, &entity).code ==
+         ASTER_STATUS_OK);
+  assert(entity.id != 0u);
+  assert(entity.generation == 1u);
+  AsterSystemEntityInfo entity_info{sizeof(AsterSystemEntityInfo),
+                                    ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_system_world_entity_query(world, entity, &entity_info).code ==
+         ASTER_STATUS_OK);
+  assert(entity_info.alive == 1u);
+  assert(toString(entity_info.label) == "entity.player");
+
+  const AsterSystemTickDesc tick_1{sizeof(AsterSystemTickDesc),
+                                   ASTER_KERNEL_STRUCT_VERSION_1,
+                                   1u,
+                                   1.0 / 60.0,
+                                   0x10u,
+                                   0x20u,
+                                   0x30u,
+                                   0x40u};
+  AsterSystemTickResult tick_result{sizeof(AsterSystemTickResult),
+                                    ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_system_world_tick(world, &tick_1, &tick_result).code == ASTER_STATUS_OK);
+  assert(tick_result.accepted == 1u);
+  assert(tick_result.tick == 1u);
+  assert(tick_result.world_hash != 0u);
+  assert(tick_result.trace_hash != 0u);
+  assert(aster_kernel_system_world_tick(world, &tick_1, &tick_result).code ==
+         ASTER_STATUS_VALIDATION_ERROR);
+  assert(tick_result.accepted == 0u);
+
+  const AsterSystemComponentAccess read_transform{sizeof(AsterSystemComponentAccess),
+                                                  ASTER_KERNEL_STRUCT_VERSION_1,
+                                                  {"Transform", 9u},
+                                                  {"entity.player", 13u},
+                                                  ASTER_SYSTEM_COMPONENT_ACCESS_READ};
+  const AsterSystemTransactionDesc read_tx{sizeof(AsterSystemTransactionDesc),
+                                           ASTER_KERNEL_STRUCT_VERSION_1,
+                                           {"read-transform", 14u},
+                                           {"movement-system", 15u},
+                                           {&read_transform, 1u, sizeof(read_transform)}};
+  AsterSystemTransactionInfo tx_info{sizeof(AsterSystemTransactionInfo),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_system_world_transaction_begin(world, &read_tx, &tx_info).code ==
+         ASTER_STATUS_OK);
+  const uint64_t read_tx_id = tx_info.transaction_id;
+  assert(aster_kernel_system_world_transaction_commit(world, read_tx_id, &tx_info).code ==
+         ASTER_STATUS_OK);
+  assert(tx_info.committed == 1u);
+  const uint64_t after_read_hash = tx_info.post_world_hash;
+
+  const AsterSystemComponentAccess write_transform{sizeof(AsterSystemComponentAccess),
+                                                   ASTER_KERNEL_STRUCT_VERSION_1,
+                                                   {"Transform", 9u},
+                                                   {"entity.player", 13u},
+                                                   ASTER_SYSTEM_COMPONENT_ACCESS_WRITE};
+  const AsterSystemTransactionDesc write_tx{sizeof(AsterSystemTransactionDesc),
+                                            ASTER_KERNEL_STRUCT_VERSION_1,
+                                            {"write-transform", 15u},
+                                            {"animation-system", 16u},
+                                            {&write_transform, 1u, sizeof(write_transform)}};
+  assert(aster_kernel_system_world_transaction_begin(world, &write_tx, &tx_info).code ==
+         ASTER_STATUS_OK);
+  assert(aster_kernel_system_world_transaction_commit(world, tx_info.transaction_id, &tx_info)
+             .code == ASTER_STATUS_VALIDATION_ERROR);
+  assert(tx_info.committed == 0u);
+  assert(toString(tx_info.diagnostic).find("component access hazard") != std::string::npos);
+
+  AsterSystemTraceCounts counts{sizeof(AsterSystemTraceCounts), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_system_world_trace_counts(world, &counts).code == ASTER_STATUS_OK);
+  assert(counts.tick == 1u);
+  assert(counts.entity_count == 1u);
+  assert(counts.live_entity_count == 1u);
+  assert(counts.transaction_count == 2u);
+  assert(counts.validation_event_count >= 2u);
+  assert(counts.world_hash == after_read_hash);
+  bool saw_scheduler_hazard = false;
+  for (size_t index = 0u; index < counts.event_count; ++index) {
+    AsterSystemTraceEvent event{sizeof(AsterSystemTraceEvent), ASTER_KERNEL_STRUCT_VERSION_1};
+    assert(aster_kernel_system_world_trace_event(world, index, &event).code == ASTER_STATUS_OK);
+    if (event.kind == ASTER_SYSTEM_TRACE_SCHEDULER_DECISION &&
+        toString(event.detail).find("component access hazard") != std::string::npos) {
+      saw_scheduler_hazard = true;
+    }
+  }
+  assert(saw_scheduler_hazard);
+
+  const std::filesystem::path snapshot_path =
+      std::filesystem::temp_directory_path() / "aster_kernel_world_snapshot_v53.txt";
+  const std::string snapshot = snapshot_path.string();
+  const AsterWorldSnapshotDesc snapshot_desc{sizeof(AsterWorldSnapshotDesc),
+                                             ASTER_KERNEL_STRUCT_VERSION_1,
+                                             {snapshot.data(), snapshot.size()},
+                                             counts.world_hash};
+  assert(aster_kernel_system_world_save_snapshot(world, &snapshot_desc).code == ASTER_STATUS_OK);
+  AsterWorldReplayReport replay{sizeof(AsterWorldReplayReport), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_system_world_replay_trace(world, &snapshot_desc, &replay).code ==
+         ASTER_STATUS_OK);
+  assert(replay.matched == 1u);
+  assert(replay.actual_world_hash == counts.world_hash);
+
+  AsterSystemWorldHandle loaded_world = nullptr;
+  assert(aster_kernel_system_world_create(engine, &world_desc, &loaded_world).code ==
+         ASTER_STATUS_OK);
+  AsterWorldMigrationReport migration{sizeof(AsterWorldMigrationReport),
+                                      ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_system_world_load_snapshot(loaded_world, &snapshot_desc, &migration).code ==
+         ASTER_STATUS_OK);
+  assert(migration.current_schema_version == 1u);
+  assert(migration.entity_count == 1u);
+  assert(migration.world_hash == counts.world_hash);
+
+  assert(aster_kernel_system_world_destroy(loaded_world).code == ASTER_STATUS_OK);
+  assert(aster_kernel_system_world_entity_destroy(world, entity).code == ASTER_STATUS_OK);
+  assert(aster_kernel_system_world_entity_destroy(world, entity).code == ASTER_STATUS_LIFETIME_ERROR);
+  assert(aster_kernel_system_world_destroy(world).code == ASTER_STATUS_OK);
+  assert(aster_kernel_engine_destroy(engine).code == ASTER_STATUS_OK);
+  std::filesystem::remove(snapshot_path);
+}
+
 void testCppWrapperUsesResultStatus() {
   auto engine = aster::kernel::Engine::create();
   assert(engine);
@@ -1415,6 +1582,20 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_engine_last_status",
       "aster_kernel_engine_validation_event_count",
       "aster_kernel_engine_validation_event",
+      "aster_kernel_system_world_create",
+      "aster_kernel_system_world_tick",
+      "aster_kernel_system_world_entity_create",
+      "aster_kernel_system_world_entity_query",
+      "aster_kernel_system_world_entity_destroy",
+      "aster_kernel_system_world_transaction_begin",
+      "aster_kernel_system_world_transaction_append",
+      "aster_kernel_system_world_transaction_commit",
+      "aster_kernel_system_world_transaction_abort",
+      "aster_kernel_system_world_trace_counts",
+      "aster_kernel_system_world_trace_event",
+      "aster_kernel_system_world_save_snapshot",
+      "aster_kernel_system_world_load_snapshot",
+      "aster_kernel_system_world_replay_trace",
       "aster_kernel_window_create",
       "aster_kernel_window_poll",
       "aster_kernel_window_swap",
@@ -1541,6 +1722,20 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_engine_last_status;
   (void)&aster_kernel_engine_validation_event_count;
   (void)&aster_kernel_engine_validation_event;
+  (void)&aster_kernel_system_world_create;
+  (void)&aster_kernel_system_world_tick;
+  (void)&aster_kernel_system_world_entity_create;
+  (void)&aster_kernel_system_world_entity_query;
+  (void)&aster_kernel_system_world_entity_destroy;
+  (void)&aster_kernel_system_world_transaction_begin;
+  (void)&aster_kernel_system_world_transaction_append;
+  (void)&aster_kernel_system_world_transaction_commit;
+  (void)&aster_kernel_system_world_transaction_abort;
+  (void)&aster_kernel_system_world_trace_counts;
+  (void)&aster_kernel_system_world_trace_event;
+  (void)&aster_kernel_system_world_save_snapshot;
+  (void)&aster_kernel_system_world_load_snapshot;
+  (void)&aster_kernel_system_world_replay_trace;
   (void)&aster_kernel_window_create;
   (void)&aster_kernel_window_poll;
   (void)&aster_kernel_window_swap;
@@ -1646,6 +1841,7 @@ int main() {
   testAbi5ExplicitValidationContracts();
   testAuthoringDocumentAbi51Contracts();
   testShaderCompilerAbi5();
+  testSystemWorldAbi53Contracts();
   testCppWrapperUsesResultStatus();
   testManifestNamesMatchLinkedApi();
   return 0;

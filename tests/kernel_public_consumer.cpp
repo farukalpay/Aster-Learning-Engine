@@ -11,7 +11,7 @@ int main() {
   const AsterAbiVersion version = aster::kernel::abiVersion();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 5u);
-  assert(version.minor == 1u);
+  assert(version.minor == 3u);
 
   const auto normalized = aster::kernel::math::normalize({3.0f, 0.0f, 4.0f});
   assert(normalized);
@@ -31,6 +31,22 @@ int main() {
   assert(engine);
   assert(engine.value().valid());
   assert(engine.value().lastStatus());
+
+  auto world = aster::kernel::SystemWorld::create(engine.value());
+  assert(world);
+  auto world_entity = world.value().createEntity({"public.entity", 13u});
+  assert(world_entity);
+  const AsterSystemTickDesc world_tick{sizeof(AsterSystemTickDesc),
+                                       ASTER_KERNEL_STRUCT_VERSION_1,
+                                       1u,
+                                       1.0 / 60.0,
+                                       0x101u,
+                                       0x202u,
+                                       0x303u,
+                                       0x404u};
+  auto world_tick_result = world.value().tick(world_tick);
+  assert(world_tick_result);
+  assert(world_tick_result.value().world_hash != 0u);
 
   auto window = aster::kernel::Window::createHeadless(32u, 24u);
   assert(window);
@@ -82,14 +98,18 @@ int main() {
                                0.9f,
                                0.01f,
                                50.0f};
-  const AsterRendererSettings settings{sizeof(AsterRendererSettings),
-                                       ASTER_KERNEL_STRUCT_VERSION_1,
-                                       {0.03f, 0.04f, 0.05f},
-                                       1.0f,
-                                       0.22f,
-                                       32u,
-                                       24u,
-                                       0u};
+  AsterRendererSettings settings{};
+  settings.size = sizeof(AsterRendererSettings);
+  settings.version = ASTER_KERNEL_STRUCT_VERSION_1;
+  settings.clear_color = {0.03f, 0.04f, 0.05f};
+  settings.exposure = 1.0f;
+  settings.ambient_strength = 0.22f;
+  settings.framebuffer_width = 32u;
+  settings.framebuffer_height = 24u;
+  settings.world_trace_hash = world_tick_result.value().trace_hash;
+  settings.simulation_tick = world_tick_result.value().tick;
+  settings.extraction_hash = 0x303u;
+  settings.asset_lineage_hash = 0x202u;
   const AsterRenderTargetDesc target_desc{sizeof(AsterRenderTargetDesc),
                                           ASTER_KERNEL_STRUCT_VERSION_1,
                                           ASTER_KERNEL_BACKEND_FORMAT_BGRA8_UNORM,
@@ -110,6 +130,10 @@ int main() {
   auto schedule_counts = schedule.value().counts();
   assert(schedule_counts);
   assert(schedule_counts.value().pass_count > 0u);
+  auto forensics = renderer.value().frameForensicsDetailCounts();
+  assert(forensics);
+  assert(forensics.value().world_trace_hash == world_tick_result.value().trace_hash);
+  assert(forensics.value().simulation_tick == world_tick_result.value().tick);
 
   const char *source = "float4 fs_main() { return float4(1.0); }\n";
   const AsterShaderModuleSource module{{"material", 8u}, {source, std::strlen(source)}};

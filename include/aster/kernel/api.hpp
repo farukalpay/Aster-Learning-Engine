@@ -201,6 +201,178 @@ private:
   AsterEngineHandle handle_ = nullptr;
 };
 
+class SystemWorld {
+public:
+  SystemWorld() = default;
+  explicit SystemWorld(AsterSystemWorldHandle handle) noexcept : handle_(handle) {}
+
+  SystemWorld(SystemWorld &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  SystemWorld &operator=(SystemWorld &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  SystemWorld(const SystemWorld &) = delete;
+  SystemWorld &operator=(const SystemWorld &) = delete;
+
+  ~SystemWorld() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<SystemWorld>
+  create(const Engine &engine, const AsterSystemWorldDesc &desc) noexcept {
+    AsterSystemWorldHandle handle = nullptr;
+    const Status status(aster_kernel_system_world_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<SystemWorld>(status);
+    }
+    return Result<SystemWorld>(SystemWorld(handle));
+  }
+
+  [[nodiscard]] static Result<SystemWorld> create(const Engine &engine) noexcept {
+    const AsterSystemWorldDesc desc{sizeof(AsterSystemWorldDesc),
+                                    ASTER_KERNEL_STRUCT_VERSION_1,
+                                    1.0 / 60.0,
+                                    0u,
+                                    {}};
+    return create(engine, desc);
+  }
+
+  [[nodiscard]] AsterSystemWorldHandle get() const noexcept {
+    return handle_;
+  }
+
+  [[nodiscard]] Result<AsterSystemTickResult> tick(const AsterSystemTickDesc &desc) noexcept {
+    AsterSystemTickResult result{sizeof(AsterSystemTickResult), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_system_world_tick(handle_, &desc, &result));
+    if (!status) {
+      return Result<AsterSystemTickResult>(status);
+    }
+    return Result<AsterSystemTickResult>(std::move(result));
+  }
+
+  [[nodiscard]] Result<AsterSystemEntityHandle> createEntity(
+      const AsterStringView label = {}) noexcept {
+    AsterSystemEntityHandle entity{};
+    const Status status(aster_kernel_system_world_entity_create(handle_, label, &entity));
+    if (!status) {
+      return Result<AsterSystemEntityHandle>(status);
+    }
+    return Result<AsterSystemEntityHandle>(std::move(entity));
+  }
+
+  [[nodiscard]] Result<AsterSystemEntityInfo> entity(
+      const AsterSystemEntityHandle handle) noexcept {
+    AsterSystemEntityInfo info{sizeof(AsterSystemEntityInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_system_world_entity_query(handle_, handle, &info));
+    if (!status) {
+      return Result<AsterSystemEntityInfo>(status);
+    }
+    return Result<AsterSystemEntityInfo>(std::move(info));
+  }
+
+  [[nodiscard]] Status destroyEntity(const AsterSystemEntityHandle handle) noexcept {
+    return Status(aster_kernel_system_world_entity_destroy(handle_, handle));
+  }
+
+  [[nodiscard]] Result<AsterSystemTransactionInfo>
+  beginTransaction(const AsterSystemTransactionDesc &desc) noexcept {
+    AsterSystemTransactionInfo info{sizeof(AsterSystemTransactionInfo),
+                                    ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_system_world_transaction_begin(handle_, &desc, &info));
+    if (!status) {
+      return Result<AsterSystemTransactionInfo>(status);
+    }
+    return Result<AsterSystemTransactionInfo>(std::move(info));
+  }
+
+  [[nodiscard]] Status appendTransactionAccess(
+      const uint64_t transaction_id, const AsterSystemComponentAccess &access) noexcept {
+    return Status(aster_kernel_system_world_transaction_append(handle_, transaction_id, &access));
+  }
+
+  [[nodiscard]] Result<AsterSystemTransactionInfo> commitTransaction(
+      const uint64_t transaction_id) noexcept {
+    AsterSystemTransactionInfo info{sizeof(AsterSystemTransactionInfo),
+                                    ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_system_world_transaction_commit(handle_, transaction_id, &info));
+    if (!status) {
+      return Result<AsterSystemTransactionInfo>(status);
+    }
+    return Result<AsterSystemTransactionInfo>(std::move(info));
+  }
+
+  [[nodiscard]] Result<AsterSystemTransactionInfo>
+  abortTransaction(const uint64_t transaction_id, const AsterStringView reason = {}) noexcept {
+    AsterSystemTransactionInfo info{sizeof(AsterSystemTransactionInfo),
+                                    ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_system_world_transaction_abort(handle_, transaction_id, reason, &info));
+    if (!status) {
+      return Result<AsterSystemTransactionInfo>(status);
+    }
+    return Result<AsterSystemTransactionInfo>(std::move(info));
+  }
+
+  [[nodiscard]] Result<AsterSystemTraceCounts> traceCounts() const noexcept {
+    AsterSystemTraceCounts counts{sizeof(AsterSystemTraceCounts), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_system_world_trace_counts(handle_, &counts));
+    if (!status) {
+      return Result<AsterSystemTraceCounts>(status);
+    }
+    return Result<AsterSystemTraceCounts>(std::move(counts));
+  }
+
+  [[nodiscard]] Result<AsterSystemTraceEvent> traceEvent(const size_t index) const noexcept {
+    AsterSystemTraceEvent event{sizeof(AsterSystemTraceEvent), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_system_world_trace_event(handle_, index, &event));
+    if (!status) {
+      return Result<AsterSystemTraceEvent>(status);
+    }
+    return Result<AsterSystemTraceEvent>(std::move(event));
+  }
+
+  [[nodiscard]] Status saveSnapshot(const AsterWorldSnapshotDesc &desc) noexcept {
+    return Status(aster_kernel_system_world_save_snapshot(handle_, &desc));
+  }
+
+  [[nodiscard]] Result<AsterWorldMigrationReport> loadSnapshot(
+      const AsterWorldSnapshotDesc &desc) noexcept {
+    AsterWorldMigrationReport report{sizeof(AsterWorldMigrationReport),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_system_world_load_snapshot(handle_, &desc, &report));
+    if (!status) {
+      return Result<AsterWorldMigrationReport>(status);
+    }
+    return Result<AsterWorldMigrationReport>(std::move(report));
+  }
+
+  [[nodiscard]] Result<AsterWorldReplayReport> replayTrace(
+      const AsterWorldSnapshotDesc &desc) noexcept {
+    AsterWorldReplayReport report{sizeof(AsterWorldReplayReport),
+                                  ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_system_world_replay_trace(handle_, &desc, &report));
+    if (!status) {
+      return Result<AsterWorldReplayReport>(status);
+    }
+    return Result<AsterWorldReplayReport>(std::move(report));
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_system_world_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterSystemWorldHandle handle_ = nullptr;
+};
+
 class Window {
 public:
   Window() = default;

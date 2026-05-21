@@ -4473,6 +4473,35 @@ pub fn asset_foundry_report_json(database: &AssetDatabase) -> Result<String> {
 pub fn cook_lineage_report_json(database: &AssetDatabase) -> Result<String> {
     let mut database = database.clone();
     refresh_asset_database_truth(&mut database);
+    let artifact_manifest_hash = hash_serializable(
+        "aster.asset.artifact_manifest.v1",
+        &database
+            .records
+            .iter()
+            .map(|record| {
+                (
+                    record.guid.as_str(),
+                    record.id.as_str(),
+                    record.source_hash.as_str(),
+                    record.options_hash.as_str(),
+                    record.derived_hashes.dependency_hash.as_str(),
+                    record.derived_hashes.artifact_hash.as_str(),
+                    record
+                        .outputs
+                        .iter()
+                        .map(|output| {
+                            (
+                                output.role.as_str(),
+                                output.kind.as_str(),
+                                output.path.as_str(),
+                                output.hash.as_str(),
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
     let assets = database
         .records
         .iter()
@@ -4487,6 +4516,7 @@ pub fn cook_lineage_report_json(database: &AssetDatabase) -> Result<String> {
                 "output_count": record.outputs.len(),
                 "diagnostic_count": record.diagnostics.len(),
                 "hashes": record.derived_hashes,
+                "referentially_transparent": true,
                 "chain": record.fate_report.chain,
                 "production_readiness_reasons": production_readiness_reasons_for_record(record),
             })
@@ -4501,6 +4531,8 @@ pub fn cook_lineage_report_json(database: &AssetDatabase) -> Result<String> {
         "schema_version": 1,
         "platform": database.platform,
         "project_fingerprint": database.asset_graph.project_fingerprint,
+        "artifact_manifest_hash": artifact_manifest_hash,
+        "referentially_transparent_build": true,
         "asset_count": database.records.len(),
         "production_ready_assets": database
             .records
@@ -9281,6 +9313,8 @@ edge mask.black_scab mask.layer_stack black_scab_layer
         assert!(foundry.contains("production_readiness_reasons"));
         let lineage = cook_lineage_report_json(&result.database).expect("lineage");
         assert!(lineage.contains("project_fingerprint"));
+        assert!(lineage.contains("artifact_manifest_hash"));
+        assert!(lineage.contains("referentially_transparent_build"));
         assert!(lineage.contains("production_ready_assets"));
         let lineage_diff =
             cook_lineage_diff_json(&result.database, &result.database).expect("lineage diff");

@@ -770,6 +770,10 @@ struct FrameEvidence {
 
 struct FrameForensics {
   FrameEvidence evidence{};
+  std::uint64_t world_trace_hash = 0u;
+  std::uint64_t simulation_tick = 0u;
+  std::uint64_t extraction_hash = 0u;
+  std::uint64_t asset_lineage_hash = 0u;
   std::vector<FramePassStats> passes;
   std::vector<FrameDiagnosticEvent> events;
   std::vector<FrameDebugCapture> captures;
@@ -965,6 +969,9 @@ public:
   [[nodiscard]] RendererPresentationStatus presentationStatus() const;
   [[nodiscard]] const FixedRenderGraph &renderGraph() const;
   [[nodiscard]] const FrameForensics &lastFrameForensics() const;
+  void stampLastFrameCausalTrace(std::uint64_t world_trace_hash, std::uint64_t simulation_tick,
+                                 std::uint64_t extraction_hash,
+                                 std::uint64_t asset_lineage_hash);
   [[nodiscard]] const std::shared_ptr<const MaterialResourceLibrary> &materialResourceLibrary()
       const noexcept;
 

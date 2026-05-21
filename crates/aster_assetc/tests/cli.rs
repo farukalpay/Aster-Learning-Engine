@@ -422,6 +422,8 @@ fn cook_and_report_asset_database() {
     assert!(lineage_report.status.success());
     let lineage_report_stdout = String::from_utf8_lossy(&lineage_report.stdout);
     assert!(lineage_report_stdout.contains("project_fingerprint"));
+    assert!(lineage_report_stdout.contains("artifact_manifest_hash"));
+    assert!(lineage_report_stdout.contains("referentially_transparent_build"));
     assert!(lineage_report_stdout.contains("production_ready_assets"));
 
     let lineage_diff = Command::new(binary)

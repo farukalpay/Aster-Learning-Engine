@@ -46,9 +46,16 @@ plain C and compiling C++ wrappers in the consuming toolchain.
 ABI 5 keeps the spatial math contracts from ABI 4 and promotes explicit GPU
 resource lifecycle to the public surface. Textures, render targets, buffers,
 descriptor heaps/sets, pipeline caches, and frame schedules are opaque kernel
-handles with fixed-layout descriptors and queryable validation events. The
-installed contract is proven by `external_app_minimal/`, which is configured
-only with `find_package(AsterKernel CONFIG REQUIRED)` from an install prefix.
+handles with fixed-layout descriptors and queryable validation events. ABI 5.3
+adds the public `AsterSystemWorldHandle` contract for causal kernel state:
+generational entity identity, monotonic simulation ticks, append-only
+transactions, declared component read/write access, world trace events,
+snapshot migration reports, replay reports, and frame-forensics hashes that
+connect rendered frames back to the originating world trace. This is not a
+gameplay framework; behavior composition, quest logic, UI policy, and sample
+rules stay above the kernel. The installed contract is proven by
+`external_app_minimal/`, which is configured only with
+`find_package(AsterKernel CONFIG REQUIRED)` from an install prefix.
 
 ABI 4 promoted spatial math through typed fixed-layout structs:
 `AsterWorldPoint`, `AsterScreenPoint`, `AsterWorldRay`, `AsterViewport`, and
@@ -88,12 +95,12 @@ validation, and backend capability queries for the last rendered frame:
 - `AsterShaderArtifactHandle` -> `aster_kernel_shader_destroy`
 - `AsterRenderPipelineHandle` -> `aster_kernel_render_pipeline_destroy`
 - `AsterFrameScheduleHandle` -> `aster_kernel_frame_schedule_destroy`
+- `AsterSystemWorldHandle` -> `aster_kernel_system_world_destroy`
 
 The remaining declared subsystem families reject uncreated handles with
 `ASTER_STATUS_UNSUPPORTED` until their matching create APIs land:
 
 - `AsterPhysicsWorldHandle` -> `aster_kernel_physics_world_destroy`
-- `AsterSystemWorldHandle` -> `aster_kernel_system_world_destroy`
 - `AsterSampleAppHandle` -> `aster_kernel_sample_app_destroy`
 
 The public C++ wrappers encode those rules with move-only RAII types. Handles do
@@ -129,6 +136,7 @@ The architectural dependency direction is:
 kernel ABI
   -> platform handles
   -> input snapshots and core timing
+  -> system world state, transactions, and replay trace
   -> scene/resource descriptions
   -> render planning and render devices
   -> geometry, physics, systems, and UI extension layers
@@ -156,3 +164,6 @@ install-tree smoke test builds `external_app_minimal/` from the installed
 are not installed. Future subsystem work should either stay internal, be
 re-exposed through the source SDK as authoring/runtime data contracts, or be
 promoted through versioned opaque handles and fixed-layout kernel contracts.
+World-state promotion follows that same rule: the kernel owns causal identity,
+time, validation, trace, and replay evidence, while game production semantics
+remain in Game SDK documents, systems modules, editor tooling, and product code.

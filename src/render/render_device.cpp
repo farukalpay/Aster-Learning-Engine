@@ -6199,6 +6199,16 @@ const FrameForensics &RenderDevice::lastFrameForensics() const {
   return last_forensics_;
 }
 
+void RenderDevice::stampLastFrameCausalTrace(const std::uint64_t world_trace_hash,
+                                             const std::uint64_t simulation_tick,
+                                             const std::uint64_t extraction_hash,
+                                             const std::uint64_t asset_lineage_hash) {
+  last_forensics_.world_trace_hash = world_trace_hash;
+  last_forensics_.simulation_tick = simulation_tick;
+  last_forensics_.extraction_hash = extraction_hash;
+  last_forensics_.asset_lineage_hash = asset_lineage_hash;
+}
+
 const std::shared_ptr<const MaterialResourceLibrary> &RenderDevice::materialResourceLibrary()
     const noexcept {
   return material_library_;

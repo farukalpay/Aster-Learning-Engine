@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 5u
-#define ASTER_KERNEL_ABI_MINOR 2u
+#define ASTER_KERNEL_ABI_MINOR 3u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -305,8 +305,48 @@ typedef enum AsterValidationKind {
   ASTER_VALIDATION_RENDER_TARGET_MISMATCH = 9,
   ASTER_VALIDATION_CAPTURE_BEFORE_RENDER = 10,
   ASTER_VALIDATION_BACKEND_CAPABILITY_MISMATCH = 11,
-  ASTER_VALIDATION_LIFETIME_ERROR = 12
+  ASTER_VALIDATION_LIFETIME_ERROR = 12,
+  ASTER_VALIDATION_WORLD_MONOTONICITY = 13,
+  ASTER_VALIDATION_WORLD_STALE_ENTITY = 14,
+  ASTER_VALIDATION_WORLD_TRANSACTION_HAZARD = 15,
+  ASTER_VALIDATION_WORLD_REPLAY_MISMATCH = 16
 } AsterValidationKind;
+
+typedef enum AsterSystemComponentAccessMode {
+  ASTER_SYSTEM_COMPONENT_ACCESS_READ = 0,
+  ASTER_SYSTEM_COMPONENT_ACCESS_WRITE = 1
+} AsterSystemComponentAccessMode;
+
+typedef enum AsterSystemTraceEventKind {
+  ASTER_SYSTEM_TRACE_INPUT_EVENT = 0,
+  ASTER_SYSTEM_TRACE_SIMULATION_TICK = 1,
+  ASTER_SYSTEM_TRACE_SCHEDULER_DECISION = 2,
+  ASTER_SYSTEM_TRACE_ASSET_RESOLUTION = 3,
+  ASTER_SYSTEM_TRACE_RESIDENCY_DECISION = 4,
+  ASTER_SYSTEM_TRACE_RENDERABLE_EXTRACTION = 5,
+  ASTER_SYSTEM_TRACE_FRAME_SUBMISSION = 6,
+  ASTER_SYSTEM_TRACE_TRANSACTION_BEGIN = 7,
+  ASTER_SYSTEM_TRACE_TRANSACTION_COMMIT = 8,
+  ASTER_SYSTEM_TRACE_TRANSACTION_ABORT = 9,
+  ASTER_SYSTEM_TRACE_ENTITY_CREATED = 10,
+  ASTER_SYSTEM_TRACE_ENTITY_DESTROYED = 11,
+  ASTER_SYSTEM_TRACE_SNAPSHOT_SAVED = 12,
+  ASTER_SYSTEM_TRACE_SNAPSHOT_LOADED = 13,
+  ASTER_SYSTEM_TRACE_MIGRATION = 14,
+  ASTER_SYSTEM_TRACE_REPLAY = 15,
+  ASTER_SYSTEM_TRACE_VALIDATION_ERROR = 16
+} AsterSystemTraceEventKind;
+
+typedef enum AsterResidencyDecisionKind {
+  ASTER_RESIDENCY_KEEP = 0,
+  ASTER_RESIDENCY_LOAD = 1,
+  ASTER_RESIDENCY_EVICT = 2,
+  ASTER_RESIDENCY_REJECT = 3
+} AsterResidencyDecisionKind;
+
+typedef enum AsterResidencyEvictionPolicy {
+  ASTER_RESIDENCY_EVICT_PRIORITY_THEN_VISIBILITY = 0
+} AsterResidencyEvictionPolicy;
 
 typedef enum AsterAuthoringDocumentKind {
   ASTER_AUTHORING_DOCUMENT_UNKNOWN = 0,
@@ -1101,7 +1141,175 @@ typedef struct AsterRendererSettings {
   float reflection_intensity;
   float bloom_threshold;
   float bloom_intensity;
+  uint64_t world_trace_hash;
+  uint64_t simulation_tick;
+  uint64_t extraction_hash;
+  uint64_t asset_lineage_hash;
 } AsterRendererSettings;
+
+typedef struct AsterSystemEntityHandle {
+  uint64_t id;
+  uint32_t generation;
+} AsterSystemEntityHandle;
+
+typedef struct AsterSystemWorldDesc {
+  size_t size;
+  uint32_t version;
+  double fixed_step_seconds;
+  uint64_t seed;
+  AsterStringView debug_label;
+} AsterSystemWorldDesc;
+
+typedef struct AsterSystemTickDesc {
+  size_t size;
+  uint32_t version;
+  uint64_t tick;
+  double delta_seconds;
+  uint64_t input_event_hash;
+  uint64_t asset_lineage_hash;
+  uint64_t extraction_hash;
+  uint64_t frame_submission_hash;
+} AsterSystemTickDesc;
+
+typedef struct AsterSystemTickResult {
+  size_t size;
+  uint32_t version;
+  uint32_t accepted;
+  uint64_t tick;
+  double time_seconds;
+  size_t events_emitted;
+  uint64_t world_hash;
+  uint64_t trace_hash;
+  AsterStringView diagnostic;
+} AsterSystemTickResult;
+
+typedef struct AsterSystemEntityInfo {
+  size_t size;
+  uint32_t version;
+  AsterSystemEntityHandle handle;
+  uint32_t alive;
+  AsterStringView label;
+} AsterSystemEntityInfo;
+
+typedef struct AsterSystemComponentAccess {
+  size_t size;
+  uint32_t version;
+  AsterStringView component;
+  AsterStringView subject;
+  AsterSystemComponentAccessMode mode;
+} AsterSystemComponentAccess;
+
+typedef struct AsterSystemTransactionDesc {
+  size_t size;
+  uint32_t version;
+  AsterStringView label;
+  AsterStringView provenance;
+  AsterSpan accesses;
+} AsterSystemTransactionDesc;
+
+typedef struct AsterSystemTransactionInfo {
+  size_t size;
+  uint32_t version;
+  uint64_t transaction_id;
+  uint32_t committed;
+  size_t access_count;
+  uint64_t parent_world_hash;
+  uint64_t post_world_hash;
+  uint64_t deterministic_stamp;
+  AsterStringView diagnostic;
+} AsterSystemTransactionInfo;
+
+typedef struct AsterSystemTraceCounts {
+  size_t size;
+  uint32_t version;
+  size_t event_count;
+  size_t entity_count;
+  size_t live_entity_count;
+  size_t transaction_count;
+  size_t validation_event_count;
+  uint64_t tick;
+  double time_seconds;
+  uint64_t world_hash;
+  uint64_t trace_hash;
+} AsterSystemTraceCounts;
+
+typedef struct AsterSystemTraceEvent {
+  size_t size;
+  uint32_t version;
+  AsterSystemTraceEventKind kind;
+  uint64_t sequence;
+  uint64_t tick;
+  uint64_t transaction_id;
+  AsterSystemEntityHandle entity;
+  AsterStringView label;
+  AsterStringView subject;
+  AsterStringView component;
+  AsterStringView detail;
+  uint64_t parent_world_hash;
+  uint64_t world_hash;
+  uint64_t trace_hash;
+} AsterSystemTraceEvent;
+
+typedef struct AsterAssetLineageInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView asset_id;
+  AsterStringView source_hash;
+  AsterStringView options_hash;
+  AsterStringView dependency_hash;
+  AsterStringView artifact_hash;
+  AsterStringView material_hash;
+  AsterStringView artifact_manifest_hash;
+  uint32_t referentially_transparent;
+} AsterAssetLineageInfo;
+
+typedef struct AsterResidencyBudget {
+  size_t size;
+  uint32_t version;
+  uint64_t byte_budget;
+  AsterResidencyEvictionPolicy eviction_policy;
+} AsterResidencyBudget;
+
+typedef struct AsterResidencyDecision {
+  size_t size;
+  uint32_t version;
+  AsterStringView asset_id;
+  AsterResidencyDecisionKind decision;
+  uint64_t byte_cost;
+  float priority;
+  uint32_t visible;
+  AsterStringView reason;
+} AsterResidencyDecision;
+
+typedef struct AsterWorldSnapshotDesc {
+  size_t size;
+  uint32_t version;
+  AsterStringView path;
+  uint64_t expected_world_hash;
+} AsterWorldSnapshotDesc;
+
+typedef struct AsterWorldMigrationReport {
+  size_t size;
+  uint32_t version;
+  uint32_t loaded_schema_version;
+  uint32_t current_schema_version;
+  uint32_t migration_applied;
+  size_t entity_count;
+  uint64_t world_hash;
+  uint64_t trace_hash;
+  AsterStringView diagnostic;
+} AsterWorldMigrationReport;
+
+typedef struct AsterWorldReplayReport {
+  size_t size;
+  uint32_t version;
+  uint32_t matched;
+  size_t events_replayed;
+  uint64_t expected_world_hash;
+  uint64_t actual_world_hash;
+  uint64_t actual_trace_hash;
+  AsterStringView diagnostic;
+} AsterWorldReplayReport;
 
 typedef struct AsterFrameStats {
   size_t size;
@@ -1145,6 +1353,10 @@ typedef struct AsterFrameForensicsDetailCounts {
   size_t certification_missing_proof_count;
   size_t certification_validation_error_count;
   size_t object_fate_count;
+  uint64_t world_trace_hash;
+  uint64_t simulation_tick;
+  uint64_t extraction_hash;
+  uint64_t asset_lineage_hash;
 } AsterFrameForensicsDetailCounts;
 
 typedef struct AsterFramePassStats {
@@ -1362,6 +1574,43 @@ ASTER_KERNEL_API AsterStatus aster_kernel_engine_validation_event_count(
     AsterEngineHandle engine, size_t *out_count);
 ASTER_KERNEL_API AsterStatus aster_kernel_engine_validation_event(
     AsterEngineHandle engine, size_t index, AsterValidationEvent *out_event);
+
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_create(
+    AsterEngineHandle engine, const AsterSystemWorldDesc *desc,
+    AsterSystemWorldHandle *out_world);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_tick(
+    AsterSystemWorldHandle world, const AsterSystemTickDesc *desc,
+    AsterSystemTickResult *out_result);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_entity_create(
+    AsterSystemWorldHandle world, AsterStringView label, AsterSystemEntityHandle *out_entity);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_entity_query(
+    AsterSystemWorldHandle world, AsterSystemEntityHandle entity, AsterSystemEntityInfo *out_info);
+ASTER_KERNEL_API AsterStatus
+aster_kernel_system_world_entity_destroy(AsterSystemWorldHandle world,
+                                         AsterSystemEntityHandle entity);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_transaction_begin(
+    AsterSystemWorldHandle world, const AsterSystemTransactionDesc *desc,
+    AsterSystemTransactionInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_transaction_append(
+    AsterSystemWorldHandle world, uint64_t transaction_id,
+    const AsterSystemComponentAccess *access);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_transaction_commit(
+    AsterSystemWorldHandle world, uint64_t transaction_id, AsterSystemTransactionInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_transaction_abort(
+    AsterSystemWorldHandle world, uint64_t transaction_id, AsterStringView reason,
+    AsterSystemTransactionInfo *out_info);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_trace_counts(
+    AsterSystemWorldHandle world, AsterSystemTraceCounts *out_counts);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_trace_event(
+    AsterSystemWorldHandle world, size_t index, AsterSystemTraceEvent *out_event);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_save_snapshot(
+    AsterSystemWorldHandle world, const AsterWorldSnapshotDesc *desc);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_load_snapshot(
+    AsterSystemWorldHandle world, const AsterWorldSnapshotDesc *desc,
+    AsterWorldMigrationReport *out_report);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_replay_trace(
+    AsterSystemWorldHandle world, const AsterWorldSnapshotDesc *desc,
+    AsterWorldReplayReport *out_report);
 
 ASTER_KERNEL_API AsterStatus aster_kernel_window_create(const AsterWindowDesc *desc,
                                                         AsterWindowHandle *out_window);

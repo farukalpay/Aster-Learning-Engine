@@ -19,6 +19,13 @@ subsystem to the public kernel requires a versioned handle contract, explicit
 ownership rules, status-returning failure behavior, and tests that include only
 `aster/kernel`.
 
+ABI 5.3 promotes the system world only at that kernel level. It answers who
+exists, when a tick advanced, which transaction or scheduler decision changed
+state, whether declared component access was valid, whether replay matched, and
+which world trace produced a rendered frame. It does not own gameplay verbs,
+editor workflows, sample rules, UI behavior, or content-specific authoring
+semantics.
+
 ## Source Game SDK Boundary
 
 The public game-authoring surface starts at `include/aster/game_sdk`, backed by
@@ -58,7 +65,8 @@ opaque handles with matching destroy functions. ABI 5 includes a public
 renderer and explicit RHI path for windows, renderer instances, scenes, meshes,
 materials, textures, render targets, buffers, descriptor heaps/sets, pipeline
 caches, shader artifacts, render pipelines, captures, frame stats, frame
-forensics, frame schedules, validation events, and backend capability tables.
+forensics, frame schedules, validation events, backend capability tables, and
+the `AsterSystemWorldHandle` world-state trace contract.
 
 `include/aster/game_sdk`
 
@@ -117,9 +125,13 @@ IPX drivers forward.
 
 `include/aster/core`
 
-Configuration, clocks, frame timing, deterministic command/replay helpers, and
-profiling. The profiler macros map to a lightweight CPU trace sink with scope
-timing, an in-memory ring, and text export.
+Configuration, clocks, frame timing, deterministic command/replay helpers,
+world-state trace substrate, and profiling. `WorldState` owns monotonic
+simulation time, generational entity identity, append-only transaction sequence
+numbers, declared component read/write hazard checks, deterministic world/trace
+hashes, residency decisions, and snapshot/replay reports. It stays semantic
+infrastructure; gameplay component taxonomy and behavior composition remain in
+the Game SDK and systems layers.
 
 `include/aster/platform`
 
