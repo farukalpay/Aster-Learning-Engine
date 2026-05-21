@@ -315,6 +315,53 @@
           ]
         }
       ]
+    },
+    "perception_ledger": {
+      "id": "entry_sensory_state_graph",
+      "minimum_score": 0.78,
+      "required_channels": [
+        "material_memory",
+        "contact_history",
+        "lighting_exposure",
+        "atmosphere_cell",
+        "occlusion_role",
+        "gameplay_affordance",
+        "wear_continuity",
+        "streaming_semantic_lod",
+        "audio_visual_cue_budget"
+      ],
+      "cells": [
+        {
+          "id": "entry",
+          "minimum_score": 0.78,
+          "required_channels": [
+            "material_memory",
+            "contact_history",
+            "lighting_exposure",
+            "atmosphere_cell",
+            "occlusion_role",
+            "gameplay_affordance",
+            "wear_continuity",
+            "streaming_semantic_lod",
+            "audio_visual_cue_budget"
+          ]
+        },
+        {
+          "id": "deep",
+          "minimum_score": 0.72,
+          "required_channels": [
+            "material_memory",
+            "contact_history",
+            "lighting_exposure",
+            "atmosphere_cell",
+            "occlusion_role",
+            "gameplay_affordance",
+            "wear_continuity",
+            "streaming_semantic_lod",
+            "audio_visual_cue_budget"
+          ]
+        }
+      ]
     }
   }
 }

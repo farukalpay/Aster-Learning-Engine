@@ -941,6 +941,47 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
   return out;
 }
 
+[[nodiscard]] CavePerceptionLedgerCellDocument parseCavePerceptionLedgerCellDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
+  CavePerceptionLedgerCellDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readStringOr(value, "id", diagnostics, source, path, {});
+  out.minimum_score = readFloatOr(value, "minimum_score", diagnostics, source, path, 0.0f);
+  out.required_channels =
+      readStringArray(value, "required_channels", diagnostics, source, path);
+  return out;
+}
+
+[[nodiscard]] CavePerceptionLedgerDocument parseCavePerceptionLedgerDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
+  CavePerceptionLedgerDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readStringOr(value, "id", diagnostics, source, path, {});
+  out.minimum_score =
+      readFloatOr(value, "minimum_score", diagnostics, source, path, out.minimum_score);
+  out.required_channels =
+      readStringArray(value, "required_channels", diagnostics, source, path);
+  const Json *cells = member(value, "cells");
+  if (cells != nullptr) {
+    if (cells->kind != Json::Kind::Array) {
+      addDiagnostic(diagnostics, source, childPath(path, "cells"),
+                    "expected perception ledger cell array");
+    } else {
+      for (std::size_t i = 0; i < cells->array.size(); ++i) {
+        out.cells.push_back(parseCavePerceptionLedgerCellDocument(
+            cells->array[i], diagnostics, source, indexPath(childPath(path, "cells"), i)));
+      }
+    }
+  }
+  return out;
+}
+
 [[nodiscard]] CaveValidationDocument parseCaveValidationDocument(
     const Json &root, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
     const std::string &path) {
@@ -1031,6 +1072,10 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
   if (const Json *continuity = member(root, "perceptual_continuity_budget")) {
     out.perceptual_continuity_budget = parseCavePerceptualContinuityBudgetDocument(
         *continuity, diagnostics, source, childPath(path, "perceptual_continuity_budget"));
+  }
+  if (const Json *ledger = member(root, "perception_ledger")) {
+    out.perception_ledger = parseCavePerceptionLedgerDocument(
+        *ledger, diagnostics, source, childPath(path, "perception_ledger"));
   }
   return out;
 }
@@ -2298,6 +2343,56 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
       if (package.required_channels.empty()) {
         addError("$.validation.perceptual_continuity_budget.reaction_packages." + package.id,
                  "reaction package must require at least one channel");
+      }
+    }
+  }
+
+  if (cave.validation.perception_ledger.has_value()) {
+    const auto validPerceptionLedgerChannel = [](const std::string &channel) {
+      return channel == "material_memory" || channel == "contact_history" ||
+             channel == "lighting_exposure" || channel == "atmosphere_cell" ||
+             channel == "occlusion_role" || channel == "gameplay_affordance" ||
+             channel == "wear_continuity" || channel == "streaming_semantic_lod" ||
+             channel == "audio_visual_cue_budget";
+    };
+    const CavePerceptionLedgerDocument &ledger = *cave.validation.perception_ledger;
+    if (ledger.id.empty()) {
+      addError("$.validation.perception_ledger.id",
+               "perception ledger id must not be empty");
+    }
+    if (ledger.minimum_score < 0.0f || ledger.minimum_score > 1.0f) {
+      addError("$.validation.perception_ledger.minimum_score",
+               "perception ledger minimum_score must be in [0, 1]");
+    }
+    if (ledger.required_channels.empty()) {
+      addError("$.validation.perception_ledger.required_channels",
+               "perception ledger must require at least one channel");
+    }
+    for (const std::string &channel : ledger.required_channels) {
+      if (!validPerceptionLedgerChannel(channel)) {
+        addError("$.validation.perception_ledger.required_channels",
+                 "unknown perception ledger channel '" + channel + "'");
+      }
+    }
+    std::set<std::string> cell_ids;
+    for (const CavePerceptionLedgerCellDocument &cell : ledger.cells) {
+      if (cell.id.empty()) {
+        addError("$.validation.perception_ledger.cells", "ledger cell id must not be empty");
+        continue;
+      }
+      if (!cell_ids.insert(cell.id).second) {
+        addError("$.validation.perception_ledger.cells." + cell.id,
+                 "duplicate perception ledger cell id");
+      }
+      if (cell.minimum_score < 0.0f || cell.minimum_score > 1.0f) {
+        addError("$.validation.perception_ledger.cells." + cell.id,
+                 "ledger cell minimum_score must be in [0, 1]");
+      }
+      for (const std::string &channel : cell.required_channels) {
+        if (!validPerceptionLedgerChannel(channel)) {
+          addError("$.validation.perception_ledger.cells." + cell.id,
+                   "unknown perception ledger channel '" + channel + "'");
+        }
       }
     }
   }

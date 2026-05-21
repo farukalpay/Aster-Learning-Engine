@@ -55,6 +55,11 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(cave.value.validation.perceptual_continuity_budget->id == "entry_world_reaction");
   assert(!cave.value.validation.perceptual_continuity_budget->required_channels.empty());
   assert(!cave.value.validation.perceptual_continuity_budget->reaction_packages.empty());
+  assert(cave.value.validation.perception_ledger.has_value());
+  assert(cave.value.validation.perception_ledger->id == "entry_sensory_state_graph");
+  assert(cave.value.validation.perception_ledger->minimum_score > 0.0f);
+  assert(cave.value.validation.perception_ledger->required_channels.size() == 9u);
+  assert(cave.value.validation.perception_ledger->cells.size() == 2u);
   const std::vector<aster::sdk::Diagnostic> cave_diagnostics =
       aster::sdk::validateCaveDocument(cave.value, &project.value, &scene.value,
                                        project_root / "caves" / "cave_entry.cave");

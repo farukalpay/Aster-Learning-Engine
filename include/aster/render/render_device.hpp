@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "aster/core/world_perception_ledger.hpp"
 #include "aster/math/vec.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/material_compiler.hpp"
@@ -797,6 +798,11 @@ struct FrameForensics {
   std::uint64_t resource_state_hash = 0u;
   std::uint64_t event_residue_hash = 0u;
   std::uint64_t readability_audit_hash = 0u;
+  std::uint64_t perception_ledger_hash = 0u;
+  std::size_t perception_ledger_cell_count = 0u;
+  float perception_ledger_score = 0.0f;
+  bool perception_ledger_accepted = false;
+  std::vector<WorldPerceptionObjectTrace> perception_object_traces;
   std::vector<FramePassStats> passes;
   std::vector<FrameDiagnosticEvent> events;
   std::vector<FrameDebugCapture> captures;
@@ -1015,6 +1021,8 @@ public:
                                  std::uint64_t resource_state_hash,
                                  std::uint64_t event_residue_hash,
                                  std::uint64_t readability_audit_hash);
+  void stampLastFramePerceptionLedger(const WorldPerceptionLedgerReport &ledger,
+                                      std::vector<WorldPerceptionObjectTrace> object_traces);
   [[nodiscard]] const std::shared_ptr<const MaterialResourceLibrary> &materialResourceLibrary()
       const noexcept;
 

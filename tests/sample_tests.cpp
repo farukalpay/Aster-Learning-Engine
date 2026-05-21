@@ -46,6 +46,10 @@ void testLumenWorldForensicsContract() {
   assert(gate.resource_valid);
   assert(gate.encounter_valid);
   assert(gate.perceptual_valid);
+  assert(gate.perception_ledger_valid);
+  assert(gate.perception_ledger_hash != 0u);
+  assert(gate.perception_ledger_cell_count >= 1u);
+  assert(gate.perception_ledger_missing_channel_mask == 0u);
   assert(gate.probe_trace_hash != 0u);
   assert(gate.region_id != 0u);
 
@@ -59,6 +63,9 @@ void testLumenWorldForensicsContract() {
   assert(world.sensory_event_hash != 0u);
   assert(world.visibility_set_hash != 0u);
   assert(world.streaming_region_id == gate.region_id);
+  assert(world.perception_ledger.accepted);
+  assert(world.perception_ledger.ledger_hash != 0u);
+  assert(!world.perception_object_traces.empty());
 
   run.noteRenderExtraction(0xA57E1001u, 0xA57E2002u);
   assert(run.worldForensics().render_extraction_ready);
@@ -100,10 +107,15 @@ void testLumenCoalMiningReactionContinuity() {
   assert(reaction.reaction_package_hash != before_hash);
   assert(reaction.missing_channel_mask == 0u);
   assert(reaction.material_memory_hash != 0u);
+  assert(reaction.contact_history_hash != 0u);
   assert(reaction.event_residue_hash != 0u);
+  assert(reaction.wear_continuity_hash != 0u);
+  assert(reaction.audio_visual_cue_budget_hash != 0u);
   assert(reaction.ai_attention_hash != 0u);
   assert(reaction.resource_state_hash != 0u);
   assert(reaction.readability_audit_hash != 0u);
+  assert(run.worldForensics().perception_ledger.accepted);
+  assert(run.worldForensics().perception_ledger.wear_continuity_hash != 0u);
 }
 
 void testLumenCameraCollisionCanBeatComfortRadius() {

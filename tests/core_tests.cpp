@@ -7,6 +7,7 @@
 #include "aster/core/module_registry.hpp"
 #include "aster/core/session_journal.hpp"
 #include "aster/core/signal.hpp"
+#include "aster/core/world_perception_ledger.hpp"
 #include "aster/core/world_state.hpp"
 
 #include <atomic>
@@ -589,6 +590,45 @@ void testWorldStateTransitionContracts() {
   assert(!world.destroyEntity(entity, "stale"));
 }
 
+void testWorldPerceptionLedgerContracts() {
+  const std::uint32_t required =
+      aster::worldPerceptionLedgerChannelBit("material_memory") |
+      aster::worldPerceptionLedgerChannelBit("contact_history") |
+      aster::worldPerceptionLedgerChannelBit("streaming_semantic_lod");
+  aster::WorldPerceptionLedgerCellDesc cell;
+  cell.region_id = 0xCAFEu;
+  cell.cell_id = "entry";
+  cell.required_channel_mask = required;
+  cell.minimum_score = 1.0f;
+  cell.evidence = {
+      {aster::WorldPerceptionLedgerChannel::MaterialMemory, 0x101u, 1.0f},
+      {aster::WorldPerceptionLedgerChannel::ContactHistory, 0x202u, 1.0f},
+      {aster::WorldPerceptionLedgerChannel::StreamingSemanticLod, 0x303u, 1.0f},
+  };
+  const aster::WorldPerceptionLedgerCellReport first =
+      aster::evaluateWorldPerceptionLedgerCell(cell);
+  const aster::WorldPerceptionLedgerCellReport second =
+      aster::evaluateWorldPerceptionLedgerCell(cell);
+  assert(first.accepted);
+  assert(first.ledger_hash == second.ledger_hash);
+  assert(first.missing_channel_mask == 0u);
+  assert(first.material_memory_hash != 0u);
+  assert(first.contact_history_hash != 0u);
+
+  aster::WorldPerceptionLedgerCellDesc missing = cell;
+  missing.evidence.pop_back();
+  const aster::WorldPerceptionLedgerCellReport missing_report =
+      aster::evaluateWorldPerceptionLedgerCell(missing);
+  assert(!missing_report.accepted);
+  assert(missing_report.missing_channel_mask ==
+         aster::worldPerceptionLedgerChannelBit("streaming_semantic_lod"));
+  const aster::WorldPerceptionLedgerReport ledger =
+      aster::summarizeWorldPerceptionLedger(0xCAFEu, required, 1.0f, {first});
+  assert(ledger.accepted);
+  assert(ledger.cell_count == 1u);
+  assert(ledger.ledger_hash != 0u);
+}
+
 void testSourceBoundaryContracts() {
   const std::filesystem::path project_root =
       std::filesystem::path(__FILE__).parent_path().parent_path();
@@ -692,6 +732,7 @@ int main() {
   testBudgetedWorkQueueContracts();
   testAsterCoreRuntimeContracts();
   testWorldStateTransitionContracts();
+  testWorldPerceptionLedgerContracts();
   testSourceBoundaryContracts();
   testConfigLayerStackAndSessionJournal();
   std::cout << "core_tests passed.\n";

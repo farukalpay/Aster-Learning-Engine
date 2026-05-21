@@ -42,7 +42,12 @@ when it is not linked to a world transition.
 the frame is judged. It carries the world transition hash, epoch/tick evidence,
 actor delta summary, generated-region gate verdict, navigation validity,
 encounter/resource probe results, perceptual budget, streaming region identity,
-and render extraction linkage.
+and render extraction linkage. Above the renderer evidence sits the internal
+World Perception Ledger: a deterministic sensory-state graph for world cells
+that records material memory, contact history, lighting exposure, atmosphere
+membership, occlusion role, gameplay affordance, wear continuity, semantic LOD,
+and audio/visual cue budget. The existing perceptual continuity budget is the
+compatibility aggregate of that ledger, not a substitute for the ledger.
 
 Generated cave regions are proof-gated twice:
 
@@ -50,8 +55,9 @@ Generated cave regions are proof-gated twice:
    cave assets: seed, region identity, deterministic probe trace hash,
    pass/fail reasons, and navigation/resource/encounter/perceptual verdicts.
 2. Runtime streaming validates candidate cave chunks before publish. Valid
-   chunks become visible; failed chunks are quarantined and emit world-forensics
-   validation evidence.
+   chunks become visible only when the perception ledger also satisfies its
+   required sensory channels; failed chunks are quarantined and emit
+   world-forensics validation evidence.
 
 ## Renderer Contract
 
@@ -69,9 +75,10 @@ Scene / Material / Mesh Input
 This renderer contract is now a subordinate proof surface. Every rendered frame
 should carry world linkage when it came from `AsterWorld`: world transition hash,
 actor-state delta hash, encounter budget/result, navigation validity, streaming
-region id, and perceptual salience. Frames submitted from direct scene/lab paths
-remain valid, but their provenance is compatibility scene extraction rather than
-world transition extraction.
+region id, perceptual salience, and the world perception ledger hash/object
+traces when available. Frames submitted from direct scene/lab paths remain
+valid, but their provenance is compatibility scene extraction rather than world
+transition extraction.
 
 The public runtime surface remains frozen around the kernel ABI and source Game
 SDK. Internal renderer/RHI/framegraph headers can evolve, but external consumers
@@ -157,6 +164,10 @@ operators can start as deterministic descriptors plus diagnostics, but
 graph-authored materials must execute through renderer-facing procedural IR and
 trace back to graph GUID, node ID, shader variant, pipeline key, backend
 capability, and fallback/degradation reason.
+Production placement adds one more contract: assets must declare how they feed
+the perception ledger. A material or graph package can still prove texture roles
+and backend binding in isolation, but Lumen Run treats those proofs as inputs to
+cell-level sensory memory rather than as the final player-facing truth.
 
 ## Authoring Studio
 

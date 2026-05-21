@@ -707,6 +707,61 @@ void testFrameDebuggerMaterialBindingTrace() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
 
+void testFrameDebuggerPerceptionLedgerTrace() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+
+  aster::RenderObject object;
+  object.name = "perception ledger probe";
+  object.primitive = aster::MeshPrimitive::Box;
+  object.transform.position = {0.0f, 0.5f, 0.0f};
+  object.material = aster::makeMaterial({.base_color = {0.45f, 0.58f, 0.36f}});
+
+  aster::Scene scene;
+  scene.objects().push_back(object);
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.5f, 0.0f};
+  camera.radius = 4.0f;
+  aster::RendererSettings settings;
+  settings.atmosphere.enabled = false;
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.prepareScene(scene);
+  (void)renderer.render(scene, camera, settings, 48, 32, 0.0);
+
+  const std::uint32_t required =
+      aster::worldPerceptionLedgerChannelBit("material_memory") |
+      aster::worldPerceptionLedgerChannelBit("contact_history");
+  const aster::WorldPerceptionLedgerCellReport cell =
+      aster::evaluateWorldPerceptionLedgerCell(
+          {.region_id = 0xA57E77u,
+           .cell_id = "entry",
+           .required_channel_mask = required,
+           .minimum_score = 1.0f,
+           .evidence = {{aster::WorldPerceptionLedgerChannel::MaterialMemory, 0x11u, 1.0f},
+                        {aster::WorldPerceptionLedgerChannel::ContactHistory, 0x22u, 1.0f}}});
+  const aster::WorldPerceptionLedgerReport ledger =
+      aster::summarizeWorldPerceptionLedger(0xA57E77u, required, 1.0f, {cell});
+  renderer.stampLastFramePerceptionLedger(
+      ledger, {{.object_name = object.name,
+                .cell_id = "entry",
+                .observed_channel_mask = cell.observed_channel_mask,
+                .object_hash = 0x333u,
+                .ledger_hash = cell.ledger_hash}});
+
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  assert(forensics.perception_ledger_accepted);
+  assert(forensics.perception_ledger_hash == ledger.ledger_hash);
+  assert(forensics.perception_ledger_cell_count == 1u);
+  assert(forensics.perception_ledger_score >= 1.0f);
+  assert(forensics.perception_object_traces.size() == 1u);
+  assert(forensics.perception_object_traces[0].object_name == object.name);
+  assert(forensics.perception_object_traces[0].ledger_hash == cell.ledger_hash);
+
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
 void testFrameDebuggerAssetProvenanceTrace() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
   setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
@@ -2823,6 +2878,7 @@ constexpr TestCase kTestCases[] = {
     {"prepare_scene_custom_mesh_cache", testPrepareSceneInvalidatesCustomMeshCache},
     {"frame_math_diagnostics", testFrameMathDiagnostics},
     {"frame_debugger_material_binding_trace", testFrameDebuggerMaterialBindingTrace},
+    {"frame_debugger_perception_ledger_trace", testFrameDebuggerPerceptionLedgerTrace},
     {"frame_debugger_asset_provenance_trace", testFrameDebuggerAssetProvenanceTrace},
     {"frame_debugger_procedural_asset_graph_trace",
      testFrameDebuggerProceduralAssetGraphTrace},

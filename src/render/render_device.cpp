@@ -6257,6 +6257,16 @@ void RenderDevice::stampLastFrameCausalTrace(const std::uint64_t world_trace_has
   last_forensics_.readability_audit_hash = readability_audit_hash;
 }
 
+void RenderDevice::stampLastFramePerceptionLedger(
+    const WorldPerceptionLedgerReport &ledger,
+    std::vector<WorldPerceptionObjectTrace> object_traces) {
+  last_forensics_.perception_ledger_hash = ledger.ledger_hash;
+  last_forensics_.perception_ledger_cell_count = ledger.cell_count;
+  last_forensics_.perception_ledger_score = ledger.score;
+  last_forensics_.perception_ledger_accepted = ledger.accepted;
+  last_forensics_.perception_object_traces = std::move(object_traces);
+}
+
 const std::shared_ptr<const MaterialResourceLibrary> &RenderDevice::materialResourceLibrary()
     const noexcept {
   return material_library_;

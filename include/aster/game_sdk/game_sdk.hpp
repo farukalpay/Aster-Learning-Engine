@@ -414,6 +414,19 @@ struct CavePerceptualContinuityBudgetDocument {
   std::vector<CaveReactionPackageDocument> reaction_packages;
 };
 
+struct CavePerceptionLedgerCellDocument {
+  std::string id;
+  float minimum_score = 0.0f;
+  std::vector<std::string> required_channels;
+};
+
+struct CavePerceptionLedgerDocument {
+  std::string id;
+  float minimum_score = 0.50f;
+  std::vector<std::string> required_channels;
+  std::vector<CavePerceptionLedgerCellDocument> cells;
+};
+
 struct CaveValidationDocument {
   std::vector<CaveRouteValidationDocument> walkable_routes;
   std::vector<CaveVolumeValidationDocument> spawn_volumes;
@@ -424,6 +437,7 @@ struct CaveValidationDocument {
   std::vector<CaveWorldProbeDocument> encounter_probes;
   std::optional<CavePerceptualBudgetDocument> perceptual_budget;
   std::optional<CavePerceptualContinuityBudgetDocument> perceptual_continuity_budget;
+  std::optional<CavePerceptionLedgerDocument> perception_ledger;
 };
 
 struct CaveDocument {

@@ -3644,6 +3644,43 @@ fn coal_mining_reaction_observed_mask(action: &str) -> u32 {
         | perceptual_continuity_channel_bit("ui_feedback")
 }
 
+fn perception_ledger_channel_bit(channel: &str) -> u32 {
+    match channel {
+        "material_memory" => 1 << 0,
+        "contact_history" => 1 << 1,
+        "lighting_exposure" => 1 << 2,
+        "atmosphere_cell" => 1 << 3,
+        "occlusion_role" => 1 << 4,
+        "gameplay_affordance" => 1 << 5,
+        "wear_continuity" => 1 << 6,
+        "streaming_semantic_lod" => 1 << 7,
+        "audio_visual_cue_budget" => 1 << 8,
+        _ => 0,
+    }
+}
+
+fn perception_ledger_mask(value: Option<&Value>) -> u32 {
+    value
+        .and_then(Value::as_array)
+        .map(|channels| {
+            channels
+                .iter()
+                .filter_map(Value::as_str)
+                .fold(0u32, |mask, channel| {
+                    mask | perception_ledger_channel_bit(channel)
+                })
+        })
+        .unwrap_or(0)
+}
+
+fn perception_ledger_score(required: u32, observed: u32) -> f64 {
+    if required == 0 {
+        return 1.0;
+    }
+    let covered = (required & observed).count_ones() as f64;
+    covered / required.count_ones() as f64
+}
+
 fn cave_world_gate_report(
     root: &Value,
     id: &str,
@@ -3841,6 +3878,136 @@ fn cave_world_gate_report(
     }
 
     let nav_valid = blocked_steps == 0;
+    let section_count = root
+        .get("sections")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    let collision_count = collision_volumes.len();
+    let ledger_budget = validation.get("perception_ledger");
+    let ledger_required =
+        perception_ledger_mask(ledger_budget.and_then(|value| value.get("required_channels")));
+    let ledger_minimum = ledger_budget
+        .and_then(|value| value.get("minimum_score"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let mut ledger_observed = 0u32;
+    if resource_capacity > 0 {
+        ledger_observed |= perception_ledger_channel_bit("material_memory")
+            | perception_ledger_channel_bit("wear_continuity");
+    }
+    if collision_count > 0 {
+        ledger_observed |= perception_ledger_channel_bit("contact_history")
+            | perception_ledger_channel_bit("occlusion_role");
+    }
+    if fixture_count > 0 {
+        ledger_observed |= perception_ledger_channel_bit("lighting_exposure")
+            | perception_ledger_channel_bit("audio_visual_cue_budget");
+    }
+    if section_count > 0 {
+        ledger_observed |= perception_ledger_channel_bit("atmosphere_cell");
+    }
+    if resource_capacity > 0 || encounter_count > 0 {
+        ledger_observed |= perception_ledger_channel_bit("gameplay_affordance")
+            | perception_ledger_channel_bit("audio_visual_cue_budget");
+    }
+    if nav_valid && checked_steps > 0 {
+        ledger_observed |= perception_ledger_channel_bit("streaming_semantic_lod");
+    }
+    let ledger_material_memory_hash = hash_hex_text(&format!(
+        "{id}:ledger:material:{resource_capacity}:{source_hash}"
+    ));
+    let ledger_contact_history_hash = hash_hex_text(&format!(
+        "{id}:ledger:contact:{collision_count}:{blocked_steps}"
+    ));
+    let ledger_lighting_exposure_hash =
+        hash_hex_text(&format!("{id}:ledger:lighting:{fixture_count}"));
+    let ledger_atmosphere_cell_hash = hash_hex_text(&format!(
+        "{id}:ledger:atmosphere:{section_count}:{route_count}"
+    ));
+    let ledger_occlusion_role_hash = hash_hex_text(&format!(
+        "{id}:ledger:occlusion:{collision_count}:{fixture_count}"
+    ));
+    let ledger_gameplay_affordance_hash = hash_hex_text(&format!(
+        "{id}:ledger:affordance:{resource_capacity}:{encounter_count}"
+    ));
+    let ledger_wear_continuity_hash =
+        hash_hex_text(&format!("{id}:ledger:wear:{resource_capacity}"));
+    let ledger_streaming_semantic_lod_hash = hash_hex_text(&format!(
+        "{id}:ledger:streaming:{checked_steps}:{blocked_steps}"
+    ));
+    let ledger_audio_visual_cue_budget_hash = hash_hex_text(&format!(
+        "{id}:ledger:cue:{fixture_count}:{resource_capacity}:{encounter_count}"
+    ));
+    let mut ledger_cells = Vec::new();
+    if let Some(cells) = ledger_budget
+        .and_then(|value| value.get("cells"))
+        .and_then(Value::as_array)
+    {
+        for cell in cells {
+            let cell_id = cell.get("id").and_then(Value::as_str).unwrap_or("unnamed");
+            let required = {
+                let cell_required = perception_ledger_mask(cell.get("required_channels"));
+                if cell_required == 0 {
+                    ledger_required
+                } else {
+                    cell_required
+                }
+            };
+            let minimum = cell
+                .get("minimum_score")
+                .and_then(Value::as_f64)
+                .unwrap_or(ledger_minimum);
+            let missing = required & !ledger_observed;
+            let score = perception_ledger_score(required, ledger_observed);
+            let accepted = missing == 0 && score + f64::EPSILON >= minimum;
+            ledger_cells.push(serde_json::json!({
+                "id": cell_id,
+                "accepted": accepted,
+                "required_channel_mask": required,
+                "observed_channel_mask": ledger_observed,
+                "missing_channel_mask": missing,
+                "score": score,
+                "minimum_score": minimum,
+                "ledger_hash": hash_hex_text(&format!("{id}:ledger:cell:{cell_id}:{required}:{ledger_observed}:{missing}:{score:.3}:{minimum:.3}")),
+            }));
+        }
+    }
+    if ledger_cells.is_empty() {
+        let cell_id = "runtime";
+        let missing = ledger_required & !ledger_observed;
+        let score = perception_ledger_score(ledger_required, ledger_observed);
+        let accepted = missing == 0 && score + f64::EPSILON >= ledger_minimum;
+        ledger_cells.push(serde_json::json!({
+            "id": cell_id,
+            "accepted": accepted,
+            "required_channel_mask": ledger_required,
+            "observed_channel_mask": ledger_observed,
+            "missing_channel_mask": missing,
+            "score": score,
+            "minimum_score": ledger_minimum,
+            "ledger_hash": hash_hex_text(&format!("{id}:ledger:cell:{cell_id}:{ledger_required}:{ledger_observed}:{missing}:{score:.3}:{ledger_minimum:.3}")),
+        }));
+    }
+    let ledger_missing = ledger_required & !ledger_observed;
+    let ledger_score = perception_ledger_score(ledger_required, ledger_observed);
+    let ledger_cells_valid = ledger_cells.iter().all(|cell| {
+        cell.get("accepted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    });
+    let ledger_valid = ledger_cells_valid
+        && (ledger_required == 0
+            || (ledger_missing == 0 && ledger_score + f64::EPSILON >= ledger_minimum));
+    if !ledger_valid {
+        reasons.push(format!(
+            "world perception ledger score {ledger_score:.2} is below minimum {ledger_minimum:.2}"
+        ));
+    }
+    let ledger_hash = hash_hex_text(&format!(
+        "{id}:ledger:{ledger_required}:{ledger_observed}:{ledger_missing}:{ledger_score:.3}:{ledger_minimum:.3}:{source_hash}"
+    ));
+
     let continuity_budget = validation.get("perceptual_continuity_budget");
     let continuity_required = perceptual_continuity_mask(
         continuity_budget.and_then(|value| value.get("required_channels")),
@@ -3866,6 +4033,33 @@ fn cave_world_gate_report(
     }
     if checked_steps > 0 {
         continuity_observed |= perceptual_continuity_channel_bit("streaming_residency");
+    }
+    if ledger_observed & perception_ledger_channel_bit("material_memory") != 0 {
+        continuity_observed |= perceptual_continuity_channel_bit("material_memory")
+            | perceptual_continuity_channel_bit("resource_state");
+    }
+    if ledger_observed & perception_ledger_channel_bit("contact_history") != 0
+        || ledger_observed & perception_ledger_channel_bit("wear_continuity") != 0
+    {
+        continuity_observed |= perceptual_continuity_channel_bit("event_residue");
+    }
+    if ledger_observed & perception_ledger_channel_bit("lighting_exposure") != 0
+        || ledger_observed & perception_ledger_channel_bit("atmosphere_cell") != 0
+    {
+        continuity_observed |= perceptual_continuity_channel_bit("lighting_atmosphere");
+    }
+    if ledger_observed & perception_ledger_channel_bit("gameplay_affordance") != 0
+        || ledger_observed & perception_ledger_channel_bit("occlusion_role") != 0
+    {
+        continuity_observed |= perceptual_continuity_channel_bit("hazard_readability")
+            | perceptual_continuity_channel_bit("ai_attention");
+    }
+    if ledger_observed & perception_ledger_channel_bit("streaming_semantic_lod") != 0 {
+        continuity_observed |= perceptual_continuity_channel_bit("streaming_residency")
+            | perceptual_continuity_channel_bit("motion_continuity");
+    }
+    if ledger_observed & perception_ledger_channel_bit("audio_visual_cue_budget") != 0 {
+        continuity_observed |= perceptual_continuity_channel_bit("sensory_feedback");
     }
 
     let mut reaction_reports = Vec::new();
@@ -3931,10 +4125,11 @@ fn cave_world_gate_report(
         && encounter_valid
         && perceptual_valid
         && continuity_valid
+        && ledger_valid
         && checked_steps > 0;
     let region_id = hash_hex_text(&format!("{id}:{guid}:{source_hash}:region"));
     let probe_trace_hash = hash_hex_text(&format!(
-        "{id}:{source_hash}:{checked_steps}:{blocked_steps}:{resource_capacity}:{encounter_count}:{salience_score:.3}:{continuity_score:.3}:{continuity_required}:{continuity_observed}"
+        "{id}:{source_hash}:{checked_steps}:{blocked_steps}:{resource_capacity}:{encounter_count}:{salience_score:.3}:{continuity_score:.3}:{continuity_required}:{continuity_observed}:{ledger_hash}"
     ));
     let nav_report_hash = hash_hex_text(&format!(
         "{id}:nav:{checked_steps}:{blocked_steps}:{}",
@@ -4012,6 +4207,26 @@ fn cave_world_gate_report(
             "readability_audit_hash": perceptual_report_hash,
             "report_hash": continuity_report_hash,
             "reaction_packages": reaction_reports,
+        },
+        "perception_ledger": {
+            "accepted": ledger_valid,
+            "required_channel_mask": ledger_required,
+            "observed_channel_mask": ledger_observed,
+            "missing_channel_mask": ledger_missing,
+            "score": ledger_score,
+            "minimum_score": ledger_minimum,
+            "ledger_hash": ledger_hash,
+            "cell_count": ledger_cells.len(),
+            "material_memory_hash": ledger_material_memory_hash,
+            "contact_history_hash": ledger_contact_history_hash,
+            "lighting_exposure_hash": ledger_lighting_exposure_hash,
+            "atmosphere_cell_hash": ledger_atmosphere_cell_hash,
+            "occlusion_role_hash": ledger_occlusion_role_hash,
+            "gameplay_affordance_hash": ledger_gameplay_affordance_hash,
+            "wear_continuity_hash": ledger_wear_continuity_hash,
+            "streaming_semantic_lod_hash": ledger_streaming_semantic_lod_hash,
+            "audio_visual_cue_budget_hash": ledger_audio_visual_cue_budget_hash,
+            "cells": ledger_cells,
         },
         "diagnostic": diagnostic,
     });
@@ -9177,7 +9392,9 @@ mod tests {
     "spawn_volumes": [
       {{ "id": "player_spawn", "center": [0.0, 0.0, 0.0], "half_extents": [0.2, 0.2, 0.2] }}
     ],
-    "collision_volumes": [],
+    "collision_volumes": [
+      {{ "id": "wall_contact", "center": [2.0, 0.0, -4.0], "half_extents": [0.2, 0.8, 0.2] }}
+    ],
     "probe_agent": {{ "id": "gate_probe", "seed": 17, "step_count": 8, "step_length": 1.25 }},
     "resource_probes": [
       {{ "id": "ore_probe", "kind": "resource", "position": [0.0, 0.0, -4.0], "radius": 4.0, "minimum_count": 2 }}
@@ -9211,6 +9428,38 @@ mod tests {
             "resource_state",
             "ai_attention",
             "ui_feedback"
+          ]
+        }}
+      ]
+    }},
+    "perception_ledger": {{
+      "id": "entry_sensory_state_graph",
+      "minimum_score": 0.78,
+      "required_channels": [
+        "material_memory",
+        "contact_history",
+        "lighting_exposure",
+        "atmosphere_cell",
+        "occlusion_role",
+        "gameplay_affordance",
+        "wear_continuity",
+        "streaming_semantic_lod",
+        "audio_visual_cue_budget"
+      ],
+      "cells": [
+        {{
+          "id": "entry",
+          "minimum_score": 0.78,
+          "required_channels": [
+            "material_memory",
+            "contact_history",
+            "lighting_exposure",
+            "atmosphere_cell",
+            "occlusion_role",
+            "gameplay_affordance",
+            "wear_continuity",
+            "streaming_semantic_lod",
+            "audio_visual_cue_budget"
           ]
         }}
       ]
@@ -9418,6 +9667,16 @@ edge mat.wet material.assign wetness
         assert_eq!(report["verdict"], "accepted");
         assert_eq!(report["navigation"]["valid"], true);
         assert_eq!(report["perceptual_budget"]["accepted"], true);
+        assert_eq!(report["perception_ledger"]["accepted"], true);
+        assert_eq!(report["perception_ledger"]["missing_channel_mask"], 0);
+        assert!(
+            report["perception_ledger"]["ledger_hash"]
+                .as_str()
+                .expect("ledger hash")
+                .len()
+                >= 16
+        );
+        assert_eq!(report["perception_ledger"]["cell_count"], 1);
         assert_eq!(report["perceptual_continuity_budget"]["accepted"], true);
         assert_eq!(
             report["perceptual_continuity_budget"]["missing_channel_mask"],
@@ -9450,6 +9709,11 @@ edge mat.wet material.assign wetness
         assert_eq!(
             blocked_report["perceptual_continuity_budget"]["accepted"],
             false
+        );
+        assert_eq!(blocked_report["perception_ledger"]["accepted"], false);
+        assert_ne!(
+            blocked_report["perception_ledger"]["missing_channel_mask"],
+            0
         );
         assert_ne!(
             blocked_report["perceptual_continuity_budget"]["missing_channel_mask"],

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "aster/game_sdk/game_sdk.hpp"
+#include "aster/core/world_perception_ledger.hpp"
 #include "aster/core/world_state.hpp"
 #include "aster/systems/animation_system.hpp"
 #include "aster/systems/classic_actor_runtime.hpp"
@@ -133,11 +134,19 @@ struct LumenCaveWorldGateReport {
   std::uint32_t perceptual_continuity_missing_channel_mask = 0u;
   float perceptual_continuity_score = 0.0f;
   float perceptual_continuity_minimum_score = 0.0f;
+  bool perception_ledger_valid = false;
+  std::uint32_t perception_ledger_required_channel_mask = 0u;
+  std::uint32_t perception_ledger_observed_channel_mask = 0u;
+  std::uint32_t perception_ledger_missing_channel_mask = 0u;
+  float perception_ledger_score = 0.0f;
+  float perception_ledger_minimum_score = 0.0f;
+  std::size_t perception_ledger_cell_count = 0u;
   std::uint64_t nav_report_hash = 0u;
   std::uint64_t resource_probe_hash = 0u;
   std::uint64_t encounter_budget_hash = 0u;
   std::uint64_t perceptual_report_hash = 0u;
   std::uint64_t perceptual_continuity_report_hash = 0u;
+  std::uint64_t perception_ledger_hash = 0u;
   std::string diagnostic;
 };
 
@@ -150,11 +159,14 @@ struct LumenReactionPackageReport {
   float minimum_score = 0.0f;
   std::uint64_t reaction_package_hash = 0u;
   std::uint64_t material_memory_hash = 0u;
+  std::uint64_t contact_history_hash = 0u;
   std::uint64_t lighting_atmosphere_hash = 0u;
+  std::uint64_t wear_continuity_hash = 0u;
   std::uint64_t ai_attention_hash = 0u;
   std::uint64_t streaming_residency_lod_hash = 0u;
   std::uint64_t resource_state_hash = 0u;
   std::uint64_t event_residue_hash = 0u;
+  std::uint64_t audio_visual_cue_budget_hash = 0u;
   std::uint64_t readability_audit_hash = 0u;
   std::string diagnostic;
 };
@@ -173,6 +185,8 @@ struct LumenWorldForensics {
   std::uint64_t streaming_region_id = 0u;
   LumenCaveWorldGateReport cave_gate;
   LumenReactionPackageReport coal_mining_reaction;
+  WorldPerceptionLedgerReport perception_ledger;
+  std::vector<WorldPerceptionObjectTrace> perception_object_traces;
   bool render_extraction_ready = false;
 };
 
@@ -430,6 +444,10 @@ private:
   void updateSceneObjects(float animation_dt);
   void resetWorldProof();
   void rebuildCaveWorldGate();
+  [[nodiscard]] WorldPerceptionLedgerReport buildPerceptionLedgerReport(
+      std::uint64_t region_id) const;
+  [[nodiscard]] std::vector<WorldPerceptionObjectTrace>
+  buildPerceptionObjectTraces(const WorldPerceptionLedgerReport &ledger) const;
   void advanceWorldProof(float dt, Vec2 move_axis, bool run_requested, bool jump_requested,
                          Vec3 previous_player_position);
   void updatePlayerPhysics(float dt, Vec2 move_axis, bool run_requested, bool jump_requested);

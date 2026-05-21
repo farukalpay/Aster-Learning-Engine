@@ -1443,6 +1443,8 @@ int main(int argc, char **argv) {
           world_forensics.coal_mining_reaction.resource_state_hash,
           world_forensics.coal_mining_reaction.event_residue_hash,
           world_forensics.coal_mining_reaction.readability_audit_hash);
+      renderer.stampLastFramePerceptionLedger(world_forensics.perception_ledger,
+                                              world_forensics.perception_object_traces);
       if (collect_frame_sample) {
         render_times.addSample(clock.now() - render_start);
         ++render_counter_samples;

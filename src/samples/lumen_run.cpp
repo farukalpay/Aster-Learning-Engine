@@ -96,6 +96,27 @@ lumenContinuityChannelMask(const std::vector<std::string> &channels) {
   return mask;
 }
 
+[[nodiscard]] std::uint32_t lumenPerceptionLedgerDefaultMask() {
+  return worldPerceptionLedgerChannelBit("material_memory") |
+         worldPerceptionLedgerChannelBit("contact_history") |
+         worldPerceptionLedgerChannelBit("lighting_exposure") |
+         worldPerceptionLedgerChannelBit("atmosphere_cell") |
+         worldPerceptionLedgerChannelBit("occlusion_role") |
+         worldPerceptionLedgerChannelBit("gameplay_affordance") |
+         worldPerceptionLedgerChannelBit("wear_continuity") |
+         worldPerceptionLedgerChannelBit("streaming_semantic_lod") |
+         worldPerceptionLedgerChannelBit("audio_visual_cue_budget");
+}
+
+[[nodiscard]] std::uint32_t
+lumenPerceptionLedgerChannelMask(const std::vector<std::string> &channels) {
+  std::uint32_t mask = 0u;
+  for (const std::string &channel : channels) {
+    mask |= worldPerceptionLedgerChannelBit(channel);
+  }
+  return mask;
+}
+
 [[nodiscard]] float lumenContinuityScore(const std::uint32_t required,
                                          const std::uint32_t observed) {
   if (required == 0u) {
@@ -432,6 +453,197 @@ void LumenRun::resetWorldProof() {
   world_forensics_.trace_hash = world_state_.traceHash();
 }
 
+WorldPerceptionLedgerReport LumenRun::buildPerceptionLedgerReport(
+    const std::uint64_t region_id) const {
+  std::uint32_t ledger_required = lumenPerceptionLedgerDefaultMask();
+  float ledger_minimum = 0.72f;
+  std::vector<sdk::CavePerceptionLedgerCellDocument> authored_cells;
+  if (authoring_.valid && authoring_.cave.validation.perception_ledger.has_value()) {
+    const sdk::CavePerceptionLedgerDocument &ledger =
+        *authoring_.cave.validation.perception_ledger;
+    ledger_required = lumenPerceptionLedgerChannelMask(ledger.required_channels);
+    ledger_minimum = ledger.minimum_score;
+    authored_cells = ledger.cells;
+  }
+
+  std::vector<std::string> cell_ids;
+  if (!authored_cells.empty()) {
+    cell_ids.reserve(authored_cells.size());
+    for (const sdk::CavePerceptionLedgerCellDocument &cell : authored_cells) {
+      cell_ids.push_back(cell.id);
+    }
+  } else if (!cave_sections_.empty()) {
+    cell_ids.reserve(cave_sections_.size());
+    for (std::size_t index = 0u; index < cave_sections_.size(); ++index) {
+      cell_ids.push_back("cave-section-" + std::to_string(index));
+    }
+  }
+  if (cell_ids.empty()) {
+    cell_ids.push_back("lumen-runtime");
+  }
+
+  std::size_t fixture_count = 0u;
+  for (const AuthoredCaveSection &section : cave_sections_) {
+    fixture_count += section.wall_fixtures.size() + section.secondary_wall_fixtures.size();
+  }
+  std::size_t live_ores = 0u;
+  std::size_t damaged_ores = 0u;
+  std::uint64_t material_hash = lumenHashString("ledger.material-memory", region_id);
+  std::uint64_t wear_hash = lumenHashString("ledger.wear-continuity", region_id);
+  for (const CoalOreNode &ore : coal_ores_) {
+    if (!ore.collected) {
+      ++live_ores;
+      material_hash = lumenHash(ore.position, material_hash);
+      material_hash =
+          lumenHash(material_hash, static_cast<std::uint64_t>(std::max(ore.health, 0)));
+    }
+    if (ore.health < ore.max_health || ore.collected) {
+      ++damaged_ores;
+    }
+    wear_hash = lumenHash(wear_hash, static_cast<std::uint64_t>(std::max(ore.health, 0)));
+    wear_hash = lumenHash(wear_hash, static_cast<std::uint64_t>(ore.collected ? 1u : 0u));
+  }
+  material_hash = lumenHash(material_hash, world_forensics_.coal_mining_reaction.material_memory_hash);
+  wear_hash = lumenHash(wear_hash, world_forensics_.coal_mining_reaction.event_residue_hash);
+
+  std::size_t alive_skitters = 0u;
+  for (const CaveSkitter &skitter : cave_skitters_) {
+    if (!skitter.dead && !skitter.state.dead) {
+      ++alive_skitters;
+    }
+  }
+
+  std::uint64_t contact_hash = lumenHashString("ledger.contact-history", region_id);
+  contact_hash =
+      lumenHash(contact_hash, static_cast<std::uint64_t>(cave_collision_meshes_.size()));
+  contact_hash =
+      lumenHash(contact_hash, static_cast<std::uint64_t>(scenery_collision_boxes_.size()));
+  contact_hash = lumenHash(contact_hash, world_forensics_.coal_mining_reaction.event_residue_hash);
+
+  std::uint64_t light_hash = lumenHashString("ledger.lighting-exposure", region_id);
+  light_hash = lumenHash(light_hash, static_cast<std::uint64_t>(fixture_count));
+  light_hash = lumenHash(cave_entrance_light_position_, light_hash);
+  light_hash = lumenHash(light_hash, world_forensics_.coal_mining_reaction.lighting_atmosphere_hash);
+
+  const CaveLightingState player_light = caveLightingStateAt(player_position_);
+  std::uint64_t atmosphere_hash = lumenHashString("ledger.atmosphere-cell", region_id);
+  atmosphere_hash = lumenHash(player_light.interior, atmosphere_hash);
+  atmosphere_hash = lumenHash(player_light.depth, atmosphere_hash);
+  atmosphere_hash = lumenHash(player_light.wall_light, atmosphere_hash);
+  atmosphere_hash = lumenHash(atmosphere_hash, static_cast<std::uint64_t>(cave_sections_.size()));
+
+  std::uint64_t occlusion_hash = lumenHashString("ledger.occlusion-role", region_id);
+  occlusion_hash =
+      lumenHash(occlusion_hash, static_cast<std::uint64_t>(cave_exterior_hidden_objects_.size()));
+  occlusion_hash = lumenHash(occlusion_hash, static_cast<std::uint64_t>(scene_.objects().size()));
+
+  std::uint64_t affordance_hash = lumenHashString("ledger.gameplay-affordance", region_id);
+  affordance_hash = lumenHash(affordance_hash, static_cast<std::uint64_t>(live_ores));
+  affordance_hash = lumenHash(affordance_hash, static_cast<std::uint64_t>(alive_skitters));
+  affordance_hash = lumenHash(affordance_hash,
+                              world_forensics_.coal_mining_reaction.reaction_package_hash);
+
+  std::uint64_t streaming_hash = lumenHashString("ledger.streaming-semantic-lod", region_id);
+  streaming_hash = lumenHash(streaming_hash, region_id);
+  streaming_hash = lumenHash(streaming_hash, static_cast<std::uint64_t>(scene_.objects().size()));
+  streaming_hash =
+      lumenHash(streaming_hash, static_cast<std::uint64_t>(cave_sections_.size()));
+
+  std::uint64_t cue_hash = lumenHashString("ledger.audio-visual-cue-budget", region_id);
+  cue_hash = lumenHash(cue_hash, static_cast<std::uint64_t>(fixture_count));
+  cue_hash = lumenHash(cue_hash, static_cast<std::uint64_t>(alive_skitters));
+  cue_hash = lumenHash(cue_hash, static_cast<std::uint64_t>(live_ores));
+  cue_hash = lumenHash(cue_hash, world_forensics_.coal_mining_reaction.audio_visual_cue_budget_hash);
+
+  std::vector<WorldPerceptionLedgerCellReport> cells;
+  cells.reserve(cell_ids.size());
+  for (std::size_t index = 0u; index < cell_ids.size(); ++index) {
+    std::uint32_t cell_required = ledger_required;
+    float cell_minimum = ledger_minimum;
+    if (index < authored_cells.size()) {
+      const sdk::CavePerceptionLedgerCellDocument &cell = authored_cells[index];
+      if (!cell.required_channels.empty()) {
+        cell_required = lumenPerceptionLedgerChannelMask(cell.required_channels);
+      }
+      if (cell.minimum_score > 0.0f) {
+        cell_minimum = cell.minimum_score;
+      }
+    }
+
+    const std::uint64_t cell_hash = lumenHashString(cell_ids[index], region_id);
+    WorldPerceptionLedgerCellDesc desc;
+    desc.region_id = region_id;
+    desc.cell_id = cell_ids[index];
+    desc.required_channel_mask = cell_required;
+    desc.minimum_score = cell_minimum;
+    desc.diagnostic = "lumen cave authored sensory cell";
+    if (live_ores > 0u || material_hash != 0u) {
+      desc.evidence.push_back({WorldPerceptionLedgerChannel::MaterialMemory,
+                               lumenHash(material_hash, cell_hash), 1.0f});
+    }
+    if (!cave_collision_meshes_.empty() || !scenery_collision_boxes_.empty() ||
+        world_forensics_.coal_mining_reaction.event_residue_hash != 0u) {
+      desc.evidence.push_back({WorldPerceptionLedgerChannel::ContactHistory,
+                               lumenHash(contact_hash, cell_hash), 1.0f});
+    }
+    if (fixture_count > 0u || length(cave_entrance_light_position_) > 0.0f) {
+      desc.evidence.push_back({WorldPerceptionLedgerChannel::LightingExposure,
+                               lumenHash(light_hash, cell_hash), 1.0f});
+    }
+    if (!cave_sections_.empty() || player_light.interior > 0.0f) {
+      desc.evidence.push_back({WorldPerceptionLedgerChannel::AtmosphereCell,
+                               lumenHash(atmosphere_hash, cell_hash), 1.0f});
+    }
+    if (!scene_.objects().empty()) {
+      desc.evidence.push_back({WorldPerceptionLedgerChannel::OcclusionRole,
+                               lumenHash(occlusion_hash, cell_hash), 1.0f});
+    }
+    if (live_ores > 0u || alive_skitters > 0u) {
+      desc.evidence.push_back({WorldPerceptionLedgerChannel::GameplayAffordance,
+                               lumenHash(affordance_hash, cell_hash), 1.0f});
+    }
+    if (live_ores > 0u || damaged_ores > 0u ||
+        world_forensics_.coal_mining_reaction.event_residue_hash != 0u) {
+      desc.evidence.push_back({WorldPerceptionLedgerChannel::WearContinuity,
+                               lumenHash(wear_hash, cell_hash), 1.0f});
+    }
+    if (region_id != 0u) {
+      desc.evidence.push_back({WorldPerceptionLedgerChannel::StreamingSemanticLod,
+                               lumenHash(streaming_hash, cell_hash), 1.0f});
+    }
+    if (fixture_count > 0u || alive_skitters > 0u || live_ores > 0u) {
+      desc.evidence.push_back({WorldPerceptionLedgerChannel::AudioVisualCueBudget,
+                               lumenHash(cue_hash, cell_hash), 1.0f});
+    }
+    cells.push_back(evaluateWorldPerceptionLedgerCell(desc));
+  }
+
+  return summarizeWorldPerceptionLedger(region_id, ledger_required, ledger_minimum,
+                                        std::move(cells));
+}
+
+std::vector<WorldPerceptionObjectTrace>
+LumenRun::buildPerceptionObjectTraces(const WorldPerceptionLedgerReport &ledger) const {
+  std::vector<WorldPerceptionObjectTrace> traces;
+  if (ledger.cells.empty()) {
+    return traces;
+  }
+  traces.reserve(scene_.objects().size());
+  for (std::size_t index = 0u; index < scene_.objects().size(); ++index) {
+    const RenderObject &object = scene_.objects()[index];
+    const WorldPerceptionLedgerCellReport &cell = ledger.cells[index % ledger.cells.size()];
+    std::uint64_t object_hash = lumenHashString(object.name, ledger.ledger_hash);
+    object_hash = lumenHashString(object.material_asset_id, object_hash);
+    object_hash = lumenHash(object.transform.position, object_hash);
+    traces.push_back({.object_name = object.name,
+                      .cell_id = cell.cell_id,
+                      .observed_channel_mask = cell.observed_channel_mask,
+                      .object_hash = object_hash,
+                      .ledger_hash = cell.ledger_hash});
+  }
+  return traces;
+}
+
 void LumenRun::recordCoalMiningReaction(const std::size_t ore_index,
                                         const MiningFeedback &feedback,
                                         const CoalOreNode &ore) {
@@ -468,6 +680,10 @@ void LumenRun::recordCoalMiningReaction(const std::size_t ore_index,
     residue_hash = lumenHash(residue_hash, static_cast<std::uint64_t>(std::max(event.particle_count, 0)));
   }
   report.event_residue_hash = residue_hash;
+  std::uint64_t contact_hash = lumenHashString("coal.contact-history", residue_hash);
+  contact_hash = lumenHash(contact_hash, static_cast<std::uint64_t>(feedback.impact_events.size()));
+  contact_hash = lumenHash(feedback.impact_point, contact_hash);
+  report.contact_history_hash = contact_hash;
 
   std::size_t attentive_skitters = 0u;
   std::uint64_t ai_hash = lumenHashString("coal.noise-attention", residue_hash);
@@ -491,6 +707,11 @@ void LumenRun::recordCoalMiningReaction(const std::size_t ore_index,
   resource_hash =
       lumenHash(resource_hash, static_cast<std::uint64_t>(std::max(feedback.resource_quantity, 0)));
   report.resource_state_hash = resource_hash;
+  std::uint64_t wear_hash = lumenHashString("coal.wear-continuity", resource_hash);
+  wear_hash = lumenHash(wear_hash, static_cast<std::uint64_t>(std::max(ore.health, 0)));
+  wear_hash = lumenHash(wear_hash, static_cast<std::uint64_t>(ore.collected ? 1u : 0u));
+  wear_hash = lumenHash(feedback.crack_fraction, wear_hash);
+  report.wear_continuity_hash = wear_hash;
 
   const InteractionFocus &focus = interaction_.focus();
   std::uint64_t readability_hash = lumenHashString("coal.ui-readability", resource_hash);
@@ -500,6 +721,11 @@ void LumenRun::recordCoalMiningReaction(const std::size_t ore_index,
   report.readability_audit_hash = readability_hash;
   report.lighting_atmosphere_hash = world_forensics_.cave_gate.perceptual_continuity_report_hash;
   report.streaming_residency_lod_hash = world_forensics_.streaming_region_id;
+  std::uint64_t cue_hash = lumenHashString("coal.audio-visual-cue-budget", readability_hash);
+  cue_hash = lumenHash(cue_hash, report.event_residue_hash);
+  cue_hash = lumenHash(cue_hash, report.ai_attention_hash);
+  cue_hash = lumenHash(cue_hash, report.contact_history_hash);
+  report.audio_visual_cue_budget_hash = cue_hash;
 
   report.observed_channel_mask = 0u;
   if (report.material_memory_hash != 0u) {
@@ -524,15 +750,22 @@ void LumenRun::recordCoalMiningReaction(const std::size_t ore_index,
       report.missing_channel_mask == 0u && report.continuity_score + 0.0001f >= report.minimum_score;
   std::uint64_t package_hash = lumenHashString("coal.reaction-package", material_hash);
   package_hash = lumenHash(package_hash, report.material_memory_hash);
+  package_hash = lumenHash(package_hash, report.contact_history_hash);
   package_hash = lumenHash(package_hash, report.event_residue_hash);
   package_hash = lumenHash(package_hash, report.ai_attention_hash);
   package_hash = lumenHash(package_hash, report.resource_state_hash);
+  package_hash = lumenHash(package_hash, report.wear_continuity_hash);
+  package_hash = lumenHash(package_hash, report.audio_visual_cue_budget_hash);
   package_hash = lumenHash(package_hash, report.readability_audit_hash);
   package_hash = lumenHash(report.continuity_score, package_hash);
   report.reaction_package_hash = package_hash;
   report.diagnostic = report.accepted ? "coal mining reaction continuity accepted"
                                       : "coal mining reaction continuity missing channels";
   world_forensics_.coal_mining_reaction = std::move(report);
+  world_forensics_.perception_ledger =
+      buildPerceptionLedgerReport(world_forensics_.streaming_region_id);
+  world_forensics_.perception_object_traces =
+      buildPerceptionObjectTraces(world_forensics_.perception_ledger);
 }
 
 void LumenRun::rebuildCaveWorldGate() {
@@ -745,6 +978,9 @@ void LumenRun::rebuildCaveWorldGate() {
   perceptual_hash = lumenHash(perceptual_hash, static_cast<std::uint64_t>(cave_webs_.size()));
   report.perceptual_report_hash = perceptual_hash;
 
+  const WorldPerceptionLedgerReport perception_ledger =
+      buildPerceptionLedgerReport(report.region_id);
+
   std::uint32_t continuity_required = 0u;
   std::uint32_t continuity_observed = 0u;
   float continuity_minimum = 0.0f;
@@ -785,6 +1021,27 @@ void LumenRun::rebuildCaveWorldGate() {
   if (fixture_count > 0u) {
     continuity_observed |= kContinuityLightingAtmosphere;
   }
+  if (perception_ledger.material_memory_hash != 0u) {
+    continuity_observed |= kContinuityMaterialMemory | kContinuityResourceState;
+  }
+  if (perception_ledger.contact_history_hash != 0u ||
+      perception_ledger.wear_continuity_hash != 0u) {
+    continuity_observed |= kContinuityEventResidue;
+  }
+  if (perception_ledger.lighting_exposure_hash != 0u ||
+      perception_ledger.atmosphere_cell_hash != 0u) {
+    continuity_observed |= kContinuityLightingAtmosphere;
+  }
+  if (perception_ledger.gameplay_affordance_hash != 0u ||
+      perception_ledger.occlusion_role_hash != 0u) {
+    continuity_observed |= kContinuityHazardReadability | kContinuityAiAttention;
+  }
+  if (perception_ledger.streaming_semantic_lod_hash != 0u) {
+    continuity_observed |= kContinuityStreamingResidency | kContinuityMotionContinuity;
+  }
+  if (perception_ledger.audio_visual_cue_budget_hash != 0u) {
+    continuity_observed |= kContinuitySensoryFeedback;
+  }
   report.perceptual_continuity_required_channel_mask = continuity_required;
   report.perceptual_continuity_observed_channel_mask = continuity_observed;
   report.perceptual_continuity_missing_channel_mask = continuity_required & ~continuity_observed;
@@ -800,10 +1057,20 @@ void LumenRun::rebuildCaveWorldGate() {
   continuity_hash = lumenHash(continuity_hash, continuity_required);
   continuity_hash = lumenHash(continuity_hash, continuity_observed);
   continuity_hash = lumenHash(report.perceptual_continuity_score, continuity_hash);
+  continuity_hash = lumenHash(continuity_hash, perception_ledger.ledger_hash);
   report.perceptual_continuity_report_hash = continuity_hash;
+  report.perception_ledger_valid = perception_ledger.accepted;
+  report.perception_ledger_required_channel_mask = perception_ledger.required_channel_mask;
+  report.perception_ledger_observed_channel_mask = perception_ledger.observed_channel_mask;
+  report.perception_ledger_missing_channel_mask = perception_ledger.missing_channel_mask;
+  report.perception_ledger_score = perception_ledger.score;
+  report.perception_ledger_minimum_score = perception_ledger.minimum_score;
+  report.perception_ledger_cell_count = perception_ledger.cell_count;
+  report.perception_ledger_hash = perception_ledger.ledger_hash;
 
   bool accepted = report.navigation_valid && report.resource_valid && report.encounter_valid &&
-                  report.perceptual_valid && report.perceptual_continuity_valid;
+                  report.perceptual_valid && report.perceptual_continuity_valid &&
+                  report.perception_ledger_valid;
   report.verdict =
       accepted ? LumenWorldGateVerdict::Accepted : LumenWorldGateVerdict::Quarantined;
   if (!report.navigation_valid) {
@@ -822,6 +1089,10 @@ void LumenRun::rebuildCaveWorldGate() {
     report.diagnostic =
         appendGateReason(report.diagnostic, "perceptual continuity below budget");
   }
+  if (!report.perception_ledger_valid) {
+    report.diagnostic =
+        appendGateReason(report.diagnostic, "world perception ledger below budget");
+  }
   if (report.diagnostic.empty()) {
     report.diagnostic = "runtime generated cave world gate accepted";
   }
@@ -833,6 +1104,7 @@ void LumenRun::rebuildCaveWorldGate() {
   probe_hash = lumenHash(probe_hash, report.encounter_budget_hash);
   probe_hash = lumenHash(probe_hash, report.perceptual_report_hash);
   probe_hash = lumenHash(probe_hash, report.perceptual_continuity_report_hash);
+  probe_hash = lumenHash(probe_hash, report.perception_ledger_hash);
   probe_hash = lumenHashString(lumenGateVerdictName(report.verdict), probe_hash);
   report.probe_trace_hash = probe_hash;
 
@@ -843,6 +1115,9 @@ void LumenRun::rebuildCaveWorldGate() {
   world_forensics_.world_hash = world_state_.worldHash();
   world_forensics_.trace_hash = world_state_.traceHash();
   world_forensics_.world_transition_hash = report.probe_trace_hash;
+  world_forensics_.perception_ledger = perception_ledger;
+  world_forensics_.perception_object_traces =
+      buildPerceptionObjectTraces(world_forensics_.perception_ledger);
 }
 
 void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const bool run_requested,
@@ -870,6 +1145,12 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
       ++live_ores;
     }
   }
+  const std::uint64_t ledger_region =
+      world_forensics_.streaming_region_id != 0u ? world_forensics_.streaming_region_id
+                                                 : world_forensics_.cave_gate.region_id;
+  world_forensics_.perception_ledger = buildPerceptionLedgerReport(ledger_region);
+  world_forensics_.perception_object_traces =
+      buildPerceptionObjectTraces(world_forensics_.perception_ledger);
 
   std::uint64_t actor_hash = lumenHashString("actor-delta", intent_hash);
   actor_hash = lumenHash(previous_player_position, actor_hash);
@@ -881,6 +1162,7 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   actor_hash = lumenHash(actor_hash, static_cast<std::uint64_t>(live_ores));
   actor_hash = lumenHash(actor_hash, world_forensics_.coal_mining_reaction.reaction_package_hash);
   actor_hash = lumenHash(actor_hash, world_forensics_.coal_mining_reaction.resource_state_hash);
+  actor_hash = lumenHash(actor_hash, world_forensics_.perception_ledger.ledger_hash);
 
   const CaveLightingState cave_light = caveLightingStateAt(player_position_);
   const FocusPromptModel prompt = focusPromptModel();
@@ -892,12 +1174,19 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   sensory_hash = lumenHashString(prompt.subject, sensory_hash);
   sensory_hash = lumenHash(sensory_hash, world_forensics_.coal_mining_reaction.event_residue_hash);
   sensory_hash = lumenHash(sensory_hash, world_forensics_.coal_mining_reaction.ai_attention_hash);
+  sensory_hash = lumenHash(sensory_hash, world_forensics_.perception_ledger.ledger_hash);
+  sensory_hash =
+      lumenHash(sensory_hash, world_forensics_.perception_ledger.audio_visual_cue_budget_hash);
 
   std::uint64_t visibility_hash = lumenHashString("visibility-set", sensory_hash);
   visibility_hash = lumenHash(visibility_hash, static_cast<std::uint64_t>(scene_.objects().size()));
   visibility_hash = lumenHash(visibility_hash, world_forensics_.streaming_region_id);
   visibility_hash = lumenHash(cave_light.entrance_light, visibility_hash);
   visibility_hash = lumenHash(cave_light.chamber, visibility_hash);
+  visibility_hash =
+      lumenHash(visibility_hash, world_forensics_.perception_ledger.occlusion_role_hash);
+  visibility_hash =
+      lumenHash(visibility_hash, world_forensics_.perception_ledger.streaming_semantic_lod_hash);
 
   const WorldTickResult tick =
       world_state_.tick({.tick = next_world_epoch_++,
@@ -930,6 +1219,7 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   transition_hash = lumenHash(transition_hash, world_forensics_.cave_gate.probe_trace_hash);
   transition_hash =
       lumenHash(transition_hash, world_forensics_.coal_mining_reaction.reaction_package_hash);
+  transition_hash = lumenHash(transition_hash, world_forensics_.perception_ledger.ledger_hash);
   world_forensics_.world_transition_hash = transition_hash;
 }
 

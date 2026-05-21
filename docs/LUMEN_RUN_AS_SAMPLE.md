@@ -26,9 +26,14 @@ workflows must stay visible and testable.
 The cave route is a world gate before it is a renderer acceptance route. The
 first proof asks whether the player can be spawned, move through the generated
 region, reach intended resource/encounter affordances, and receive enough
-perceptual signal for light/fog/wetness to affect decisions. `aster_assetc cook`
-emits a cave world-gate report for authored cave inputs, and runtime streaming
-validates candidate generated chunks before they are published.
+perceptual signal for light/fog/wetness to affect decisions. That proof now
+runs through the World Perception Ledger: each cave cell must carry material
+memory, contact history, lighting exposure, atmosphere membership, occlusion
+role, gameplay affordance, wear continuity, semantic LOD, and audio/visual cue
+budget before it is publishable. `aster_assetc cook` emits both the ledger block
+and the compatibility perceptual-continuity aggregate for authored cave inputs,
+and runtime streaming validates candidate generated chunks before they are
+published.
 
 After that gate passes, each stress station binds a visible artifact to
 frame-forensics evidence: authored scale cues and camera framing, contact shadow
@@ -41,12 +46,13 @@ stress for translucent cave detail, and streaming stress for cooked
 graph/material/texture residency.
 
 Every visual glitch should resolve into a renderer or asset bug report, not a
-sample-only workaround. Every world glitch should resolve into a world-gate or
-authoring bug report, not a prettier frame. The report needs the region id,
-probe trace hash, nav/resource/encounter/perceptual verdicts, world transition
-hash, capture, image diff status, pass cost map, resource transitions, material
-binding trace, backend feature proof, and asset provenance that explain why the
-player-visible result failed.
+sample-only workaround. Every world glitch should resolve into a world-gate,
+perception-ledger, or authoring bug report, not a prettier frame. The report
+needs the region id, probe trace hash, nav/resource/encounter/perceptual
+verdicts, ledger hash, ledger cell count, world transition hash, capture, image
+diff status, pass cost map, resource transitions, material binding trace,
+backend feature proof, object perception traces, and asset provenance that
+explain why the player-visible result failed.
 
 ## Classic Gauntlet
 

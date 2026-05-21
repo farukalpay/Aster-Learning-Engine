@@ -153,6 +153,7 @@ set(ASTER_CORE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/profiler.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/session_journal.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/work_budget.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/world_perception_ledger.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/world_state.cpp"
   "${PROJECT_SOURCE_DIR}/src/math/transform.cpp"
 )
@@ -841,6 +842,7 @@ if(ASTER_BUILD_TESTS)
       prepare_scene_custom_mesh_cache
       frame_math_diagnostics
       frame_debugger_material_binding_trace
+      frame_debugger_perception_ledger_trace
       frame_debugger_asset_provenance_trace
       frame_debugger_procedural_asset_graph_trace
       frame_debugger_evidence_timeline_and_regression_lab

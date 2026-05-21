@@ -167,3 +167,11 @@ surface-attribute/surface-occlusion/shadow/fog/probe resources. Mesh
 visibility traces and object cluster membership traces sit next to the material
 binding and asset traces so a debugger can connect material, visibility,
 lighting, and asset-production decisions.
+When a frame comes from Lumen Cave, these material traces are also ledger
+projections. The world perception ledger records whether a surface carries
+material memory, contact history, lighting exposure, atmosphere membership,
+occlusion role, gameplay affordance, wear continuity, semantic LOD, and
+audio/visual cue budget before the renderer binds textures. Material binding can
+explain how a wetness or ORM role reached the shader; the ledger explains why
+that surface should look wet, worn, occluding, readable, or persistent in that
+world cell.
