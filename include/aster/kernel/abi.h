@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 5u
-#define ASTER_KERNEL_ABI_MINOR 1u
+#define ASTER_KERNEL_ABI_MINOR 2u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -665,6 +665,38 @@ typedef struct AsterBackendCapabilityTable {
   uint32_t max_texture_dimension_2d;
   uint32_t max_dynamic_uniform_bytes;
 } AsterBackendCapabilityTable;
+
+typedef struct AsterPresentDesc {
+  size_t size;
+  uint32_t version;
+  uint32_t vsync;
+  uint32_t wait_for_frame;
+} AsterPresentDesc;
+
+typedef struct AsterPresentResult {
+  size_t size;
+  uint32_t version;
+  uint32_t presented;
+  AsterKernelBackendKind backend;
+  AsterKernelBackendPresentationMode presentation;
+  uint32_t width;
+  uint32_t height;
+  uint32_t backbuffer_index;
+  uint64_t frame_index;
+  size_t queue_waits;
+} AsterPresentResult;
+
+typedef struct AsterRendererPresentationStatus {
+  size_t size;
+  uint32_t version;
+  AsterKernelBackendKind backend;
+  AsterKernelBackendPresentationMode presentation;
+  uint32_t native_present_supported;
+  uint32_t bound_window;
+  uint32_t width;
+  uint32_t height;
+  uint64_t last_presented_frame;
+} AsterRendererPresentationStatus;
 
 typedef struct AsterValidationEvent {
   size_t size;
@@ -1362,8 +1394,15 @@ ASTER_KERNEL_API AsterStatus aster_kernel_renderer_render_frame(
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_render_frame_to_target(
     AsterRendererHandle renderer, AsterSceneHandle scene, AsterRenderTargetHandle target,
     const AsterCameraDesc *camera, const AsterRendererSettings *settings);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_bind_window(AsterRendererHandle renderer,
+                                                               AsterWindowHandle window);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_present(AsterRendererHandle renderer,
                                                            AsterWindowHandle window);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_present_frame(
+    AsterRendererHandle renderer, AsterWindowHandle window, const AsterPresentDesc *desc,
+    AsterPresentResult *out_result);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_presentation_status(
+    AsterRendererHandle renderer, AsterRendererPresentationStatus *out_status);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_capture(AsterRendererHandle renderer,
                                                            const AsterCaptureDesc *desc);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_capture_render_target(

@@ -33,6 +33,7 @@ constexpr std::size_t kRenderLightUniformCapacity = 64;
 class Scene;
 enum class MeshPrimitive;
 class NativeRenderBackend;
+struct NativeWindowSurface;
 struct RenderObject;
 
 enum class RenderBackendKind {
@@ -56,6 +57,32 @@ struct RenderBackendCapabilities {
   std::uint32_t graph_resource_mask = 0u;
   ProjectionConvention projection_convention = defaultProjectionConvention();
   rhi::DeviceCapabilities capability_table{};
+};
+
+struct RendererPresentDesc {
+  bool vsync = true;
+  bool wait_for_frame = true;
+};
+
+struct RendererPresentResult {
+  bool presented = false;
+  RenderBackendKind backend = RenderBackendKind::Unknown;
+  rhi::PresentationMode presentation = rhi::PresentationMode::None;
+  std::uint32_t width = 0u;
+  std::uint32_t height = 0u;
+  std::uint32_t backbuffer_index = 0u;
+  std::uint64_t frame_index = 0u;
+  std::size_t queue_waits = 0u;
+};
+
+struct RendererPresentationStatus {
+  RenderBackendKind backend = RenderBackendKind::Unknown;
+  rhi::PresentationMode presentation = rhi::PresentationMode::None;
+  bool native_present_supported = false;
+  bool bound_window = false;
+  std::uint32_t width = 0u;
+  std::uint32_t height = 0u;
+  std::uint64_t last_presented_frame = 0u;
 };
 
 struct Light {
@@ -926,12 +953,16 @@ public:
 
   void initialize();
   void prepareScene(const Scene &scene);
+  bool bindWindow(const NativeWindowSurface &surface);
   void setMaterialResourceLibrary(std::shared_ptr<const MaterialResourceLibrary> library);
   FrameStats render(const Scene &scene, const OrbitCamera &camera, const RendererSettings &settings,
                     int framebuffer_width, int framebuffer_height, double frame_seconds);
+  RendererPresentResult present(const NativeWindowSurface &surface,
+                                const RendererPresentDesc &desc);
 
   [[nodiscard]] const char *backendName() const;
   [[nodiscard]] RenderBackendCapabilities backendCapabilities() const;
+  [[nodiscard]] RendererPresentationStatus presentationStatus() const;
   [[nodiscard]] const FixedRenderGraph &renderGraph() const;
   [[nodiscard]] const FrameForensics &lastFrameForensics() const;
   [[nodiscard]] const std::shared_ptr<const MaterialResourceLibrary> &materialResourceLibrary()

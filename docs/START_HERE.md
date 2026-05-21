@@ -5,14 +5,16 @@ proof path, then inspect Lumen Run as one sample built on that surface.
 
 Recommended path:
 
-1. Read `WHAT_ASTER_IS.md`.
-2. Read `PRODUCT_PATH.md`.
-3. Render a lab scene with `aster_preview --scene material-lab`.
-4. Read `RENDERING_PIPELINE.md` and `MATERIALS_AND_SHADERS.md`.
-5. Inspect `SCENE_AND_MESH_PIPELINE.md`.
-6. For agent-led content work, read `AGENT_AUTHORING.md` and generate an
+1. Run `aster_quickstart --capture /tmp/aster_quickstart.ppm` after building.
+2. Read the README `First Draw` section and `SIMPLE_API.md`.
+3. Read `WHAT_ASTER_IS.md`.
+4. Read `PRODUCT_PATH.md`.
+5. Render a lab scene with `aster_preview --scene material-lab`.
+6. Read `RENDERING_PIPELINE.md` and `MATERIALS_AND_SHADERS.md`.
+7. Inspect `SCENE_AND_MESH_PIPELINE.md`.
+8. For agent-led content work, read `AGENT_AUTHORING.md` and generate an
    `aster_assetc agent-plan` report before editing.
-7. Use `LUMEN_RUN_AS_SAMPLE.md` only after the engine loop is clear.
+9. Use `LUMEN_RUN_AS_SAMPLE.md` only after the engine loop is clear.
 
 Core proof points:
 

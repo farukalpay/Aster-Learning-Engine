@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "aster/platform/window.hpp"
 #include "aster/render/render_device.hpp"
 
 namespace aster {
@@ -41,7 +42,32 @@ public:
   virtual ~NativeRenderBackend() = default;
 
   virtual bool initialize() = 0;
+  virtual bool bindWindow(const NativeWindowSurface &surface) {
+    (void)surface;
+    return false;
+  }
+  virtual bool resizeDrawable(const NativeWindowSurface &surface) {
+    (void)surface;
+    return false;
+  }
   virtual FrameStats render(const FrameExecutionContext &context) = 0;
+  virtual RendererPresentResult present(const NativeWindowSurface &surface,
+                                        const RendererPresentDesc &desc) {
+    (void)surface;
+    (void)desc;
+    RendererPresentResult result;
+    const RenderBackendCapabilities caps = capabilities();
+    result.backend = caps.kind;
+    result.presentation = caps.capability_table.presentation;
+    return result;
+  }
+  [[nodiscard]] virtual RendererPresentationStatus presentationStatus() const {
+    RendererPresentationStatus status;
+    const RenderBackendCapabilities caps = capabilities();
+    status.backend = caps.kind;
+    status.presentation = caps.capability_table.presentation;
+    return status;
+  }
   [[nodiscard]] virtual const char *backendName() const = 0;
   [[nodiscard]] virtual RenderBackendCapabilities capabilities() const = 0;
 };

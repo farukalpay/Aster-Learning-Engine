@@ -503,6 +503,19 @@ std::pair<int, int> Window::framebufferSize() const {
   return windowSize();
 }
 
+NativeWindowSurface Window::nativeSurface() const {
+  if (impl_ == nullptr || impl_->hwnd == nullptr) {
+    return {};
+  }
+  return {.kind = NativeWindowSurfaceKind::Win32Hwnd,
+          .handle = impl_->hwnd,
+          .display = nullptr,
+          .width = std::max(impl_->width, 1),
+          .height = std::max(impl_->height, 1),
+          .vsync = impl_->vsync,
+          .valid = true};
+}
+
 ControlSnapshot Window::captureControls(const ControlScheme &scheme) const {
   (void)scheme;
   return impl_ == nullptr ? ControlSnapshot{} : impl_->input;

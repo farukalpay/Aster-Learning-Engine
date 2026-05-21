@@ -57,51 +57,42 @@ what the viewer is seeing.
 Engine contract batch visuals live in
 [tests/artifacts/engine_contract_batch1](tests/artifacts/engine_contract_batch1/README.md).
 
-## First Scene
+## First Draw
 
-Aster scenes are plain engine data: create a scene, assign a material, attach a
-mesh or primitive, render a frame, then capture the framebuffer.
+Aster has a small source-level facade for first contact. Use it when you want to
+draw, not inspect. The render graph, frame forensics, resource transitions, and
+material compiler are still there, but they stay below this API until you ask
+for them.
 
 ```cpp
-#include "aster/render/frame_capture.hpp"
-#include "aster/render/render_device.hpp"
-#include "aster/scene/scene.hpp"
+#include "aster/aster.hpp"
 
-aster::Scene scene;
+int main() {
+  using namespace aster;
 
-aster::RenderObject object;
-object.name = "first shader ball";
-object.primitive = aster::MeshPrimitive::Sphere;
-object.transform.position = {0.0f, 0.6f, 0.0f};
-object.material = aster::makeMaterial({
-    .base_color = aster::LinearRgb{0.55f, 0.48f, 0.40f},
-    .roughness = 0.68f,
-    .metallic = 0.0f,
-    .surface_profile = aster::MaterialSurfaceProfile::StratifiedRock,
-    .procedural = {.micro_normal_strength = 0.32f, .height_shading = 0.20f},
-});
-scene.objects().push_back(object);
+  InitAster(1280, 720, "Aster");
+  Camera3D cam = MakeOrbitCamera({0.0f, 0.58f, 0.0f}, 5.0f, 64.0f, 15.0f);
+  Material rust = LoadMaterial("showcases/material_lab/weathered_metal.astermat");
+  Mesh pipe = LoadMesh("showcases/pipe_lab/rusted_pipe.astergraph");
 
-aster::RenderDevice renderer;
-renderer.initialize();
-renderer.prepareScene(scene);
+  while (Frame()) {
+    BeginScene(cam);
+    DrawMesh(pipe, rust);
+    DrawLight({-3.6f, 3.2f, 2.4f}, {8.0f, 6.4f, 4.8f}, 1.0f, 0.8f);
+    EndScene();
+  }
 
-aster::OrbitCamera camera;
-camera.target = {0.0f, 0.55f, 0.0f};
-camera.radius = 4.0f;
-const aster::Viewport viewport{{}, {1280.0f, 720.0f}};
-const aster::WorldRay center_ray =
-    camera.screenRay(aster::ScreenPoint{640.0f, 360.0f, 0.0f}, viewport);
-
-aster::RendererSettings settings;
-settings.sun_light.enabled = true;
-settings.procedural_surface_normals = true;
-
-renderer.render(scene, camera, settings, 1280, 720, 0.0);
-aster::writeFramebufferPpm("/tmp/aster_first_scene.ppm", 1280, 720);
+  CloseAster();
+}
 ```
 
-Run built-in lab scenes:
+One-command visual proof after building:
+
+```bash
+./build/aster_quickstart --capture /tmp/aster_quickstart.ppm
+```
+
+Run built-in lab scenes when you want the inspected renderer path:
 
 ```bash
 ./build/aster_preview --scene material-lab --output assets/screenshots/material_lab.png --width 1280 --height 720 --samples 2
@@ -118,6 +109,8 @@ Run built-in lab scenes:
 - A C-compatible ABI 5 engine kernel with opaque handles, C++ RAII wrappers,
   strict validation events, explicit texture/material/render-target lifecycle,
   frame schedule reports, and an install-tree `external_app_minimal/` proof.
+- A draw-first C++ facade in `include/aster/aster.hpp` for `InitAster`,
+  `Frame`, `BeginScene`, `DrawMesh`, `DrawLight`, and `EndScene` quickstarts.
 - A source-level game SDK for schema-versioned project, scene, prefab, material,
   item, action graph, and agent authoring documents.
 - Aster-native classic simulation systems for deterministic commands/replay,
@@ -169,6 +162,7 @@ Run built-in lab scenes:
 | Path | Purpose |
 | --- | --- |
 | [docs/START_HERE.md](docs/START_HERE.md) | First reading path |
+| [docs/SIMPLE_API.md](docs/SIMPLE_API.md) | Draw-first API before renderer inspection |
 | [docs/WHAT_ASTER_IS.md](docs/WHAT_ASTER_IS.md) | Engine identity and non-goals |
 | [docs/PRODUCT_PATH.md](docs/PRODUCT_PATH.md) | Renderer, asset compiler, Studio, and Lumen Run product path |
 | [docs/RENDERING_PIPELINE.md](docs/RENDERING_PIPELINE.md) | Scene-to-render-graph-to-backend flow |
@@ -205,6 +199,7 @@ cargo test --workspace
 Run the sample game and tools:
 
 ```bash
+./build/aster_quickstart --capture /tmp/aster_quickstart.ppm
 ./build/aster_lumen_run
 ./build/aster_lumen_run --capture-route classic-gauntlet
 ./build/aster_studio

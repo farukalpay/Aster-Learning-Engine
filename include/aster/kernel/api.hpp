@@ -993,8 +993,33 @@ public:
                                                                &camera, &settings));
   }
 
+  [[nodiscard]] Status bindWindow(Window &window) noexcept {
+    return Status(aster_kernel_renderer_bind_window(handle_, window.get()));
+  }
+
   [[nodiscard]] Status present(Window &window) noexcept {
     return Status(aster_kernel_renderer_present(handle_, window.get()));
+  }
+
+  [[nodiscard]] Result<AsterPresentResult> presentFrame(Window &window,
+                                                        const AsterPresentDesc &desc) noexcept {
+    AsterPresentResult result{sizeof(AsterPresentResult), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_renderer_present_frame(handle_, window.get(), &desc, &result));
+    if (!status) {
+      return Result<AsterPresentResult>(status);
+    }
+    return Result<AsterPresentResult>(std::move(result));
+  }
+
+  [[nodiscard]] Result<AsterRendererPresentationStatus> presentationStatus() const noexcept {
+    AsterRendererPresentationStatus value{sizeof(AsterRendererPresentationStatus),
+                                          ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_presentation_status(handle_, &value));
+    if (!status) {
+      return Result<AsterRendererPresentationStatus>(status);
+    }
+    return Result<AsterRendererPresentationStatus>(std::move(value));
   }
 
   [[nodiscard]] Status capture(const AsterCaptureDesc &desc) noexcept {

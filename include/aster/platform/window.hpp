@@ -19,6 +19,24 @@ enum class CursorMode {
   Disabled,
 };
 
+enum class NativeWindowSurfaceKind {
+  None,
+  Win32Hwnd,
+  CocoaView,
+  X11Window,
+  WaylandSurface,
+};
+
+struct NativeWindowSurface {
+  NativeWindowSurfaceKind kind = NativeWindowSurfaceKind::None;
+  void *handle = nullptr;
+  void *display = nullptr;
+  int width = 1;
+  int height = 1;
+  bool vsync = true;
+  bool valid = false;
+};
+
 class Window {
 public:
   explicit Window(const EngineConfig &config);
@@ -39,6 +57,7 @@ public:
 
   [[nodiscard]] std::pair<int, int> windowSize() const;
   [[nodiscard]] std::pair<int, int> framebufferSize() const;
+  [[nodiscard]] NativeWindowSurface nativeSurface() const;
   [[nodiscard]] ControlSnapshot captureControls(const ControlScheme &scheme) const;
 
 private:

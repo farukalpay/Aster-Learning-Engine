@@ -47,6 +47,7 @@ template <typename T> using ComPtr = Microsoft::WRL::ComPtr<T>;
 
 constexpr std::size_t kConstantBufferAlignment = 256u;
 constexpr std::size_t kD3D12MaterialTextureCount = 10u;
+constexpr UINT kD3D12SwapchainBufferCount = 2u;
 constexpr std::array<std::string_view, kD3D12MaterialTextureCount> kD3D12MaterialTextureRoles{
     "albedo", "normal", "orm",      "roughness", "metallic",
     "ao",     "height", "emissive", "wetness",   "opacity"};
@@ -174,7 +175,7 @@ bool isStructuredSurfaceProfile(const aster::MaterialSurfaceProfile profile) {
          profile != aster::MaterialSurfaceProfile::ContactShadow;
 }
 
-aster::rhi::DeviceCapabilities d3d12CapabilityTable() {
+aster::rhi::DeviceCapabilities d3d12CapabilityTable(const bool swapchain_present) {
   aster::rhi::DeviceCapabilities table;
   table.backend = aster::rhi::BackendKind::D3D12;
   table.shader_materials = true;
@@ -202,7 +203,8 @@ aster::rhi::DeviceCapabilities d3d12CapabilityTable() {
   table.blend_mode_mask = aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::Opaque) |
                           aster::rhi::blendModeCapabilityBit(aster::rhi::BlendMode::AlphaBlend);
   table.shader_model = aster::rhi::ShaderModel::D3D12ShaderModel51;
-  table.presentation = aster::rhi::PresentationMode::D3D12OffscreenReadback;
+  table.presentation = swapchain_present ? aster::rhi::PresentationMode::D3D12Swapchain
+                                         : aster::rhi::PresentationMode::D3D12OffscreenReadback;
   table.limits.max_color_attachments = 1u;
   table.limits.max_uniform_buffers_per_stage = 1u;
   table.limits.max_storage_buffers_per_stage = 1u;
@@ -215,7 +217,7 @@ aster::rhi::DeviceCapabilities d3d12CapabilityTable() {
   return table;
 }
 
-aster::RenderBackendCapabilities d3d12Capabilities() {
+aster::RenderBackendCapabilities d3d12Capabilities(const bool swapchain_present = false) {
   const std::uint32_t graph_resources =
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneColor) |
       aster::renderGraphResourceBit(aster::RenderGraphResource::SceneDepth) |
@@ -234,7 +236,7 @@ aster::RenderBackendCapabilities d3d12Capabilities() {
           .supports_gpu_timestamps = false,
           .graph_resource_mask = graph_resources,
           .projection_convention = aster::defaultProjectionConvention(),
-          .capability_table = d3d12CapabilityTable()};
+          .capability_table = d3d12CapabilityTable(swapchain_present)};
 }
 
 const aster::MaterialRuntimeResource *
@@ -615,6 +617,25 @@ public:
     return fence_event_ != nullptr && createRootSignature() && createPipelines();
   }
 
+  bool bindWindow(const aster::NativeWindowSurface &surface) override {
+    if (surface.kind != aster::NativeWindowSurfaceKind::Win32Hwnd || surface.handle == nullptr ||
+        factory_ == nullptr || device_ == nullptr || queue_ == nullptr) {
+      return false;
+    }
+    bound_hwnd_ = static_cast<HWND>(surface.handle);
+    surface_vsync_ = surface.vsync;
+    return ensureSwapchain(surface.width, surface.height);
+  }
+
+  bool resizeDrawable(const aster::NativeWindowSurface &surface) override {
+    if (bound_hwnd_ == nullptr || surface.kind != aster::NativeWindowSurfaceKind::Win32Hwnd ||
+        surface.handle != bound_hwnd_) {
+      return false;
+    }
+    surface_vsync_ = surface.vsync;
+    return ensureSwapchain(surface.width, surface.height);
+  }
+
   aster::FrameStats render(const aster::FrameExecutionContext &context) override {
     const aster::Scene &scene = context.scene;
     const aster::FrameRenderPlan &plan = context.plan;
@@ -651,6 +672,7 @@ public:
       active_material_library_ = material_library;
     }
 
+    frame_queue_waits_ = 0u;
     evictRetiredMeshBuffers(meshes);
     width_ = framebuffer_width;
     height_ = framebuffer_height;
@@ -667,7 +689,12 @@ public:
     D3D12_RECT scissor{0, 0, framebuffer_width, framebuffer_height};
     command_list_->RSSetViewports(1u, &viewport);
     command_list_->RSSetScissorRects(1u, &scissor);
-    const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap_->GetCPUDescriptorHandleForHeapStart();
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap_->GetCPUDescriptorHandleForHeapStart();
+    if (swapchain_bound_) {
+      const UINT rtv_increment =
+          device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+      rtv.ptr += static_cast<SIZE_T>(current_backbuffer_index_) * rtv_increment;
+    }
     const D3D12_CPU_DESCRIPTOR_HANDLE dsv = dsv_heap_->GetCPUDescriptorHandleForHeapStart();
     command_list_->OMSetRenderTargets(1u, &rtv, FALSE, &dsv);
     const float clear[4] = {settings.pipeline.clear_color.x, settings.pipeline.clear_color.y,
@@ -858,16 +885,60 @@ public:
 
     transitionColor(D3D12_RESOURCE_STATE_COPY_SOURCE);
     copyColorToReadback();
+    if (swapchain_bound_) {
+      transitionColor(D3D12_RESOURCE_STATE_PRESENT);
+    }
     const auto encode_end = std::chrono::steady_clock::now();
     stats.render_encode_seconds =
         std::chrono::duration<double>(encode_end - encode_start).count();
     if (!submitAndReadback()) {
       return stats;
     }
+    stats.queue_waits = frame_queue_waits_;
     if (forensics != nullptr && settings.forensics.capture_payloads) {
       appendSurfaceCapturePayloads(*forensics);
     }
     return stats;
+  }
+
+  aster::RendererPresentResult present(const aster::NativeWindowSurface &surface,
+                                       const aster::RendererPresentDesc &desc) override {
+    aster::RendererPresentResult result;
+    const aster::RenderBackendCapabilities caps = capabilities();
+    result.backend = caps.kind;
+    result.presentation = caps.capability_table.presentation;
+    result.width = static_cast<std::uint32_t>(std::max(width_, 0));
+    result.height = static_cast<std::uint32_t>(std::max(height_, 0));
+    result.backbuffer_index = current_backbuffer_index_;
+    result.frame_index = presented_frame_index_;
+    result.queue_waits = present_queue_waits_;
+    if (surface.valid && surface.handle != nullptr &&
+        surface.kind == aster::NativeWindowSurfaceKind::Win32Hwnd &&
+        (bound_hwnd_ == nullptr || bound_hwnd_ != surface.handle)) {
+      (void)bindWindow(surface);
+    } else if (surface.valid && surface.handle == bound_hwnd_) {
+      (void)resizeDrawable(surface);
+    }
+    if (swapchain_ == nullptr || !swapchain_bound_) {
+      return result;
+    }
+    const HRESULT present_result = swapchain_->Present(desc.vsync ? 1u : 0u, 0u);
+    if (FAILED(present_result)) {
+      return result;
+    }
+    result.presented = true;
+    ++presented_frame_index_;
+    current_backbuffer_index_ = swapchain_->GetCurrentBackBufferIndex();
+    result.backbuffer_index = current_backbuffer_index_;
+    result.frame_index = presented_frame_index_;
+    if (desc.wait_for_frame) {
+      waitForGpu();
+      ++present_queue_waits_;
+    }
+    result.queue_waits = present_queue_waits_;
+    last_presented_width_ = static_cast<std::uint32_t>(std::max(width_, 0));
+    last_presented_height_ = static_cast<std::uint32_t>(std::max(height_, 0));
+    return result;
   }
 
   const char *backendName() const override {
@@ -875,7 +946,20 @@ public:
   }
 
   aster::RenderBackendCapabilities capabilities() const override {
-    return d3d12Capabilities();
+    return d3d12Capabilities(swapchain_bound_);
+  }
+
+  aster::RendererPresentationStatus presentationStatus() const override {
+    return {.backend = aster::RenderBackendKind::D3D12,
+            .presentation = swapchain_bound_ ? aster::rhi::PresentationMode::D3D12Swapchain
+                                             : aster::rhi::PresentationMode::D3D12OffscreenReadback,
+            .native_present_supported = swapchain_bound_,
+            .bound_window = bound_hwnd_ != nullptr,
+            .width = last_presented_width_ != 0u ? last_presented_width_
+                                                 : static_cast<std::uint32_t>(std::max(width_, 0)),
+            .height = last_presented_height_ != 0u ? last_presented_height_
+                                                   : static_cast<std::uint32_t>(std::max(height_, 0)),
+            .last_presented_frame = presented_frame_index_};
   }
 
 private:
@@ -1266,6 +1350,9 @@ private:
   }
 
   bool ensureTargets(const int width, const int height) {
+    if (swapchain_bound_) {
+      return ensureSwapchainTargets(width, height);
+    }
     if (color_ != nullptr && width == width_ && height == height_) {
       return true;
     }
@@ -1326,11 +1413,135 @@ private:
     return ensureReadback();
   }
 
+  bool ensureSwapchain(const int requested_width, const int requested_height) {
+    if (bound_hwnd_ == nullptr || factory_ == nullptr || queue_ == nullptr || device_ == nullptr) {
+      return false;
+    }
+    const UINT width = static_cast<UINT>(std::max(requested_width, 1));
+    const UINT height = static_cast<UINT>(std::max(requested_height, 1));
+    waitForGpu();
+    if (swapchain_ == nullptr) {
+      DXGI_SWAP_CHAIN_DESC1 desc{};
+      desc.Width = width;
+      desc.Height = height;
+      desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+      desc.Stereo = FALSE;
+      desc.SampleDesc.Count = 1u;
+      desc.SampleDesc.Quality = 0u;
+      desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+      desc.BufferCount = kD3D12SwapchainBufferCount;
+      desc.Scaling = DXGI_SCALING_STRETCH;
+      desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+      desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+      ComPtr<IDXGISwapChain1> swapchain;
+      if (FAILED(factory_->CreateSwapChainForHwnd(queue_.Get(), bound_hwnd_, &desc, nullptr,
+                                                  nullptr, &swapchain))) {
+        return false;
+      }
+      (void)factory_->MakeWindowAssociation(bound_hwnd_, DXGI_MWA_NO_ALT_ENTER);
+      if (FAILED(swapchain.As(&swapchain_))) {
+        return false;
+      }
+    } else if (width != static_cast<UINT>(std::max(width_, 1)) ||
+               height != static_cast<UINT>(std::max(height_, 1))) {
+      releaseSwapchainRenderTargets();
+      if (FAILED(swapchain_->ResizeBuffers(kD3D12SwapchainBufferCount, width, height,
+                                           DXGI_FORMAT_B8G8R8A8_UNORM, 0u))) {
+        swapchain_.Reset();
+        swapchain_bound_ = false;
+        return false;
+      }
+    }
+    swapchain_bound_ = true;
+    return ensureSwapchainTargets(static_cast<int>(width), static_cast<int>(height));
+  }
+
+  void releaseSwapchainRenderTargets() {
+    color_.Reset();
+    depth_.Reset();
+    readback_.Reset();
+    for (ComPtr<ID3D12Resource> &buffer : swapchain_buffers_) {
+      buffer.Reset();
+    }
+    rtv_heap_.Reset();
+    dsv_heap_.Reset();
+  }
+
+  bool ensureSwapchainTargets(const int width, const int height) {
+    if (swapchain_ == nullptr) {
+      return false;
+    }
+    const UINT requested_width = static_cast<UINT>(std::max(width, 1));
+    const UINT requested_height = static_cast<UINT>(std::max(height, 1));
+    if (width_ != static_cast<int>(requested_width) || height_ != static_cast<int>(requested_height) ||
+        rtv_heap_ == nullptr || dsv_heap_ == nullptr || swapchain_buffers_[0] == nullptr) {
+      if (width_ != 0 && height_ != 0 &&
+          (width_ != static_cast<int>(requested_width) ||
+           height_ != static_cast<int>(requested_height))) {
+        return ensureSwapchain(static_cast<int>(requested_width), static_cast<int>(requested_height));
+      }
+      width_ = static_cast<int>(requested_width);
+      height_ = static_cast<int>(requested_height);
+      color_.Reset();
+      depth_.Reset();
+      readback_.Reset();
+      rtv_heap_.Reset();
+      dsv_heap_.Reset();
+      D3D12_DESCRIPTOR_HEAP_DESC rtv_desc{};
+      rtv_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+      rtv_desc.NumDescriptors = kD3D12SwapchainBufferCount;
+      D3D12_DESCRIPTOR_HEAP_DESC dsv_desc{};
+      dsv_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+      dsv_desc.NumDescriptors = 1u;
+      if (FAILED(device_->CreateDescriptorHeap(&rtv_desc, IID_PPV_ARGS(&rtv_heap_))) ||
+          FAILED(device_->CreateDescriptorHeap(&dsv_desc, IID_PPV_ARGS(&dsv_heap_)))) {
+        return false;
+      }
+      const UINT rtv_increment =
+          device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+      for (UINT i = 0u; i < kD3D12SwapchainBufferCount; ++i) {
+        if (FAILED(swapchain_->GetBuffer(i, IID_PPV_ARGS(&swapchain_buffers_[i])))) {
+          return false;
+        }
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap_->GetCPUDescriptorHandleForHeapStart();
+        rtv.ptr += static_cast<SIZE_T>(i) * rtv_increment;
+        device_->CreateRenderTargetView(swapchain_buffers_[i].Get(), nullptr, rtv);
+      }
+
+      D3D12_RESOURCE_DESC depth_desc{};
+      depth_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+      depth_desc.Width = requested_width;
+      depth_desc.Height = requested_height;
+      depth_desc.DepthOrArraySize = 1u;
+      depth_desc.MipLevels = 1u;
+      depth_desc.Format = DXGI_FORMAT_D32_FLOAT;
+      depth_desc.SampleDesc.Count = 1u;
+      depth_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+      depth_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+      D3D12_CLEAR_VALUE depth_clear{};
+      depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
+      depth_clear.DepthStencil.Depth = 0.0f;
+      const D3D12_HEAP_PROPERTIES default_heap = heapProperties(D3D12_HEAP_TYPE_DEFAULT);
+      if (FAILED(device_->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE,
+                                                  &depth_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+                                                  &depth_clear, IID_PPV_ARGS(&depth_)))) {
+        return false;
+      }
+      device_->CreateDepthStencilView(depth_.Get(), nullptr,
+                                      dsv_heap_->GetCPUDescriptorHandleForHeapStart());
+    }
+    current_backbuffer_index_ = swapchain_->GetCurrentBackBufferIndex();
+    color_ = swapchain_buffers_[current_backbuffer_index_];
+    color_state_ = D3D12_RESOURCE_STATE_PRESENT;
+    return ensureReadback();
+  }
+
   bool ensureReadback() {
     D3D12_RESOURCE_DESC desc = color_->GetDesc();
     UINT64 total_bytes = 0u;
     device_->GetCopyableFootprints(&desc, 0u, 1u, 0u, &readback_footprint_, &readback_rows_,
                                    &readback_row_bytes_, &total_bytes);
+    readback_.Reset();
     const D3D12_HEAP_PROPERTIES heap = heapProperties(D3D12_HEAP_TYPE_READBACK);
     const D3D12_RESOURCE_DESC readback_desc = bufferDesc(total_bytes);
     return SUCCEEDED(device_->CreateCommittedResource(
@@ -1677,6 +1888,7 @@ private:
     if (fence_->GetCompletedValue() < value) {
       if (SUCCEEDED(fence_->SetEventOnCompletion(value, fence_event_))) {
         WaitForSingleObject(fence_event_, INFINITE);
+        ++frame_queue_waits_;
       }
     }
   }
@@ -1687,6 +1899,7 @@ private:
   ComPtr<ID3D12CommandAllocator> allocator_;
   ComPtr<ID3D12GraphicsCommandList> command_list_;
   ComPtr<ID3D12Fence> fence_;
+  ComPtr<IDXGISwapChain3> swapchain_;
   HANDLE fence_event_ = nullptr;
   UINT64 fence_value_ = 0u;
 
@@ -1707,6 +1920,16 @@ private:
   D3D12_PLACED_SUBRESOURCE_FOOTPRINT readback_footprint_{};
   UINT readback_rows_ = 0u;
   UINT64 readback_row_bytes_ = 0u;
+  std::array<ComPtr<ID3D12Resource>, kD3D12SwapchainBufferCount> swapchain_buffers_{};
+  HWND bound_hwnd_ = nullptr;
+  bool swapchain_bound_ = false;
+  bool surface_vsync_ = true;
+  UINT current_backbuffer_index_ = 0u;
+  std::uint64_t presented_frame_index_ = 0u;
+  std::uint32_t last_presented_width_ = 0u;
+  std::uint32_t last_presented_height_ = 0u;
+  std::size_t frame_queue_waits_ = 0u;
+  std::size_t present_queue_waits_ = 0u;
   int width_ = 0;
   int height_ = 0;
   std::size_t object_capacity_ = 0u;

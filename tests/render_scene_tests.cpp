@@ -3,6 +3,7 @@
 
 #include "test_support.hpp"
 
+#include "aster/aster.hpp"
 #include "aster/asset/pipe_runtime_asset.hpp"
 #include "aster/framegraph/transient_resource_allocator.hpp"
 #include "aster/render/visual_regression.hpp"
@@ -1900,6 +1901,39 @@ void testRuntimeLightPolicy() {
   assert(!frame_data.overflowed);
 }
 
+void testSimpleDrawApiBuildsRenderableFrame() {
+  aster::AsterAppConfig config;
+  config.width = 96;
+  config.height = 64;
+  config.title = "Aster Simple API Test";
+  config.headless = true;
+  config.max_frames = 1;
+  aster::InitAster(config);
+
+  const aster::Camera3D camera =
+      aster::MakeOrbitCamera({0.0f, 0.58f, 0.0f}, 5.0f, 64.0f, 15.0f);
+  const aster::Material rust = aster::LoadMaterial("rust");
+  const aster::Mesh pipe = aster::LoadMesh("pipe");
+
+  bool rendered = false;
+  while (aster::Frame()) {
+    aster::BeginScene(camera);
+    aster::DrawMesh(pipe, rust);
+    aster::DrawLight({-3.6f, 3.2f, 2.4f}, {8.0f, 6.4f, 4.8f}, 1.0f, 0.8f);
+    aster::EndScene();
+    rendered = true;
+  }
+
+  const aster::FrameStats &stats = aster::LastFrameStats();
+  assert(rendered);
+  assert(stats.framebuffer_width == config.width);
+  assert(stats.framebuffer_height == config.height);
+  assert(stats.visible_objects >= 1u);
+  assert(stats.draw_calls >= 1u);
+  assert(std::string(aster::AsterBackendName()).size() > 0u);
+  aster::CloseAster();
+}
+
 void testRhiResourceRegistryContract() {
   aster::rhi::ResourceRegistry registry;
   const aster::rhi::BufferHandle vertex_buffer = registry.createBuffer(
@@ -2801,6 +2835,7 @@ constexpr TestCase kTestCases[] = {
     {"retro_style_emissive_gain", testRetroStyleEmissiveSoftwarePreviewGain},
     {"material_render_policies", testMaterialRenderPolicies},
     {"runtime_light_policy", testRuntimeLightPolicy},
+    {"simple_draw_api", testSimpleDrawApiBuildsRenderableFrame},
     {"rhi_resource_registry", testRhiResourceRegistryContract},
     {"rhi_resource_lifetime_validator", testRhiResourceLifetimeValidator},
     {"rhi_explicit_gpu_contracts", testRhiExplicitGpuContracts},

@@ -222,11 +222,13 @@ set(ASTER_GAMEPLAY_SOURCES
 )
 
 set(ASTER_RENDER_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/render/aster.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/camera.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/frame_capture.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/material_compiler.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/mesh.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/native_render_backend_null.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/render_asset_cache.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/render_backend_common.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/render_device.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/render_graph.cpp"
@@ -655,6 +657,12 @@ if(ASTER_BUILD_STUDIO)
 endif()
 
 if(ASTER_BUILD_PREVIEW)
+  add_executable(aster_quickstart apps/examples/quickstart.cpp)
+  target_link_libraries(aster_quickstart PRIVATE aster_engine_internal)
+  target_compile_definitions(aster_quickstart PRIVATE
+    ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+  )
+
   add_executable(aster_preview apps/offline/preview_main.cpp)
   target_link_libraries(aster_preview PRIVATE aster_engine_internal)
 
@@ -842,6 +850,7 @@ if(ASTER_BUILD_TESTS)
       retro_style_emissive_gain
       material_render_policies
       runtime_light_policy
+      simple_draw_api
       rhi_resource_registry
       rhi_resource_lifetime_validator
       rhi_explicit_gpu_contracts
@@ -878,6 +887,7 @@ if(ASTER_BUILD_TESTS)
       backend_feature_certification_rejects_lying_null
       math_contract_certification_rejects_projection_drift
       native_cave_conformance_when_available
+      d3d12_swapchain_presentation_when_available
       native_material_pipeline_key_tracks_feature_bits
       native_lab_scenes_match_software_reference_when_available
       failure_artifact_writer

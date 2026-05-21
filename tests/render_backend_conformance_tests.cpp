@@ -3,6 +3,8 @@
 
 #include "test_support.hpp"
 
+#include "aster/core/config.hpp"
+#include "aster/platform/window.hpp"
 #include "aster/render/frame_capture.hpp"
 #include "aster/render/render_device.hpp"
 #include "aster/render/software_framebuffer.hpp"
@@ -1313,6 +1315,54 @@ void testNativeCaveConformanceWhenAvailable() {
   }
 }
 
+void testD3D12SwapchainPresentationWhenAvailable() {
+#if defined(_WIN32) && ASTER_HAS_D3D12_BACKEND
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+  aster::EngineConfig config;
+  config.application_name = "Aster D3D12 Swapchain Conformance";
+  config.initial_width = 320;
+  config.initial_height = 180;
+  config.enable_vsync = false;
+  aster::Window window(config);
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  if (!renderer.bindWindow(window.nativeSurface())) {
+    return;
+  }
+  const aster::RendererPresentationStatus bound_status = renderer.presentationStatus();
+  assert(bound_status.backend == aster::RenderBackendKind::D3D12);
+  assert(bound_status.presentation == aster::rhi::PresentationMode::D3D12Swapchain);
+  assert(bound_status.native_present_supported);
+  assert(bound_status.bound_window);
+
+  aster::Scene scene = makeCaveConformanceShowcaseScene();
+  auto library = makeCaveConformanceMaterialLibrary();
+  renderer.setMaterialResourceLibrary(library);
+  renderer.prepareScene(scene);
+  aster::RendererSettings settings = makeCaveConformanceSettings();
+  settings.forensics.capture_payloads = true;
+  const auto [width, height] = window.framebufferSize();
+  const aster::FrameStats stats =
+      renderer.render(scene, makeCaveConformanceCamera(), settings, width, height, 0.0);
+  assert(stats.draw_calls > 0u);
+  const aster::RendererPresentResult present =
+      renderer.present(window.nativeSurface(), {.vsync = false, .wait_for_frame = true});
+  assert(present.presented);
+  assert(present.presentation == aster::rhi::PresentationMode::D3D12Swapchain);
+  assert(present.width == static_cast<std::uint32_t>(width));
+  assert(present.height == static_cast<std::uint32_t>(height));
+  assert(std::any_of(renderer.lastFrameForensics().backend_feature_proofs.begin(),
+                     renderer.lastFrameForensics().backend_feature_proofs.end(),
+                     [](const aster::BackendFeatureProof &proof) {
+                       return proof.kind == aster::BackendFeatureProofKind::Presentation &&
+                              proof.status == aster::BackendFeatureProofStatus::Proven &&
+                              proof.native != 0u;
+                     }));
+#endif
+}
+
 std::uint64_t firstMaterialPipelineKey(const aster::FrameForensics &forensics) {
   for (const aster::rhi::PipelineStateTrace &pipeline : forensics.rhi_trace.pipelines) {
     if (pipeline.label.rfind("material:", 0u) == 0u && pipeline.cache_key != 0u) {
@@ -1477,6 +1527,8 @@ constexpr TestCase kTestCases[] = {
     {"math_contract_certification_rejects_projection_drift",
      testMathContractCertificationRejectsProjectionDrift},
     {"native_cave_conformance_when_available", testNativeCaveConformanceWhenAvailable},
+    {"d3d12_swapchain_presentation_when_available",
+     testD3D12SwapchainPresentationWhenAvailable},
     {"native_material_pipeline_key_tracks_feature_bits",
      testNativeMaterialPipelineKeyTracksFeatureBits},
     {"native_lab_scenes_match_software_reference_when_available",

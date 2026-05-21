@@ -31,6 +31,9 @@ static_assert(std::is_standard_layout_v<AsterWindowDesc>);
 static_assert(std::is_standard_layout_v<AsterRendererDesc>);
 static_assert(std::is_standard_layout_v<AsterBackendCapabilities>);
 static_assert(std::is_standard_layout_v<AsterBackendCapabilityTable>);
+static_assert(std::is_standard_layout_v<AsterPresentDesc>);
+static_assert(std::is_standard_layout_v<AsterPresentResult>);
+static_assert(std::is_standard_layout_v<AsterRendererPresentationStatus>);
 static_assert(std::is_standard_layout_v<AsterValidationEvent>);
 static_assert(std::is_standard_layout_v<AsterAuthoringDocumentDesc>);
 static_assert(std::is_standard_layout_v<AsterAuthoringDocumentInfo>);
@@ -245,7 +248,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 5u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 1u);
+  assert(version.minor == 2u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -533,6 +536,14 @@ void testRendererAbi5Lifecycle() {
          table.backend == ASTER_KERNEL_BACKEND_NULL);
   assert(table.presentation == ASTER_KERNEL_BACKEND_PRESENTATION_SOFTWARE_FRAMEBUFFER ||
          table.backend == ASTER_KERNEL_BACKEND_NULL);
+  AsterRendererPresentationStatus presentation_status{
+      sizeof(AsterRendererPresentationStatus), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_presentation_status(renderer, &presentation_status).code ==
+         ASTER_STATUS_OK);
+  assert(presentation_status.backend == table.backend);
+  assert(presentation_status.native_present_supported == 0u);
+  assert(presentation_status.bound_window == 0u);
+  assert(aster_kernel_renderer_bind_window(renderer, window).code == ASTER_STATUS_OK);
 
   const std::filesystem::path early_capture_path =
       std::filesystem::temp_directory_path() / "aster_kernel_capture_before_render.ppm";
@@ -883,6 +894,13 @@ void testRendererAbi5Lifecycle() {
   assert(std::filesystem::exists(capture_path));
   std::filesystem::remove(capture_path);
 
+  AsterPresentDesc present_desc{sizeof(AsterPresentDesc), ASTER_KERNEL_STRUCT_VERSION_1, 1u, 1u};
+  AsterPresentResult present_result{sizeof(AsterPresentResult), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_present_frame(renderer, window, &present_desc, &present_result)
+             .code == ASTER_STATUS_OK);
+  assert(present_result.backend == capabilities.backend);
+  assert(present_result.presentation == table.presentation);
+  assert(present_result.presented == 0u);
   assert(aster_kernel_renderer_present(renderer, window).code == ASTER_STATUS_OK);
   assert(aster_kernel_frame_schedule_destroy(schedule).code == ASTER_STATUS_OK);
   assert(aster_kernel_render_target_destroy(target).code == ASTER_STATUS_OK);
@@ -1412,7 +1430,10 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_renderer_get_backend_capability_table",
       "aster_kernel_renderer_render_frame",
       "aster_kernel_renderer_render_frame_to_target",
+      "aster_kernel_renderer_bind_window",
       "aster_kernel_renderer_present",
+      "aster_kernel_renderer_present_frame",
+      "aster_kernel_renderer_presentation_status",
       "aster_kernel_renderer_capture",
       "aster_kernel_renderer_capture_render_target",
       "aster_kernel_renderer_last_stats",
@@ -1535,7 +1556,10 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_renderer_get_backend_capability_table;
   (void)&aster_kernel_renderer_render_frame;
   (void)&aster_kernel_renderer_render_frame_to_target;
+  (void)&aster_kernel_renderer_bind_window;
   (void)&aster_kernel_renderer_present;
+  (void)&aster_kernel_renderer_present_frame;
+  (void)&aster_kernel_renderer_presentation_status;
   (void)&aster_kernel_renderer_capture;
   (void)&aster_kernel_renderer_capture_render_target;
   (void)&aster_kernel_renderer_last_stats;

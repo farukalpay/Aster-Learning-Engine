@@ -1364,6 +1364,16 @@ std::pair<std::uint32_t, std::uint32_t> framebufferSizeFor(const AsterWindowHand
           static_cast<std::uint32_t>(std::max(height, 1))};
 }
 
+aster::NativeWindowSurface nativeSurfaceFor(const AsterWindowHandle window) {
+  if (!validWindow(window) || window->headless || window->window == nullptr) {
+    const auto [width, height] = framebufferSizeFor(window);
+    return {.width = static_cast<int>(width),
+            .height = static_cast<int>(height),
+            .vsync = validWindow(window) ? window->vsync : true};
+  }
+  return window->window->nativeSurface();
+}
+
 } // namespace
 
 extern "C" {
@@ -1987,6 +1997,9 @@ AsterStatus aster_kernel_renderer_create(const AsterEngineHandle engine,
     renderer->renderer = std::make_unique<aster::RenderDevice>();
     renderer->bound_window = validWindow(desc->window) ? desc->window : nullptr;
     renderer->renderer->initialize();
+    if (validWindow(renderer->bound_window)) {
+      (void)renderer->renderer->bindWindow(nativeSurfaceFor(renderer->bound_window));
+    }
     *out_renderer = renderer;
   } catch (const std::bad_alloc &) {
     return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "renderer allocation failed");
@@ -2184,12 +2197,81 @@ AsterStatus aster_kernel_renderer_render_frame_to_target(
   return status;
 }
 
+AsterStatus aster_kernel_renderer_bind_window(const AsterRendererHandle renderer,
+                                              const AsterWindowHandle window) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validWindow(window)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "window handle is invalid");
+  }
+  renderer->bound_window = window;
+  renderer->renderer->bindWindow(nativeSurfaceFor(window));
+  return aster_kernel_status_ok();
+}
+
 AsterStatus aster_kernel_renderer_present(const AsterRendererHandle renderer,
                                           const AsterWindowHandle window) {
   if (!validRenderer(renderer)) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
   }
-  return aster_kernel_window_swap(validWindow(window) ? window : renderer->bound_window);
+  AsterPresentDesc desc{sizeof(AsterPresentDesc), ASTER_KERNEL_STRUCT_VERSION_1, 1u, 1u};
+  AsterPresentResult result{};
+  result.size = sizeof(AsterPresentResult);
+  result.version = ASTER_KERNEL_STRUCT_VERSION_1;
+  const AsterWindowHandle target = validWindow(window) ? window : renderer->bound_window;
+  const AsterStatus native_status =
+      aster_kernel_renderer_present_frame(renderer, target, &desc, &result);
+  if (native_status.code != ASTER_STATUS_OK || result.presented != 0u) {
+    return native_status;
+  }
+  return aster_kernel_window_swap(target);
+}
+
+AsterStatus aster_kernel_renderer_present_frame(const AsterRendererHandle renderer,
+                                                const AsterWindowHandle window,
+                                                const AsterPresentDesc *desc,
+                                                AsterPresentResult *out_result) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(desc) || !validStruct(out_result)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "present frame struct version is not supported");
+  }
+  const AsterWindowHandle target = validWindow(window) ? window : renderer->bound_window;
+  const aster::NativeWindowSurface surface = nativeSurfaceFor(target);
+  const aster::RendererPresentResult result =
+      renderer->renderer->present(surface, {.vsync = desc->vsync != 0u,
+                                            .wait_for_frame = desc->wait_for_frame != 0u});
+  out_result->presented = result.presented ? 1u : 0u;
+  out_result->backend = backendKind(result.backend);
+  out_result->presentation = presentationMode(result.presentation);
+  out_result->width = result.width;
+  out_result->height = result.height;
+  out_result->backbuffer_index = result.backbuffer_index;
+  out_result->frame_index = result.frame_index;
+  out_result->queue_waits = result.queue_waits;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_presentation_status(
+    const AsterRendererHandle renderer, AsterRendererPresentationStatus *out_status) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_status)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "presentation status struct version is not supported");
+  }
+  const aster::RendererPresentationStatus status = renderer->renderer->presentationStatus();
+  out_status->backend = backendKind(status.backend);
+  out_status->presentation = presentationMode(status.presentation);
+  out_status->native_present_supported = status.native_present_supported ? 1u : 0u;
+  out_status->bound_window = status.bound_window ? 1u : 0u;
+  out_status->width = status.width;
+  out_status->height = status.height;
+  out_status->last_presented_frame = status.last_presented_frame;
+  return aster_kernel_status_ok();
 }
 
 AsterStatus aster_kernel_renderer_capture(const AsterRendererHandle renderer,

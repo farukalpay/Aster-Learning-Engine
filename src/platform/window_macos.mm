@@ -414,6 +414,20 @@ std::pair<int, int> Window::framebufferSize() const {
           std::max(1, static_cast<int>(std::round(backing.size.height)))};
 }
 
+NativeWindowSurface Window::nativeSurface() const {
+  if (impl_ == nullptr || impl_->state.view == nil) {
+    return {};
+  }
+  const auto [width, height] = framebufferSize();
+  return {.kind = NativeWindowSurfaceKind::CocoaView,
+          .handle = impl_->state.view,
+          .display = nullptr,
+          .width = width,
+          .height = height,
+          .vsync = impl_->state.vsync,
+          .valid = true};
+}
+
 ControlSnapshot Window::captureControls(const ControlScheme &scheme) const {
   (void)scheme;
   return impl_ == nullptr ? ControlSnapshot{} : impl_->state.input;
