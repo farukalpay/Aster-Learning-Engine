@@ -876,6 +876,7 @@ if(ASTER_BUILD_TESTS)
       cave_conformance_software_golden
       resource_capability_mismatch_requires_resource_mask
       backend_feature_certification_rejects_lying_null
+      math_contract_certification_rejects_projection_drift
       native_cave_conformance_when_available
       native_material_pipeline_key_tracks_feature_bits
       native_lab_scenes_match_software_reference_when_available

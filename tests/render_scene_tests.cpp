@@ -612,6 +612,13 @@ void testFrameMathDiagnostics() {
   assert(saw_projection_mismatch);
   assert(saw_viewport_mismatch);
   assert(saw_backend_drift);
+  assert(!forensics.math_contract.valid);
+  assert(forensics.math_contract.backend_canonical);
+  assert(!forensics.math_contract.camera_canonical);
+  assert(!forensics.math_contract.camera_matches_backend);
+  assert(forensics.math_contract.singular_normal_matrices == 1u);
+  assert(forensics.math_contract.negative_tangent_flips == 1u);
+  assert(forensics.certification.math_contract_error_count > 0u);
   assert(aster::mathDiagnosticCount() == 0u);
 
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
@@ -1048,13 +1055,24 @@ void testFrameDebuggerEvidenceTimelineAndRegressionLab() {
   const aster::AsterRenderProofSummary proof =
       aster::summarizeAsterRenderProof(forensics);
   assert(proof.production_trace_ready);
-  assert(proof.ready_signals >= 9u);
+  assert(proof.ready_signals >= 10u);
   assert(proof.descriptor_pressure > 0u);
   assert(proof.pipeline_cache_hits + proof.pipeline_cache_misses > 0u);
   assert(proof.backend_fallbacks > 0u);
+  assert(forensics.math_contract.valid);
+  assert(forensics.math_contract.backend_canonical);
+  assert(forensics.math_contract.camera_canonical);
+  assert(forensics.math_contract.camera_matches_backend);
+  assert(forensics.math_contract.contract_hash != 0u);
+  assert(forensics.certification.math_contract_error_count == 0u);
   assert(std::any_of(proof.rows.begin(), proof.rows.end(),
                      [](const aster::AsterRenderProofRow &row) {
                        return row.signal == aster::AsterRenderProofSignal::VisualRegression &&
+                              row.ready && row.hash != 0u;
+                     }));
+  assert(std::any_of(proof.rows.begin(), proof.rows.end(),
+                     [](const aster::AsterRenderProofRow &row) {
+                       return row.signal == aster::AsterRenderProofSignal::MathContract &&
                               row.ready && row.hash != 0u;
                      }));
   assert(std::any_of(proof.rows.begin(), proof.rows.end(),

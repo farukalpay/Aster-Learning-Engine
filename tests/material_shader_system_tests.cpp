@@ -762,6 +762,14 @@ void testShaderMatrixLayoutAndNormalMapContracts() {
   expectContains(d3d12, "float3 b = normalize(cross(n, t)) * handedness;");
   expectContains(metal, "object.texture_flags2.z");
   expectContains(d3d12, "object.texture_flags2.z");
+  expectContains(metal, "pass.depthAttachment.clearDepth = 0.0;");
+  expectContains(metal, "opaque_depth_desc.depthCompareFunction = MTLCompareFunctionGreater;");
+  expectContains(metal,
+                 "transparent_depth_desc.depthCompareFunction = MTLCompareFunctionGreaterEqual;");
+  expectContains(d3d12,
+                 "command_list_->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.0f");
+  expectContains(d3d12, "pso.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;");
+  expectContains(d3d12, "depth_clear.DepthStencil.Depth = 0.0f;");
 }
 
 void testHotReloadSnapshot() {

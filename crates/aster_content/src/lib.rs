@@ -6846,7 +6846,7 @@ fn mesh_from_primitive(
             x: tangent.x,
             y: tangent.y,
             z: tangent.z,
-            w: vertex.tangent.w,
+            w: transform_tangent_handedness(matrix, vertex.tangent.w),
         };
         mesh.vertices.push(vertex);
     }
@@ -7420,6 +7420,21 @@ fn transform_normal(matrix: Mat4, value: Vec3) -> Vec3 {
     } else {
         normalize(transformed)
     }
+}
+
+fn transform_tangent_handedness(matrix: Mat4, handedness: f32) -> f32 {
+    if linear_determinant(matrix) < 0.0 {
+        -handedness
+    } else {
+        handedness
+    }
+}
+
+fn linear_determinant(matrix: Mat4) -> f32 {
+    let at = |row: usize, column: usize| matrix.m[column * 4 + row];
+    at(0, 0) * (at(1, 1) * at(2, 2) - at(1, 2) * at(2, 1))
+        - at(0, 1) * (at(1, 0) * at(2, 2) - at(1, 2) * at(2, 0))
+        + at(0, 2) * (at(1, 0) * at(2, 1) - at(1, 1) * at(2, 0))
 }
 
 fn transpose(matrix: Mat4) -> Mat4 {
@@ -8272,6 +8287,13 @@ mod tests {
 
     fn append_u16(bytes: &mut Vec<u8>, value: u16) {
         bytes.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn assert_near(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.0001,
+            "actual {actual} expected {expected}"
+        );
     }
 
     fn fixture_dir(name: &str) -> PathBuf {
@@ -9202,6 +9224,51 @@ edge mask.black_scab mask.layer_stack black_scab_layer
         assert!(dependency.present);
         assert_ne!(dependency.hash, [0u8; 32]);
         fs::remove_dir_all(glb.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn gltf_import_math_contract_preserves_matrix_normal_and_mirror_sign() {
+        let node = serde_json::json!({
+            "matrix": [
+                2.0, 0.0, 0.0, 0.0,
+                0.0, 4.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                1.0, 2.0, 3.0, 1.0
+            ]
+        });
+        let matrix = node_matrix(&node).expect("node matrix");
+        let point = transform_point(
+            matrix,
+            Vec3 {
+                x: 1.0,
+                y: 1.0,
+                z: 1.0,
+            },
+        );
+        assert_near(point.x, 3.0);
+        assert_near(point.y, 6.0);
+        assert_near(point.z, 4.0);
+
+        let normal = transform_normal(
+            matrix,
+            Vec3 {
+                x: 1.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        );
+        assert_near(normal.x, 0.8944272);
+        assert_near(normal.y, 0.4472136);
+        assert_near(normal.z, 0.0);
+
+        let mirrored = Mat4 {
+            m: [
+                -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+        };
+        assert_near(linear_determinant(mirrored), -1.0);
+        assert_near(transform_tangent_handedness(mirrored, 1.0), -1.0);
+        assert_near(transform_tangent_handedness(mirrored, -1.0), 1.0);
     }
 
     #[test]

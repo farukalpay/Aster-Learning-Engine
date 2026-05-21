@@ -473,6 +473,31 @@ struct BackendCertificationReport {
   std::size_t proven_count = 0u;
   std::size_t missing_proof_count = 0u;
   std::size_t validation_error_count = 0u;
+  std::size_t math_contract_error_count = 0u;
+};
+
+struct RenderMathContractReport {
+  bool valid = true;
+  bool backend_canonical = false;
+  bool camera_canonical = false;
+  bool camera_matches_backend = false;
+  bool depth_contract_canonical = false;
+  bool viewport_contract_canonical = false;
+  bool matrix_contract_canonical = false;
+  bool tangent_handedness_traced = true;
+  bool normal_map_convention_valid = true;
+  bool color_space_boundary_valid = true;
+  std::size_t object_count = 0u;
+  std::size_t non_finite_world_matrices = 0u;
+  std::size_t singular_normal_matrices = 0u;
+  std::size_t negative_tangent_flips = 0u;
+  std::size_t texture_count = 0u;
+  std::size_t normal_texture_count = 0u;
+  std::size_t normal_convention_violations = 0u;
+  std::size_t color_space_violations = 0u;
+  std::size_t issue_count = 0u;
+  std::uint64_t contract_hash = 0u;
+  std::vector<std::string> issues;
 };
 
 struct FramePassArtifact {
@@ -736,6 +761,7 @@ struct FrameForensics {
   std::vector<BackendFeatureProof> backend_feature_proofs;
   std::vector<rhi::TimestampQueryResult> timestamp_samples;
   BackendCertificationReport certification{};
+  RenderMathContractReport math_contract{};
   ClusteredLightFrameData clustered_lights;
   rhi::FrameTrace rhi_trace{};
 };
@@ -745,6 +771,7 @@ enum class AsterRenderProofSignal : std::uint32_t {
   DescriptorPressure,
   PipelineCache,
   ResourceLifetime,
+  MathContract,
   BackendFallback,
   AssetProvenance,
   VisualRegression,
@@ -940,6 +967,9 @@ frameDebuggerTimelineEventKindName(FrameDebuggerTimelineEventKind kind);
 [[nodiscard]] std::string_view asterRenderProofSignalName(AsterRenderProofSignal signal);
 [[nodiscard]] AsterRenderProofSummary summarizeAsterRenderProof(
     const FrameForensics &forensics);
+[[nodiscard]] RenderMathContractReport certifyRenderMathContract(
+    const Scene &scene, const OrbitCamera &camera, const RenderBackendCapabilities &capabilities,
+    const MaterialResourceLibrary *library = nullptr);
 [[nodiscard]] std::string_view renderStylePresetName(RenderStylePreset preset);
 [[nodiscard]] std::optional<RenderStylePreset> parseRenderStylePreset(std::string_view value);
 [[nodiscard]] RenderStyleProfile makeRenderStyleProfile(RenderStylePreset preset);

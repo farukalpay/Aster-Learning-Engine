@@ -3432,6 +3432,21 @@ void appendProjectionConventionDiagnostics(
   }
 }
 
+void appendRenderMathContractReportDiagnostics(
+    const aster::RenderMathContractReport &report,
+    std::vector<aster::FrameDiagnosticEvent> &events) {
+  if (report.valid) {
+    return;
+  }
+  events.push_back({.kind = aster::FrameDiagnosticKind::MathContract,
+                    .severity = aster::FrameDiagnosticSeverity::Error,
+                    .pass = "math-contract",
+                    .label = "canonical-render-contract",
+                    .message =
+                        "Canonical render math contract failed; inspect FrameForensics.math_contract.",
+                    .value = report.issue_count});
+}
+
 std::uint64_t appendEvidenceText(std::uint64_t hash, std::string_view value);
 void appendUnique(std::vector<std::string> &values, std::string value);
 std::string materialAssetIdFor(const aster::RenderObject &object);
@@ -4192,7 +4207,12 @@ void certifyBackendFrame(const aster::FixedRenderGraph &graph,
   forensics.certification = {.backend = capabilities.kind,
                              .valid = true,
                              .proof_count = forensics.backend_feature_proofs.size(),
-                             .validation_error_count = validation.errorCount()};
+                             .validation_error_count = validation.errorCount(),
+                             .math_contract_error_count =
+                                 forensics.math_contract.valid
+                                     ? 0u
+                                     : std::max<std::size_t>(forensics.math_contract.issue_count,
+                                                             1u)};
   for (const aster::BackendFeatureProof &proof : forensics.backend_feature_proofs) {
     if (proof.status == aster::BackendFeatureProofStatus::Proven) {
       ++forensics.certification.proven_count;
@@ -4202,7 +4222,8 @@ void certifyBackendFrame(const aster::FixedRenderGraph &graph,
   }
   forensics.certification.valid =
       forensics.certification.missing_proof_count == 0u &&
-      forensics.certification.validation_error_count == 0u;
+      forensics.certification.validation_error_count == 0u &&
+      forensics.certification.math_contract_error_count == 0u;
 }
 
 void appendMaterialBindingTraces(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
@@ -5338,6 +5359,163 @@ MaterialFrameSummary analyzeMaterialFrame(
 
 } // namespace
 
+RenderMathContractReport certifyRenderMathContract(
+    const Scene &scene, const OrbitCamera &camera, const RenderBackendCapabilities &capabilities,
+    const MaterialResourceLibrary *library) {
+  RenderMathContractReport report;
+  report.object_count = scene.objects().size();
+
+  const ProjectionConvention canonical = defaultProjectionConvention();
+  const ProjectionConvention camera_convention =
+      projectionConventionFromPolicy(camera.projection_policy);
+  const ProjectionConvention backend_convention = capabilities.projection_convention;
+
+  const auto core_matches = [](const ProjectionConvention lhs,
+                               const ProjectionConvention rhs) {
+    return lhs.handedness == rhs.handedness && lhs.depth_range == rhs.depth_range &&
+           lhs.depth_direction == rhs.depth_direction &&
+           lhs.viewport_origin == rhs.viewport_origin && lhs.y_flip == rhs.y_flip &&
+           lhs.matrix_storage == rhs.matrix_storage &&
+           lhs.vector_convention == rhs.vector_convention;
+  };
+  const auto depth_is_canonical = [canonical](const ProjectionConvention convention) {
+    return convention.handedness == canonical.handedness &&
+           convention.depth_range == canonical.depth_range &&
+           convention.depth_direction == canonical.depth_direction;
+  };
+  const auto viewport_is_canonical = [canonical](const ProjectionConvention convention) {
+    return convention.viewport_origin == canonical.viewport_origin &&
+           convention.y_flip == canonical.y_flip;
+  };
+  const auto matrix_is_canonical = [canonical](const ProjectionConvention convention) {
+    return convention.matrix_storage == canonical.matrix_storage &&
+           convention.vector_convention == canonical.vector_convention;
+  };
+  const auto texture_color_expected = [](const std::string_view role,
+                                         const TextureColorSpace color_space) {
+    const bool srgb_role = role == "albedo" || role == "base_color" || role == "emissive";
+    return srgb_role ? color_space == TextureColorSpace::SRGB
+                     : color_space == TextureColorSpace::Linear;
+  };
+  auto add_issue = [&report](std::string issue) {
+    report.issues.push_back(std::move(issue));
+  };
+
+  report.backend_canonical = core_matches(backend_convention, canonical);
+  report.camera_canonical = core_matches(camera_convention, canonical);
+  report.camera_matches_backend = core_matches(camera_convention, backend_convention);
+  report.depth_contract_canonical =
+      depth_is_canonical(backend_convention) && depth_is_canonical(camera_convention);
+  report.viewport_contract_canonical =
+      viewport_is_canonical(backend_convention) && viewport_is_canonical(camera_convention);
+  report.matrix_contract_canonical =
+      matrix_is_canonical(backend_convention) && matrix_is_canonical(camera_convention);
+
+  if (!report.backend_canonical) {
+    add_issue("backend projection convention is not the canonical Aster render contract");
+  }
+  if (!report.camera_canonical) {
+    add_issue("camera projection convention is not the canonical Aster render contract");
+  }
+  if (!report.camera_matches_backend) {
+    add_issue("camera projection convention does not match the active backend");
+  }
+  if (!report.depth_contract_canonical) {
+    add_issue("depth contract must be right-handed zero-to-one reverse-Z");
+  }
+  if (!report.viewport_contract_canonical) {
+    add_issue("viewport contract must use top-left origin with backend Y flip");
+  }
+  if (!report.matrix_contract_canonical) {
+    add_issue("matrix contract must use column-major storage and column-vector transforms");
+  }
+
+  std::unordered_set<std::string> inspected_materials;
+  for (std::size_t i = 0; i < scene.objects().size(); ++i) {
+    const RenderObject &object = scene.objects()[i];
+    const std::string label = object.name.empty() ? ("object:" + std::to_string(i)) : object.name;
+    if (!allFinite(object.transform.position) || !allFinite(object.transform.scale) ||
+        !finiteQuat(object.transform.rotation)) {
+      ++report.non_finite_world_matrices;
+      add_issue("non-finite world transform: " + label);
+      continue;
+    }
+    const Vec3 scale = object.transform.scale;
+    if (std::abs(scale.x) <= 0.000001f || std::abs(scale.y) <= 0.000001f ||
+        std::abs(scale.z) <= 0.000001f) {
+      ++report.singular_normal_matrices;
+      add_issue("singular normal matrix from zero scale: " + label);
+    }
+    if (scale.x * scale.y * scale.z < 0.0f) {
+      ++report.negative_tangent_flips;
+    }
+    if (!allFinite(object.material.base_color.value) ||
+        !allFinite(object.material.emission_color.value)) {
+      ++report.color_space_violations;
+      add_issue("runtime material color is non-finite: " + label);
+    }
+
+    const std::string material_id =
+        !object.material_asset_id.empty() ? object.material_asset_id : object.material.asset_id;
+    if (library == nullptr || material_id.empty() ||
+        !inspected_materials.insert(material_id).second) {
+      continue;
+    }
+    const MaterialRuntimeResource *resource =
+        library->findForMaterialIds(object.material_asset_id, object.material.asset_id);
+    if (resource == nullptr) {
+      continue;
+    }
+    for (const auto &[role, texture] : resource->texture_set.textures) {
+      if (!texture.valid) {
+        continue;
+      }
+      ++report.texture_count;
+      if (!texture_color_expected(role, texture.color_space)) {
+        ++report.color_space_violations;
+        add_issue("texture role/color-space boundary mismatch: " + material_id + ":" + role);
+      }
+      if (role == "normal") {
+        ++report.normal_texture_count;
+        if (texture.normal_convention != TextureNormalConvention::OpenGlYUp) {
+          ++report.normal_convention_violations;
+          add_issue("normal map convention must be OpenGL/Y-up: " + material_id);
+        }
+      }
+    }
+  }
+
+  report.tangent_handedness_traced = true;
+  report.normal_map_convention_valid = report.normal_convention_violations == 0u;
+  report.color_space_boundary_valid = report.color_space_violations == 0u;
+  report.issue_count = report.issues.size();
+  report.valid = report.backend_canonical && report.camera_canonical &&
+                 report.camera_matches_backend && report.depth_contract_canonical &&
+                 report.viewport_contract_canonical && report.matrix_contract_canonical &&
+                 report.non_finite_world_matrices == 0u &&
+                 report.singular_normal_matrices == 0u &&
+                 report.normal_map_convention_valid && report.color_space_boundary_valid;
+
+  std::uint64_t hash = 1469598103934665603ull;
+  hash = appendEvidenceValue(hash, report.valid ? 1u : 0u);
+  hash = appendEvidenceValue(hash, report.backend_canonical ? 1u : 0u);
+  hash = appendEvidenceValue(hash, report.camera_canonical ? 1u : 0u);
+  hash = appendEvidenceValue(hash, report.camera_matches_backend ? 1u : 0u);
+  hash = appendEvidenceValue(hash, report.object_count);
+  hash = appendEvidenceValue(hash, report.non_finite_world_matrices);
+  hash = appendEvidenceValue(hash, report.singular_normal_matrices);
+  hash = appendEvidenceValue(hash, report.negative_tangent_flips);
+  hash = appendEvidenceValue(hash, report.texture_count);
+  hash = appendEvidenceValue(hash, report.normal_texture_count);
+  hash = appendEvidenceValue(hash, report.normal_convention_violations);
+  hash = appendEvidenceValue(hash, report.color_space_violations);
+  for (const std::string &issue : report.issues) {
+    hash = appendEvidenceText(hash, issue);
+  }
+  report.contract_hash = hash;
+  return report;
+}
+
 std::string_view asterRenderProofSignalName(const AsterRenderProofSignal signal) {
   switch (signal) {
   case AsterRenderProofSignal::PassProvenance:
@@ -5348,6 +5526,8 @@ std::string_view asterRenderProofSignalName(const AsterRenderProofSignal signal)
     return "pipeline-cache";
   case AsterRenderProofSignal::ResourceLifetime:
     return "resource-lifetime";
+  case AsterRenderProofSignal::MathContract:
+    return "math-contract";
   case AsterRenderProofSignal::BackendFallback:
     return "backend-fallback";
   case AsterRenderProofSignal::AssetProvenance:
@@ -5461,6 +5641,21 @@ AsterRenderProofSummary summarizeAsterRenderProof(const FrameForensics &forensic
                  std::to_string(forensics.rhi_validation_events.size()) + " validation events",
              forensics.resource_traces.size() + forensics.rhi_validation_events.size(),
              !forensics.resource_traces.empty() && !lifetime_errors);
+
+  const bool math_contract_ready =
+      forensics.math_contract.valid && forensics.math_contract.contract_hash != 0u;
+  append_row(AsterRenderProofSignal::MathContract, "canonical render math contract",
+             std::to_string(forensics.math_contract.issue_count) + " issues, " +
+                 std::to_string(forensics.math_contract.negative_tangent_flips) +
+                 " tangent handedness flips traced, " +
+                 std::to_string(forensics.math_contract.texture_count) +
+                 " texture boundaries checked",
+             forensics.math_contract.issue_count, math_contract_ready);
+  if (!math_contract_ready) {
+    for (const std::string &issue : forensics.math_contract.issues) {
+      summary.diagnostics.push_back("math contract: " + issue);
+    }
+  }
 
   const bool fallback_details_ready =
       summary.backend_fallbacks == 0u ||
@@ -5795,6 +5990,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                            framebuffer_width, framebuffer_height);
   const RenderBackendCapabilities active_capabilities =
       native_backend_ != nullptr ? native_backend_->capabilities() : softwareCapabilities();
+  last_forensics_.math_contract =
+      certifyRenderMathContract(scene, camera, active_capabilities, material_library_.get());
   const ClusteredLightGrid clustered_lights =
       buildClusteredLightGrid(settings.light_rig, camera, framebuffer_width, framebuffer_height,
                               settings.clustered_lighting);
@@ -5835,6 +6032,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                                   std::make_move_iterator(material_summary.events.end()));
     appendRenderMathContractDiagnostics(scene, last_forensics_.events);
     appendProjectionConventionDiagnostics(camera, active_capabilities, last_forensics_.events);
+    appendRenderMathContractReportDiagnostics(last_forensics_.math_contract,
+                                              last_forensics_.events);
     appendMathDiagnosticsToFrame(last_forensics_.events);
   }
   stats.visible_objects = plan.diagnostics.visible_objects;

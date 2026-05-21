@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <concepts>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -24,6 +25,33 @@
 #include <vector>
 
 namespace {
+
+template <typename Point, typename Transform>
+concept SemanticTransformPointInvocable = requires(Point point, Transform transform) {
+  aster::transformPoint(point, transform);
+};
+
+template <typename Point, typename Transform, typename Result>
+concept SemanticTransformPointReturns = requires(Point point, Transform transform) {
+  { aster::transformPoint(point, transform) } -> std::same_as<Result>;
+};
+
+static_assert(
+    SemanticTransformPointReturns<aster::LocalPoint, aster::LocalToWorld, aster::WorldPoint>);
+static_assert(
+    SemanticTransformPointReturns<aster::WorldPoint, aster::WorldToView, aster::ViewPoint>);
+static_assert(
+    SemanticTransformPointReturns<aster::ViewPoint, aster::ViewToClip, aster::ClipPoint>);
+static_assert(
+    SemanticTransformPointReturns<aster::WorldPoint, aster::WorldToClip, aster::ClipPoint>);
+static_assert(
+    !SemanticTransformPointInvocable<aster::WorldPoint, aster::LocalToWorld>);
+static_assert(
+    !SemanticTransformPointInvocable<aster::LocalPoint, aster::WorldToClip>);
+static_assert(
+    !SemanticTransformPointInvocable<aster::ViewPoint, aster::WorldToClip>);
+static_assert(
+    !SemanticTransformPointInvocable<aster::ClipPoint, aster::ClipToWorld>);
 
 void expectNear(const float actual, const float expected, const float tolerance) {
   if (std::abs(actual - expected) > tolerance) {

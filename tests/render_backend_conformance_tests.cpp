@@ -967,6 +967,11 @@ void writeCertificationArtifact(const std::filesystem::path &root, const std::st
        << ",\n"
        << "  \"validation_errors\": "
        << result.forensics.certification.validation_error_count << ",\n"
+       << "  \"math_contract_valid\": "
+       << (result.forensics.math_contract.valid ? "true" : "false") << ",\n"
+       << "  \"math_contract_errors\": "
+       << result.forensics.certification.math_contract_error_count << ",\n"
+       << "  \"math_contract_hash\": " << result.forensics.math_contract.contract_hash << ",\n"
        << "  \"passes\": [";
   for (std::size_t i = 0u; i < result.forensics.passes.size(); ++i) {
     if (i != 0u) {
@@ -1186,6 +1191,43 @@ void testBackendFeatureCertificationRejectsLyingNull() {
                               proof.status == aster::BackendFeatureProofStatus::Unsupported;
                      }));
   writeCertificationArtifact(artifactRoot(), "cave_conformance_certification_lie", result);
+}
+
+void testMathContractCertificationRejectsProjectionDrift() {
+  const LabRenderResult canonical =
+      renderCaveConformanceFrame(true, artifactRoot() / "math_contract_canonical.ppm");
+  assert(canonical.forensics.math_contract.valid);
+  assert(canonical.forensics.math_contract.backend_canonical);
+  assert(canonical.forensics.math_contract.camera_canonical);
+  assert(canonical.forensics.math_contract.camera_matches_backend);
+  assert(canonical.forensics.math_contract.depth_contract_canonical);
+  assert(canonical.forensics.math_contract.viewport_contract_canonical);
+  assert(canonical.forensics.math_contract.matrix_contract_canonical);
+  assert(canonical.forensics.math_contract.normal_map_convention_valid);
+  assert(canonical.forensics.math_contract.color_space_boundary_valid);
+  assert(canonical.forensics.math_contract.contract_hash != 0u);
+  assert(canonical.forensics.certification.math_contract_error_count == 0u);
+
+  auto library = makeCaveConformanceMaterialLibrary();
+  aster::Scene scene = aster::makeCaveConformanceShowcaseScene();
+  aster::RenderBackendCapabilities forged = canonical.backend;
+  forged.name = "Forged projection drift backend";
+  forged.projection_convention.depth_direction = aster::DepthDirection::ForwardZ;
+  forged.projection_convention.viewport_origin = aster::ViewportOrigin::BottomLeft;
+  forged.projection_convention.matrix_storage = aster::MatrixStorageOrder::RowMajor;
+
+  const aster::RenderMathContractReport forged_report = aster::certifyRenderMathContract(
+      scene, makeCaveConformanceCamera(), forged, library.get());
+  assert(!forged_report.valid);
+  assert(!forged_report.backend_canonical);
+  assert(forged_report.camera_canonical);
+  assert(!forged_report.camera_matches_backend);
+  assert(!forged_report.depth_contract_canonical);
+  assert(!forged_report.viewport_contract_canonical);
+  assert(!forged_report.matrix_contract_canonical);
+  assert(forged_report.normal_map_convention_valid);
+  assert(forged_report.color_space_boundary_valid);
+  assert(forged_report.issue_count >= 4u);
 }
 
 void testNativeCaveConformanceWhenAvailable() {
@@ -1432,6 +1474,8 @@ constexpr TestCase kTestCases[] = {
      testCapabilityMismatchRequiresResourceMask},
     {"backend_feature_certification_rejects_lying_null",
      testBackendFeatureCertificationRejectsLyingNull},
+    {"math_contract_certification_rejects_projection_drift",
+     testMathContractCertificationRejectsProjectionDrift},
     {"native_cave_conformance_when_available", testNativeCaveConformanceWhenAvailable},
     {"native_material_pipeline_key_tracks_feature_bits",
      testNativeMaterialPipelineKeyTracksFeatureBits},
