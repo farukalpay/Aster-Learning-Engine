@@ -903,6 +903,7 @@ if(ASTER_BUILD_TESTS)
       render_quality_profile
       render_style_profile
       native_render_style_shaders
+      shader_matrix_layout_and_normal_map_contracts
       hot_reload_snapshot
       invalid_material_diagnostics
       procedural_asset_graph_package

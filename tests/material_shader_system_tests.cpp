@@ -82,6 +82,13 @@ std::string readText(const std::filesystem::path &path) {
   return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
 }
 
+void expectContains(const std::string &text, const std::string &needle) {
+  if (text.find(needle) == std::string::npos) {
+    std::cerr << "Expected source token not found: " << needle << '\n';
+    assert(false);
+  }
+}
+
 std::string sampleMaterialSource() {
   return R"mat(
 material TestWetRock {
@@ -721,6 +728,42 @@ void testNativeRenderStyleShaderContracts() {
   assert(d3d12.find("is_pattern(pattern, 19.0)") != std::string::npos);
 }
 
+void testShaderMatrixLayoutAndNormalMapContracts() {
+  const std::filesystem::path source_root = std::filesystem::path(ASTER_SOURCE_DIR);
+  const std::string metal = readText(source_root / "src" / "render" / "render_device_metal.mm");
+  const std::string d3d12 = readText(source_root / "src" / "render" / "render_device_d3d12.cpp");
+
+  expectContains(metal,
+                 "struct Object { float4x4 model; float4x4 mvp; float4x4 normal_matrix;");
+  expectContains(d3d12, "float4x4 model;\n  float4x4 mvp;\n  float4x4 normal_matrix;");
+  expectContains(metal, "out.position = object.mvp * local;");
+  expectContains(d3d12, "outp.position = mul(object.mvp, local);");
+  expectContains(metal, "(object.model * local).xyz;");
+  expectContains(d3d12, "outp.world = mul(object.model, local).xyz;");
+
+  expectContains(metal, "std::memcpy(out.model, model.m.data(), sizeof(out.model));");
+  expectContains(metal,
+                 "std::memcpy(out.model_view_projection, mvp.m.data(), "
+                 "sizeof(out.model_view_projection));");
+  expectContains(metal,
+                 "std::memcpy(out.normal_matrix, normal_matrix.m.data(), "
+                 "sizeof(out.normal_matrix));");
+  expectContains(d3d12,
+                 "std::memcpy(uniforms.model, model.m.data(), sizeof(uniforms.model));");
+  expectContains(d3d12,
+                 "std::memcpy(uniforms.model_view_projection, mvp.m.data(),");
+  expectContains(d3d12,
+                 "std::memcpy(uniforms.normal_matrix, normal_matrix.m.data(), "
+                 "sizeof(uniforms.normal_matrix));");
+
+  expectContains(metal, "normal_y_sign < 0.0 ? -1.0 : 1.0;");
+  expectContains(d3d12, "encoded.y *= normal_y_sign < 0.0 ? -1.0 : 1.0;");
+  expectContains(metal, "normalize(cross(n, t)) * handedness;");
+  expectContains(d3d12, "float3 b = normalize(cross(n, t)) * handedness;");
+  expectContains(metal, "object.texture_flags2.z");
+  expectContains(d3d12, "object.texture_flags2.z");
+}
+
 void testHotReloadSnapshot() {
   const std::filesystem::path dir = tempDir();
   const std::filesystem::path path = dir / "shader.astsl";
@@ -852,6 +895,8 @@ constexpr TestCase kTestCases[] = {
     {"render_quality_profile", testRenderQualityProfileContracts},
     {"render_style_profile", testRenderStyleProfileContracts},
     {"native_render_style_shaders", testNativeRenderStyleShaderContracts},
+    {"shader_matrix_layout_and_normal_map_contracts",
+     testShaderMatrixLayoutAndNormalMapContracts},
     {"hot_reload_snapshot", testHotReloadSnapshot},
     {"invalid_material_diagnostics", testInvalidMaterialDiagnostics},
     {"procedural_asset_graph_package", testProceduralAssetGraphPackageRuntimeMaterial},

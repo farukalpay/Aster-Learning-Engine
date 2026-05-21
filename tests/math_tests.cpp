@@ -148,7 +148,7 @@ void testProjectionRoundTrip() {
     const aster::MathResult<aster::WorldPoint> restored =
         aster::unproject(window.value, clip_to_world, viewport);
     assert(restored);
-    expectNearVec3(restored.value, world.value, 0.002f);
+    expectNearVec3(restored.value.value, world.value, 0.002f);
   }
 }
 

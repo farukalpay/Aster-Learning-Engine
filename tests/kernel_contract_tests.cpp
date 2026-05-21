@@ -2,11 +2,13 @@
 // Do not remove this notice.
 
 #include "aster/kernel/api.hpp"
+#include "aster/math/mat4.hpp"
 
 #include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -164,6 +166,28 @@ std::string readFile(const std::string &path) {
 
 std::string toString(const AsterStringView view) {
   return view.data == nullptr ? std::string() : std::string(view.data, view.size);
+}
+
+AsterMat4 abiMat4(const aster::Mat4 &matrix) {
+  AsterMat4 out{};
+  std::memcpy(out.m, matrix.m.data(), sizeof(out.m));
+  return out;
+}
+
+AsterMathCoordinateHandedness abiHandedness(const aster::CoordinateHandedness value) {
+  return value == aster::CoordinateHandedness::LeftHanded ? ASTER_MATH_COORDINATE_LEFT_HANDED
+                                                          : ASTER_MATH_COORDINATE_RIGHT_HANDED;
+}
+
+AsterMathClipDepthRange abiDepthRange(const aster::ClipDepthRange value) {
+  return value == aster::ClipDepthRange::NegativeOneToOne
+             ? ASTER_MATH_CLIP_DEPTH_NEGATIVE_ONE_TO_ONE
+             : ASTER_MATH_CLIP_DEPTH_ZERO_TO_ONE;
+}
+
+AsterMathDepthDirection abiDepthDirection(const aster::DepthDirection value) {
+  return value == aster::DepthDirection::ReverseZ ? ASTER_MATH_DEPTH_REVERSE_Z
+                                                  : ASTER_MATH_DEPTH_FORWARD_Z;
 }
 
 std::set<std::string> readManifest() {
@@ -360,6 +384,107 @@ void testMathAbi5Contracts() {
                                            &diagnostics)
              .code == ASTER_STATUS_INVALID_ARGUMENT);
   assert(diagnostics.error == ASTER_MATH_ERROR_INVALID_ARGUMENT);
+}
+
+void testProjectionAbiEntrypointsMatchHeaderMathBitwise() {
+  const aster::ProjectionPolicy policies[] = {
+      {aster::CoordinateHandedness::RightHanded, aster::ClipDepthRange::ZeroToOne,
+       aster::DepthDirection::ReverseZ},
+      {aster::CoordinateHandedness::RightHanded, aster::ClipDepthRange::ZeroToOne,
+       aster::DepthDirection::ForwardZ},
+      {aster::CoordinateHandedness::RightHanded, aster::ClipDepthRange::NegativeOneToOne,
+       aster::DepthDirection::ReverseZ},
+      {aster::CoordinateHandedness::RightHanded, aster::ClipDepthRange::NegativeOneToOne,
+       aster::DepthDirection::ForwardZ},
+      {aster::CoordinateHandedness::LeftHanded, aster::ClipDepthRange::ZeroToOne,
+       aster::DepthDirection::ReverseZ},
+      {aster::CoordinateHandedness::LeftHanded, aster::ClipDepthRange::ZeroToOne,
+       aster::DepthDirection::ForwardZ},
+      {aster::CoordinateHandedness::LeftHanded, aster::ClipDepthRange::NegativeOneToOne,
+       aster::DepthDirection::ReverseZ},
+      {aster::CoordinateHandedness::LeftHanded, aster::ClipDepthRange::NegativeOneToOne,
+       aster::DepthDirection::ForwardZ},
+  };
+
+  const AsterMathPolicy math_policy = aster_kernel_math_default_policy();
+  for (const aster::ProjectionPolicy policy : policies) {
+    const aster::MathResult<aster::Mat4> header_projection =
+        aster::perspective(aster::radians(57.0f), 16.0f / 9.0f, 0.05f, 250.0f, policy);
+    assert(header_projection);
+    AsterMat4 abi_projection{};
+    AsterMathDiagnostics diagnostics{};
+    assert(aster_kernel_math_mat4_perspective(
+               aster::radians(57.0f), 16.0f / 9.0f, 0.05f, 250.0f,
+               abiHandedness(policy.handedness), abiDepthRange(policy.depth_range),
+               abiDepthDirection(policy.depth_direction), &abi_projection, &diagnostics)
+               .code == ASTER_STATUS_OK);
+    assert(std::memcmp(abi_projection.m, header_projection.value.m.data(),
+                       sizeof(abi_projection.m)) == 0);
+
+    const aster::Vec3 eye =
+        policy.handedness == aster::CoordinateHandedness::RightHanded
+            ? aster::Vec3{0.0f, 1.0f, 5.0f}
+            : aster::Vec3{0.0f, 1.0f, -5.0f};
+    const aster::MathResult<aster::Mat4> header_view =
+        aster::lookAt(eye, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, policy.handedness);
+    assert(header_view);
+    AsterMat4 abi_view{};
+    assert(aster_kernel_math_mat4_look_at({eye.x, eye.y, eye.z}, {0.0f, 0.0f, 0.0f},
+                                          {0.0f, 1.0f, 0.0f},
+                                          abiHandedness(policy.handedness), &abi_view,
+                                          &diagnostics)
+               .code == ASTER_STATUS_OK);
+    assert(std::memcmp(abi_view.m, header_view.value.m.data(), sizeof(abi_view.m)) == 0);
+
+    const aster::Mat4 header_world_to_clip = header_projection.value * header_view.value;
+    AsterMat4 abi_world_to_clip{};
+    assert(aster_kernel_math_mat4_multiply(&abi_projection, &abi_view, &abi_world_to_clip).code ==
+           ASTER_STATUS_OK);
+    assert(std::memcmp(abi_world_to_clip.m, header_world_to_clip.m.data(),
+                       sizeof(abi_world_to_clip.m)) == 0);
+
+    const AsterViewport viewport{{7.0f, 11.0f}, {1024.0f, 576.0f},
+                                 policy.viewport_origin == aster::ViewportOrigin::TopLeft ? 1u
+                                                                                           : 0u};
+    const AsterWorldPoint world{{0.25f, -0.1f, 0.0f}};
+    const aster::MathResult<aster::ScreenPoint> header_screen =
+        aster::project(aster::WorldPoint{world.value.x, world.value.y, world.value.z},
+                       aster::WorldToClip{header_world_to_clip},
+                       {{viewport.origin.x, viewport.origin.y},
+                        {viewport.size.x, viewport.size.y},
+                        policy.viewport_origin});
+    assert(header_screen);
+    AsterScreenPoint abi_screen{};
+    assert(aster_kernel_math_world_to_screen(world, &abi_world_to_clip, &viewport, &abi_screen,
+                                             &diagnostics)
+               .code == ASTER_STATUS_OK);
+    assert(std::memcmp(&abi_screen.value, &header_screen.value.value, sizeof(abi_screen.value)) ==
+           0);
+
+    const aster::MathResult<aster::Mat4> header_clip_to_world =
+        aster::inverse(header_world_to_clip);
+    assert(header_clip_to_world);
+    const AsterMat4 abi_clip_to_world = abiMat4(header_clip_to_world.value);
+    AsterWorldPoint abi_restored{};
+    assert(aster_kernel_math_screen_to_world(abi_screen, &abi_clip_to_world, &viewport,
+                                             &abi_restored, &diagnostics)
+               .code == ASTER_STATUS_OK);
+    const aster::MathResult<aster::WorldPoint> header_restored =
+        aster::unproject(header_screen.value, aster::ClipToWorld{header_clip_to_world.value},
+                         {{viewport.origin.x, viewport.origin.y},
+                          {viewport.size.x, viewport.size.y},
+                          policy.viewport_origin});
+    assert(header_restored);
+    assert(std::memcmp(&abi_restored.value, &header_restored.value.value,
+                       sizeof(abi_restored.value)) == 0);
+
+    AsterMat4 abi_inverse{};
+    assert(aster_kernel_math_mat4_inverse(&abi_world_to_clip, &math_policy, &abi_inverse,
+                                          &diagnostics)
+               .code == ASTER_STATUS_OK);
+    assert(std::memcmp(abi_inverse.m, header_clip_to_world.value.m.data(),
+                       sizeof(abi_inverse.m)) == 0);
+  }
 }
 
 void testRendererAbi5Lifecycle() {
@@ -1492,6 +1617,7 @@ int main() {
   testPublicApiBoundaryIsFrozen();
   testStatusAndEngineLifecycle();
   testMathAbi5Contracts();
+  testProjectionAbiEntrypointsMatchHeaderMathBitwise();
   testRendererAbi5Lifecycle();
   testAbi5ExplicitValidationContracts();
   testAuthoringDocumentAbi51Contracts();
