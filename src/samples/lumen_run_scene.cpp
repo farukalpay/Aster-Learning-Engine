@@ -522,7 +522,7 @@ void LumenRun::rebuildScene() {
   cave_soot_rust.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_dust_accumulation =
       material({0.078f, 0.060f, 0.044f}, {0.001f, 0.001f, 0.0f}, 0.98f, 0.0f, 0.0f, 0.58f,
-               8.0f, 0.06f, 0.72f, SurfacePattern::SoilPath, {3.4f, 5.0f}, 0.014f, 0.36f,
+               8.0f, 0.06f, 0.72f, SurfacePattern::CaveRock, {3.4f, 5.0f}, 0.014f, 0.36f,
                0.070f,
                {.macro_variation = 0.36f,
                 .micro_normal_strength = 0.10f,
@@ -1401,7 +1401,7 @@ void LumenRun::rebuildScene() {
     }
   }
   if (chest_floor.valid) {
-    chest_base_.y = chest_floor.height + 0.16f;
+    chest_base_.y = chest_floor.height + 0.22f;
   }
   const auto chestPartPosition = [&](const Vec3 local_offset) {
     return chest_base_ + rotateYaw(local_offset, chest_yaw_);
@@ -2155,7 +2155,7 @@ void LumenRun::rebuildScene() {
   gauntlet_floor.emission_strength = 0.025f;
   Material gauntlet_map_material =
       material({0.025f, 0.062f, 0.055f}, {0.18f, 0.80f, 0.62f}, 0.34f, 0.0f, 0.18f,
-               0.18f, 9.0f, 0.02f, 0.94f, SurfacePattern::CourseCells, {8.0f, 6.0f}, 0.014f,
+               0.18f, 9.0f, 0.02f, 0.94f, SurfacePattern::WeatheredMetal, {8.0f, 6.0f}, 0.014f,
                0.64f, 0.03f);
   gauntlet_map_material.emission_strength = 0.24f;
   Material gauntlet_hunter_chitin =

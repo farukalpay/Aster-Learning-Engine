@@ -201,6 +201,93 @@ private:
   AsterEngineHandle handle_ = nullptr;
 };
 
+class World {
+public:
+  World() = default;
+  explicit World(AsterWorldHandle handle) noexcept : handle_(handle) {}
+
+  World(World &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  World &operator=(World &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  World(const World &) = delete;
+  World &operator=(const World &) = delete;
+
+  ~World() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<World> create(const Engine &engine,
+                                            const AsterWorldDesc &desc) noexcept {
+    AsterWorldHandle handle = nullptr;
+    const Status status(aster_kernel_world_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<World>(status);
+    }
+    return Result<World>(World(handle));
+  }
+
+  [[nodiscard]] static Result<World> create(const Engine &engine) noexcept {
+    const AsterWorldDesc desc{sizeof(AsterWorldDesc), ASTER_KERNEL_STRUCT_VERSION_1,
+                              1.0 / 60.0, 0u, {}};
+    return create(engine, desc);
+  }
+
+  [[nodiscard]] AsterWorldHandle get() const noexcept {
+    return handle_;
+  }
+
+  [[nodiscard]] Result<AsterWorldAdvanceResult>
+  advance(const AsterWorldAdvanceDesc &desc) noexcept {
+    AsterWorldAdvanceResult result{sizeof(AsterWorldAdvanceResult),
+                                   ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_world_advance(handle_, &desc, &result));
+    if (!status) {
+      return Result<AsterWorldAdvanceResult>(status);
+    }
+    return Result<AsterWorldAdvanceResult>(std::move(result));
+  }
+
+  [[nodiscard]] Status recordRegionGate(const AsterWorldRegionGateReport &report) noexcept {
+    return Status(aster_kernel_world_record_region_gate(handle_, &report));
+  }
+
+  [[nodiscard]] Result<AsterWorldRenderExtraction>
+  extractRender(const AsterWorldRenderExtractionDesc &desc) noexcept {
+    AsterWorldRenderExtraction extraction{sizeof(AsterWorldRenderExtraction),
+                                          ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_world_extract_render(handle_, &desc, &extraction));
+    if (!status) {
+      return Result<AsterWorldRenderExtraction>(status);
+    }
+    return Result<AsterWorldRenderExtraction>(std::move(extraction));
+  }
+
+  [[nodiscard]] Result<AsterWorldForensics> forensics() const noexcept {
+    AsterWorldForensics result{sizeof(AsterWorldForensics), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_world_forensics(handle_, &result));
+    if (!status) {
+      return Result<AsterWorldForensics>(status);
+    }
+    return Result<AsterWorldForensics>(std::move(result));
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_world_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterWorldHandle handle_ = nullptr;
+};
+
 class SystemWorld {
 public:
   SystemWorld() = default;

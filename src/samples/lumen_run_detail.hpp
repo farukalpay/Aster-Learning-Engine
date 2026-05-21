@@ -18,6 +18,7 @@
 #include "aster/geometry/nature_mesh.hpp"
 #include "aster/geometry/stroke_mesh.hpp"
 #include "aster/geometry/terrain_sculpt.hpp"
+#include "aster/math/hash.hpp"
 #include "aster/physics/contact_query.hpp"
 #include "aster/physics/fluid_locomotion.hpp"
 #include "aster/physics/placement_validation.hpp"

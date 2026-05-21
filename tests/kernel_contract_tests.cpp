@@ -56,6 +56,21 @@ static_assert(std::is_standard_layout_v<AsterSystemTransactionDesc>);
 static_assert(std::is_standard_layout_v<AsterSystemTransactionInfo>);
 static_assert(std::is_standard_layout_v<AsterSystemTraceCounts>);
 static_assert(std::is_standard_layout_v<AsterSystemTraceEvent>);
+static_assert(std::is_standard_layout_v<AsterActor>);
+static_assert(std::is_standard_layout_v<AsterStimulus>);
+static_assert(std::is_standard_layout_v<AsterAffordance>);
+static_assert(std::is_standard_layout_v<AsterEncounter>);
+static_assert(std::is_standard_layout_v<AsterBiomeCell>);
+static_assert(std::is_standard_layout_v<AsterResourceNode>);
+static_assert(std::is_standard_layout_v<AsterNavValidityReport>);
+static_assert(std::is_standard_layout_v<AsterPerceptualBudget>);
+static_assert(std::is_standard_layout_v<AsterWorldDesc>);
+static_assert(std::is_standard_layout_v<AsterWorldAdvanceDesc>);
+static_assert(std::is_standard_layout_v<AsterWorldAdvanceResult>);
+static_assert(std::is_standard_layout_v<AsterWorldRegionGateReport>);
+static_assert(std::is_standard_layout_v<AsterWorldRenderExtractionDesc>);
+static_assert(std::is_standard_layout_v<AsterWorldRenderExtraction>);
+static_assert(std::is_standard_layout_v<AsterWorldForensics>);
 static_assert(std::is_standard_layout_v<AsterAssetLineageInfo>);
 static_assert(std::is_standard_layout_v<AsterResidencyBudget>);
 static_assert(std::is_standard_layout_v<AsterResidencyDecision>);
@@ -262,9 +277,9 @@ void testPublicApiBoundaryIsFrozen() {
 void testStatusAndEngineLifecycle() {
   const AsterAbiVersion version = aster_kernel_abi_version();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
-  assert(version.major == 5u);
+  assert(version.major == 6u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 3u);
+  assert(version.minor == 0u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -757,6 +772,12 @@ void testRendererAbi5Lifecycle() {
   presentation_settings.simulation_tick = 42u;
   presentation_settings.extraction_hash = 0xA57E000000000022ull;
   presentation_settings.asset_lineage_hash = 0xA57E000000000033ull;
+  presentation_settings.world_transition_hash = 0xA57E000000000044ull;
+  presentation_settings.actor_state_delta_hash = 0xA57E000000000055ull;
+  presentation_settings.encounter_budget_hash = 0xA57E000000000066ull;
+  presentation_settings.navigation_valid = 1u;
+  presentation_settings.streaming_region_id = 0xA57E000000000077ull;
+  presentation_settings.perceptual_salience_score = 0.82f;
   assert(aster_kernel_renderer_render_frame_to_target(renderer, scene, target, &physical_camera,
                                                       &presentation_settings)
              .code == ASTER_STATUS_OK);
@@ -784,6 +805,14 @@ void testRendererAbi5Lifecycle() {
   assert(detail_counts.simulation_tick == presentation_settings.simulation_tick);
   assert(detail_counts.extraction_hash == presentation_settings.extraction_hash);
   assert(detail_counts.asset_lineage_hash == presentation_settings.asset_lineage_hash);
+  assert(detail_counts.world_extraction_provenance == ASTER_WORLD_EXTRACTION_WORLD_TRANSITION);
+  assert(detail_counts.world_transition_hash == presentation_settings.world_transition_hash);
+  assert(detail_counts.actor_state_delta_hash == presentation_settings.actor_state_delta_hash);
+  assert(detail_counts.encounter_budget_hash == presentation_settings.encounter_budget_hash);
+  assert(detail_counts.navigation_valid == presentation_settings.navigation_valid);
+  assert(detail_counts.streaming_region_id == presentation_settings.streaming_region_id);
+  assert(detail_counts.perceptual_salience_score ==
+         presentation_settings.perceptual_salience_score);
   AsterFrameForensicsDetailCounts legacy_detail_counts{};
   legacy_detail_counts.size = offsetof(AsterFrameForensicsDetailCounts, world_trace_hash);
   legacy_detail_counts.version = ASTER_KERNEL_STRUCT_VERSION_1;
@@ -1401,7 +1430,108 @@ void testShaderCompilerAbi5() {
   assert(aster_kernel_engine_destroy(engine).code == ASTER_STATUS_OK);
 }
 
-void testSystemWorldAbi53Contracts() {
+std::uint64_t worldTransitionHashForSeed(const std::uint64_t seed) {
+  AsterEngineHandle engine = nullptr;
+  const AsterEngineDesc engine_desc{sizeof(AsterEngineDesc),
+                                    ASTER_KERNEL_STRUCT_VERSION_1,
+                                    {"world-transition-test", 21u},
+                                    0u};
+  assert(aster_kernel_engine_create(&engine_desc, &engine).code == ASTER_STATUS_OK);
+  AsterWorldHandle world = nullptr;
+  const AsterWorldDesc world_desc{sizeof(AsterWorldDesc), ASTER_KERNEL_STRUCT_VERSION_1,
+                                  1.0 / 60.0, seed, {"player-world", 12u}};
+  assert(aster_kernel_world_create(engine, &world_desc, &world).code == ASTER_STATUS_OK);
+  const AsterWorldAdvanceDesc advance{sizeof(AsterWorldAdvanceDesc),
+                                      ASTER_KERNEL_STRUCT_VERSION_1,
+                                      1u,
+                                      1.0 / 60.0,
+                                      0x11u,
+                                      0x22u,
+                                      0x33u,
+                                      0x44u,
+                                      0x55u,
+                                      0x66u,
+                                      0x77u};
+  AsterWorldAdvanceResult result{sizeof(AsterWorldAdvanceResult),
+                                 ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_world_advance(world, &advance, &result).code == ASTER_STATUS_OK);
+  const std::uint64_t transition_hash = result.world_transition_hash;
+  assert(aster_kernel_world_destroy(world).code == ASTER_STATUS_OK);
+  assert(aster_kernel_engine_destroy(engine).code == ASTER_STATUS_OK);
+  return transition_hash;
+}
+
+void testWorldRootAbi6Contracts() {
+  const std::uint64_t deterministic_hash = worldTransitionHashForSeed(0xA57E6000u);
+  assert(deterministic_hash != 0u);
+  assert(deterministic_hash == worldTransitionHashForSeed(0xA57E6000u));
+
+  AsterEngineHandle engine = nullptr;
+  const AsterEngineDesc engine_desc{sizeof(AsterEngineDesc),
+                                    ASTER_KERNEL_STRUCT_VERSION_1,
+                                    {"world-root-test", 15u},
+                                    0u};
+  assert(aster_kernel_engine_create(&engine_desc, &engine).code == ASTER_STATUS_OK);
+  AsterWorldHandle world = nullptr;
+  const AsterWorldDesc world_desc{sizeof(AsterWorldDesc), ASTER_KERNEL_STRUCT_VERSION_1,
+                                  1.0 / 60.0, 0xA57E6001u, {"world-root", 10u}};
+  assert(aster_kernel_world_create(engine, &world_desc, &world).code == ASTER_STATUS_OK);
+
+  const AsterWorldAdvanceDesc advance{sizeof(AsterWorldAdvanceDesc),
+                                      ASTER_KERNEL_STRUCT_VERSION_1,
+                                      1u,
+                                      1.0 / 60.0,
+                                      0x100u,
+                                      0x200u,
+                                      0x300u,
+                                      0x400u,
+                                      0x500u,
+                                      0x600u,
+                                      0x700u};
+  AsterWorldAdvanceResult result{sizeof(AsterWorldAdvanceResult),
+                                 ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_world_advance(world, &advance, &result).code == ASTER_STATUS_OK);
+  assert(result.accepted == 1u);
+  assert(result.world_transition_hash != 0u);
+
+  const AsterWorldRegionGateReport rejected_gate{
+      sizeof(AsterWorldRegionGateReport),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      0x700u,
+      0x701u,
+      ASTER_WORLD_REGION_GATE_ACCEPTED,
+      {sizeof(AsterNavValidityReport), ASTER_KERNEL_STRUCT_VERSION_1, 0u, 4u, 1u, 0x702u,
+       {"blocked", 7u}},
+      0x703u,
+      0x704u,
+      {sizeof(AsterPerceptualBudget), ASTER_KERNEL_STRUCT_VERSION_1, 1u, 0.84f, 0.60f, 0x705u,
+       {"readable", 8u}},
+      {"route blocked", 13u}};
+  assert(aster_kernel_world_record_region_gate(world, &rejected_gate).code == ASTER_STATUS_OK);
+
+  const AsterWorldRenderExtractionDesc extraction_desc{
+      sizeof(AsterWorldRenderExtractionDesc), ASTER_KERNEL_STRUCT_VERSION_1, 0x500u, 0x801u,
+      0x802u};
+  AsterWorldRenderExtraction extraction{sizeof(AsterWorldRenderExtraction),
+                                        ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_world_extract_render(world, &extraction_desc, &extraction).code ==
+         ASTER_STATUS_OK);
+  assert(extraction.world_transition_hash != 0u);
+  assert(extraction.streaming_region_id == rejected_gate.region_id);
+
+  AsterWorldForensics forensics{sizeof(AsterWorldForensics), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_world_forensics(world, &forensics).code == ASTER_STATUS_OK);
+  assert(forensics.generated_region_gate == ASTER_WORLD_REGION_GATE_QUARANTINED);
+  assert(forensics.navigation.valid == 0u);
+  assert(forensics.navigation.blocked_steps == 1u);
+  assert(forensics.actor_delta_count == 1u);
+  assert(forensics.render_extraction_hash == extraction_desc.extraction_hash);
+  assert(forensics.trace_hash == extraction.trace_hash);
+  assert(aster_kernel_world_destroy(world).code == ASTER_STATUS_OK);
+  assert(aster_kernel_engine_destroy(engine).code == ASTER_STATUS_OK);
+}
+
+void testSystemWorldCompatibilityContracts() {
   AsterEngineHandle engine = nullptr;
   const AsterEngineDesc engine_desc{sizeof(AsterEngineDesc),
                                     ASTER_KERNEL_STRUCT_VERSION_1,
@@ -1582,6 +1712,12 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_engine_last_status",
       "aster_kernel_engine_validation_event_count",
       "aster_kernel_engine_validation_event",
+      "aster_kernel_world_create",
+      "aster_kernel_world_advance",
+      "aster_kernel_world_record_region_gate",
+      "aster_kernel_world_extract_render",
+      "aster_kernel_world_forensics",
+      "aster_kernel_world_destroy",
       "aster_kernel_system_world_create",
       "aster_kernel_system_world_tick",
       "aster_kernel_system_world_entity_create",
@@ -1722,6 +1858,12 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_engine_last_status;
   (void)&aster_kernel_engine_validation_event_count;
   (void)&aster_kernel_engine_validation_event;
+  (void)&aster_kernel_world_create;
+  (void)&aster_kernel_world_advance;
+  (void)&aster_kernel_world_record_region_gate;
+  (void)&aster_kernel_world_extract_render;
+  (void)&aster_kernel_world_forensics;
+  (void)&aster_kernel_world_destroy;
   (void)&aster_kernel_system_world_create;
   (void)&aster_kernel_system_world_tick;
   (void)&aster_kernel_system_world_entity_create;
@@ -1841,7 +1983,8 @@ int main() {
   testAbi5ExplicitValidationContracts();
   testAuthoringDocumentAbi51Contracts();
   testShaderCompilerAbi5();
-  testSystemWorldAbi53Contracts();
+  testWorldRootAbi6Contracts();
+  testSystemWorldCompatibilityContracts();
   testCppWrapperUsesResultStatus();
   testManifestNamesMatchLinkedApi();
   return 0;

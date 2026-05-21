@@ -3560,6 +3560,303 @@ pub fn cook_project(
     })
 }
 
+fn cave_vec3(value: &Value) -> Option<[f64; 3]> {
+    let array = value.as_array()?;
+    if array.len() != 3 {
+        return None;
+    }
+    Some([array[0].as_f64()?, array[1].as_f64()?, array[2].as_f64()?])
+}
+
+fn cave_distance(lhs: [f64; 3], rhs: [f64; 3]) -> f64 {
+    let dx = lhs[0] - rhs[0];
+    let dy = lhs[1] - rhs[1];
+    let dz = lhs[2] - rhs[2];
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
+fn cave_volume_overlaps(lhs: &Value, rhs: &Value) -> bool {
+    let Some(lhs_center) = lhs.get("center").and_then(cave_vec3) else {
+        return false;
+    };
+    let Some(lhs_half) = lhs.get("half_extents").and_then(cave_vec3) else {
+        return false;
+    };
+    let Some(rhs_center) = rhs.get("center").and_then(cave_vec3) else {
+        return false;
+    };
+    let Some(rhs_half) = rhs.get("half_extents").and_then(cave_vec3) else {
+        return false;
+    };
+    (lhs_center[0] - rhs_center[0]).abs() <= lhs_half[0] + rhs_half[0]
+        && (lhs_center[1] - rhs_center[1]).abs() <= lhs_half[1] + rhs_half[1]
+        && (lhs_center[2] - rhs_center[2]).abs() <= lhs_half[2] + rhs_half[2]
+}
+
+fn cave_world_gate_report(
+    root: &Value,
+    id: &str,
+    guid: &str,
+    source_rel: &str,
+    source_hash: &str,
+) -> (Value, Vec<AssetCookDiagnostic>) {
+    let validation = root.get("validation").unwrap_or(&Value::Null);
+    let mut reasons = Vec::<String>::new();
+    let mut checked_steps = 0usize;
+    let mut blocked_steps = 0usize;
+
+    if let Some(routes) = validation.get("walkable_routes").and_then(Value::as_array) {
+        for route in routes {
+            let route_id = route.get("id").and_then(Value::as_str).unwrap_or("unnamed");
+            let points = route.get("points").and_then(Value::as_array);
+            let max_segment = route
+                .get("max_segment_length")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.5);
+            let tolerance = route
+                .get("support_tolerance")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.25);
+            let Some(points) = points else {
+                reasons.push(format!("route '{route_id}' has no probe points"));
+                blocked_steps += 1;
+                continue;
+            };
+            if points.len() < 2 {
+                reasons.push(format!(
+                    "route '{route_id}' has fewer than two probe points"
+                ));
+                blocked_steps += 1;
+                continue;
+            }
+            for pair in points.windows(2) {
+                checked_steps += 1;
+                let Some(from) = cave_vec3(&pair[0]) else {
+                    reasons.push(format!("route '{route_id}' has an invalid start point"));
+                    blocked_steps += 1;
+                    continue;
+                };
+                let Some(to) = cave_vec3(&pair[1]) else {
+                    reasons.push(format!("route '{route_id}' has an invalid end point"));
+                    blocked_steps += 1;
+                    continue;
+                };
+                if cave_distance(from, to) > max_segment + tolerance {
+                    reasons.push(format!(
+                        "route '{route_id}' exceeds deterministic probe step length"
+                    ));
+                    blocked_steps += 1;
+                }
+            }
+        }
+    } else {
+        reasons.push("validation.walkable_routes is required for cave world gate".to_string());
+        blocked_steps += 1;
+    }
+
+    let empty = Vec::new();
+    let spawn_volumes = validation
+        .get("spawn_volumes")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty);
+    let collision_volumes = validation
+        .get("collision_volumes")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty);
+    for spawn in spawn_volumes {
+        let spawn_id = spawn.get("id").and_then(Value::as_str).unwrap_or("unnamed");
+        for collision in collision_volumes {
+            if cave_volume_overlaps(spawn, collision) {
+                let collision_id = collision
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unnamed");
+                reasons.push(format!(
+                    "spawn volume '{spawn_id}' overlaps collision volume '{collision_id}'"
+                ));
+                blocked_steps += 1;
+            }
+        }
+    }
+
+    let resource_capacity = root
+        .get("sections")
+        .and_then(Value::as_array)
+        .map(|sections| {
+            sections
+                .iter()
+                .filter_map(|section| {
+                    section
+                        .get("ore")
+                        .and_then(|ore| ore.get("max_nodes"))
+                        .and_then(Value::as_i64)
+                })
+                .filter(|count| *count > 0)
+                .sum::<i64>()
+        })
+        .unwrap_or(0);
+    let mut resource_valid = true;
+    if let Some(resource_probes) = validation.get("resource_probes").and_then(Value::as_array) {
+        for probe in resource_probes {
+            let probe_id = probe.get("id").and_then(Value::as_str).unwrap_or("unnamed");
+            let minimum = probe
+                .get("minimum_count")
+                .and_then(Value::as_i64)
+                .unwrap_or(1);
+            if resource_capacity < minimum {
+                resource_valid = false;
+                reasons.push(format!(
+                    "resource probe '{probe_id}' requires {minimum} nodes but cave budgets {resource_capacity}"
+                ));
+            }
+        }
+    }
+
+    let encounter_count = root
+        .get("placements")
+        .and_then(Value::as_array)
+        .map(|placements| {
+            placements
+                .iter()
+                .filter(|placement| {
+                    placement
+                        .get("kind")
+                        .and_then(Value::as_str)
+                        .map(|kind| kind.contains("enemy") || kind.contains("encounter"))
+                        .unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    let mut encounter_valid = true;
+    let encounter_budget = (encounter_count as f64 * 0.25).clamp(0.0, 1.0);
+    if let Some(encounter_probes) = validation.get("encounter_probes").and_then(Value::as_array) {
+        for probe in encounter_probes {
+            let probe_id = probe.get("id").and_then(Value::as_str).unwrap_or("unnamed");
+            let minimum = probe
+                .get("minimum_budget")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let maximum = probe
+                .get("maximum_budget")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0);
+            if encounter_budget < minimum || encounter_budget > maximum {
+                encounter_valid = false;
+                reasons.push(format!(
+                    "encounter probe '{probe_id}' budget {encounter_budget:.2} is outside [{minimum:.2}, {maximum:.2}]"
+                ));
+            }
+        }
+    }
+
+    let fixture_count = root
+        .get("sections")
+        .and_then(Value::as_array)
+        .map(|sections| {
+            sections
+                .iter()
+                .map(|section| {
+                    section
+                        .get("fixtures")
+                        .and_then(Value::as_array)
+                        .map(Vec::len)
+                        .unwrap_or(0)
+                })
+                .sum::<usize>()
+        })
+        .unwrap_or(0);
+    let route_count = validation
+        .get("walkable_routes")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    let salience_score = (0.34
+        + fixture_count as f64 * 0.04
+        + route_count as f64 * 0.10
+        + resource_capacity as f64 * 0.006
+        + encounter_count as f64 * 0.12)
+        .clamp(0.0, 1.0);
+    let minimum_salience = validation
+        .get("perceptual_budget")
+        .and_then(|value| value.get("minimum_salience"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.50);
+    let perceptual_valid = salience_score >= minimum_salience;
+    if !perceptual_valid {
+        reasons.push(format!(
+            "perceptual salience {salience_score:.2} is below minimum {minimum_salience:.2}"
+        ));
+    }
+
+    let nav_valid = blocked_steps == 0;
+    let verdict =
+        nav_valid && resource_valid && encounter_valid && perceptual_valid && checked_steps > 0;
+    let region_id = hash_hex_text(&format!("{id}:{guid}:{source_hash}:region"));
+    let probe_trace_hash = hash_hex_text(&format!(
+        "{id}:{source_hash}:{checked_steps}:{blocked_steps}:{resource_capacity}:{encounter_count}:{salience_score:.3}"
+    ));
+    let nav_report_hash = hash_hex_text(&format!(
+        "{id}:nav:{checked_steps}:{blocked_steps}:{}",
+        reasons.join("|")
+    ));
+    let resource_probe_hash = hash_hex_text(&format!("{id}:resource:{resource_capacity}"));
+    let encounter_budget_hash = hash_hex_text(&format!(
+        "{id}:encounter:{encounter_count}:{encounter_budget:.3}"
+    ));
+    let perceptual_report_hash = hash_hex_text(&format!(
+        "{id}:perceptual:{salience_score:.3}:{minimum_salience:.3}"
+    ));
+    let diagnostic = if verdict {
+        "accepted".to_string()
+    } else {
+        reasons.join("; ")
+    };
+    let mut diagnostics = Vec::new();
+    if !verdict {
+        diagnostics.push(cook_error(format!(
+            "cave world gate rejected: {diagnostic}"
+        )));
+    }
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "kind": "cave_world_gate_report",
+        "id": id,
+        "guid": guid,
+        "source_path": source_rel,
+        "source_hash": source_hash,
+        "region_id": region_id,
+        "probe_trace_hash": probe_trace_hash,
+        "verdict": if verdict { "accepted" } else { "quarantined" },
+        "navigation": {
+            "valid": nav_valid,
+            "checked_steps": checked_steps,
+            "blocked_steps": blocked_steps,
+            "report_hash": nav_report_hash,
+            "diagnostic": if nav_valid { "valid" } else { diagnostic.as_str() },
+        },
+        "resource_probe": {
+            "valid": resource_valid,
+            "capacity": resource_capacity,
+            "report_hash": resource_probe_hash,
+        },
+        "encounter_budget": {
+            "valid": encounter_valid,
+            "budget": encounter_budget,
+            "encounter_count": encounter_count,
+            "report_hash": encounter_budget_hash,
+        },
+        "perceptual_budget": {
+            "accepted": perceptual_valid,
+            "salience_score": salience_score,
+            "minimum_salience": minimum_salience,
+            "report_hash": perceptual_report_hash,
+        },
+        "diagnostic": diagnostic,
+    });
+    (report, diagnostics)
+}
+
 pub fn cook_asset(
     source: impl AsRef<Path>,
     id: &str,
@@ -3801,6 +4098,36 @@ pub fn cook_asset(
                 Err(error) => record.diagnostics.push(cook_error(error.to_string())),
             }
         }
+        "cave" => match serde_json::from_slice::<Value>(&source_bytes) {
+            Ok(root) => {
+                let (report, diagnostics) = cave_world_gate_report(
+                    &root,
+                    id,
+                    &record.guid,
+                    &source_rel,
+                    &record.source_hash,
+                );
+                record.diagnostics.extend(diagnostics);
+                record.options_hash = hash_hex_text(&format!("cave-world-gate:{}:{}", 1, platform));
+                let report_path = output_root
+                    .join("reports")
+                    .join(format!("{}.world-gate.report.json", safe_stem(id, source)));
+                write_json(&report_path, &report)?;
+                push_output(
+                    &mut record,
+                    AssetCookedOutput {
+                        role: "world-gate-report".to_string(),
+                        kind: "json".to_string(),
+                        path: relative_path_string(&report_path, output_root),
+                        hash: hash_file_hex(&report_path)?,
+                    },
+                    false,
+                );
+            }
+            Err(error) => record
+                .diagnostics
+                .push(cook_error(format!("cave world gate parse failed: {error}"))),
+        },
         "texture" => {
             let role = source
                 .file_stem()
@@ -8656,6 +8983,75 @@ mod tests {
         dir.join("project.asterproj")
     }
 
+    fn write_cave_project(name: &str, blocked_route: bool) -> PathBuf {
+        let dir = fixture_dir(name);
+        fs::create_dir_all(dir.join("caves")).expect("caves dir");
+        let max_segment = if blocked_route { 1.0 } else { 12.0 };
+        fs::write(
+            dir.join("caves/test.cave"),
+            format!(
+                r#"{{
+  "schema_version": 1,
+  "id": "cave.test",
+  "name": "Generated Gate Cave",
+  "seeds": [{{ "id": "gate", "value": 17 }}],
+  "sections": [
+    {{
+      "id": "entry",
+      "archetype": "prefab.cave_segment",
+      "ore": {{ "max_nodes": 4 }},
+      "fixtures": [
+        {{ "id": "left", "max_count": 2 }},
+        {{ "id": "right", "max_count": 2 }}
+      ]
+    }}
+  ],
+  "placements": [
+    {{ "id": "spawn", "kind": "enemy_spawn", "section": "entry", "archetype": "prefab.cave_skitter_spawn" }}
+  ],
+  "validation": {{
+    "walkable_routes": [
+      {{ "id": "entry_route", "points": [[0.0, 0.0, 0.0], [0.0, 0.0, -10.0]], "max_segment_length": {max_segment}, "support_tolerance": 0.25 }}
+    ],
+    "spawn_volumes": [
+      {{ "id": "player_spawn", "center": [0.0, 0.0, 0.0], "half_extents": [0.2, 0.2, 0.2] }}
+    ],
+    "collision_volumes": [],
+    "probe_agent": {{ "id": "gate_probe", "seed": 17, "step_count": 8, "step_length": 1.25 }},
+    "resource_probes": [
+      {{ "id": "ore_probe", "kind": "resource", "position": [0.0, 0.0, -4.0], "radius": 4.0, "minimum_count": 2 }}
+    ],
+    "encounter_probes": [
+      {{ "id": "encounter_probe", "kind": "enemy_spawn", "position": [0.0, 0.0, -8.0], "radius": 3.0, "minimum_budget": 0.10, "maximum_budget": 0.50 }}
+    ],
+    "perceptual_budget": {{ "id": "readability", "minimum_salience": 0.55 }}
+  }}
+}}
+"#
+            ),
+        )
+        .expect("cave");
+        fs::write(
+            dir.join("project.asterproj"),
+            r#"{
+  "schema_version": 2,
+  "name": "Cave Gate Cook Test",
+  "assets": [
+    {
+      "id": "cave.test",
+      "guid": "asset-v2-cave-gate-0000000000000001",
+      "kind": "cave",
+      "path": "caves/test.cave",
+      "import_preset": "default"
+    }
+  ]
+}
+"#,
+        )
+        .expect("project");
+        dir.join("project.asterproj")
+    }
+
     fn write_asset_graph_project(name: &str) -> PathBuf {
         let dir = fixture_dir(name);
         fs::create_dir_all(dir.join("graphs")).expect("graphs dir");
@@ -8809,6 +9205,49 @@ edge mat.wet material.assign wetness
             .expect("diff json")
             .contains("\"changed\": []"));
         fs::remove_dir_all(project.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn cave_cook_emits_world_gate_report_and_rejects_blocked_routes() {
+        let project = write_cave_project("cave_world_gate_project", false);
+        let output = project.parent().unwrap().join("cooked/desktop");
+        let result = cook_project(&project, "desktop", &output).expect("cook cave");
+        assert_eq!(result.error_count, 0);
+        let db = read_asset_database(&result.database_path).expect("read cave db");
+        let record = &db.records[0];
+        assert_eq!(record.kind, "cave");
+        let report_output = record
+            .outputs
+            .iter()
+            .find(|output| output.role == "world-gate-report")
+            .expect("world gate report");
+        let report: Value =
+            serde_json::from_slice(&fs::read(output.join(&report_output.path)).expect("report"))
+                .expect("world gate json");
+        assert_eq!(report["kind"], "cave_world_gate_report");
+        assert_eq!(report["verdict"], "accepted");
+        assert_eq!(report["navigation"]["valid"], true);
+        assert_eq!(report["perceptual_budget"]["accepted"], true);
+        fs::remove_dir_all(project.parent().unwrap()).ok();
+
+        let blocked_project = write_cave_project("cave_world_gate_blocked_project", true);
+        let blocked_output = blocked_project.parent().unwrap().join("cooked/desktop");
+        let blocked =
+            cook_project(&blocked_project, "desktop", &blocked_output).expect("cook blocked cave");
+        assert!(blocked.error_count > 0);
+        let blocked_db = read_asset_database(&blocked.database_path).expect("read blocked db");
+        let blocked_report_output = blocked_db.records[0]
+            .outputs
+            .iter()
+            .find(|output| output.role == "world-gate-report")
+            .expect("blocked world gate report");
+        let blocked_report: Value = serde_json::from_slice(
+            &fs::read(blocked_output.join(&blocked_report_output.path)).expect("blocked report"),
+        )
+        .expect("blocked report json");
+        assert_eq!(blocked_report["verdict"], "quarantined");
+        assert_eq!(blocked_report["navigation"]["valid"], false);
+        fs::remove_dir_all(blocked_project.parent().unwrap()).ok();
     }
 
     #[test]

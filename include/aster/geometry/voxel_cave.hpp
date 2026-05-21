@@ -301,6 +301,25 @@ enum class VoxelCaveStructuralSurfaceMode {
   Off,
 };
 
+enum class VoxelCaveWorldGateVerdict {
+  Unknown,
+  Accepted,
+  Quarantined,
+};
+
+struct VoxelCaveWorldGateReport {
+  std::uint64_t region_id = 0u;
+  VoxelChunkCoord coord{};
+  VoxelCaveWorldGateVerdict verdict = VoxelCaveWorldGateVerdict::Unknown;
+  bool navigation_valid = false;
+  std::uint32_t checked_steps = 0u;
+  std::uint32_t blocked_steps = 0u;
+  float perceptual_salience = 0.0f;
+  float minimum_salience = 0.0f;
+  std::uint64_t probe_trace_hash = 0u;
+  std::string diagnostic;
+};
+
 struct VoxelCaveSpec {
   std::uint32_t seed = 1u;
   Vec3 origin{};
@@ -318,6 +337,8 @@ struct VoxelCaveSpec {
   int path_prefetch_radius = 0;
   float path_prefetch_spacing_chunks = 0.85f;
   float chunk_transition_seconds = 0.28f;
+  bool world_gate_enabled = true;
+  float world_gate_minimum_salience = 0.05f;
   SurfaceExtractionSettings surface_extraction{};
   VoxelCaveStructuralSurfaceMode structural_surface_mode =
       VoxelCaveStructuralSurfaceMode::RenderAndCollide;
@@ -365,6 +386,8 @@ struct VoxelCaveUpdateStats {
   std::uint32_t visibility_probe_chunks = 0u;
   std::uint32_t changed_snapshots = 0u;
   std::uint32_t expired_chunks = 0u;
+  std::uint32_t accepted_world_gate_chunks = 0u;
+  std::uint32_t quarantined_world_gate_chunks = 0u;
   BudgetedWorkDiagnostics rebuild_queue{};
   BudgetTelemetry budget_telemetry{};
 };
@@ -455,6 +478,7 @@ public:
   void setEdits(std::vector<VoxelEdit> edits);
   [[nodiscard]] const std::vector<VoxelChunkSnapshot> &activeChunks() const;
   [[nodiscard]] const std::vector<VoxelChunkSnapshot> &changedChunks() const;
+  [[nodiscard]] const std::vector<VoxelCaveWorldGateReport> &worldGateReports() const;
   [[nodiscard]] const VoxelCaveUpdateStats &lastUpdateStats() const;
   [[nodiscard]] std::optional<VoxelChunkSnapshot> consumeDirtyChunk(VoxelChunkCoord coord);
   [[nodiscard]] VoxelCaveHit raycast(Vec3 origin, Vec3 direction, float max_distance) const;
@@ -500,6 +524,8 @@ private:
   [[nodiscard]] Vec3 chunkCenter(VoxelChunkCoord coord) const;
   [[nodiscard]] int chunkDistance(VoxelChunkCoord lhs, VoxelChunkCoord rhs) const;
   [[nodiscard]] bool chunkIntersectsEdit(VoxelChunkCoord coord, const VoxelEdit &edit) const;
+  [[nodiscard]] VoxelCaveWorldGateReport worldGateReportFor(const ChunkState &chunk,
+                                                            bool publishable) const;
 
   VoxelCaveSpec spec_{};
   std::vector<ChunkState> chunks_;
@@ -507,6 +533,7 @@ private:
   std::vector<VoxelEdit> edits_;
   std::vector<VoxelChunkSnapshot> snapshots_;
   std::vector<VoxelChunkSnapshot> changed_snapshots_;
+  std::vector<VoxelCaveWorldGateReport> world_gate_reports_;
   VoxelCaveUpdateStats last_update_stats_{};
   WorkCostModel rebuild_costs_;
   FrameBudgetController rebuild_budget_controller_{};

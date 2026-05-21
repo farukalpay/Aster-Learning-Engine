@@ -183,6 +183,10 @@ public:
   [[nodiscard]] std::optional<std::string_view> entityLabel(WorldEntityHandle handle) const;
 
   [[nodiscard]] WorldTickResult tick(WorldTickDesc desc);
+  void noteRenderableExtraction(std::uint64_t extraction_hash,
+                                std::uint64_t frame_submission_hash);
+  void noteRegionGate(std::uint64_t region_id, bool accepted, std::uint64_t report_hash,
+                      std::string diagnostic);
 
   [[nodiscard]] WorldTransactionInfo beginTransaction(WorldTransactionDesc desc);
   [[nodiscard]] bool appendAccess(std::uint64_t transaction_id, WorldComponentAccess access,

@@ -43,17 +43,32 @@ The kernel does not promise binary stability for the existing rich C++ engine
 headers. Cross-compiler stability is obtained by keeping the binary boundary in
 plain C and compiling C++ wrappers in the consuming toolchain.
 
-ABI 5 keeps the spatial math contracts from ABI 4 and promotes explicit GPU
-resource lifecycle to the public surface. Textures, render targets, buffers,
-descriptor heaps/sets, pipeline caches, and frame schedules are opaque kernel
-handles with fixed-layout descriptors and queryable validation events. ABI 5.3
-adds the public `AsterSystemWorldHandle` contract for causal kernel state:
+ABI 6 promotes `AsterWorldHandle` as the public root. The kernel now centers the
+player-observable proof chain:
+
+```text
+InputEvent
+  -> PlayerIntent
+  -> SimulationEpoch
+  -> WorldDelta
+  -> AnimationPose
+  -> SensoryEvent
+  -> VisibilitySet
+  -> RenderExtraction
+  -> FrameSubmission
+```
+
+`AsterWorld` uses the same causal substrate introduced for system world state:
 generational entity identity, monotonic simulation ticks, append-only
 transactions, declared component read/write access, world trace events,
-snapshot migration reports, replay reports, and frame-forensics hashes that
-connect rendered frames back to the originating world trace. This is not a
-gameplay framework; behavior composition, quest logic, UI policy, and sample
-rules stay above the kernel. The installed contract is proven by
+snapshot migration reports, replay reports, and hashes that connect rendered
+frames back to world transitions. `AsterSystemWorldHandle` remains a
+compatibility route for that older trace surface. ABI 6 also keeps the spatial
+math and explicit GPU resource lifecycle contracts: textures, render targets,
+buffers, descriptor heaps/sets, pipeline caches, and frame schedules are opaque
+kernel handles with fixed-layout descriptors and queryable validation events.
+This is not a gameplay framework; behavior composition, quest logic, UI policy,
+and sample rules stay above the kernel. The installed contract is proven by
 `external_app_minimal/`, which is configured only with
 `find_package(AsterKernel CONFIG REQUIRED)` from an install prefix.
 
@@ -73,14 +88,16 @@ robust predicate uncertainty.
 
 Kernel resources are opaque handles. A handle returned by a kernel creation
 function is owned by the caller until it is passed to the matching destroy
-function. ABI 5 makes the renderer and explicit RHI lifecycle constructible and
-inspectable through the public kernel: engine, window, scene, mesh, material,
-texture, render target, buffer, descriptor heap/set, pipeline cache, renderer,
-shader artifact, render pipeline, and frame schedule handles are created and
-destroyed through fixed-layout C descriptors, with frame-forensics, schedule,
-validation, and backend capability queries for the last rendered frame:
+function. ABI 6 makes the world root, renderer, and explicit RHI lifecycle
+constructible and inspectable through the public kernel: engine, world, window,
+scene, mesh, material, texture, render target, buffer, descriptor heap/set,
+pipeline cache, renderer, shader artifact, render pipeline, and frame schedule
+handles are created and destroyed through fixed-layout C descriptors, with
+world-forensics, frame-forensics, schedule, validation, and backend capability
+queries for the last rendered frame:
 
 - `AsterEngineHandle` -> `aster_kernel_engine_destroy`
+- `AsterWorldHandle` -> `aster_kernel_world_destroy`
 - `AsterWindowHandle` -> `aster_kernel_window_destroy`
 - `AsterSceneHandle` -> `aster_kernel_scene_destroy`
 - `AsterRendererHandle` -> `aster_kernel_renderer_destroy`
@@ -114,9 +131,9 @@ boundary. Internal exceptions are caught at the boundary and converted to
 `AsterStatusCode` values. Assertions remain for tests and unreachable internal
 invariants, not for recoverable public input failures.
 
-ABI 5 makes strict validation the default for public misuse. Non-finite or
+ABI 6 makes strict validation the default for public misuse. Non-finite or
 zero-scale transforms, invalid custom mesh spans, bad texture role/color-space
-declarations, DirectX normal convention in ABI 5 LitPBR bindings, missing
+declarations, DirectX normal convention in LitPBR bindings, missing
 required albedo/normal/ORM roles, destroyed public handles, render-target
 format/sample mismatches, unsupported backend resources, and capture before a
 rendered frame return `ASTER_STATUS_VALIDATION_ERROR`,
@@ -136,8 +153,8 @@ The architectural dependency direction is:
 kernel ABI
   -> platform handles
   -> input snapshots and core timing
-  -> system world state, transactions, and replay trace
-  -> scene/resource descriptions
+  -> world state, transactions, replay trace, and generated-region gates
+  -> scene/resource render projections
   -> render planning and render devices
   -> geometry, physics, systems, and UI extension layers
   -> samples and apps
@@ -158,12 +175,14 @@ is enforced at the build/export level first: `aster_kernel` installs only
 `include/aster/game_sdk`. `aster_kernel` links the shared renderer/window
 implementation internally, while public consumers still see only opaque handles,
 status values, fixed-layout descriptors, shader compiler artifacts, validation
-events, render targets/captures, frame stats, and frame schedules. The
+events, world forensics, render targets/captures, frame stats, and frame
+schedules. The
 install-tree smoke test builds `external_app_minimal/` from the installed
 `aster::kernel` target and verifies private implementation header directories
 are not installed. Future subsystem work should either stay internal, be
 re-exposed through the source SDK as authoring/runtime data contracts, or be
 promoted through versioned opaque handles and fixed-layout kernel contracts.
-World-state promotion follows that same rule: the kernel owns causal identity,
-time, validation, trace, and replay evidence, while game production semantics
-remain in Game SDK documents, systems modules, editor tooling, and product code.
+World-root promotion follows that same rule: the kernel owns causal identity,
+time, validation, trace, generated-region gate evidence, and render extraction
+linkage, while game production semantics remain in Game SDK documents, systems
+modules, editor tooling, and product code.

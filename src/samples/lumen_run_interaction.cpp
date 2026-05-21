@@ -466,7 +466,7 @@ void LumenRun::updateCaveVisuals(const float dt) {
     const float pulse = ore.hit_flash * 0.06f + damage * 0.035f;
     object.transform.position = ore.position + ore.normal * (ore.hit_flash * 0.018f);
     object.transform.scale = ore.scale * (1.0f + pulse);
-    object.material.emission_strength = 0.055f + ore.hit_flash * 0.120f + damage * 0.030f;
+    object.material.emission_strength = 0.115f + ore.hit_flash * 0.120f + damage * 0.030f;
     object.material.edge_wear = 0.18f + damage * 0.38f;
   }
   for (CaveWebObstacle &web : cave_webs_) {

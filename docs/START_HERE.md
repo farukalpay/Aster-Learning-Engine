@@ -1,7 +1,9 @@
 # Start Here
 
-Aster is a renderer contract engine. Start with the public contract and renderer
-proof path, then inspect Lumen Run as one sample built on that surface.
+Aster is a player-observable world transition contract engine. Start with the
+public `AsterWorld` contract, then follow how a world transition becomes render
+extraction, frame submission, and renderer proof. Lumen Run is sample content
+that proves the contract; it is not the contract root.
 
 Recommended path:
 
@@ -18,10 +20,17 @@ Recommended path:
 
 Core proof points:
 
-- The same `Scene`, `Material`, mesh, camera, settings, render graph, and frame
-  diagnostics feed software, Metal, and D3D12 render paths.
+- The public root is `InputEvent -> PlayerIntent -> SimulationEpoch ->
+  WorldDelta -> AnimationPose -> SensoryEvent -> VisibilitySet ->
+  RenderExtraction -> FrameSubmission`.
+- `AsterWorld` owns the causal substrate. `Scene`, `Material`, mesh, camera,
+  settings, render graph, and frame diagnostics are render projections of that
+  substrate, with direct scene-render paths kept for lab and compatibility use.
+- `WorldForensics` is the primary proof surface. `FrameForensics` remains
+  required, but it is linked to world transition evidence when a frame comes
+  from a world extraction.
 - `tests/golden/render/*.ppm` are deterministic software-reference baselines.
 - `aster_render_backend_conformance_tests` compares native captures against the
   software reference and writes diff artifacts on mismatch.
 - `aster_materialc`, `aster_texturec`, and `aster_assetc` expose material,
-  texture, and bundle compiler contracts separately.
+  texture, bundle, and generated-region gate contracts separately.

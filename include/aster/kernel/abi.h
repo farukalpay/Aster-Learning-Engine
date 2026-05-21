@@ -23,8 +23,8 @@
 extern "C" {
 #endif
 
-#define ASTER_KERNEL_ABI_MAJOR 5u
-#define ASTER_KERNEL_ABI_MINOR 3u
+#define ASTER_KERNEL_ABI_MAJOR 6u
+#define ASTER_KERNEL_ABI_MINOR 0u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -72,6 +72,7 @@ typedef struct AsterRendererHandle__ *AsterRendererHandle;
 typedef struct AsterMeshHandle__ *AsterMeshHandle;
 typedef struct AsterMaterialHandle__ *AsterMaterialHandle;
 typedef struct AsterPhysicsWorldHandle__ *AsterPhysicsWorldHandle;
+typedef struct AsterWorldHandle__ *AsterWorldHandle;
 typedef struct AsterSystemWorldHandle__ *AsterSystemWorldHandle;
 typedef struct AsterSampleAppHandle__ *AsterSampleAppHandle;
 typedef struct AsterShaderArtifactHandle__ *AsterShaderArtifactHandle;
@@ -347,6 +348,17 @@ typedef enum AsterResidencyDecisionKind {
 typedef enum AsterResidencyEvictionPolicy {
   ASTER_RESIDENCY_EVICT_PRIORITY_THEN_VISIBILITY = 0
 } AsterResidencyEvictionPolicy;
+
+typedef enum AsterWorldRegionGateVerdict {
+  ASTER_WORLD_REGION_GATE_UNKNOWN = 0,
+  ASTER_WORLD_REGION_GATE_ACCEPTED = 1,
+  ASTER_WORLD_REGION_GATE_QUARANTINED = 2
+} AsterWorldRegionGateVerdict;
+
+typedef enum AsterWorldExtractionProvenance {
+  ASTER_WORLD_EXTRACTION_COMPATIBILITY_SCENE = 0,
+  ASTER_WORLD_EXTRACTION_WORLD_TRANSITION = 1
+} AsterWorldExtractionProvenance;
 
 typedef enum AsterAuthoringDocumentKind {
   ASTER_AUTHORING_DOCUMENT_UNKNOWN = 0,
@@ -1145,12 +1157,185 @@ typedef struct AsterRendererSettings {
   uint64_t simulation_tick;
   uint64_t extraction_hash;
   uint64_t asset_lineage_hash;
+  uint64_t world_transition_hash;
+  uint64_t actor_state_delta_hash;
+  uint64_t encounter_budget_hash;
+  uint32_t navigation_valid;
+  uint64_t streaming_region_id;
+  float perceptual_salience_score;
 } AsterRendererSettings;
 
 typedef struct AsterSystemEntityHandle {
   uint64_t id;
   uint32_t generation;
 } AsterSystemEntityHandle;
+
+typedef struct AsterActor {
+  size_t size;
+  uint32_t version;
+  AsterSystemEntityHandle entity;
+  AsterStringView label;
+  AsterVec3 world_position;
+  uint64_t state_hash;
+} AsterActor;
+
+typedef struct AsterStimulus {
+  size_t size;
+  uint32_t version;
+  uint64_t stimulus_id;
+  AsterStringView kind;
+  AsterVec3 world_position;
+  float intensity;
+  uint64_t source_actor_id;
+} AsterStimulus;
+
+typedef struct AsterAffordance {
+  size_t size;
+  uint32_t version;
+  uint64_t affordance_id;
+  AsterStringView kind;
+  AsterVec3 world_position;
+  uint32_t reachable;
+  float salience;
+  uint64_t state_hash;
+} AsterAffordance;
+
+typedef struct AsterEncounter {
+  size_t size;
+  uint32_t version;
+  uint64_t encounter_id;
+  uint64_t region_id;
+  float pressure;
+  float budget;
+  uint64_t state_hash;
+} AsterEncounter;
+
+typedef struct AsterBiomeCell {
+  size_t size;
+  uint32_t version;
+  uint64_t cell_id;
+  uint64_t region_id;
+  AsterVec3 center;
+  float ecology_pressure;
+  uint64_t state_hash;
+} AsterBiomeCell;
+
+typedef struct AsterResourceNode {
+  size_t size;
+  uint32_t version;
+  uint64_t resource_id;
+  uint64_t region_id;
+  AsterVec3 world_position;
+  uint32_t available;
+  float scarcity;
+  uint64_t state_hash;
+} AsterResourceNode;
+
+typedef struct AsterNavValidityReport {
+  size_t size;
+  uint32_t version;
+  uint32_t valid;
+  size_t checked_steps;
+  size_t blocked_steps;
+  uint64_t report_hash;
+  AsterStringView diagnostic;
+} AsterNavValidityReport;
+
+typedef struct AsterPerceptualBudget {
+  size_t size;
+  uint32_t version;
+  uint32_t accepted;
+  float salience_score;
+  float minimum_salience;
+  uint64_t report_hash;
+  AsterStringView diagnostic;
+} AsterPerceptualBudget;
+
+typedef struct AsterWorldDesc {
+  size_t size;
+  uint32_t version;
+  double fixed_step_seconds;
+  uint64_t seed;
+  AsterStringView debug_label;
+} AsterWorldDesc;
+
+typedef struct AsterWorldAdvanceDesc {
+  size_t size;
+  uint32_t version;
+  uint64_t epoch;
+  double delta_seconds;
+  uint64_t input_event_hash;
+  uint64_t player_intent_hash;
+  uint64_t actor_state_delta_hash;
+  uint64_t sensory_event_hash;
+  uint64_t visibility_set_hash;
+  uint64_t asset_lineage_hash;
+  uint64_t streaming_region_id;
+} AsterWorldAdvanceDesc;
+
+typedef struct AsterWorldAdvanceResult {
+  size_t size;
+  uint32_t version;
+  uint32_t accepted;
+  uint64_t epoch;
+  double time_seconds;
+  uint64_t world_hash;
+  uint64_t trace_hash;
+  uint64_t world_transition_hash;
+  AsterStringView diagnostic;
+} AsterWorldAdvanceResult;
+
+typedef struct AsterWorldRegionGateReport {
+  size_t size;
+  uint32_t version;
+  uint64_t region_id;
+  uint64_t probe_trace_hash;
+  AsterWorldRegionGateVerdict verdict;
+  AsterNavValidityReport navigation;
+  uint64_t encounter_budget_hash;
+  uint64_t resource_probe_hash;
+  AsterPerceptualBudget perceptual_budget;
+  AsterStringView diagnostic;
+} AsterWorldRegionGateReport;
+
+typedef struct AsterWorldRenderExtractionDesc {
+  size_t size;
+  uint32_t version;
+  uint64_t visibility_set_hash;
+  uint64_t extraction_hash;
+  uint64_t frame_submission_hash;
+} AsterWorldRenderExtractionDesc;
+
+typedef struct AsterWorldRenderExtraction {
+  size_t size;
+  uint32_t version;
+  uint64_t world_transition_hash;
+  uint64_t epoch;
+  uint64_t trace_hash;
+  uint64_t visibility_set_hash;
+  uint64_t extraction_hash;
+  uint64_t frame_submission_hash;
+  uint64_t streaming_region_id;
+} AsterWorldRenderExtraction;
+
+typedef struct AsterWorldForensics {
+  size_t size;
+  uint32_t version;
+  uint64_t world_transition_hash;
+  uint64_t epoch;
+  uint64_t world_hash;
+  uint64_t trace_hash;
+  uint64_t actor_state_delta_hash;
+  size_t actor_delta_count;
+  uint64_t render_extraction_hash;
+  uint64_t streaming_region_id;
+  AsterWorldRegionGateVerdict generated_region_gate;
+  AsterNavValidityReport navigation;
+  uint64_t encounter_budget_hash;
+  uint64_t resource_probe_hash;
+  AsterPerceptualBudget perceptual_budget;
+  AsterStringView diagnostic;
+} AsterWorldForensics;
 
 typedef struct AsterSystemWorldDesc {
   size_t size;
@@ -1357,6 +1542,13 @@ typedef struct AsterFrameForensicsDetailCounts {
   uint64_t simulation_tick;
   uint64_t extraction_hash;
   uint64_t asset_lineage_hash;
+  AsterWorldExtractionProvenance world_extraction_provenance;
+  uint64_t world_transition_hash;
+  uint64_t actor_state_delta_hash;
+  uint64_t encounter_budget_hash;
+  uint32_t navigation_valid;
+  uint64_t streaming_region_id;
+  float perceptual_salience_score;
 } AsterFrameForensicsDetailCounts;
 
 typedef struct AsterFramePassStats {
@@ -1574,6 +1766,20 @@ ASTER_KERNEL_API AsterStatus aster_kernel_engine_validation_event_count(
     AsterEngineHandle engine, size_t *out_count);
 ASTER_KERNEL_API AsterStatus aster_kernel_engine_validation_event(
     AsterEngineHandle engine, size_t index, AsterValidationEvent *out_event);
+
+ASTER_KERNEL_API AsterStatus aster_kernel_world_create(
+    AsterEngineHandle engine, const AsterWorldDesc *desc, AsterWorldHandle *out_world);
+ASTER_KERNEL_API AsterStatus aster_kernel_world_advance(
+    AsterWorldHandle world, const AsterWorldAdvanceDesc *desc,
+    AsterWorldAdvanceResult *out_result);
+ASTER_KERNEL_API AsterStatus aster_kernel_world_record_region_gate(
+    AsterWorldHandle world, const AsterWorldRegionGateReport *report);
+ASTER_KERNEL_API AsterStatus aster_kernel_world_extract_render(
+    AsterWorldHandle world, const AsterWorldRenderExtractionDesc *desc,
+    AsterWorldRenderExtraction *out_extraction);
+ASTER_KERNEL_API AsterStatus aster_kernel_world_forensics(
+    AsterWorldHandle world, AsterWorldForensics *out_forensics);
+ASTER_KERNEL_API AsterStatus aster_kernel_world_destroy(AsterWorldHandle world);
 
 ASTER_KERNEL_API AsterStatus aster_kernel_system_world_create(
     AsterEngineHandle engine, const AsterSystemWorldDesc *desc,

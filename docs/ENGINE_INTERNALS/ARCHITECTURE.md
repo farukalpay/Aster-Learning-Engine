@@ -19,12 +19,14 @@ subsystem to the public kernel requires a versioned handle contract, explicit
 ownership rules, status-returning failure behavior, and tests that include only
 `aster/kernel`.
 
-ABI 5.3 promotes the system world only at that kernel level. It answers who
-exists, when a tick advanced, which transaction or scheduler decision changed
-state, whether declared component access was valid, whether replay matched, and
-which world trace produced a rendered frame. It does not own gameplay verbs,
-editor workflows, sample rules, UI behavior, or content-specific authoring
-semantics.
+ABI 6 promotes `AsterWorldHandle` as the kernel root for player-observable world
+transitions. It answers which input/player intent advanced an epoch, which actor
+state delta and sensory/visibility evidence followed, whether a generated region
+passed nav/resource/encounter/perceptual gates, and which render extraction
+produced a frame submission. `AsterSystemWorldHandle` remains as the
+compatibility trace surface for entity/tick/transaction/snapshot/replay
+contracts. The kernel still does not own gameplay verbs, editor workflows,
+sample rules, UI behavior, or content-specific authoring semantics.
 
 ## Source Game SDK Boundary
 
@@ -61,12 +63,14 @@ fully driven by SDK documents.
 Stable public ABI and C++ wrappers. Kernel headers must not include broad engine
 headers, STL containers in ABI structs, native platform types, renderer backend
 types, or sample-owned state. Public resources cross this boundary only as
-opaque handles with matching destroy functions. ABI 5 includes a public
-renderer and explicit RHI path for windows, renderer instances, scenes, meshes,
-materials, textures, render targets, buffers, descriptor heaps/sets, pipeline
-caches, shader artifacts, render pipelines, captures, frame stats, frame
-forensics, frame schedules, validation events, backend capability tables, and
-the `AsterSystemWorldHandle` world-state trace contract.
+opaque handles with matching destroy functions. ABI 6 includes a public
+`AsterWorldHandle` root, world forensics, generated-region gate reporting, and
+render-extraction linkage. It also keeps the public renderer and explicit RHI
+path for windows, renderer instances, scenes, meshes, materials, textures,
+render targets, buffers, descriptor heaps/sets, pipeline caches, shader
+artifacts, render pipelines, captures, frame stats, frame forensics, frame
+schedules, validation events, backend capability tables, and the compatibility
+`AsterSystemWorldHandle` world-state trace contract.
 
 `include/aster/game_sdk`
 

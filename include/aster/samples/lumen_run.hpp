@@ -4,6 +4,7 @@
 #pragma once
 
 #include "aster/game_sdk/game_sdk.hpp"
+#include "aster/core/world_state.hpp"
 #include "aster/systems/animation_system.hpp"
 #include "aster/systems/classic_actor_runtime.hpp"
 #include "aster/systems/creature_motion.hpp"
@@ -103,6 +104,52 @@ struct LumenAuthoringData {
   bool valid = false;
 };
 
+enum class LumenWorldGateVerdict : std::uint32_t {
+  Unknown,
+  Accepted,
+  Quarantined,
+};
+
+struct LumenCaveWorldGateReport {
+  std::uint64_t seed = 0u;
+  std::uint64_t region_id = 0u;
+  std::uint64_t probe_trace_hash = 0u;
+  LumenWorldGateVerdict verdict = LumenWorldGateVerdict::Unknown;
+  bool navigation_valid = false;
+  std::size_t checked_steps = 0u;
+  std::size_t blocked_steps = 0u;
+  bool resource_valid = false;
+  std::size_t reachable_resources = 0u;
+  std::size_t required_resources = 0u;
+  bool encounter_valid = false;
+  float encounter_budget = 0.0f;
+  std::size_t reachable_encounters = 0u;
+  bool perceptual_valid = false;
+  float perceptual_salience_score = 0.0f;
+  float perceptual_minimum_salience = 0.0f;
+  std::uint64_t nav_report_hash = 0u;
+  std::uint64_t resource_probe_hash = 0u;
+  std::uint64_t encounter_budget_hash = 0u;
+  std::uint64_t perceptual_report_hash = 0u;
+  std::string diagnostic;
+};
+
+struct LumenWorldForensics {
+  std::uint64_t epoch = 0u;
+  std::uint64_t world_hash = 0u;
+  std::uint64_t trace_hash = 0u;
+  std::uint64_t world_transition_hash = 0u;
+  std::uint64_t actor_state_delta_hash = 0u;
+  std::size_t actor_delta_count = 0u;
+  std::uint64_t sensory_event_hash = 0u;
+  std::uint64_t visibility_set_hash = 0u;
+  std::uint64_t render_extraction_hash = 0u;
+  std::uint64_t frame_submission_hash = 0u;
+  std::uint64_t streaming_region_id = 0u;
+  LumenCaveWorldGateReport cave_gate;
+  bool render_extraction_ready = false;
+};
+
 class LumenRun {
 public:
   explicit LumenRun(LumenTuning tuning = {});
@@ -115,6 +162,9 @@ public:
   [[nodiscard]] const SceneCoherenceReport &sceneCoherenceReport() const;
   [[nodiscard]] const SceneTraceValidationReport &sceneTraceReport() const;
   [[nodiscard]] const LumenStatus &status() const;
+  [[nodiscard]] const LumenWorldForensics &worldForensics() const;
+  [[nodiscard]] const LumenCaveWorldGateReport &caveWorldGateReport() const;
+  [[nodiscard]] bool caveWorldGateAccepted() const;
   [[nodiscard]] Vec3 playerPosition() const;
   [[nodiscard]] Vec3 playerRenderPosition() const;
   [[nodiscard]] Vec3 prismRelayBasePosition() const;
@@ -132,6 +182,7 @@ public:
   void setAvatarPointTarget(Vec3 target);
   bool pointAvatarAtRay(Vec3 origin, Vec3 direction, float max_distance = 90.0f);
   void clearAvatarPointTarget();
+  void noteRenderExtraction(std::uint64_t extraction_hash, std::uint64_t frame_submission_hash);
   void updateInteractionFocus(Vec3 ray_origin, Vec3 ray_direction, float dt);
   void interactFocused();
   void secondaryInteractFocused(Vec3 ray_origin, Vec3 ray_direction);
@@ -351,6 +402,10 @@ private:
   [[nodiscard]] SceneSymbolicTrace buildSceneSymbolicTrace() const;
   [[nodiscard]] std::vector<SceneTraceRule> sceneTraceRules() const;
   void updateSceneObjects(float animation_dt);
+  void resetWorldProof();
+  void rebuildCaveWorldGate();
+  void advanceWorldProof(float dt, Vec2 move_axis, bool run_requested, bool jump_requested,
+                         Vec3 previous_player_position);
   void updatePlayerPhysics(float dt, Vec2 move_axis, bool run_requested, bool jump_requested);
   void updateFishingVisual();
   void updateAquaticLifeVisual();
@@ -406,6 +461,9 @@ private:
   LumenTuning tuning_{};
   LumenAuthoringData authoring_{};
   LumenStatus status_{};
+  WorldState world_state_{};
+  LumenWorldForensics world_forensics_{};
+  std::uint64_t next_world_epoch_ = 1u;
   Scene scene_{};
   TerrainHeightField terrain_{};
   SupportSurfaceSet support_surfaces_{};

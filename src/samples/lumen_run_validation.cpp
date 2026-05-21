@@ -28,22 +28,52 @@ SceneCoherenceProblem LumenRun::buildSceneCoherenceProblem() const {
   route_material.neighbor_radius = route_max_segment_length * 1.15f;
 
   const auto addRoute = [&](const char *label, const PathRibbonMeshSpec &spec) {
+    const bool cave_approach_route = std::string_view(label).find("cave path") == 0u;
+    const int sample_count = cave_approach_route ? 42 : route_sample_count;
     SceneCoherenceRoute route;
     route.label = label;
     route.clearance = route_clearance;
-    route.max_segment_length = route_max_segment_length;
-    route.support_tolerance = route_support_tolerance;
-    route.points.reserve(route_sample_count);
-    for (int i = 0; i < route_sample_count; ++i) {
-      const float t = static_cast<float>(i) / static_cast<float>(route_sample_count - 1);
+    route.max_segment_length = cave_approach_route ? 1.72f : route_max_segment_length;
+    route.support_tolerance = cave_approach_route ? 0.62f : route_support_tolerance;
+    route.points.reserve(static_cast<std::size_t>(sample_count));
+    for (int i = 0; i < sample_count; ++i) {
+      const float t = static_cast<float>(i) / static_cast<float>(sample_count - 1);
       Vec3 point = evaluatePathRibbonCenter(spec, t);
-      const TerrainSurfaceSample ground = support_surfaces_.sample(Vec2{point.x, point.z});
+      const TerrainSurfaceSample ground =
+          sampleWorldSupport({{point.x, point.z}, point.y + 0.36f, 0.72f, 3.0f});
       if (ground.valid) {
         point.y = ground.height;
+      } else {
+        const TerrainSurfaceSample terrain = sampleTerrain(terrain_, {point.x, point.z});
+        if (terrain.valid) {
+          point.y = terrain.height;
+        }
       }
       route.points.push_back(point);
       addSurfaceSample(label, point, spec.width * 0.5f);
       const Vec3 tangent = evaluatePathRibbonTangent(spec, t);
+      problem.affordance_samples.push_back({point, tangent, tangent, 1.0f});
+      route_material.samples.push_back({point, {1.0f}, 1.0f});
+    }
+    problem.routes.push_back(std::move(route));
+  };
+
+  const auto addCaveRoute = [&](const char *label, const CaveTunnelProfile &tunnel) {
+    constexpr int cave_route_sample_count = 96;
+    SceneCoherenceRoute route;
+    route.label = label;
+    route.clearance = route_clearance;
+    route.max_segment_length = route_max_segment_length;
+    route.support_tolerance = 0.36f;
+    route.points.reserve(cave_route_sample_count);
+    for (int i = 0; i < cave_route_sample_count; ++i) {
+      const float t = static_cast<float>(i) / static_cast<float>(cave_route_sample_count - 1);
+      const CaveTunnelFrame frame = sampleCaveTunnelFrame(tunnel, t);
+      const Vec3 point = frame.floor_center;
+      route.points.push_back(point);
+      addSurfaceSample(label, point, tunnel.floor_width * 0.5f);
+      const Vec3 tangent = length(frame.tangent) > 0.0001f ? normalize(frame.tangent)
+                                                           : Vec3{0.0f, 0.0f, -1.0f};
       problem.affordance_samples.push_back({point, tangent, tangent, 1.0f});
       route_material.samples.push_back({point, {1.0f}, 1.0f});
     }
@@ -64,16 +94,7 @@ SceneCoherenceProblem LumenRun::buildSceneCoherenceProblem() const {
     const CaveTunnelProfile &tunnel = cave_sections_[section_index].tunnel;
     const std::string label =
         section_index == 0u ? "cave passage" : "deep cave passage " + std::to_string(section_index);
-    addRoute(label.c_str(), {.segments = 64,
-                             .width = tunnel.floor_width,
-                             .width_variation = 0.0f,
-                             .crown_height = tunnel.floor_crown,
-                             .surface_noise = 0.0f,
-                             .endpoint_taper = 0.08f,
-                             .start = tunnel.start,
-                             .control = tunnel.control,
-                             .control_b = tunnel.control_b,
-                             .end = tunnel.end});
+    addCaveRoute(label.c_str(), tunnel);
   }
   problem.material_fields.push_back(std::move(route_material));
 
@@ -203,8 +224,13 @@ SceneSymbolicTrace LumenRun::buildSceneSymbolicTrace() const {
   };
 
   const auto supported = [this](const Vec3 point, const float tolerance) {
-    const TerrainSurfaceSample support = support_surfaces_.sample(Vec2{point.x, point.z});
-    return support.valid && std::abs(support.height - point.y) <= tolerance;
+    const TerrainSurfaceSample support =
+        sampleWorldSupport({{point.x, point.z}, point.y + 0.36f, 0.72f, 3.0f});
+    if (support.valid && std::abs(support.height - point.y) <= tolerance) {
+      return true;
+    }
+    const TerrainSurfaceSample terrain = sampleTerrain(terrain_, {point.x, point.z});
+    return terrain.valid && std::abs(terrain.height - point.y) <= tolerance;
   };
 
   for (const SceneCoherenceRoute &route : problem.routes) {
@@ -224,7 +250,6 @@ SceneSymbolicTrace LumenRun::buildSceneSymbolicTrace() const {
           (route.max_segment_length <= 0.0f ||
            length(next - point) <= route.max_segment_length + support_tolerance) &&
           point_supported && next_supported && !blocked && !next_blocked;
-
       SceneTraceFrame &frame = pushFrame();
       addTraceSymbol(frame, kTracePathVisible);
       if (blocked || !point_supported) {

@@ -6202,11 +6202,24 @@ const FrameForensics &RenderDevice::lastFrameForensics() const {
 void RenderDevice::stampLastFrameCausalTrace(const std::uint64_t world_trace_hash,
                                              const std::uint64_t simulation_tick,
                                              const std::uint64_t extraction_hash,
-                                             const std::uint64_t asset_lineage_hash) {
+                                             const std::uint64_t asset_lineage_hash,
+                                             const std::uint64_t world_transition_hash,
+                                             const std::uint64_t actor_state_delta_hash,
+                                             const std::uint64_t encounter_budget_hash,
+                                             const bool navigation_valid,
+                                             const std::uint64_t streaming_region_id,
+                                             const float perceptual_salience_score) {
   last_forensics_.world_trace_hash = world_trace_hash;
   last_forensics_.simulation_tick = simulation_tick;
   last_forensics_.extraction_hash = extraction_hash;
   last_forensics_.asset_lineage_hash = asset_lineage_hash;
+  last_forensics_.world_transition_linked = world_transition_hash != 0u;
+  last_forensics_.world_transition_hash = world_transition_hash;
+  last_forensics_.actor_state_delta_hash = actor_state_delta_hash;
+  last_forensics_.encounter_budget_hash = encounter_budget_hash;
+  last_forensics_.navigation_valid = navigation_valid;
+  last_forensics_.streaming_region_id = streaming_region_id;
+  last_forensics_.perceptual_salience_score = perceptual_salience_score;
 }
 
 const std::shared_ptr<const MaterialResourceLibrary> &RenderDevice::materialResourceLibrary()

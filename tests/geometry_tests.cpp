@@ -1155,6 +1155,9 @@ void testVoxelCaveStreamingPublishesReadySnapshotsOnly() {
   state.configure(spec);
   state.updateStreaming({0.0f, 0.0f, -6.0f}, 0.0f);
   assert(!state.activeChunks().empty());
+  assert(!state.worldGateReports().empty());
+  assert(state.lastUpdateStats().accepted_world_gate_chunks > 0u);
+  assert(state.lastUpdateStats().quarantined_world_gate_chunks == 0u);
   assert(state.activeChunks().size() < 27u);
   bool saw_coarse_proxy = false;
   bool saw_full_chunk = false;
@@ -1174,11 +1177,13 @@ void testVoxelCaveStreamingPublishesReadySnapshotsOnly() {
   assert(saw_coarse_proxy);
   assert(saw_full_chunk);
 
-  const aster::Vec3 probe_position{7.4f, 0.0f, -6.0f};
+  const aster::Vec3 probe_position{0.0f, 0.0f, -14.0f};
   const aster::VoxelChunkCoord probe_coord = state.chunkCoordFor(probe_position);
   aster::VoxelCaveUpdateOptions probe_options;
   probe_options.visibility_probes.push_back(probe_position);
-  probe_options.viewer_velocity = {5.0f, 0.0f, 0.0f};
+  probe_options.viewer_velocity = {0.0f, 0.0f, -5.0f};
+  probe_options.override_rebuild_budget = true;
+  probe_options.rebuild_budget = aster::voxelCaveRebuildItemBudget(32u);
   state.updateStreaming({0.0f, 0.0f, -6.0f}, 1.0f / 60.0f, probe_options);
   bool saw_probe_chunk = false;
   for (const aster::VoxelChunkSnapshot &chunk : state.activeChunks()) {
@@ -1186,6 +1191,17 @@ void testVoxelCaveStreamingPublishesReadySnapshotsOnly() {
   }
   assert(saw_probe_chunk);
   assert(state.lastUpdateStats().visibility_probe_chunks > 0u);
+
+  spec.world_gate_minimum_salience = 2.0f;
+  aster::VoxelCaveState gated_state;
+  gated_state.configure(spec);
+  gated_state.updateStreaming({0.0f, 0.0f, -6.0f}, 0.0f);
+  assert(gated_state.activeChunks().empty());
+  assert(!gated_state.worldGateReports().empty());
+  assert(gated_state.lastUpdateStats().quarantined_world_gate_chunks > 0u);
+  const aster::VoxelCaveWorldGateReport &gate = gated_state.worldGateReports().front();
+  assert(gate.verdict == aster::VoxelCaveWorldGateVerdict::Quarantined);
+  assert(gate.probe_trace_hash != 0u);
 }
 
 void testVoxelCaveDeferredEditRetainsPublishedCollision() {
@@ -1255,7 +1271,7 @@ void testVoxelCaveDeferredEditRetainsPublishedCollision() {
 
   aster::VoxelCaveUpdateOptions rebuild_one;
   rebuild_one.override_rebuild_budget = true;
-  rebuild_one.rebuild_budget = aster::defaultVoxelCaveInteractiveRebuildBudget();
+  rebuild_one.rebuild_budget = aster::voxelCaveRebuildItemBudget(8u);
   state.updateStreaming(viewer, 1.0f / 60.0f, rebuild_one);
   assert(state.lastUpdateStats().rebuilt_chunks >= 1u);
   bool published_replacement = false;

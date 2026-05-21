@@ -10,8 +10,8 @@
 int main() {
   const AsterAbiVersion version = aster::kernel::abiVersion();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
-  assert(version.major == 5u);
-  assert(version.minor == 3u);
+  assert(version.major == 6u);
+  assert(version.minor == 0u);
 
   const auto normalized = aster::kernel::math::normalize({3.0f, 0.0f, 4.0f});
   assert(normalized);
@@ -32,21 +32,31 @@ int main() {
   assert(engine.value().valid());
   assert(engine.value().lastStatus());
 
-  auto world = aster::kernel::SystemWorld::create(engine.value());
+  auto world = aster::kernel::World::create(engine.value());
   assert(world);
-  auto world_entity = world.value().createEntity({"public.entity", 13u});
-  assert(world_entity);
-  const AsterSystemTickDesc world_tick{sizeof(AsterSystemTickDesc),
-                                       ASTER_KERNEL_STRUCT_VERSION_1,
-                                       1u,
-                                       1.0 / 60.0,
-                                       0x101u,
-                                       0x202u,
-                                       0x303u,
-                                       0x404u};
-  auto world_tick_result = world.value().tick(world_tick);
-  assert(world_tick_result);
-  assert(world_tick_result.value().world_hash != 0u);
+  const AsterWorldAdvanceDesc world_advance{sizeof(AsterWorldAdvanceDesc),
+                                            ASTER_KERNEL_STRUCT_VERSION_1,
+                                            1u,
+                                            1.0 / 60.0,
+                                            0x101u,
+                                            0x111u,
+                                            0x121u,
+                                            0x131u,
+                                            0x141u,
+                                            0x202u,
+                                            0x515u};
+  auto world_advance_result = world.value().advance(world_advance);
+  assert(world_advance_result);
+  assert(world_advance_result.value().world_transition_hash != 0u);
+  const AsterWorldRenderExtractionDesc extraction_desc{sizeof(AsterWorldRenderExtractionDesc),
+                                                       ASTER_KERNEL_STRUCT_VERSION_1,
+                                                       0x141u,
+                                                       0x303u,
+                                                       0x404u};
+  auto extraction = world.value().extractRender(extraction_desc);
+  assert(extraction);
+  auto world_forensics = world.value().forensics();
+  assert(world_forensics);
 
   auto window = aster::kernel::Window::createHeadless(32u, 24u);
   assert(window);
@@ -106,10 +116,13 @@ int main() {
   settings.ambient_strength = 0.22f;
   settings.framebuffer_width = 32u;
   settings.framebuffer_height = 24u;
-  settings.world_trace_hash = world_tick_result.value().trace_hash;
-  settings.simulation_tick = world_tick_result.value().tick;
-  settings.extraction_hash = 0x303u;
+  settings.world_trace_hash = extraction.value().trace_hash;
+  settings.simulation_tick = extraction.value().epoch;
+  settings.extraction_hash = extraction.value().extraction_hash;
   settings.asset_lineage_hash = 0x202u;
+  settings.world_transition_hash = extraction.value().world_transition_hash;
+  settings.actor_state_delta_hash = world_forensics.value().actor_state_delta_hash;
+  settings.streaming_region_id = extraction.value().streaming_region_id;
   const AsterRenderTargetDesc target_desc{sizeof(AsterRenderTargetDesc),
                                           ASTER_KERNEL_STRUCT_VERSION_1,
                                           ASTER_KERNEL_BACKEND_FORMAT_BGRA8_UNORM,
@@ -132,8 +145,11 @@ int main() {
   assert(schedule_counts.value().pass_count > 0u);
   auto forensics = renderer.value().frameForensicsDetailCounts();
   assert(forensics);
-  assert(forensics.value().world_trace_hash == world_tick_result.value().trace_hash);
-  assert(forensics.value().simulation_tick == world_tick_result.value().tick);
+  assert(forensics.value().world_trace_hash == extraction.value().trace_hash);
+  assert(forensics.value().simulation_tick == extraction.value().epoch);
+  assert(forensics.value().world_transition_hash == extraction.value().world_transition_hash);
+  assert(forensics.value().world_extraction_provenance ==
+         ASTER_WORLD_EXTRACTION_WORLD_TRANSITION);
 
   const char *source = "float4 fs_main() { return float4(1.0); }\n";
   const AsterShaderModuleSource module{{"material", 8u}, {source, std::strlen(source)}};

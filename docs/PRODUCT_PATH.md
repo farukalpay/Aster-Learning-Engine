@@ -1,15 +1,57 @@
 # Aster Product Path
 
-Aster grows as a renderer contract engine first. Gameplay and sample features do
-not define the engine boundary; they consume it. The product stack is:
+Aster grows as a world transition contract engine first. Gameplay and sample
+features do not define the engine boundary; they consume it. Renderer proof is
+still mandatory, but it sits under player-observable world proof. The product
+stack is:
 
 ```text
-Aster Renderer Contract
+Aster World Transition Contract
+  -> Aster Renderer Contract
   -> Aster Procedural Asset Graph
   -> Aster Asset Compilers
   -> Aster Authoring Studio
   -> Lumen Run and sample games
 ```
+
+## World Transition Contract
+
+The public runtime spine is:
+
+```text
+InputEvent
+  -> PlayerIntent
+  -> SimulationEpoch
+  -> WorldDelta
+  -> AnimationPose
+  -> SensoryEvent
+  -> VisibilitySet
+  -> RenderExtraction
+  -> FrameSubmission
+```
+
+`AsterWorld` is the public ABI root for this spine. It uses the existing
+world-state identity, tick, transaction, snapshot, and replay substrate for
+causal evidence, while `AsterSystemWorldHandle` remains a compatibility path for
+the older system-world trace surface. `Scene` is a render projection extracted
+from world state; direct scene rendering remains useful for labs, backend
+conformance, and compatibility, but it must declare compatibility provenance
+when it is not linked to a world transition.
+
+`WorldForensics` answers whether a region can be published to the player before
+the frame is judged. It carries the world transition hash, epoch/tick evidence,
+actor delta summary, generated-region gate verdict, navigation validity,
+encounter/resource probe results, perceptual budget, streaming region identity,
+and render extraction linkage.
+
+Generated cave regions are proof-gated twice:
+
+1. Cook-time `aster_assetc cook` emits a machine-readable world gate report for
+   cave assets: seed, region identity, deterministic probe trace hash,
+   pass/fail reasons, and navigation/resource/encounter/perceptual verdicts.
+2. Runtime streaming validates candidate cave chunks before publish. Valid
+   chunks become visible; failed chunks are quarantined and emit world-forensics
+   validation evidence.
 
 ## Renderer Contract
 
@@ -24,10 +66,18 @@ Scene / Material / Mesh Input
   -> Frame Forensics Timeline + Resource Provenance Graph + Regression Lab
 ```
 
+This renderer contract is now a subordinate proof surface. Every rendered frame
+should carry world linkage when it came from `AsterWorld`: world transition hash,
+actor-state delta hash, encounter budget/result, navigation validity, streaming
+region id, and perceptual salience. Frames submitted from direct scene/lab paths
+remain valid, but their provenance is compatibility scene extraction rather than
+world transition extraction.
+
 The public runtime surface remains frozen around the kernel ABI and source Game
 SDK. Internal renderer/RHI/framegraph headers can evolve, but external consumers
 should learn the contract through `include/aster/kernel`, `include/aster/game_sdk`,
-runtime capability tables, and frame-forensics accessors.
+runtime capability tables, world-forensics accessors, and frame-forensics
+accessors.
 
 Backend feature support is proof-gated. A feature is supported only when the
 backend supplies native work, captures or samples when required, resource
@@ -68,14 +118,14 @@ The content pipeline has three explicit compiler roles:
 - `aster_assetc graph-inspect` and `graph-package`: `.astergraph` input to
   `assetgraphbin`, stable graph GUID/node IDs, dependency edges, procedural
   material IR, mesh/collision/LOD descriptors, shader and pipeline keys, quality
-  score, diagnostics, and FrameForensics provenance.
+  score, diagnostics, and world/frame provenance.
 - `aster_materialc`: legacy `.astermat` input to material package,
   shader variants, reflection, binding layout, preview, and diagnostics.
 - `aster_texturec`: source image/KTX2 input to cooked texture, mip/compression
   profile, role/color-space validation, report, and byte-cost metadata.
 - `aster_assetc cook`: project, scene, mesh, graph, material, and image bundles
-  to stable GUIDs, dependency graph, cooked artifacts, failure reports, and asset
-  database.
+  to stable GUIDs, dependency graph, cooked artifacts, cave world-gate reports,
+  failure reports, and asset database.
 
 `aster_assetc` may orchestrate graph, material, and texture compilation, but it
 should not hide their contracts. Single-domain compiler failures must remain
@@ -133,7 +183,9 @@ fallback, and quality-score changes from the same graph.
 ## Lumen Run
 
 Lumen Run is the showcase. It should demonstrate that renderer and asset
-contracts catch real production bugs. Cave lighting, material binding, fog,
-shadow, probe, and readback issues should be investigated through frame
-forensics, image diffs, resource transitions, and material binding traces rather
-than by sample-specific guessing.
+contracts are downstream of world proof. A generated cave region must pass
+cook/runtime world gates before its lighting, material binding, fog, shadow,
+probe, and readback issues are investigated through frame forensics, image
+diffs, resource transitions, and material binding traces. Sample-specific
+guessing is still a bug smell; the new first question is whether the world
+transition was valid for the player before the frame was captured.

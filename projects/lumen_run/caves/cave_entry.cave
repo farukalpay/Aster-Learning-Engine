@@ -256,6 +256,36 @@
         "target": [31.0, 0.4, -61.0],
         "min_clearance": 0.25
       }
-    ]
+    ],
+    "probe_agent": {
+      "id": "lumen_entry_probe",
+      "seed": 10431057,
+      "step_count": 24,
+      "step_length": 1.35,
+      "entry_anchor": "player_spawn"
+    },
+    "resource_probes": [
+      {
+        "id": "entry_coal_pressure",
+        "kind": "resource",
+        "position": [30.14, -3.8, -78.0],
+        "radius": 18.0,
+        "minimum_count": 6
+      }
+    ],
+    "encounter_probes": [
+      {
+        "id": "entry_skitter_pressure",
+        "kind": "enemy_spawn",
+        "position": [30.14, -5.0, -90.0],
+        "radius": 4.0,
+        "minimum_budget": 0.10,
+        "maximum_budget": 1.0
+      }
+    ],
+    "perceptual_budget": {
+      "id": "entry_decision_read",
+      "minimum_salience": 0.56
+    }
   }
 }

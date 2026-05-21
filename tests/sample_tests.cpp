@@ -3,6 +3,7 @@
 
 #include "test_support.hpp"
 
+#include <cstdint>
 #include <cstdlib>
 
 #if defined(_WIN32)
@@ -34,6 +35,35 @@ void testLumenSceneCoherenceReport() {
   assert(trace_report.trace_length > 0u);
   assert(!trace_report.rules.empty());
   assert(trace_report.valid);
+}
+
+void testLumenWorldForensicsContract() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  const aster::LumenCaveWorldGateReport &gate = run.caveWorldGateReport();
+  assert(run.caveWorldGateAccepted());
+  assert(gate.verdict == aster::LumenWorldGateVerdict::Accepted);
+  assert(gate.navigation_valid);
+  assert(gate.resource_valid);
+  assert(gate.encounter_valid);
+  assert(gate.perceptual_valid);
+  assert(gate.probe_trace_hash != 0u);
+  assert(gate.region_id != 0u);
+
+  const std::uint64_t gate_transition = run.worldForensics().world_transition_hash;
+  run.update(1.0f / 60.0f, {0.25f, 0.70f}, true, false);
+  const aster::LumenWorldForensics &world = run.worldForensics();
+  assert(world.epoch == 1u);
+  assert(world.world_transition_hash != 0u);
+  assert(world.world_transition_hash != gate_transition);
+  assert(world.actor_state_delta_hash != 0u);
+  assert(world.sensory_event_hash != 0u);
+  assert(world.visibility_set_hash != 0u);
+  assert(world.streaming_region_id == gate.region_id);
+
+  run.noteRenderExtraction(0xA57E1001u, 0xA57E2002u);
+  assert(run.worldForensics().render_extraction_ready);
+  assert(run.worldForensics().render_extraction_hash == 0xA57E1001u);
+  assert(run.worldForensics().frame_submission_hash == 0xA57E2002u);
 }
 
 void testLumenCameraCollisionCanBeatComfortRadius() {
@@ -819,6 +849,7 @@ void testLumenClassicGauntletVisibleAndAutomapped() {
 
 int main() {
   testLumenSceneCoherenceReport();
+  testLumenWorldForensicsContract();
   testLumenCameraCollisionCanBeatComfortRadius();
   testLumenInnerPondSeamHasSupport();
   testLumenSupportSurfacesRenderOpaque();

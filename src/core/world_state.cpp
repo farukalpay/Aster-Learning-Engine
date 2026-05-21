@@ -221,6 +221,43 @@ WorldTickResult WorldState::tick(WorldTickDesc desc) {
           .trace_hash = trace_hash_};
 }
 
+void WorldState::noteRenderableExtraction(const std::uint64_t extraction_hash,
+                                          const std::uint64_t frame_submission_hash) {
+  if (extraction_hash != 0u) {
+    mixWorld("render.extraction", extraction_hash);
+    appendEvent({.kind = WorldTraceEventKind::RenderableExtraction,
+                 .tick = current_tick_,
+                 .label = "world-render-extraction",
+                 .detail = hexHash(extraction_hash),
+                 .world_hash = world_hash_});
+  }
+  if (frame_submission_hash != 0u) {
+    mixWorld("frame.submission", frame_submission_hash);
+    appendEvent({.kind = WorldTraceEventKind::FrameSubmission,
+                 .tick = current_tick_,
+                 .label = "world-frame-submission",
+                 .detail = hexHash(frame_submission_hash),
+                 .world_hash = world_hash_});
+  }
+}
+
+void WorldState::noteRegionGate(const std::uint64_t region_id, const bool accepted,
+                                const std::uint64_t report_hash, std::string diagnostic) {
+  mixWorld("region.gate.id", region_id);
+  mixWorld("region.gate.report", report_hash);
+  mixWorld("region.gate.verdict", accepted ? "accepted" : "quarantined");
+  const std::string detail =
+      std::string(accepted ? "accepted " : "quarantined ") + hexHash(report_hash) +
+      (diagnostic.empty() ? "" : " " + diagnostic);
+  appendEvent({.kind = accepted ? WorldTraceEventKind::SchedulerDecision
+                                : WorldTraceEventKind::ValidationError,
+               .tick = current_tick_,
+               .label = "generated-region-gate",
+               .subject = hexHash(region_id),
+               .detail = detail,
+               .world_hash = world_hash_});
+}
+
 WorldTransactionInfo WorldState::beginTransaction(WorldTransactionDesc desc) {
   TransactionRecord record;
   record.info.transaction_id = next_transaction_id_++;

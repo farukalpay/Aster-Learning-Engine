@@ -5,6 +5,7 @@
 
 #include "aster/core/profiler.hpp"
 #include "aster/geometry/mesh_modeling.hpp"
+#include "aster/math/hash.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1407,6 +1408,7 @@ void VoxelCaveState::configure(VoxelCaveSpec spec) {
   spec.path_prefetch_radius = std::clamp(spec.path_prefetch_radius, 0, spec.unload_radius);
   spec.path_prefetch_spacing_chunks = std::max(spec.path_prefetch_spacing_chunks, 0.10f);
   spec.chunk_transition_seconds = std::max(spec.chunk_transition_seconds, 0.0f);
+  spec.world_gate_minimum_salience = std::max(spec.world_gate_minimum_salience, 0.0f);
   spec.coarse_proxy_cells =
       std::clamp(spec.coarse_proxy_cells, 2, std::max(spec.chunk_cells, 2));
   spec_ = std::move(spec);
@@ -1419,6 +1421,7 @@ void VoxelCaveState::clear() {
   edits_.clear();
   snapshots_.clear();
   changed_snapshots_.clear();
+  world_gate_reports_.clear();
   last_update_stats_ = {};
   rebuild_costs_.clear();
   rebuild_budget_controller_.reset();
@@ -1449,6 +1452,10 @@ const std::vector<VoxelChunkSnapshot> &VoxelCaveState::activeChunks() const {
 
 const std::vector<VoxelChunkSnapshot> &VoxelCaveState::changedChunks() const {
   return changed_snapshots_;
+}
+
+const std::vector<VoxelCaveWorldGateReport> &VoxelCaveState::worldGateReports() const {
+  return world_gate_reports_;
 }
 
 const VoxelCaveUpdateStats &VoxelCaveState::lastUpdateStats() const {
@@ -1633,6 +1640,57 @@ bool VoxelCaveState::chunkIntersectsEdit(const VoxelChunkCoord coord, const Voxe
   return length(closest - edit.center) <= edit.radius + spec_.cell_size;
 }
 
+VoxelCaveWorldGateReport VoxelCaveState::worldGateReportFor(const ChunkState &chunk,
+                                                            const bool publishable) const {
+  const bool has_collision = chunk.collision_mesh != nullptr &&
+                             !chunk.collision_mesh->vertices.empty() &&
+                             !chunk.collision_mesh->indices.empty();
+  const bool topology_valid = chunk.surface_stats.topology_invalid_indices == 0u &&
+                              chunk.surface_stats.topology_degenerate_triangles == 0u;
+  const bool has_surface = chunk.surface_stats.surface_vertices > 0u ||
+                           std::any_of(chunk.batches.begin(), chunk.batches.end(),
+                                       [](const VoxelChunkRenderBatch &batch) {
+                                         return batch.mesh != nullptr &&
+                                                !batch.mesh->vertices.empty() &&
+                                                !batch.mesh->indices.empty();
+                                       });
+  float salience = 0.10f;
+  salience += publishable ? 0.22f : 0.0f;
+  salience += has_surface ? 0.22f : 0.0f;
+  salience += has_collision ? 0.20f : 0.0f;
+  salience += chunk.coarse_proxy ? 0.08f : 0.18f;
+  salience += std::min(static_cast<float>(chunk.surface_stats.material_batches) * 0.03f, 0.12f);
+  salience = std::clamp(salience, 0.0f, 1.0f);
+  const bool navigation_valid = publishable && topology_valid && (has_collision || chunk.coarse_proxy);
+  const bool accepted = !spec_.world_gate_enabled ||
+                        (navigation_valid && salience >= spec_.world_gate_minimum_salience);
+  std::uint64_t hash = 0x41535445574f524cull;
+  hash ^= static_cast<std::uint64_t>(mixBits(static_cast<std::uint32_t>(chunk.coord.x))) << 1u;
+  hash ^= static_cast<std::uint64_t>(mixBits(static_cast<std::uint32_t>(chunk.coord.y))) << 17u;
+  hash ^= static_cast<std::uint64_t>(mixBits(static_cast<std::uint32_t>(chunk.coord.z))) << 33u;
+  hash ^= chunk.mesh_generation + 0x9e3779b97f4a7c15ull;
+  hash ^= static_cast<std::uint64_t>(stableHash32(salience)) << 7u;
+  VoxelCaveWorldGateReport report;
+  report.region_id = hash;
+  report.coord = chunk.coord;
+  report.verdict =
+      accepted ? VoxelCaveWorldGateVerdict::Accepted : VoxelCaveWorldGateVerdict::Quarantined;
+  report.navigation_valid = navigation_valid;
+  report.checked_steps = 1u;
+  report.blocked_steps = navigation_valid ? 0u : 1u;
+  report.perceptual_salience = salience;
+  report.minimum_salience = spec_.world_gate_minimum_salience;
+  report.probe_trace_hash = hash ^ 0xA57E600D600Dull;
+  if (accepted) {
+    report.diagnostic = "accepted";
+  } else if (!navigation_valid) {
+    report.diagnostic = "navigation invalid before generated region publish";
+  } else {
+    report.diagnostic = "perceptual salience below generated region gate";
+  }
+  return report;
+}
+
 void VoxelCaveState::updateStreaming(const Vec3 viewer_position, const float dt) {
   updateStreaming(viewer_position, dt, {});
 }
@@ -1642,6 +1700,7 @@ void VoxelCaveState::updateStreaming(const Vec3 viewer_position, const float dt,
   ASTER_PROFILE_SCOPE("VoxelCaveState::streaming");
   last_update_stats_ = {};
   changed_snapshots_.clear();
+  world_gate_reports_.clear();
 
   const float chunk_size = spec_.cell_size * static_cast<float>(spec_.chunk_cells);
   std::vector<VoxelChunkCoord> retention_centers;
@@ -1894,6 +1953,13 @@ void VoxelCaveState::updateStreaming(const Vec3 viewer_position, const float dt,
       if (!has_publishable_mesh) {
         continue;
       }
+      const VoxelCaveWorldGateReport gate = worldGateReportFor(chunk, has_publishable_mesh);
+      world_gate_reports_.push_back(gate);
+      if (gate.verdict == VoxelCaveWorldGateVerdict::Quarantined) {
+        ++last_update_stats_.quarantined_world_gate_chunks;
+        continue;
+      }
+      ++last_update_stats_.accepted_world_gate_chunks;
       const VoxelChunkSnapshot snapshot = snapshotFor(chunk, chunk.collision_dirty);
       snapshots_.push_back(snapshot);
       ++last_update_stats_.published_chunks;

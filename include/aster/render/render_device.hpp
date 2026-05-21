@@ -774,6 +774,13 @@ struct FrameForensics {
   std::uint64_t simulation_tick = 0u;
   std::uint64_t extraction_hash = 0u;
   std::uint64_t asset_lineage_hash = 0u;
+  bool world_transition_linked = false;
+  std::uint64_t world_transition_hash = 0u;
+  std::uint64_t actor_state_delta_hash = 0u;
+  std::uint64_t encounter_budget_hash = 0u;
+  bool navigation_valid = false;
+  std::uint64_t streaming_region_id = 0u;
+  float perceptual_salience_score = 0.0f;
   std::vector<FramePassStats> passes;
   std::vector<FrameDiagnosticEvent> events;
   std::vector<FrameDebugCapture> captures;
@@ -970,8 +977,12 @@ public:
   [[nodiscard]] const FixedRenderGraph &renderGraph() const;
   [[nodiscard]] const FrameForensics &lastFrameForensics() const;
   void stampLastFrameCausalTrace(std::uint64_t world_trace_hash, std::uint64_t simulation_tick,
-                                 std::uint64_t extraction_hash,
-                                 std::uint64_t asset_lineage_hash);
+                                 std::uint64_t extraction_hash, std::uint64_t asset_lineage_hash,
+                                 std::uint64_t world_transition_hash,
+                                 std::uint64_t actor_state_delta_hash,
+                                 std::uint64_t encounter_budget_hash, bool navigation_valid,
+                                 std::uint64_t streaming_region_id,
+                                 float perceptual_salience_score);
   [[nodiscard]] const std::shared_ptr<const MaterialResourceLibrary> &materialResourceLibrary()
       const noexcept;
 

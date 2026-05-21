@@ -377,11 +377,38 @@ struct CaveCameraValidationDocument {
   float min_clearance = 0.25f;
 };
 
+struct CaveProbeAgentDocument {
+  std::string id;
+  std::uint32_t seed = 1u;
+  int step_count = 16;
+  float step_length = 1.25f;
+  std::string entry_anchor;
+};
+
+struct CaveWorldProbeDocument {
+  std::string id;
+  std::string kind;
+  Vec3 position{};
+  float radius = 1.0f;
+  int minimum_count = 1;
+  float minimum_budget = 0.0f;
+  float maximum_budget = 1.0f;
+};
+
+struct CavePerceptualBudgetDocument {
+  std::string id;
+  float minimum_salience = 0.50f;
+};
+
 struct CaveValidationDocument {
   std::vector<CaveRouteValidationDocument> walkable_routes;
   std::vector<CaveVolumeValidationDocument> spawn_volumes;
   std::vector<CaveVolumeValidationDocument> collision_volumes;
   std::vector<CaveCameraValidationDocument> camera_probes;
+  std::optional<CaveProbeAgentDocument> probe_agent;
+  std::vector<CaveWorldProbeDocument> resource_probes;
+  std::vector<CaveWorldProbeDocument> encounter_probes;
+  std::optional<CavePerceptualBudgetDocument> perceptual_budget;
 };
 
 struct CaveDocument {

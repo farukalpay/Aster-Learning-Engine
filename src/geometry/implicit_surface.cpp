@@ -270,6 +270,19 @@ namespace {
   return std::max({std::abs(lhs.x - rhs.x), std::abs(lhs.y - rhs.y), std::abs(lhs.z - rhs.z)});
 }
 
+[[nodiscard]] float projectedBoundaryDelta(const Vec3 lhs, const Vec3 rhs,
+                                           const SurfaceBoundaryAxis axis) {
+  switch (axis) {
+  case SurfaceBoundaryAxis::X:
+    return std::max(std::abs(lhs.y - rhs.y), std::abs(lhs.z - rhs.z));
+  case SurfaceBoundaryAxis::Y:
+    return std::max(std::abs(lhs.x - rhs.x), std::abs(lhs.z - rhs.z));
+  case SurfaceBoundaryAxis::Z:
+    return std::max(std::abs(lhs.x - rhs.x), std::abs(lhs.y - rhs.y));
+  }
+  return pointDelta(lhs, rhs);
+}
+
 } // namespace
 
 bool SurfaceBoundaryCompatibilityReport::compatible() const {
@@ -348,7 +361,10 @@ compareSurfaceBoundaries(const SurfaceBoundarySignature &lhs, const SurfaceBound
     float best_delta = std::numeric_limits<float>::infinity();
     std::size_t best_index = 0u;
     for (std::size_t rhs_index = 0; rhs_index < rhs.vertices.size(); ++rhs_index) {
-      const float delta = pointDelta(lhs_point, rhs.vertices[rhs_index]);
+      const float delta =
+          lhs.axis == rhs.axis
+              ? projectedBoundaryDelta(lhs_point, rhs.vertices[rhs_index], lhs.axis)
+              : pointDelta(lhs_point, rhs.vertices[rhs_index]);
       if (delta < best_delta) {
         best_delta = delta;
         best_index = rhs_index;

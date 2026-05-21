@@ -11,6 +11,7 @@
 #include "aster/systems/third_person_camera.hpp"
 #include "aster/input/control_scheme.hpp"
 #include "aster/input/input_codes.hpp"
+#include "aster/math/hash.hpp"
 #include "aster/platform/window.hpp"
 #include "aster/render/frame_capture.hpp"
 #include "aster/render/render_device.hpp"
@@ -394,6 +395,56 @@ void printStartupSummary(const std::vector<StartupSample> &samples) {
   std::cout << "Startup report total: ms=" << secondsToMilliseconds(total) << '\n';
 }
 
+const char *lumenWorldGateVerdictName(const aster::LumenWorldGateVerdict verdict) {
+  switch (verdict) {
+  case aster::LumenWorldGateVerdict::Unknown:
+    return "unknown";
+  case aster::LumenWorldGateVerdict::Accepted:
+    return "accepted";
+  case aster::LumenWorldGateVerdict::Quarantined:
+    return "quarantined";
+  }
+  return "unknown";
+}
+
+void printLumenWorldGateReport(const aster::LumenCaveWorldGateReport &report) {
+  std::cout << "Lumen Run cave world gate: verdict="
+            << lumenWorldGateVerdictName(report.verdict) << " seed=" << report.seed
+            << " region_id=" << report.region_id
+            << " probe_trace_hash=" << report.probe_trace_hash
+            << " nav=" << (report.navigation_valid ? "pass" : "fail")
+            << " checked_steps=" << report.checked_steps
+            << " blocked_steps=" << report.blocked_steps
+            << " resources=" << report.reachable_resources << "/" << report.required_resources
+            << " encounters=" << report.reachable_encounters
+            << " encounter_budget=" << report.encounter_budget
+            << " salience=" << report.perceptual_salience_score
+            << "/" << report.perceptual_minimum_salience << '\n';
+  std::cout << "Lumen Run cave world gate diagnostic: " << report.diagnostic << '\n';
+}
+
+std::uint64_t lumenFrameProofHash(const aster::LumenWorldForensics &world,
+                                  const aster::FrameStats &stats, const int width,
+                                  const int height, const int rendered_frames,
+                                  const std::uint64_t salt) {
+  std::uint64_t hash = aster::hashCombine64(0x4C554D454E46524Dull, salt);
+  hash = aster::hashCombine64(hash, world.world_transition_hash);
+  hash = aster::hashCombine64(hash, world.trace_hash);
+  hash = aster::hashCombine64(hash, world.cave_gate.probe_trace_hash);
+  hash = aster::hashCombine64(hash, static_cast<std::uint64_t>(world.epoch));
+  hash = aster::hashCombine64(hash, static_cast<std::uint64_t>(width));
+  hash = aster::hashCombine64(hash, static_cast<std::uint64_t>(height));
+  hash = aster::hashCombine64(hash, static_cast<std::uint64_t>(rendered_frames));
+  hash = aster::hashCombine64(hash, static_cast<std::uint64_t>(stats.visible_objects));
+  hash = aster::hashCombine64(hash, static_cast<std::uint64_t>(stats.draw_calls));
+  hash = aster::hashCombine64(hash, static_cast<std::uint64_t>(stats.active_point_lights));
+  hash = aster::hashCombine64(
+      hash,
+      static_cast<std::uint64_t>(
+          aster::stableHash32(world.cave_gate.perceptual_salience_score)));
+  return hash;
+}
+
 aster::ControlScheme makeRunControls() {
   aster::ControlScheme controls;
   controls.bind(kPause, aster::keyBinding(aster::Key::Escape));
@@ -757,8 +808,15 @@ int main(int argc, char **argv) {
       mark_startup("project_authoring_load");
     }
     if (validate_cave) {
-      std::cout << "Lumen Run cave validation passed: "
-                << (authoring.cave.id.empty() ? "no cave asset" : authoring.cave.id) << '\n';
+      aster::LumenRun validation_game(authoring);
+      printLumenWorldGateReport(validation_game.caveWorldGateReport());
+      if (!validation_game.caveWorldGateAccepted()) {
+        throw std::runtime_error("Lumen Run cave world gate rejected publish: " +
+                                 validation_game.caveWorldGateReport().diagnostic);
+      }
+      std::cout << "Lumen Run cave validation passed before render extraction: "
+                << (authoring.cave.id.empty() ? "fallback generated cave" : authoring.cave.id)
+                << '\n';
       return 0;
     }
 
@@ -790,6 +848,10 @@ int main(int argc, char **argv) {
       game.setPlayerAvatarVisible(false);
     }
     mark_startup("game_reset");
+    if (!game.caveWorldGateAccepted()) {
+      throw std::runtime_error("refusing to publish Lumen Run generated cave region: " +
+                               game.caveWorldGateReport().diagnostic);
+    }
     if (cave_entry_capture && !player_position_override) {
       const aster::Vec3 crate = game.supplyCratePosition();
       game.relocatePlayer(crate + aster::Vec3{1.10f, 0.0f, 1.00f},
@@ -982,6 +1044,9 @@ int main(int argc, char **argv) {
     double frame_forensics_resource_sum = 0.0;
     double frame_forensics_material_sum = 0.0;
     double clustered_light_fallback_sum = 0.0;
+    double world_linked_frame_sum = 0.0;
+    double world_navigation_valid_sum = 0.0;
+    double world_perceptual_salience_sum = 0.0;
     aster::FixedTimestep simulation_clock(
         {kSimulationStepSeconds, kMaxSimulatedFrameSeconds, kMaxSimulationStepsPerFrame});
     int rendered_frames = 0;
@@ -1114,7 +1179,7 @@ int main(int argc, char **argv) {
                                         static_cast<float>(window_height)}};
         const aster::CameraRay ray =
             camera.screenRay({pointer.x, pointer.y, 0.0f}, viewport);
-        (void)game.pointAvatarAtRay(ray.origin, ray.direction);
+        (void)game.pointAvatarAtRay(ray.origin.value, ray.direction.value);
       }
       const bool camera_follow_active = !pause_open && !inventory_open && !scripted_capture &&
                                         !command_aim_active && !chest_ui_active;
@@ -1297,13 +1362,13 @@ int main(int argc, char **argv) {
                                         static_cast<float>(window_height)}};
         const aster::CameraRay focus_ray =
             camera.screenRay({center_pointer.x, center_pointer.y, 0.0f}, viewport);
-        game.updateInteractionFocus(focus_ray.origin, focus_ray.direction,
+        game.updateInteractionFocus(focus_ray.origin.value, focus_ray.direction.value,
                                     static_cast<float>(frame_dt));
         if (control_state.justPressed(kInteract)) {
           game.interactFocused();
         }
         if (control_state.justPressed(kSecondaryInteract)) {
-          game.secondaryInteractFocused(focus_ray.origin, focus_ray.direction);
+          game.secondaryInteractFocused(focus_ray.origin.value, focus_ray.direction.value);
         }
       } else {
         game.updateInteractionFocus(camera.position(), {0.0f, -1.0f, 0.0f},
@@ -1344,6 +1409,21 @@ int main(int argc, char **argv) {
       const double render_start = clock.now();
       const aster::FrameStats render_stats =
           renderer.render(game.scene(), camera, settings, width, height, elapsed);
+      const std::uint64_t render_extraction_hash =
+          lumenFrameProofHash(game.worldForensics(), render_stats, width, height, rendered_frames,
+                              0xE87AC710CULL);
+      const std::uint64_t frame_submission_hash =
+          lumenFrameProofHash(game.worldForensics(), render_stats, width, height, rendered_frames,
+                              render_extraction_hash);
+      game.noteRenderExtraction(render_extraction_hash, frame_submission_hash);
+      const aster::LumenWorldForensics &world_forensics = game.worldForensics();
+      renderer.stampLastFrameCausalTrace(
+          world_forensics.trace_hash, world_forensics.epoch,
+          world_forensics.render_extraction_hash, world_forensics.cave_gate.probe_trace_hash,
+          world_forensics.world_transition_hash, world_forensics.actor_state_delta_hash,
+          world_forensics.cave_gate.encounter_budget_hash,
+          world_forensics.cave_gate.navigation_valid, world_forensics.streaming_region_id,
+          world_forensics.cave_gate.perceptual_salience_score);
       if (collect_frame_sample) {
         render_times.addSample(clock.now() - render_start);
         ++render_counter_samples;
@@ -1372,6 +1452,9 @@ int main(int argc, char **argv) {
         frame_forensics_pass_sum += static_cast<double>(forensics.passes.size());
         frame_forensics_resource_sum += static_cast<double>(forensics.resource_traces.size());
         frame_forensics_material_sum += static_cast<double>(forensics.material_bindings.size());
+        world_linked_frame_sum += forensics.world_transition_linked ? 1.0 : 0.0;
+        world_navigation_valid_sum += forensics.navigation_valid ? 1.0 : 0.0;
+        world_perceptual_salience_sum += forensics.perceptual_salience_score;
         const bool clustered_fallback =
             std::any_of(forensics.events.begin(), forensics.events.end(),
                         [](const aster::FrameDiagnosticEvent &event) {
@@ -1500,6 +1583,18 @@ int main(int argc, char **argv) {
                   << secondsToMilliseconds(rust_plan_seconds_sum / samples)
                   << " render_encode_ms_mean="
                   << secondsToMilliseconds(render_encode_seconds_sum / samples) << '\n';
+        const aster::LumenWorldForensics &world = game.worldForensics();
+        std::cout << "World report: gate="
+                  << lumenWorldGateVerdictName(world.cave_gate.verdict)
+                  << " region_id=" << world.streaming_region_id
+                  << " probe_trace_hash=" << world.cave_gate.probe_trace_hash
+                  << " world_transition_hash=" << world.world_transition_hash
+                  << " linked_frames=" << world_linked_frame_sum
+                  << " nav_valid_frames=" << world_navigation_valid_sum
+                  << " salience_mean=" << world_perceptual_salience_sum / samples
+                  << " actor_delta_count=" << world.actor_delta_count
+                  << " render_extraction_hash=" << world.render_extraction_hash
+                  << " frame_submission_hash=" << world.frame_submission_hash << '\n';
       }
     }
     if (startup_report_enabled) {

@@ -1,36 +1,46 @@
 # Aster Learning Engine
 
-Aster is a renderer contract engine by Faruk Alpay. Its product promise is not
-"a game engine with everything"; it is a small, inspectable kernel where the
-proof surfaces exist to protect the image. A frame is only interesting when the
-viewer can read weight, wetness, air, bounce, and material response on screen,
-then trace that visible result back through scene, mesh, material, render graph,
-backend output, and frame-forensics contracts. Lumen Run is a sample game built
-on top of Aster; it is not the engine itself.
+Aster is a player-observable world transition contract engine by Faruk Alpay.
+Its product promise is not "a game engine with everything"; it is a small,
+inspectable kernel where proof surfaces exist to protect the player's experience
+of a world responding. A frame is only interesting after the viewer can read
+input intent, simulation change, spatial consequence, weight, wetness, air,
+bounce, and material response on screen, then trace that visible result back
+through `AsterWorld`, render extraction, scene, mesh, material, render graph,
+backend output, world forensics, and frame-forensics contracts. Lumen Run is a
+sample game built on top of Aster; it is not the engine itself.
 
-The current renderer/RHI v1 spine is deliberately measured by contracts rather
-than by folder names: the same `Scene`, materials, meshes, render graph, frame
-stats, and diagnostics feed the software reference renderer, native Metal, and
-the D3D12 offscreen/readback path. RHI descriptors now expose explicit barrier,
-attachment, pipeline-state, render-pass compatibility, and cache-key details so
-backends share more than matching type names.
+The current spine is deliberately measured by contracts rather than by folder
+names: `InputEvent -> PlayerIntent -> SimulationEpoch -> WorldDelta ->
+AnimationPose -> SensoryEvent -> VisibilitySet -> RenderExtraction ->
+FrameSubmission` is the public root, and the same extracted render projection,
+materials, meshes, render graph, frame stats, and diagnostics feed the software
+reference renderer, native Metal, and the D3D12 offscreen/readback path. RHI
+descriptors still expose explicit barrier, attachment, pipeline-state,
+render-pass compatibility, and cache-key details so backends share more than
+matching type names.
 
 Start here: [docs/START_HERE.md](docs/START_HERE.md)
 
 ## 30-Second Contract
 
+- World input: submit input/intent and simulation evidence through `AsterWorld`;
+  runtime rendering consumes render extractions from that causal substrate.
 - Scene input: submit `Scene` objects through the kernel ABI or repository
-  source contracts; runtime rendering consumes canonical render packets.
+  source contracts for lab/compatibility paths; production proof treats them as
+  render projections.
 - Material input: use `.astermat`/material packages or C++ material values with
   explicit texture roles, color spaces, shader variants, reflection, and binding
   diagnostics.
 - Mesh input: use primitive/custom mesh descriptors or cooked scene assets with
   mesh validation and dependency metadata.
-- Visual guarantee: each frame is judged by the surface and light behavior it
-  produces first, then backed by backend capabilities, pass cost maps, resource
-  transitions, descriptor/pipeline traces, material bindings, capture metadata,
-  validation events, feature proofs, and timestamp samples when the backend can
-  prove them.
+- World guarantee: generated cave regions must pass nav, resource, encounter,
+  and perceptual gates before publish.
+- Visual guarantee: each frame is judged by the world transition and the surface
+  and light behavior it produces, then backed by backend capabilities, pass cost
+  maps, resource transitions, descriptor/pipeline traces, material bindings,
+  capture metadata, validation events, feature proofs, and timestamp samples
+  when the backend can prove them.
 
 ## 30-Second Regression Lab
 
@@ -106,9 +116,10 @@ Run built-in lab scenes when you want the inspected renderer path:
 
 ## What Is Included
 
-- A C-compatible ABI 5 engine kernel with opaque handles, C++ RAII wrappers,
-  strict validation events, explicit texture/material/render-target lifecycle,
-  frame schedule reports, and an install-tree `external_app_minimal/` proof.
+- A C-compatible ABI 6 engine kernel with `AsterWorld`, opaque handles, C++
+  RAII wrappers, strict validation events, explicit texture/material/render
+  target lifecycle, world/frame forensics, frame schedule reports, and an
+  install-tree `external_app_minimal/` proof.
 - A draw-first C++ facade in `include/aster/aster.hpp` for `InitAster`,
   `Frame`, `BeginScene`, `DrawMesh`, `DrawLight`, and `EndScene` quickstarts.
 - A source-level game SDK for schema-versioned project, scene, prefab, material,

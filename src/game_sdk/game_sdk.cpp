@@ -849,6 +849,53 @@ void hashNumber(std::uint64_t &hash, const std::uint64_t value) {
   return out;
 }
 
+[[nodiscard]] CaveProbeAgentDocument parseCaveProbeAgentDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
+  CaveProbeAgentDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readStringOr(value, "id", diagnostics, source, path, {});
+  out.seed = static_cast<std::uint32_t>(readIntOr(value, "seed", diagnostics, source, path, 1));
+  out.step_count = readIntOr(value, "step_count", diagnostics, source, path, out.step_count);
+  out.step_length = readFloatOr(value, "step_length", diagnostics, source, path, out.step_length);
+  out.entry_anchor = readStringOr(value, "entry_anchor", diagnostics, source, path, {});
+  return out;
+}
+
+[[nodiscard]] CaveWorldProbeDocument parseCaveWorldProbeDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
+  CaveWorldProbeDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readStringOr(value, "id", diagnostics, source, path, {});
+  out.kind = readStringOr(value, "kind", diagnostics, source, path, {});
+  out.position = readVec3Or(value, "position", diagnostics, source, path, {});
+  out.radius = readFloatOr(value, "radius", diagnostics, source, path, out.radius);
+  out.minimum_count = readIntOr(value, "minimum_count", diagnostics, source, path, out.minimum_count);
+  out.minimum_budget =
+      readFloatOr(value, "minimum_budget", diagnostics, source, path, out.minimum_budget);
+  out.maximum_budget =
+      readFloatOr(value, "maximum_budget", diagnostics, source, path, out.maximum_budget);
+  return out;
+}
+
+[[nodiscard]] CavePerceptualBudgetDocument parseCavePerceptualBudgetDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
+  CavePerceptualBudgetDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readStringOr(value, "id", diagnostics, source, path, {});
+  out.minimum_salience =
+      readFloatOr(value, "minimum_salience", diagnostics, source, path, out.minimum_salience);
+  return out;
+}
+
 [[nodiscard]] CaveValidationDocument parseCaveValidationDocument(
     const Json &root, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
     const std::string &path) {
@@ -901,6 +948,40 @@ void hashNumber(std::uint64_t &hash, const std::uint64_t value) {
             camera->array[i], diagnostics, source, indexPath(childPath(path, "camera_probes"), i)));
       }
     }
+  }
+  if (const Json *probe_agent = member(root, "probe_agent")) {
+    out.probe_agent =
+        parseCaveProbeAgentDocument(*probe_agent, diagnostics, source, childPath(path, "probe_agent"));
+  }
+  const Json *resource_probes = member(root, "resource_probes");
+  if (resource_probes != nullptr) {
+    if (resource_probes->kind != Json::Kind::Array) {
+      addDiagnostic(diagnostics, source, childPath(path, "resource_probes"),
+                    "expected resource probe array");
+    } else {
+      for (std::size_t i = 0; i < resource_probes->array.size(); ++i) {
+        out.resource_probes.push_back(parseCaveWorldProbeDocument(
+            resource_probes->array[i], diagnostics, source,
+            indexPath(childPath(path, "resource_probes"), i)));
+      }
+    }
+  }
+  const Json *encounter_probes = member(root, "encounter_probes");
+  if (encounter_probes != nullptr) {
+    if (encounter_probes->kind != Json::Kind::Array) {
+      addDiagnostic(diagnostics, source, childPath(path, "encounter_probes"),
+                    "expected encounter probe array");
+    } else {
+      for (std::size_t i = 0; i < encounter_probes->array.size(); ++i) {
+        out.encounter_probes.push_back(parseCaveWorldProbeDocument(
+            encounter_probes->array[i], diagnostics, source,
+            indexPath(childPath(path, "encounter_probes"), i)));
+      }
+    }
+  }
+  if (const Json *perceptual = member(root, "perceptual_budget")) {
+    out.perceptual_budget = parseCavePerceptualBudgetDocument(
+        *perceptual, diagnostics, source, childPath(path, "perceptual_budget"));
   }
   return out;
 }
@@ -2029,6 +2110,59 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
                  "camera probe starts inside or too close to collision volume '" +
                      collision.id + "'");
       }
+    }
+  }
+
+  if (cave.validation.probe_agent.has_value()) {
+    const CaveProbeAgentDocument &agent = *cave.validation.probe_agent;
+    if (agent.id.empty()) {
+      addError("$.validation.probe_agent.id", "probe agent id must not be empty");
+    }
+    if (agent.step_count <= 0) {
+      addError("$.validation.probe_agent.step_count", "probe agent step_count must be positive");
+    }
+    if (agent.step_length <= 0.0f) {
+      addError("$.validation.probe_agent.step_length", "probe agent step_length must be positive");
+    }
+  }
+
+  for (const CaveWorldProbeDocument &probe : cave.validation.resource_probes) {
+    if (probe.id.empty()) {
+      addError("$.validation.resource_probes", "resource probe id must not be empty");
+      continue;
+    }
+    if (probe.radius <= 0.0f) {
+      addError("$.validation.resource_probes." + probe.id, "resource probe radius must be positive");
+    }
+    if (probe.minimum_count <= 0) {
+      addError("$.validation.resource_probes." + probe.id,
+               "resource probe minimum_count must be positive");
+    }
+  }
+
+  for (const CaveWorldProbeDocument &probe : cave.validation.encounter_probes) {
+    if (probe.id.empty()) {
+      addError("$.validation.encounter_probes", "encounter probe id must not be empty");
+      continue;
+    }
+    if (probe.radius <= 0.0f) {
+      addError("$.validation.encounter_probes." + probe.id,
+               "encounter probe radius must be positive");
+    }
+    if (probe.maximum_budget < probe.minimum_budget) {
+      addError("$.validation.encounter_probes." + probe.id,
+               "encounter probe maximum_budget must be >= minimum_budget");
+    }
+  }
+
+  if (cave.validation.perceptual_budget.has_value()) {
+    const CavePerceptualBudgetDocument &budget = *cave.validation.perceptual_budget;
+    if (budget.id.empty()) {
+      addError("$.validation.perceptual_budget.id", "perceptual budget id must not be empty");
+    }
+    if (budget.minimum_salience < 0.0f || budget.minimum_salience > 1.0f) {
+      addError("$.validation.perceptual_budget.minimum_salience",
+               "perceptual minimum_salience must be in [0, 1]");
     }
   }
 

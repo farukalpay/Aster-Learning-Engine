@@ -47,6 +47,10 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(cave.value.sections.size() == 2u);
   assert(!cave.value.seeds.empty());
   assert(!cave.value.validation.walkable_routes.empty());
+  assert(cave.value.validation.probe_agent.has_value());
+  assert(!cave.value.validation.resource_probes.empty());
+  assert(!cave.value.validation.encounter_probes.empty());
+  assert(cave.value.validation.perceptual_budget.has_value());
   const std::vector<aster::sdk::Diagnostic> cave_diagnostics =
       aster::sdk::validateCaveDocument(cave.value, &project.value, &scene.value,
                                        project_root / "caves" / "cave_entry.cave");

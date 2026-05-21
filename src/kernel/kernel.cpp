@@ -54,6 +54,7 @@ constexpr std::uint32_t kDescriptorHeapMagic = 0x41544448u;
 constexpr std::uint32_t kDescriptorSetMagic = 0x41544453u;
 constexpr std::uint32_t kPipelineCacheMagic = 0x41545043u;
 constexpr std::uint32_t kFrameScheduleMagic = 0x41544653u;
+constexpr std::uint32_t kWorldMagic = 0x41545744u;
 constexpr std::uint32_t kSystemWorldMagic = 0x41545357u;
 constexpr std::uint32_t kAuthoringDocumentMagic = 0x41544144u;
 constexpr std::uint32_t kAuthoringExecutionMagic = 0x41544145u;
@@ -119,6 +120,12 @@ struct AsterRendererHandle__ {
   std::uint64_t simulation_tick = 0u;
   std::uint64_t extraction_hash = 0u;
   std::uint64_t asset_lineage_hash = 0u;
+  std::uint64_t world_transition_hash = 0u;
+  std::uint64_t actor_state_delta_hash = 0u;
+  std::uint64_t encounter_budget_hash = 0u;
+  std::uint32_t navigation_valid = 0u;
+  std::uint64_t streaming_region_id = 0u;
+  float perceptual_salience_score = 0.0f;
 
   AsterRendererHandle__() {
     last_stats.size = sizeof(AsterFrameStats);
@@ -193,6 +200,35 @@ struct AsterFrameScheduleHandle__ {
   std::vector<aster::FramePassStats> passes;
   aster::rhi::FrameTrace trace;
   std::vector<KernelValidationRecord> validation_events;
+};
+
+struct AsterWorldHandle__ {
+  std::uint32_t magic = kWorldMagic;
+  AsterEngineHandle owner = nullptr;
+  aster::WorldState world;
+  std::list<std::string> string_scratch;
+  std::uint64_t world_transition_hash = 0u;
+  std::uint64_t actor_state_delta_hash = 0u;
+  std::size_t actor_delta_count = 0u;
+  std::uint64_t render_extraction_hash = 0u;
+  std::uint64_t streaming_region_id = 0u;
+  AsterWorldRegionGateVerdict gate_verdict = ASTER_WORLD_REGION_GATE_UNKNOWN;
+  std::uint32_t navigation_valid = 0u;
+  std::size_t navigation_checked_steps = 0u;
+  std::size_t navigation_blocked_steps = 0u;
+  std::uint64_t navigation_report_hash = 0u;
+  std::string navigation_diagnostic;
+  std::uint64_t encounter_budget_hash = 0u;
+  std::uint64_t resource_probe_hash = 0u;
+  std::uint32_t perceptual_accepted = 0u;
+  float perceptual_salience_score = 0.0f;
+  float perceptual_minimum_salience = 0.0f;
+  std::uint64_t perceptual_report_hash = 0u;
+  std::string perceptual_diagnostic;
+  std::string diagnostic;
+
+  AsterWorldHandle__(AsterEngineHandle engine, aster::WorldStateConfig config)
+      : owner(engine), world(std::move(config)) {}
 };
 
 struct AsterSystemWorldHandle__ {
@@ -369,6 +405,10 @@ bool validSystemWorld(const AsterSystemWorldHandle world) {
   return world != nullptr && world->magic == kSystemWorldMagic;
 }
 
+bool validWorld(const AsterWorldHandle world) {
+  return world != nullptr && world->magic == kWorldMagic;
+}
+
 bool validAuthoringDocument(const AsterAuthoringDocumentHandle document) {
   return document != nullptr && document->magic == kAuthoringDocumentMagic;
 }
@@ -404,6 +444,18 @@ AsterStringView authoringScratch(AsterAuthoringActionExecutionHandle execution, 
 AsterStringView systemWorldScratch(AsterSystemWorldHandle world, std::string text) {
   world->string_scratch.push_back(std::move(text));
   return viewFromString(world->string_scratch.back());
+}
+
+AsterStringView worldScratch(AsterWorldHandle world, std::string text) {
+  world->string_scratch.push_back(std::move(text));
+  return viewFromString(world->string_scratch.back());
+}
+
+std::uint64_t mixWorldEvidence(std::uint64_t hash, const std::uint64_t value) {
+  hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6u) + (hash >> 2u);
+  hash ^= hash >> 29u;
+  hash *= 0xbf58476d1ce4e5b9ull;
+  return hash == 0u ? 1u : hash;
 }
 
 AsterAuthoringDiagnosticSeverity
@@ -1964,6 +2016,204 @@ AsterStatus aster_kernel_engine_validation_event(const AsterEngineHandle engine,
   return validationEventAt(engine->validation_events, index, out_event);
 }
 
+AsterStatus aster_kernel_world_create(const AsterEngineHandle engine, const AsterWorldDesc *desc,
+                                      AsterWorldHandle *out_world) {
+  if (!validEngine(engine)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "engine handle is invalid");
+  }
+  if (out_world == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_world is null");
+  }
+  *out_world = nullptr;
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "world descriptor version is not supported");
+  }
+  if (!validStringView(desc->debug_label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world label has a size but no data");
+  }
+  aster::WorldStateConfig config;
+  config.fixed_step_seconds = desc->fixed_step_seconds > 0.0 ? desc->fixed_step_seconds
+                                                             : 1.0 / 60.0;
+  config.seed = desc->seed != 0u ? desc->seed : config.seed;
+  config.label = stringFromView(desc->debug_label);
+  try {
+    *out_world = new AsterWorldHandle__(engine, std::move(config));
+  } catch (const std::bad_alloc &) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "world allocation failed");
+  } catch (...) {
+    return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "world creation failed");
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_world_advance(const AsterWorldHandle world,
+                                       const AsterWorldAdvanceDesc *desc,
+                                       AsterWorldAdvanceResult *out_result) {
+  if (!validWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
+  }
+  if (!validStruct(desc) || !validStruct(out_result)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "world advance struct version is not supported");
+  }
+
+  std::uint64_t input_intent_hash = mixWorldEvidence(desc->input_event_hash, desc->player_intent_hash);
+  input_intent_hash = mixWorldEvidence(input_intent_hash, desc->actor_state_delta_hash);
+  input_intent_hash = mixWorldEvidence(input_intent_hash, desc->sensory_event_hash);
+  input_intent_hash = mixWorldEvidence(input_intent_hash, desc->visibility_set_hash);
+  const aster::WorldTickResult result =
+      world->world.tick({.tick = desc->epoch,
+                         .delta_seconds = desc->delta_seconds,
+                         .input_event_hash = input_intent_hash,
+                         .asset_lineage_hash = desc->asset_lineage_hash});
+
+  world->actor_state_delta_hash = desc->actor_state_delta_hash;
+  world->actor_delta_count = desc->actor_state_delta_hash == 0u ? 0u : 1u;
+  world->streaming_region_id = desc->streaming_region_id;
+  world->diagnostic = result.diagnostic;
+  if (result.accepted) {
+    std::uint64_t transition_hash = mixWorldEvidence(result.world_hash, result.trace_hash);
+    transition_hash = mixWorldEvidence(transition_hash, result.tick);
+    transition_hash = mixWorldEvidence(transition_hash, desc->player_intent_hash);
+    transition_hash = mixWorldEvidence(transition_hash, desc->actor_state_delta_hash);
+    transition_hash = mixWorldEvidence(transition_hash, desc->sensory_event_hash);
+    transition_hash = mixWorldEvidence(transition_hash, desc->visibility_set_hash);
+    world->world_transition_hash = transition_hash;
+  }
+
+  out_result->accepted = result.accepted ? 1u : 0u;
+  out_result->epoch = result.tick;
+  out_result->time_seconds = result.time_seconds;
+  out_result->world_hash = result.world_hash;
+  out_result->trace_hash = result.trace_hash;
+  out_result->world_transition_hash = world->world_transition_hash;
+  out_result->diagnostic = worldScratch(world, result.diagnostic);
+  return result.accepted ? aster_kernel_status_ok()
+                         : makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                                      "world advance was rejected");
+}
+
+AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
+                                                  const AsterWorldRegionGateReport *report) {
+  if (!validWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
+  }
+  if (!validStruct(report) || !validStruct(&report->navigation) ||
+      !validStruct(&report->perceptual_budget)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "world region gate report version is not supported");
+  }
+  if (!validStringView(report->diagnostic) || !validStringView(report->navigation.diagnostic) ||
+      !validStringView(report->perceptual_budget.diagnostic)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "world region gate diagnostics have a size but no data");
+  }
+
+  std::uint64_t report_hash = mixWorldEvidence(report->probe_trace_hash, report->region_id);
+  report_hash = mixWorldEvidence(report_hash, report->navigation.report_hash);
+  report_hash = mixWorldEvidence(report_hash, report->encounter_budget_hash);
+  report_hash = mixWorldEvidence(report_hash, report->resource_probe_hash);
+  report_hash = mixWorldEvidence(report_hash, report->perceptual_budget.report_hash);
+  const bool accepted = report->verdict == ASTER_WORLD_REGION_GATE_ACCEPTED &&
+                        report->navigation.valid != 0u &&
+                        report->perceptual_budget.accepted != 0u;
+  world->world.noteRegionGate(report->region_id, accepted, report_hash,
+                              stringFromView(report->diagnostic));
+  world->gate_verdict =
+      accepted ? ASTER_WORLD_REGION_GATE_ACCEPTED : ASTER_WORLD_REGION_GATE_QUARANTINED;
+  world->streaming_region_id = report->region_id;
+  world->navigation_valid = report->navigation.valid;
+  world->navigation_checked_steps = report->navigation.checked_steps;
+  world->navigation_blocked_steps = report->navigation.blocked_steps;
+  world->navigation_report_hash = report->navigation.report_hash;
+  world->navigation_diagnostic = stringFromView(report->navigation.diagnostic);
+  world->encounter_budget_hash = report->encounter_budget_hash;
+  world->resource_probe_hash = report->resource_probe_hash;
+  world->perceptual_accepted = report->perceptual_budget.accepted;
+  world->perceptual_salience_score = report->perceptual_budget.salience_score;
+  world->perceptual_minimum_salience = report->perceptual_budget.minimum_salience;
+  world->perceptual_report_hash = report->perceptual_budget.report_hash;
+  world->perceptual_diagnostic = stringFromView(report->perceptual_budget.diagnostic);
+  world->diagnostic = stringFromView(report->diagnostic);
+  world->world_transition_hash =
+      mixWorldEvidence(world->world_transition_hash == 0u ? world->world.worldHash()
+                                                          : world->world_transition_hash,
+                       report_hash);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_world_extract_render(const AsterWorldHandle world,
+                                              const AsterWorldRenderExtractionDesc *desc,
+                                              AsterWorldRenderExtraction *out_extraction) {
+  if (!validWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
+  }
+  if (!validStruct(desc) || !validStruct(out_extraction)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "world render extraction struct version is not supported");
+  }
+  if (world->world_transition_hash == 0u) {
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                      "world render extraction requires an accepted transition");
+  }
+  world->world.noteRenderableExtraction(desc->extraction_hash, desc->frame_submission_hash);
+  world->render_extraction_hash = desc->extraction_hash;
+  out_extraction->world_transition_hash = world->world_transition_hash;
+  out_extraction->epoch = world->world.currentTick();
+  out_extraction->trace_hash = world->world.traceHash();
+  out_extraction->visibility_set_hash = desc->visibility_set_hash;
+  out_extraction->extraction_hash = desc->extraction_hash;
+  out_extraction->frame_submission_hash = desc->frame_submission_hash;
+  out_extraction->streaming_region_id = world->streaming_region_id;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_world_forensics(const AsterWorldHandle world,
+                                         AsterWorldForensics *out_forensics) {
+  if (!validWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
+  }
+  if (!validStruct(out_forensics)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "world forensics version is not supported");
+  }
+  out_forensics->world_transition_hash = world->world_transition_hash;
+  out_forensics->epoch = world->world.currentTick();
+  out_forensics->world_hash = world->world.worldHash();
+  out_forensics->trace_hash = world->world.traceHash();
+  out_forensics->actor_state_delta_hash = world->actor_state_delta_hash;
+  out_forensics->actor_delta_count = world->actor_delta_count;
+  out_forensics->render_extraction_hash = world->render_extraction_hash;
+  out_forensics->streaming_region_id = world->streaming_region_id;
+  out_forensics->generated_region_gate = world->gate_verdict;
+  out_forensics->navigation = {.size = sizeof(AsterNavValidityReport),
+                               .version = ASTER_KERNEL_STRUCT_VERSION_1,
+                               .valid = world->navigation_valid,
+                               .checked_steps = world->navigation_checked_steps,
+                               .blocked_steps = world->navigation_blocked_steps,
+                               .report_hash = world->navigation_report_hash,
+                               .diagnostic = worldScratch(world, world->navigation_diagnostic)};
+  out_forensics->encounter_budget_hash = world->encounter_budget_hash;
+  out_forensics->resource_probe_hash = world->resource_probe_hash;
+  out_forensics->perceptual_budget = {
+      .size = sizeof(AsterPerceptualBudget),
+      .version = ASTER_KERNEL_STRUCT_VERSION_1,
+      .accepted = world->perceptual_accepted,
+      .salience_score = world->perceptual_salience_score,
+      .minimum_salience = world->perceptual_minimum_salience,
+      .report_hash = world->perceptual_report_hash,
+      .diagnostic = worldScratch(world, world->perceptual_diagnostic)};
+  out_forensics->diagnostic = worldScratch(world, world->diagnostic);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_world_destroy(const AsterWorldHandle world) {
+  if (!validWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
+  }
+  world->magic = kRetiredMagic;
+  delete world;
+  return aster_kernel_status_ok();
+}
+
 AsterStatus aster_kernel_system_world_create(const AsterEngineHandle engine,
                                              const AsterSystemWorldDesc *desc,
                                              AsterSystemWorldHandle *out_world) {
@@ -2582,7 +2832,13 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
     renderer->renderer->stampLastFrameCausalTrace(settings_desc.world_trace_hash,
                                                   settings_desc.simulation_tick,
                                                   settings_desc.extraction_hash,
-                                                  settings_desc.asset_lineage_hash);
+                                                  settings_desc.asset_lineage_hash,
+                                                  settings_desc.world_transition_hash,
+                                                  settings_desc.actor_state_delta_hash,
+                                                  settings_desc.encounter_budget_hash,
+                                                  settings_desc.navigation_valid != 0u,
+                                                  settings_desc.streaming_region_id,
+                                                  settings_desc.perceptual_salience_score);
     renderer->last_stats = abiFrameStats(stats);
     renderer->active_target = nullptr;
     renderer->has_rendered_frame = true;
@@ -2590,6 +2846,12 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
     renderer->simulation_tick = settings_desc.simulation_tick;
     renderer->extraction_hash = settings_desc.extraction_hash;
     renderer->asset_lineage_hash = settings_desc.asset_lineage_hash;
+    renderer->world_transition_hash = settings_desc.world_transition_hash;
+    renderer->actor_state_delta_hash = settings_desc.actor_state_delta_hash;
+    renderer->encounter_budget_hash = settings_desc.encounter_budget_hash;
+    renderer->navigation_valid = settings_desc.navigation_valid;
+    renderer->streaming_region_id = settings_desc.streaming_region_id;
+    renderer->perceptual_salience_score = settings_desc.perceptual_salience_score;
   } catch (...) {
     return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "render frame failed");
   }
@@ -2890,6 +3152,43 @@ AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
                         offsetof(AsterFrameForensicsDetailCounts, asset_lineage_hash),
                         sizeof(out_counts->asset_lineage_hash))) {
     out_counts->asset_lineage_hash = forensics.asset_lineage_hash;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, world_extraction_provenance),
+                        sizeof(out_counts->world_extraction_provenance))) {
+    out_counts->world_extraction_provenance =
+        forensics.world_transition_linked ? ASTER_WORLD_EXTRACTION_WORLD_TRANSITION
+                                          : ASTER_WORLD_EXTRACTION_COMPATIBILITY_SCENE;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, world_transition_hash),
+                        sizeof(out_counts->world_transition_hash))) {
+    out_counts->world_transition_hash = forensics.world_transition_hash;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, actor_state_delta_hash),
+                        sizeof(out_counts->actor_state_delta_hash))) {
+    out_counts->actor_state_delta_hash = forensics.actor_state_delta_hash;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, encounter_budget_hash),
+                        sizeof(out_counts->encounter_budget_hash))) {
+    out_counts->encounter_budget_hash = forensics.encounter_budget_hash;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, navigation_valid),
+                        sizeof(out_counts->navigation_valid))) {
+    out_counts->navigation_valid = forensics.navigation_valid ? 1u : 0u;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, streaming_region_id),
+                        sizeof(out_counts->streaming_region_id))) {
+    out_counts->streaming_region_id = forensics.streaming_region_id;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, perceptual_salience_score),
+                        sizeof(out_counts->perceptual_salience_score))) {
+    out_counts->perceptual_salience_score = forensics.perceptual_salience_score;
   }
   return aster_kernel_status_ok();
 }
@@ -3498,7 +3797,7 @@ AsterStatus aster_kernel_material_create(const AsterEngineHandle engine,
       if (binding->role == ASTER_TEXTURE_ROLE_NORMAL &&
           binding->texture->normal_convention != ASTER_TEXTURE_NORMAL_CONVENTION_OPENGL) {
         return failWithValidation(engine, ASTER_STATUS_VALIDATION_ERROR,
-                                  "normal texture convention must be OpenGL for ABI 5 LitPBR",
+                                  "normal texture convention must be OpenGL for LitPBR",
                                   ASTER_VALIDATION_TEXTURE_NORMAL_CONVENTION_MISMATCH,
                                   "material.create", label, i);
       }

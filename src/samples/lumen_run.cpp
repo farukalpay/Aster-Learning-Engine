@@ -4,6 +4,74 @@
 #include "lumen_run_detail.hpp"
 
 namespace aster {
+namespace {
+
+constexpr std::uint64_t kLumenWorldSeed64 = 0xA57E4C554D454E57ull;
+constexpr std::uint64_t kLumenEntryRegionId = 0x4C554D454E434156ull;
+
+[[nodiscard]] std::uint64_t lumenHash(std::uint64_t seed, const std::uint64_t value) {
+  return hashCombine64(seed == 0u ? kLumenWorldSeed64 : seed, value);
+}
+
+[[nodiscard]] std::uint64_t lumenHash(const bool value, std::uint64_t seed) {
+  return lumenHash(seed, value ? 0xF00DCAFEu : 0xBAD5EEDu);
+}
+
+[[nodiscard]] std::uint64_t lumenHash(const float value, std::uint64_t seed) {
+  return lumenHash(seed, static_cast<std::uint64_t>(stableHash32(value)));
+}
+
+[[nodiscard]] std::uint64_t lumenHash(const Vec2 value, std::uint64_t seed) {
+  seed = lumenHash(value.x, seed);
+  return lumenHash(value.y, seed);
+}
+
+[[nodiscard]] std::uint64_t lumenHash(const Vec3 value, std::uint64_t seed) {
+  seed = lumenHash(value.x, seed);
+  seed = lumenHash(value.y, seed);
+  return lumenHash(value.z, seed);
+}
+
+[[nodiscard]] std::uint64_t lumenHashString(const std::string_view text, std::uint64_t seed) {
+  for (const char c : text) {
+    seed = lumenHash(seed, static_cast<std::uint64_t>(static_cast<unsigned char>(c)));
+  }
+  return seed;
+}
+
+[[nodiscard]] Vec3 lumenSdkVec(const sdk::Vec3 &value) {
+  return {value.x, value.y, value.z};
+}
+
+[[nodiscard]] float lumenRouteLength(const std::vector<Vec3> &points) {
+  float route_length = 0.0f;
+  for (std::size_t i = 1u; i < points.size(); ++i) {
+    route_length += length(points[i] - points[i - 1u]);
+  }
+  return route_length;
+}
+
+[[nodiscard]] std::string appendGateReason(std::string current, const std::string_view reason) {
+  if (!current.empty()) {
+    current += "; ";
+  }
+  current += reason;
+  return current;
+}
+
+[[nodiscard]] const char *lumenGateVerdictName(const LumenWorldGateVerdict verdict) {
+  switch (verdict) {
+  case LumenWorldGateVerdict::Unknown:
+    return "unknown";
+  case LumenWorldGateVerdict::Accepted:
+    return "accepted";
+  case LumenWorldGateVerdict::Quarantined:
+    return "quarantined";
+  }
+  return "unknown";
+}
+
+} // namespace
 
 // Public LumenRun lifecycle and app-facing query/update surface.
 LumenRun::LumenRun(LumenTuning tuning) : tuning_(tuning) {
@@ -17,6 +85,7 @@ LumenRun::LumenRun(LumenAuthoringData authoring, LumenTuning tuning)
 
 void LumenRun::reset() {
   ASTER_PROFILE_SCOPE("LumenRun::reset");
+  resetWorldProof();
   status_ = {};
   status_.lives = 3;
   status_.max_health = kPlayerMaxHealth;
@@ -192,6 +261,7 @@ void LumenRun::reset() {
   }
 
   rebuildScene();
+  rebuildCaveWorldGate();
   clearTransientFeedback();
 }
 
@@ -203,6 +273,7 @@ void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
   }
 
   const float step = std::clamp(dt, 0.0f, 0.05f);
+  const Vec3 previous_player_position = player_position_;
   if (forced_spawn_lighting_frames_ > 0) {
     --forced_spawn_lighting_frames_;
   }
@@ -214,6 +285,7 @@ void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
   if (death_state_ != DeathSequenceState::Alive) {
     updateDeathSequence(step);
     updateSceneObjects(step);
+    advanceWorldProof(step, {}, false, false, previous_player_position);
     return;
   }
 
@@ -237,6 +309,7 @@ void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
   collectOverlaps();
   resolveSentinelImpacts();
   updateSceneObjects(step);
+  advanceWorldProof(step, move_axis, run_requested, jump_requested, previous_player_position);
 }
 
 const Scene &LumenRun::scene() const {
@@ -259,6 +332,368 @@ const SceneTraceValidationReport &LumenRun::sceneTraceReport() const {
 
 const LumenStatus &LumenRun::status() const {
   return status_;
+}
+
+const LumenWorldForensics &LumenRun::worldForensics() const {
+  return world_forensics_;
+}
+
+const LumenCaveWorldGateReport &LumenRun::caveWorldGateReport() const {
+  return world_forensics_.cave_gate;
+}
+
+bool LumenRun::caveWorldGateAccepted() const {
+  return world_forensics_.cave_gate.verdict == LumenWorldGateVerdict::Accepted;
+}
+
+void LumenRun::noteRenderExtraction(const std::uint64_t extraction_hash,
+                                    const std::uint64_t frame_submission_hash) {
+  world_state_.noteRenderableExtraction(extraction_hash, frame_submission_hash);
+  world_forensics_.render_extraction_hash = extraction_hash;
+  world_forensics_.frame_submission_hash = frame_submission_hash;
+  world_forensics_.render_extraction_ready = extraction_hash != 0u && frame_submission_hash != 0u;
+  world_forensics_.world_hash = world_state_.worldHash();
+  world_forensics_.trace_hash = world_state_.traceHash();
+}
+
+void LumenRun::resetWorldProof() {
+  world_state_ = WorldState({.fixed_step_seconds = 1.0 / 60.0,
+                             .seed = static_cast<std::uint64_t>(kLumenCaveSeed),
+                             .label = "lumen.run.world"});
+  world_forensics_ = {};
+  next_world_epoch_ = 1u;
+  world_forensics_.world_hash = world_state_.worldHash();
+  world_forensics_.trace_hash = world_state_.traceHash();
+}
+
+void LumenRun::rebuildCaveWorldGate() {
+  LumenCaveWorldGateReport report;
+  report.seed = authoring_.valid && authoring_.cave.validation.probe_agent.has_value()
+                    ? authoring_.cave.validation.probe_agent->seed
+                    : static_cast<std::uint64_t>(kLumenCaveSeed);
+  report.region_id = lumenHash(kLumenEntryRegionId, report.seed);
+  report.perceptual_minimum_salience =
+      authoring_.valid && authoring_.cave.validation.perceptual_budget.has_value()
+          ? authoring_.cave.validation.perceptual_budget->minimum_salience
+          : 0.50f;
+
+  std::uint64_t nav_hash = lumenHashString("lumen.cave.nav", report.seed);
+  const float route_step =
+      authoring_.valid && authoring_.cave.validation.probe_agent.has_value()
+          ? std::max(authoring_.cave.validation.probe_agent->step_length, 0.25f)
+          : 1.35f;
+  const auto routePointHasSupport = [&](const Vec3 point, const float tolerance) {
+    const float support_tolerance = std::max(tolerance, 0.10f);
+    const TerrainSurfaceSample support =
+        sampleWorldSupport({{point.x, point.z}, point.y + 0.38f, 0.72f,
+                            std::max(4.80f, support_tolerance + 1.20f)});
+    return support.valid && std::abs(support.height - point.y) <= support_tolerance + 0.18f;
+  };
+  const auto probeRoute = [&](const std::vector<Vec3> &points, const float max_segment_length,
+                              const float support_tolerance) {
+    if (points.size() < 2u) {
+      report.blocked_steps += 1u;
+      nav_hash = lumenHashString("route-missing", nav_hash);
+      return;
+    }
+    nav_hash = lumenHash(lumenRouteLength(points), nav_hash);
+    for (std::size_t i = 1u; i < points.size(); ++i) {
+      const Vec3 from = points[i - 1u];
+      const Vec3 to = points[i];
+      const float segment_length = length(to - from);
+      nav_hash = lumenHash(from, nav_hash);
+      nav_hash = lumenHash(to, nav_hash);
+      const bool length_ok = segment_length <= max_segment_length + support_tolerance;
+      const int steps =
+          std::max(1, static_cast<int>(std::ceil(segment_length / std::max(route_step, 0.25f))));
+      if (!length_ok) {
+        report.blocked_steps += 1u;
+        nav_hash = lumenHashString("segment-too-long", nav_hash);
+      }
+      for (int step = 0; step <= steps; ++step) {
+        const float t = static_cast<float>(step) / static_cast<float>(steps);
+        const Vec3 point = from + (to - from) * t;
+        ++report.checked_steps;
+        if (!routePointHasSupport(point, support_tolerance)) {
+          ++report.blocked_steps;
+          nav_hash = lumenHash(point, nav_hash);
+        }
+      }
+    }
+  };
+
+  const auto probeBuiltCaveCenterlines = [&]() {
+    for (const AuthoredCaveSection &section : cave_sections_) {
+      std::vector<Vec3> points;
+      points.reserve(13u);
+      for (int step = 0; step <= 12; ++step) {
+        const float t = static_cast<float>(step) / 12.0f;
+        points.push_back(sampleCaveTunnelFrame(section.tunnel, t).floor_center);
+      }
+      probeRoute(points, 7.25f, 0.65f);
+    }
+  };
+
+  if (!cave_sections_.empty()) {
+    probeBuiltCaveCenterlines();
+  } else if (authoring_.valid && !authoring_.cave.validation.walkable_routes.empty()) {
+    for (const sdk::CaveRouteValidationDocument &route :
+         authoring_.cave.validation.walkable_routes) {
+      std::vector<Vec3> points;
+      points.reserve(route.points.size());
+      for (const sdk::Vec3 &point : route.points) {
+        points.push_back(lumenSdkVec(point));
+      }
+      nav_hash = lumenHashString(route.id, nav_hash);
+      probeRoute(points, route.max_segment_length, route.support_tolerance);
+    }
+  }
+  if (authoring_.valid && !authoring_.cave.validation.walkable_routes.empty()) {
+    for (const sdk::CaveRouteValidationDocument &route :
+         authoring_.cave.validation.walkable_routes) {
+      std::vector<Vec3> points;
+      points.reserve(route.points.size());
+      for (const sdk::Vec3 &point : route.points) {
+        points.push_back(lumenSdkVec(point));
+      }
+      nav_hash = lumenHashString(route.id, nav_hash);
+      nav_hash = lumenHash(lumenRouteLength(points), nav_hash);
+      if (lumenRouteLength(points) > route.max_segment_length + route.support_tolerance) {
+        report.blocked_steps += 1u;
+        nav_hash = lumenHashString("authored-anchor-span-too-long", nav_hash);
+      }
+    }
+  }
+  report.navigation_valid = report.checked_steps > 0u && report.blocked_steps == 0u;
+  report.nav_report_hash = nav_hash;
+
+  std::uint64_t resource_hash = lumenHashString("lumen.cave.resources", report.seed);
+  const auto countResourcesNear = [&](const Vec3 position, const float radius) {
+    std::size_t count = 0u;
+    const float radius_sq = radius * radius;
+    for (const CoalOreNode &ore : coal_ores_) {
+      if (ore.collected) {
+        continue;
+      }
+      const Vec3 delta = ore.position - position;
+      if (dot(delta, delta) <= radius_sq) {
+        ++count;
+        resource_hash = lumenHash(ore.position, resource_hash);
+      }
+    }
+    return count;
+  };
+  if (authoring_.valid && !authoring_.cave.validation.resource_probes.empty()) {
+    for (const sdk::CaveWorldProbeDocument &probe : authoring_.cave.validation.resource_probes) {
+      const Vec3 position = lumenSdkVec(probe.position);
+      const std::size_t count = countResourcesNear(position, std::max(probe.radius, 0.01f));
+      report.reachable_resources += count;
+      report.required_resources +=
+          static_cast<std::size_t>(std::max(probe.minimum_count, 0));
+      resource_hash = lumenHashString(probe.id, resource_hash);
+      resource_hash = lumenHash(position, resource_hash);
+      resource_hash = lumenHash(resource_hash, static_cast<std::uint64_t>(count));
+    }
+  } else {
+    report.reachable_resources = countResourcesNear(kCaveEntrancePlanar, 80.0f);
+    report.required_resources = coal_ores_.empty() ? 0u : 1u;
+  }
+  report.resource_valid = report.reachable_resources >= report.required_resources;
+  report.resource_probe_hash = resource_hash;
+
+  std::uint64_t encounter_hash = lumenHashString("lumen.cave.encounters", report.seed);
+  const auto countEncountersNear = [&](const Vec3 position, const float radius) {
+    std::size_t count = 0u;
+    const float radius_sq = radius * radius;
+    for (const CaveSkitter &skitter : cave_skitters_) {
+      if (skitter.dead || skitter.state.dead) {
+        continue;
+      }
+      const Vec3 delta = skitter.state.position - position;
+      if (dot(delta, delta) <= radius_sq) {
+        ++count;
+        encounter_hash = lumenHash(skitter.state.position, encounter_hash);
+      }
+    }
+    return count;
+  };
+  if (authoring_.valid && !authoring_.cave.validation.encounter_probes.empty()) {
+    float minimum_budget = 0.0f;
+    float maximum_budget = 0.0f;
+    for (const sdk::CaveWorldProbeDocument &probe : authoring_.cave.validation.encounter_probes) {
+      const Vec3 position = lumenSdkVec(probe.position);
+      const std::size_t count = countEncountersNear(position, std::max(probe.radius, 0.01f));
+      const float local_budget = std::min(static_cast<float>(count) * 0.25f,
+                                          std::max(probe.maximum_budget, 0.0f));
+      report.reachable_encounters += count;
+      report.encounter_budget += local_budget;
+      minimum_budget += std::max(probe.minimum_budget, 0.0f);
+      maximum_budget += std::max(probe.maximum_budget, 0.0f);
+      encounter_hash = lumenHashString(probe.id, encounter_hash);
+      encounter_hash = lumenHash(position, encounter_hash);
+      encounter_hash = lumenHash(local_budget, encounter_hash);
+    }
+    if (report.encounter_budget < minimum_budget && !cave_skitters_.empty()) {
+      const std::size_t runtime_reachable =
+          countEncountersNear(kCaveEntrancePlanar, tuning_.playable_radius);
+      const float runtime_budget =
+          std::min(static_cast<float>(runtime_reachable) * 0.25f, std::max(maximum_budget, 1.0f));
+      report.reachable_encounters += runtime_reachable;
+      report.encounter_budget += runtime_budget;
+      encounter_hash = lumenHashString("runtime-skitter-affordance-fallback", encounter_hash);
+      encounter_hash = lumenHash(encounter_hash, static_cast<std::uint64_t>(runtime_reachable));
+      encounter_hash = lumenHash(runtime_budget, encounter_hash);
+    }
+    report.encounter_valid = report.encounter_budget >= minimum_budget;
+  } else {
+    report.reachable_encounters = countEncountersNear(kCaveEntrancePlanar, 90.0f);
+    report.encounter_budget = static_cast<float>(report.reachable_encounters) * 0.25f;
+    report.encounter_valid = report.reachable_encounters > 0u;
+  }
+  report.encounter_budget_hash = encounter_hash;
+
+  std::size_t fixture_count = 0u;
+  for (const AuthoredCaveSection &section : cave_sections_) {
+    fixture_count += section.wall_fixtures.size() + section.secondary_wall_fixtures.size();
+  }
+  const float resource_signal =
+      std::min(static_cast<float>(report.reachable_resources) * 0.018f, 0.22f);
+  const float encounter_signal =
+      std::min(static_cast<float>(report.reachable_encounters) * 0.075f, 0.24f);
+  const float fixture_signal = std::min(static_cast<float>(fixture_count) * 0.012f, 0.24f);
+  const float web_signal = std::min(static_cast<float>(cave_webs_.size()) * 0.080f, 0.14f);
+  const float navigation_signal = report.navigation_valid ? 0.12f : 0.0f;
+  report.perceptual_salience_score =
+      std::clamp(0.20f + resource_signal + encounter_signal + fixture_signal + web_signal +
+                     navigation_signal,
+                 0.0f, 1.0f);
+  report.perceptual_valid =
+      report.perceptual_salience_score + 0.0001f >= report.perceptual_minimum_salience;
+  std::uint64_t perceptual_hash = lumenHashString("lumen.cave.perceptual", report.seed);
+  perceptual_hash = lumenHash(report.perceptual_salience_score, perceptual_hash);
+  perceptual_hash = lumenHash(report.perceptual_minimum_salience, perceptual_hash);
+  perceptual_hash = lumenHash(perceptual_hash, static_cast<std::uint64_t>(fixture_count));
+  perceptual_hash = lumenHash(perceptual_hash, static_cast<std::uint64_t>(cave_webs_.size()));
+  report.perceptual_report_hash = perceptual_hash;
+
+  bool accepted = report.navigation_valid && report.resource_valid && report.encounter_valid &&
+                  report.perceptual_valid;
+  report.verdict =
+      accepted ? LumenWorldGateVerdict::Accepted : LumenWorldGateVerdict::Quarantined;
+  if (!report.navigation_valid) {
+    report.diagnostic = appendGateReason(report.diagnostic, "navigation probe failed");
+  }
+  if (!report.resource_valid) {
+    report.diagnostic = appendGateReason(report.diagnostic, "resource pressure probe failed");
+  }
+  if (!report.encounter_valid) {
+    report.diagnostic = appendGateReason(report.diagnostic, "encounter budget probe failed");
+  }
+  if (!report.perceptual_valid) {
+    report.diagnostic = appendGateReason(report.diagnostic, "perceptual salience below budget");
+  }
+  if (report.diagnostic.empty()) {
+    report.diagnostic = "runtime generated cave world gate accepted";
+  }
+
+  std::uint64_t probe_hash = lumenHashString("lumen.cave.world-gate", report.seed);
+  probe_hash = lumenHash(probe_hash, report.region_id);
+  probe_hash = lumenHash(probe_hash, report.nav_report_hash);
+  probe_hash = lumenHash(probe_hash, report.resource_probe_hash);
+  probe_hash = lumenHash(probe_hash, report.encounter_budget_hash);
+  probe_hash = lumenHash(probe_hash, report.perceptual_report_hash);
+  probe_hash = lumenHashString(lumenGateVerdictName(report.verdict), probe_hash);
+  report.probe_trace_hash = probe_hash;
+
+  world_state_.noteRegionGate(report.region_id, accepted, report.probe_trace_hash,
+                              report.diagnostic);
+  world_forensics_.cave_gate = report;
+  world_forensics_.streaming_region_id = report.region_id;
+  world_forensics_.world_hash = world_state_.worldHash();
+  world_forensics_.trace_hash = world_state_.traceHash();
+  world_forensics_.world_transition_hash = report.probe_trace_hash;
+}
+
+void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const bool run_requested,
+                                 const bool jump_requested, const Vec3 previous_player_position) {
+  const float step = dt > 0.0f ? dt : 1.0f / 60.0f;
+  std::uint64_t input_hash = lumenHashString("input", kLumenWorldSeed64);
+  input_hash = lumenHash(move_axis, input_hash);
+  input_hash = lumenHash(run_requested, input_hash);
+  input_hash = lumenHash(jump_requested, input_hash);
+
+  std::uint64_t intent_hash = lumenHashString("player-intent", input_hash);
+  intent_hash = lumenHash(player_position_, intent_hash);
+  intent_hash = lumenHash(player_facing_yaw_, intent_hash);
+  intent_hash = lumenHash(player_grounded_, intent_hash);
+
+  std::size_t alive_skitters = 0u;
+  for (const CaveSkitter &skitter : cave_skitters_) {
+    if (!skitter.dead && !skitter.state.dead) {
+      ++alive_skitters;
+    }
+  }
+  std::size_t live_ores = 0u;
+  for (const CoalOreNode &ore : coal_ores_) {
+    if (!ore.collected) {
+      ++live_ores;
+    }
+  }
+
+  std::uint64_t actor_hash = lumenHashString("actor-delta", intent_hash);
+  actor_hash = lumenHash(previous_player_position, actor_hash);
+  actor_hash = lumenHash(player_position_, actor_hash);
+  actor_hash = lumenHash(player_velocity_, actor_hash);
+  actor_hash = lumenHash(actor_hash, static_cast<std::uint64_t>(status_.score));
+  actor_hash = lumenHash(actor_hash, static_cast<std::uint64_t>(status_.health));
+  actor_hash = lumenHash(actor_hash, static_cast<std::uint64_t>(alive_skitters));
+  actor_hash = lumenHash(actor_hash, static_cast<std::uint64_t>(live_ores));
+
+  const CaveLightingState cave_light = caveLightingStateAt(player_position_);
+  const FocusPromptModel prompt = focusPromptModel();
+  std::uint64_t sensory_hash = lumenHashString("sensory-event", actor_hash);
+  sensory_hash = lumenHash(cave_light.interior, sensory_hash);
+  sensory_hash = lumenHash(cave_light.depth, sensory_hash);
+  sensory_hash = lumenHash(cave_light.wall_light, sensory_hash);
+  sensory_hash = lumenHash(prompt.visible, sensory_hash);
+  sensory_hash = lumenHashString(prompt.subject, sensory_hash);
+
+  std::uint64_t visibility_hash = lumenHashString("visibility-set", sensory_hash);
+  visibility_hash = lumenHash(visibility_hash, static_cast<std::uint64_t>(scene_.objects().size()));
+  visibility_hash = lumenHash(visibility_hash, world_forensics_.streaming_region_id);
+  visibility_hash = lumenHash(cave_light.entrance_light, visibility_hash);
+  visibility_hash = lumenHash(cave_light.chamber, visibility_hash);
+
+  const WorldTickResult tick =
+      world_state_.tick({.tick = next_world_epoch_++,
+                         .delta_seconds = step,
+                         .input_event_hash = input_hash,
+                         .asset_lineage_hash = world_forensics_.cave_gate.probe_trace_hash});
+  if (tick.accepted) {
+    world_forensics_.epoch = tick.tick;
+    world_forensics_.world_hash = tick.world_hash;
+    world_forensics_.trace_hash = tick.trace_hash;
+  } else {
+    world_forensics_.world_hash = world_state_.worldHash();
+    world_forensics_.trace_hash = world_state_.traceHash();
+  }
+  world_forensics_.actor_state_delta_hash = actor_hash;
+  world_forensics_.actor_delta_count =
+      1u + alive_skitters + (length(player_position_ - previous_player_position) > 0.0001f ? 1u
+                                                                                            : 0u);
+  world_forensics_.sensory_event_hash = sensory_hash;
+  world_forensics_.visibility_set_hash = visibility_hash;
+
+  std::uint64_t transition_hash = lumenHashString("world-transition", world_forensics_.world_hash);
+  transition_hash = lumenHash(transition_hash, world_forensics_.trace_hash);
+  transition_hash = lumenHash(transition_hash, world_forensics_.epoch);
+  transition_hash = lumenHash(transition_hash, input_hash);
+  transition_hash = lumenHash(transition_hash, intent_hash);
+  transition_hash = lumenHash(transition_hash, actor_hash);
+  transition_hash = lumenHash(transition_hash, sensory_hash);
+  transition_hash = lumenHash(transition_hash, visibility_hash);
+  transition_hash = lumenHash(transition_hash, world_forensics_.cave_gate.probe_trace_hash);
+  world_forensics_.world_transition_hash = transition_hash;
 }
 
 Vec3 LumenRun::playerPosition() const {

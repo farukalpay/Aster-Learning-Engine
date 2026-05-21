@@ -1,8 +1,9 @@
 # Lumen Run As Sample
 
 Lumen Run is a sample game built on Aster. It exists to exercise engine systems:
-input, movement, camera, inventory, interaction, mining, lighting, particles,
-UI, scene rebuilding, frame reports, and capture paths.
+input, movement, camera, inventory, interaction, mining, generated cave gates,
+lighting, particles, UI, scene rebuilding, world/frame reports, and capture
+paths.
 Cave illumination keeps the interior deliberately dark: low ambient, short fog,
 and red industrial wall fixtures near `{1.0, 0.16, 0.08}` as the primary local
 light sources. Warm beige lamp-wash decals, green cave shelf patches, and
@@ -14,30 +15,38 @@ It is not the engine kernel and should not define reusable engine contracts by
 itself. Reusable behavior belongs in `include/aster`, `src`, `crates`, or docs
 only when it has a general API or conformance story.
 
-Lumen Run should grow by consuming renderer and asset contracts, not by forcing
-new gameplay assumptions into the engine. Before new sample-game features become
-engine work, backend presentation, GPU timings, feature parity, asset compiler
-diagnostics, and cooked-content workflows must stay visible and testable.
+Lumen Run should grow by consuming world, renderer, and asset contracts, not by
+forcing new gameplay assumptions into the engine. Before new sample-game
+features become engine work, generated-region validity, backend presentation,
+GPU timings, feature parity, asset compiler diagnostics, and cooked-content
+workflows must stay visible and testable.
 
-## Renderer Acceptance Route
+## World Gate Route
 
-The cave route is a renderer acceptance test before it is a game level. Each
-stress station should bind a visible artifact to frame-forensics evidence:
-authored scale cues and camera framing, contact shadow receivers, surface
-attribute and surface-occlusion captures, shadow atlas stress with dense casters
-and receiver bias checks, volumetric fog stress with low-resolution injection
-and final sampling proof, wet material stress for
+The cave route is a world gate before it is a renderer acceptance route. The
+first proof asks whether the player can be spawned, move through the generated
+region, reach intended resource/encounter affordances, and receive enough
+perceptual signal for light/fog/wetness to affect decisions. `aster_assetc cook`
+emits a cave world-gate report for authored cave inputs, and runtime streaming
+validates candidate generated chunks before they are published.
+
+After that gate passes, each stress station binds a visible artifact to
+frame-forensics evidence: authored scale cues and camera framing, contact shadow
+receivers, surface attribute and surface-occlusion captures, shadow atlas stress
+with dense casters and receiver bias checks, volumetric fog stress with
+low-resolution injection and final sampling proof, wet material stress for
 roughness/normal/height/wetness response, physical texel-density proof,
 reflection-probe stress for local influence radius and backend diff, overdraw
 stress for translucent cave detail, and streaming stress for cooked
 graph/material/texture residency.
 
 Every visual glitch should resolve into a renderer or asset bug report, not a
-sample-only workaround. The report needs the capture, image diff status, pass
-cost map, resource transitions, material binding trace, backend feature proof,
-and asset provenance that explain why the frame failed. New gameplay routes wait
-behind D3D12 presentation proof, GPU timing proof, and D3D12 shadow/fog/probe
-parity.
+sample-only workaround. Every world glitch should resolve into a world-gate or
+authoring bug report, not a prettier frame. The report needs the region id,
+probe trace hash, nav/resource/encounter/perceptual verdicts, world transition
+hash, capture, image diff status, pass cost map, resource transitions, material
+binding trace, backend feature proof, and asset provenance that explain why the
+player-visible result failed.
 
 ## Classic Gauntlet
 
@@ -50,6 +59,7 @@ by Lumen Run; reusable behavior stays in `include/aster` and `src`.
 Useful commands:
 
 ```bash
+./build/aster_lumen_run --validate-cave
 ./build/aster_lumen_run --smoke-test --no-vsync
 ./build/aster_lumen_run --frame-report --run-frames 240 --window-width 1280 --window-height 720
 ./build/aster_lumen_run --screenshot /tmp/lumen_run.ppm --screenshot-frame 8 --capture-hud
