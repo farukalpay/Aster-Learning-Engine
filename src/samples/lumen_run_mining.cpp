@@ -498,6 +498,7 @@ bool LumenRun::mineFocusedOre(const std::size_t ore_index) {
       static_cast<int>(std::ceil((1.0f - feedback.crack_fraction) *
                                  static_cast<float>(std::max(ore.max_health, 1)))));
   if (!feedback.carved) {
+    recordCoalMiningReaction(ore_index, feedback, ore);
     return true;
   }
 
@@ -515,6 +516,7 @@ bool LumenRun::mineFocusedOre(const std::size_t ore_index) {
   }
   ore.collected = true;
   equipment_.equipFromHotbar(hotbar_);
+  recordCoalMiningReaction(ore_index, feedback, ore);
   return true;
 }
 

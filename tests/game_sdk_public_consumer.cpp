@@ -51,6 +51,10 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(!cave.value.validation.resource_probes.empty());
   assert(!cave.value.validation.encounter_probes.empty());
   assert(cave.value.validation.perceptual_budget.has_value());
+  assert(cave.value.validation.perceptual_continuity_budget.has_value());
+  assert(cave.value.validation.perceptual_continuity_budget->id == "entry_world_reaction");
+  assert(!cave.value.validation.perceptual_continuity_budget->required_channels.empty());
+  assert(!cave.value.validation.perceptual_continuity_budget->reaction_packages.empty());
   const std::vector<aster::sdk::Diagnostic> cave_diagnostics =
       aster::sdk::validateCaveDocument(cave.value, &project.value, &scene.value,
                                        project_root / "caves" / "cave_entry.cave");
@@ -103,6 +107,13 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(execution.events.front().target == "supply_chest");
   assert(execution.events.front().parameters.at("event") == "container.open_requested");
   assert(execution.events.front().deterministic_stamp != 0u);
+
+  const auto mining_graph =
+      aster::sdk::loadActionGraphDocument(project_root / "actions" / "mine_coal_ore.action_graph");
+  assert(mining_graph.ok());
+  assert(mining_graph.value.reaction_contracts.size() == 1u);
+  assert(mining_graph.value.reaction_contracts[0].id == "coal_mining_reaction");
+  assert(!mining_graph.value.reaction_contracts[0].required_events.empty());
 
   const auto input = aster::sdk::loadInputMapDocument(project_root / "inputs" / "lumen_run.input");
   assert(input.ok());

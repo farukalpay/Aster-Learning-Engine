@@ -3593,6 +3593,57 @@ fn cave_volume_overlaps(lhs: &Value, rhs: &Value) -> bool {
         && (lhs_center[2] - rhs_center[2]).abs() <= lhs_half[2] + rhs_half[2]
 }
 
+fn perceptual_continuity_channel_bit(channel: &str) -> u32 {
+    match channel {
+        "spatial_affordance" => 1 << 0,
+        "motion_continuity" => 1 << 1,
+        "hazard_readability" => 1 << 2,
+        "material_memory" => 1 << 3,
+        "lighting_atmosphere" => 1 << 4,
+        "event_residue" => 1 << 5,
+        "sensory_feedback" => 1 << 6,
+        "ai_attention" => 1 << 7,
+        "streaming_residency" => 1 << 8,
+        "ui_feedback" => 1 << 9,
+        "resource_state" => 1 << 10,
+        _ => 0,
+    }
+}
+
+fn perceptual_continuity_mask(value: Option<&Value>) -> u32 {
+    value
+        .and_then(Value::as_array)
+        .map(|channels| {
+            channels
+                .iter()
+                .filter_map(Value::as_str)
+                .fold(0u32, |mask, channel| {
+                    mask | perceptual_continuity_channel_bit(channel)
+                })
+        })
+        .unwrap_or(0)
+}
+
+fn perceptual_continuity_score(required: u32, observed: u32) -> f64 {
+    if required == 0 {
+        return 1.0;
+    }
+    let covered = (required & observed).count_ones() as f64;
+    covered / required.count_ones() as f64
+}
+
+fn coal_mining_reaction_observed_mask(action: &str) -> u32 {
+    if action != "action.mine.coal_ore" {
+        return 0;
+    }
+    perceptual_continuity_channel_bit("material_memory")
+        | perceptual_continuity_channel_bit("event_residue")
+        | perceptual_continuity_channel_bit("sensory_feedback")
+        | perceptual_continuity_channel_bit("resource_state")
+        | perceptual_continuity_channel_bit("ai_attention")
+        | perceptual_continuity_channel_bit("ui_feedback")
+}
+
 fn cave_world_gate_report(
     root: &Value,
     id: &str,
@@ -3790,11 +3841,100 @@ fn cave_world_gate_report(
     }
 
     let nav_valid = blocked_steps == 0;
-    let verdict =
-        nav_valid && resource_valid && encounter_valid && perceptual_valid && checked_steps > 0;
+    let continuity_budget = validation.get("perceptual_continuity_budget");
+    let continuity_required = perceptual_continuity_mask(
+        continuity_budget.and_then(|value| value.get("required_channels")),
+    );
+    let mut continuity_observed = 0u32;
+    if nav_valid && route_count > 0 {
+        continuity_observed |= perceptual_continuity_channel_bit("spatial_affordance");
+    }
+    if nav_valid && checked_steps > 1 {
+        continuity_observed |= perceptual_continuity_channel_bit("motion_continuity");
+    }
+    if encounter_count > 0 {
+        continuity_observed |= perceptual_continuity_channel_bit("hazard_readability")
+            | perceptual_continuity_channel_bit("ai_attention");
+    }
+    if resource_capacity > 0 {
+        continuity_observed |= perceptual_continuity_channel_bit("material_memory")
+            | perceptual_continuity_channel_bit("event_residue")
+            | perceptual_continuity_channel_bit("resource_state");
+    }
+    if fixture_count > 0 {
+        continuity_observed |= perceptual_continuity_channel_bit("lighting_atmosphere");
+    }
+    if checked_steps > 0 {
+        continuity_observed |= perceptual_continuity_channel_bit("streaming_residency");
+    }
+
+    let mut reaction_reports = Vec::new();
+    let mut reaction_packages_valid = true;
+    if let Some(packages) = continuity_budget
+        .and_then(|value| value.get("reaction_packages"))
+        .and_then(Value::as_array)
+    {
+        for package in packages {
+            let package_id = package
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("unnamed");
+            let action = package
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let required = perceptual_continuity_mask(package.get("required_channels"));
+            let observed = coal_mining_reaction_observed_mask(action);
+            continuity_observed |= observed;
+            let missing = required & !observed;
+            let minimum = package
+                .get("minimum_score")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let score = perceptual_continuity_score(required, observed);
+            let accepted = missing == 0 && score + f64::EPSILON >= minimum;
+            if !accepted {
+                reaction_packages_valid = false;
+                reasons.push(format!(
+                    "reaction package '{package_id}' continuity score {score:.2} is below minimum {minimum:.2}"
+                ));
+            }
+            reaction_reports.push(serde_json::json!({
+                "id": package_id,
+                "action": action,
+                "accepted": accepted,
+                "required_channel_mask": required,
+                "observed_channel_mask": observed,
+                "missing_channel_mask": missing,
+                "continuity_score": score,
+                "minimum_score": minimum,
+                "report_hash": hash_hex_text(&format!("{id}:reaction:{package_id}:{action}:{required}:{observed}:{missing}:{score:.3}:{minimum:.3}")),
+            }));
+        }
+    }
+    let continuity_minimum = continuity_budget
+        .and_then(|value| value.get("minimum_score"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let continuity_score = perceptual_continuity_score(continuity_required, continuity_observed);
+    let continuity_missing = continuity_required & !continuity_observed;
+    let continuity_valid = (continuity_required == 0
+        || (continuity_missing == 0 && continuity_score + f64::EPSILON >= continuity_minimum))
+        && reaction_packages_valid;
+    if !continuity_valid {
+        reasons.push(format!(
+            "perceptual continuity score {continuity_score:.2} is below minimum {continuity_minimum:.2}"
+        ));
+    }
+    let verdict = nav_valid
+        && resource_valid
+        && encounter_valid
+        && perceptual_valid
+        && continuity_valid
+        && checked_steps > 0;
     let region_id = hash_hex_text(&format!("{id}:{guid}:{source_hash}:region"));
     let probe_trace_hash = hash_hex_text(&format!(
-        "{id}:{source_hash}:{checked_steps}:{blocked_steps}:{resource_capacity}:{encounter_count}:{salience_score:.3}"
+        "{id}:{source_hash}:{checked_steps}:{blocked_steps}:{resource_capacity}:{encounter_count}:{salience_score:.3}:{continuity_score:.3}:{continuity_required}:{continuity_observed}"
     ));
     let nav_report_hash = hash_hex_text(&format!(
         "{id}:nav:{checked_steps}:{blocked_steps}:{}",
@@ -3806,6 +3946,9 @@ fn cave_world_gate_report(
     ));
     let perceptual_report_hash = hash_hex_text(&format!(
         "{id}:perceptual:{salience_score:.3}:{minimum_salience:.3}"
+    ));
+    let continuity_report_hash = hash_hex_text(&format!(
+        "{id}:continuity:{continuity_required}:{continuity_observed}:{continuity_missing}:{continuity_score:.3}:{continuity_minimum:.3}"
     ));
     let diagnostic = if verdict {
         "accepted".to_string()
@@ -3851,6 +3994,24 @@ fn cave_world_gate_report(
             "salience_score": salience_score,
             "minimum_salience": minimum_salience,
             "report_hash": perceptual_report_hash,
+        },
+        "perceptual_continuity_budget": {
+            "accepted": continuity_valid,
+            "required_channel_mask": continuity_required,
+            "observed_channel_mask": continuity_observed,
+            "missing_channel_mask": continuity_missing,
+            "continuity_score": continuity_score,
+            "minimum_score": continuity_minimum,
+            "reaction_package_hash": continuity_report_hash,
+            "material_memory_hash": hash_hex_text(&format!("{id}:continuity:material:{resource_capacity}")),
+            "lighting_atmosphere_hash": hash_hex_text(&format!("{id}:continuity:lighting:{fixture_count}")),
+            "ai_attention_hash": hash_hex_text(&format!("{id}:continuity:ai:{encounter_count}")),
+            "streaming_residency_lod_hash": hash_hex_text(&format!("{id}:continuity:streaming:{checked_steps}:{blocked_steps}")),
+            "resource_state_hash": resource_probe_hash,
+            "event_residue_hash": hash_hex_text(&format!("{id}:continuity:residue:{resource_capacity}:{encounter_count}")),
+            "readability_audit_hash": perceptual_report_hash,
+            "report_hash": continuity_report_hash,
+            "reaction_packages": reaction_reports,
         },
         "diagnostic": diagnostic,
     });
@@ -9024,7 +9185,36 @@ mod tests {
     "encounter_probes": [
       {{ "id": "encounter_probe", "kind": "enemy_spawn", "position": [0.0, 0.0, -8.0], "radius": 3.0, "minimum_budget": 0.10, "maximum_budget": 0.50 }}
     ],
-    "perceptual_budget": {{ "id": "readability", "minimum_salience": 0.55 }}
+    "perceptual_budget": {{ "id": "readability", "minimum_salience": 0.55 }},
+    "perceptual_continuity_budget": {{
+      "id": "entry_world_reaction",
+      "minimum_score": 0.62,
+      "required_channels": [
+        "spatial_affordance",
+        "hazard_readability",
+        "material_memory",
+        "lighting_atmosphere",
+        "event_residue",
+        "sensory_feedback",
+        "ai_attention",
+        "streaming_residency"
+      ],
+      "reaction_packages": [
+        {{
+          "id": "coal_mining_reaction",
+          "action": "action.mine.coal_ore",
+          "minimum_score": 0.68,
+          "required_channels": [
+            "material_memory",
+            "event_residue",
+            "sensory_feedback",
+            "resource_state",
+            "ai_attention",
+            "ui_feedback"
+          ]
+        }}
+      ]
+    }}
   }}
 }}
 "#
@@ -9228,6 +9418,16 @@ edge mat.wet material.assign wetness
         assert_eq!(report["verdict"], "accepted");
         assert_eq!(report["navigation"]["valid"], true);
         assert_eq!(report["perceptual_budget"]["accepted"], true);
+        assert_eq!(report["perceptual_continuity_budget"]["accepted"], true);
+        assert_eq!(
+            report["perceptual_continuity_budget"]["missing_channel_mask"],
+            0
+        );
+        assert!(report["perceptual_continuity_budget"]["reaction_packages"]
+            .as_array()
+            .expect("reaction packages")
+            .iter()
+            .any(|package| package["id"] == "coal_mining_reaction" && package["accepted"] == true));
         fs::remove_dir_all(project.parent().unwrap()).ok();
 
         let blocked_project = write_cave_project("cave_world_gate_blocked_project", true);
@@ -9247,6 +9447,14 @@ edge mat.wet material.assign wetness
         .expect("blocked report json");
         assert_eq!(blocked_report["verdict"], "quarantined");
         assert_eq!(blocked_report["navigation"]["valid"], false);
+        assert_eq!(
+            blocked_report["perceptual_continuity_budget"]["accepted"],
+            false
+        );
+        assert_ne!(
+            blocked_report["perceptual_continuity_budget"]["missing_channel_mask"],
+            0
+        );
         fs::remove_dir_all(blocked_project.parent().unwrap()).ok();
     }
 

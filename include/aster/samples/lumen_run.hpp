@@ -127,10 +127,35 @@ struct LumenCaveWorldGateReport {
   bool perceptual_valid = false;
   float perceptual_salience_score = 0.0f;
   float perceptual_minimum_salience = 0.0f;
+  bool perceptual_continuity_valid = false;
+  std::uint32_t perceptual_continuity_required_channel_mask = 0u;
+  std::uint32_t perceptual_continuity_observed_channel_mask = 0u;
+  std::uint32_t perceptual_continuity_missing_channel_mask = 0u;
+  float perceptual_continuity_score = 0.0f;
+  float perceptual_continuity_minimum_score = 0.0f;
   std::uint64_t nav_report_hash = 0u;
   std::uint64_t resource_probe_hash = 0u;
   std::uint64_t encounter_budget_hash = 0u;
   std::uint64_t perceptual_report_hash = 0u;
+  std::uint64_t perceptual_continuity_report_hash = 0u;
+  std::string diagnostic;
+};
+
+struct LumenReactionPackageReport {
+  bool accepted = false;
+  std::uint32_t required_channel_mask = 0u;
+  std::uint32_t observed_channel_mask = 0u;
+  std::uint32_t missing_channel_mask = 0u;
+  float continuity_score = 0.0f;
+  float minimum_score = 0.0f;
+  std::uint64_t reaction_package_hash = 0u;
+  std::uint64_t material_memory_hash = 0u;
+  std::uint64_t lighting_atmosphere_hash = 0u;
+  std::uint64_t ai_attention_hash = 0u;
+  std::uint64_t streaming_residency_lod_hash = 0u;
+  std::uint64_t resource_state_hash = 0u;
+  std::uint64_t event_residue_hash = 0u;
+  std::uint64_t readability_audit_hash = 0u;
   std::string diagnostic;
 };
 
@@ -147,6 +172,7 @@ struct LumenWorldForensics {
   std::uint64_t frame_submission_hash = 0u;
   std::uint64_t streaming_region_id = 0u;
   LumenCaveWorldGateReport cave_gate;
+  LumenReactionPackageReport coal_mining_reaction;
   bool render_extraction_ready = false;
 };
 
@@ -446,6 +472,8 @@ private:
   [[nodiscard]] bool mineFocusedOre(std::size_t ore_index);
   [[nodiscard]] bool mineFocusedCaveWeb(std::size_t web_index);
   [[nodiscard]] bool mineFocusedCaveSkitter(std::size_t skitter_index);
+  void recordCoalMiningReaction(std::size_t ore_index, const MiningFeedback &feedback,
+                                const CoalOreNode &ore);
   [[nodiscard]] bool placeEquippedResource(Vec3 ray_origin, Vec3 ray_direction);
   [[nodiscard]] bool storeMinedResource(const ItemDefinition &definition, int quantity);
   [[nodiscard]] PhysicsBodyHandle addPlacedRockPhysics(const PlacedResourceRock &rock);

@@ -11,7 +11,7 @@ int main() {
   const AsterAbiVersion version = aster::kernel::abiVersion();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 6u);
-  assert(version.minor == 0u);
+  assert(version.minor == 1u);
 
   const auto normalized = aster::kernel::math::normalize({3.0f, 0.0f, 4.0f});
   assert(normalized);
@@ -34,17 +34,37 @@ int main() {
 
   auto world = aster::kernel::World::create(engine.value());
   assert(world);
-  const AsterWorldAdvanceDesc world_advance{sizeof(AsterWorldAdvanceDesc),
-                                            ASTER_KERNEL_STRUCT_VERSION_1,
-                                            1u,
-                                            1.0 / 60.0,
-                                            0x101u,
-                                            0x111u,
-                                            0x121u,
-                                            0x131u,
-                                            0x141u,
-                                            0x202u,
-                                            0x515u};
+  AsterWorldAdvanceDesc world_advance{sizeof(AsterWorldAdvanceDesc),
+                                      ASTER_KERNEL_STRUCT_VERSION_1,
+                                      1u,
+                                      1.0 / 60.0,
+                                      0x101u,
+                                      0x111u,
+                                      0x121u,
+                                      0x131u,
+                                      0x141u,
+                                      0x202u,
+                                      0x515u};
+  world_advance.perceptual_continuity_budget = {
+      sizeof(AsterPerceptualContinuityBudget),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      1u,
+      ASTER_PERCEPTUAL_CONTINUITY_MATERIAL_MEMORY |
+          ASTER_PERCEPTUAL_CONTINUITY_EVENT_RESIDUE,
+      ASTER_PERCEPTUAL_CONTINUITY_MATERIAL_MEMORY |
+          ASTER_PERCEPTUAL_CONTINUITY_EVENT_RESIDUE,
+      0u,
+      1.0f,
+      0.65f,
+      0xA01u,
+      0xA02u,
+      0xA03u,
+      0xA04u,
+      0xA05u,
+      0xA06u,
+      0xA07u,
+      0xA08u,
+      {"continuity", 10u}};
   auto world_advance_result = world.value().advance(world_advance);
   assert(world_advance_result);
   assert(world_advance_result.value().world_transition_hash != 0u);
@@ -57,6 +77,9 @@ int main() {
   assert(extraction);
   auto world_forensics = world.value().forensics();
   assert(world_forensics);
+  assert(world_forensics.value().sensory_event_hash == world_advance.sensory_event_hash);
+  assert(world_forensics.value().visibility_set_hash == world_advance.visibility_set_hash);
+  assert(world_forensics.value().perceptual_continuity_budget.accepted == 1u);
 
   auto window = aster::kernel::Window::createHeadless(32u, 24u);
   assert(window);
@@ -123,6 +146,10 @@ int main() {
   settings.world_transition_hash = extraction.value().world_transition_hash;
   settings.actor_state_delta_hash = world_forensics.value().actor_state_delta_hash;
   settings.streaming_region_id = extraction.value().streaming_region_id;
+  settings.sensory_event_hash = world_forensics.value().sensory_event_hash;
+  settings.visibility_set_hash = world_forensics.value().visibility_set_hash;
+  settings.perceptual_continuity_budget =
+      world_forensics.value().perceptual_continuity_budget;
   const AsterRenderTargetDesc target_desc{sizeof(AsterRenderTargetDesc),
                                           ASTER_KERNEL_STRUCT_VERSION_1,
                                           ASTER_KERNEL_BACKEND_FORMAT_BGRA8_UNORM,
@@ -148,6 +175,10 @@ int main() {
   assert(forensics.value().world_trace_hash == extraction.value().trace_hash);
   assert(forensics.value().simulation_tick == extraction.value().epoch);
   assert(forensics.value().world_transition_hash == extraction.value().world_transition_hash);
+  assert(forensics.value().sensory_event_hash == world_forensics.value().sensory_event_hash);
+  assert(forensics.value().visibility_set_hash == world_forensics.value().visibility_set_hash);
+  assert(forensics.value().perceptual_continuity_budget.accepted == 1u);
+  assert(forensics.value().perceptual_continuity_budget.reaction_package_hash == 0xA01u);
   assert(forensics.value().world_extraction_provenance ==
          ASTER_WORLD_EXTRACTION_WORLD_TRANSITION);
 

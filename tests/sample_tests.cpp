@@ -66,6 +66,46 @@ void testLumenWorldForensicsContract() {
   assert(run.worldForensics().frame_submission_hash == 0xA57E2002u);
 }
 
+void testLumenCoalMiningReactionContinuity() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  aster::Vec3 ore_position{};
+  bool found_ore = false;
+  for (const aster::RenderObject &object : run.scene().objects()) {
+    if (object.name == "Coal ore vein node") {
+      ore_position = object.transform.position;
+      found_ore = true;
+      break;
+    }
+  }
+  assert(found_ore);
+  assert(run.takeChestItem("pickaxe"));
+
+  const aster::Vec3 player_position = ore_position + aster::Vec3{0.0f, 0.05f, 1.45f};
+  run.relocatePlayer(player_position, aster::radians(180.0f));
+  const aster::Vec3 focus_origin = player_position + aster::Vec3{0.0f, 0.42f, 0.0f};
+  run.updateInteractionFocus(focus_origin, aster::normalize(ore_position - focus_origin),
+                             1.0f / 60.0f);
+  const aster::FocusPromptModel prompt = run.focusPromptModel();
+  assert(prompt.visible);
+  assert(prompt.action == "Mine");
+  assert(prompt.subject == "Coal Ore");
+
+  const std::uint64_t before_hash =
+      run.worldForensics().coal_mining_reaction.reaction_package_hash;
+  run.interactFocused();
+  const aster::LumenReactionPackageReport &reaction =
+      run.worldForensics().coal_mining_reaction;
+  assert(reaction.accepted);
+  assert(reaction.reaction_package_hash != 0u);
+  assert(reaction.reaction_package_hash != before_hash);
+  assert(reaction.missing_channel_mask == 0u);
+  assert(reaction.material_memory_hash != 0u);
+  assert(reaction.event_residue_hash != 0u);
+  assert(reaction.ai_attention_hash != 0u);
+  assert(reaction.resource_state_hash != 0u);
+  assert(reaction.readability_audit_hash != 0u);
+}
+
 void testLumenCameraCollisionCanBeatComfortRadius() {
   const aster::LumenRun run({.shard_count = 3, .sentinel_count = 0, .playable_radius = 86.0f});
   const float radius = run.resolveCameraRadius({0.0f, 1.0f, 85.0f}, 0.0f, 0.0f, 6.0f);
@@ -850,6 +890,7 @@ void testLumenClassicGauntletVisibleAndAutomapped() {
 int main() {
   testLumenSceneCoherenceReport();
   testLumenWorldForensicsContract();
+  testLumenCoalMiningReactionContinuity();
   testLumenCameraCollisionCanBeatComfortRadius();
   testLumenInnerPondSeamHasSupport();
   testLumenSupportSurfacesRenderOpaque();

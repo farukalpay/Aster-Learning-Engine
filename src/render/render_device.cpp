@@ -6205,10 +6205,26 @@ void RenderDevice::stampLastFrameCausalTrace(const std::uint64_t world_trace_has
                                              const std::uint64_t asset_lineage_hash,
                                              const std::uint64_t world_transition_hash,
                                              const std::uint64_t actor_state_delta_hash,
+                                             const std::uint64_t sensory_event_hash,
+                                             const std::uint64_t visibility_set_hash,
                                              const std::uint64_t encounter_budget_hash,
                                              const bool navigation_valid,
                                              const std::uint64_t streaming_region_id,
-                                             const float perceptual_salience_score) {
+                                             const float perceptual_salience_score,
+                                             const bool perceptual_continuity_accepted,
+                                             const std::uint32_t perceptual_continuity_required_channel_mask,
+                                             const std::uint32_t perceptual_continuity_observed_channel_mask,
+                                             const std::uint32_t perceptual_continuity_missing_channel_mask,
+                                             const float perceptual_continuity_score,
+                                             const float perceptual_continuity_minimum_score,
+                                             const std::uint64_t reaction_package_hash,
+                                             const std::uint64_t material_memory_hash,
+                                             const std::uint64_t lighting_atmosphere_hash,
+                                             const std::uint64_t ai_attention_hash,
+                                             const std::uint64_t streaming_residency_lod_hash,
+                                             const std::uint64_t resource_state_hash,
+                                             const std::uint64_t event_residue_hash,
+                                             const std::uint64_t readability_audit_hash) {
   last_forensics_.world_trace_hash = world_trace_hash;
   last_forensics_.simulation_tick = simulation_tick;
   last_forensics_.extraction_hash = extraction_hash;
@@ -6216,10 +6232,29 @@ void RenderDevice::stampLastFrameCausalTrace(const std::uint64_t world_trace_has
   last_forensics_.world_transition_linked = world_transition_hash != 0u;
   last_forensics_.world_transition_hash = world_transition_hash;
   last_forensics_.actor_state_delta_hash = actor_state_delta_hash;
+  last_forensics_.sensory_event_hash = sensory_event_hash;
+  last_forensics_.visibility_set_hash = visibility_set_hash;
   last_forensics_.encounter_budget_hash = encounter_budget_hash;
   last_forensics_.navigation_valid = navigation_valid;
   last_forensics_.streaming_region_id = streaming_region_id;
   last_forensics_.perceptual_salience_score = perceptual_salience_score;
+  last_forensics_.perceptual_continuity_accepted = perceptual_continuity_accepted;
+  last_forensics_.perceptual_continuity_required_channel_mask =
+      perceptual_continuity_required_channel_mask;
+  last_forensics_.perceptual_continuity_observed_channel_mask =
+      perceptual_continuity_observed_channel_mask;
+  last_forensics_.perceptual_continuity_missing_channel_mask =
+      perceptual_continuity_missing_channel_mask;
+  last_forensics_.perceptual_continuity_score = perceptual_continuity_score;
+  last_forensics_.perceptual_continuity_minimum_score = perceptual_continuity_minimum_score;
+  last_forensics_.reaction_package_hash = reaction_package_hash;
+  last_forensics_.material_memory_hash = material_memory_hash;
+  last_forensics_.lighting_atmosphere_hash = lighting_atmosphere_hash;
+  last_forensics_.ai_attention_hash = ai_attention_hash;
+  last_forensics_.streaming_residency_lod_hash = streaming_residency_lod_hash;
+  last_forensics_.resource_state_hash = resource_state_hash;
+  last_forensics_.event_residue_hash = event_residue_hash;
+  last_forensics_.readability_audit_hash = readability_audit_hash;
 }
 
 const std::shared_ptr<const MaterialResourceLibrary> &RenderDevice::materialResourceLibrary()

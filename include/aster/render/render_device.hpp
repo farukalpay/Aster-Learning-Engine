@@ -777,10 +777,26 @@ struct FrameForensics {
   bool world_transition_linked = false;
   std::uint64_t world_transition_hash = 0u;
   std::uint64_t actor_state_delta_hash = 0u;
+  std::uint64_t sensory_event_hash = 0u;
+  std::uint64_t visibility_set_hash = 0u;
   std::uint64_t encounter_budget_hash = 0u;
   bool navigation_valid = false;
   std::uint64_t streaming_region_id = 0u;
   float perceptual_salience_score = 0.0f;
+  bool perceptual_continuity_accepted = false;
+  std::uint32_t perceptual_continuity_required_channel_mask = 0u;
+  std::uint32_t perceptual_continuity_observed_channel_mask = 0u;
+  std::uint32_t perceptual_continuity_missing_channel_mask = 0u;
+  float perceptual_continuity_score = 0.0f;
+  float perceptual_continuity_minimum_score = 0.0f;
+  std::uint64_t reaction_package_hash = 0u;
+  std::uint64_t material_memory_hash = 0u;
+  std::uint64_t lighting_atmosphere_hash = 0u;
+  std::uint64_t ai_attention_hash = 0u;
+  std::uint64_t streaming_residency_lod_hash = 0u;
+  std::uint64_t resource_state_hash = 0u;
+  std::uint64_t event_residue_hash = 0u;
+  std::uint64_t readability_audit_hash = 0u;
   std::vector<FramePassStats> passes;
   std::vector<FrameDiagnosticEvent> events;
   std::vector<FrameDebugCapture> captures;
@@ -980,9 +996,25 @@ public:
                                  std::uint64_t extraction_hash, std::uint64_t asset_lineage_hash,
                                  std::uint64_t world_transition_hash,
                                  std::uint64_t actor_state_delta_hash,
+                                 std::uint64_t sensory_event_hash,
+                                 std::uint64_t visibility_set_hash,
                                  std::uint64_t encounter_budget_hash, bool navigation_valid,
                                  std::uint64_t streaming_region_id,
-                                 float perceptual_salience_score);
+                                 float perceptual_salience_score,
+                                 bool perceptual_continuity_accepted,
+                                 std::uint32_t perceptual_continuity_required_channel_mask,
+                                 std::uint32_t perceptual_continuity_observed_channel_mask,
+                                 std::uint32_t perceptual_continuity_missing_channel_mask,
+                                 float perceptual_continuity_score,
+                                 float perceptual_continuity_minimum_score,
+                                 std::uint64_t reaction_package_hash,
+                                 std::uint64_t material_memory_hash,
+                                 std::uint64_t lighting_atmosphere_hash,
+                                 std::uint64_t ai_attention_hash,
+                                 std::uint64_t streaming_residency_lod_hash,
+                                 std::uint64_t resource_state_hash,
+                                 std::uint64_t event_residue_hash,
+                                 std::uint64_t readability_audit_hash);
   [[nodiscard]] const std::shared_ptr<const MaterialResourceLibrary> &materialResourceLibrary()
       const noexcept;
 

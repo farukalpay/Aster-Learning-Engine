@@ -400,6 +400,20 @@ struct CavePerceptualBudgetDocument {
   float minimum_salience = 0.50f;
 };
 
+struct CaveReactionPackageDocument {
+  std::string id;
+  AssetId action;
+  float minimum_score = 0.0f;
+  std::vector<std::string> required_channels;
+};
+
+struct CavePerceptualContinuityBudgetDocument {
+  std::string id;
+  float minimum_score = 0.50f;
+  std::vector<std::string> required_channels;
+  std::vector<CaveReactionPackageDocument> reaction_packages;
+};
+
 struct CaveValidationDocument {
   std::vector<CaveRouteValidationDocument> walkable_routes;
   std::vector<CaveVolumeValidationDocument> spawn_volumes;
@@ -409,6 +423,7 @@ struct CaveValidationDocument {
   std::vector<CaveWorldProbeDocument> resource_probes;
   std::vector<CaveWorldProbeDocument> encounter_probes;
   std::optional<CavePerceptualBudgetDocument> perceptual_budget;
+  std::optional<CavePerceptualContinuityBudgetDocument> perceptual_continuity_budget;
 };
 
 struct CaveDocument {
@@ -463,11 +478,19 @@ struct ActionNode {
   std::vector<GameplayTag> tags;
 };
 
+struct ActionReactionContractDocument {
+  std::string id;
+  float minimum_score = 0.0f;
+  std::vector<std::string> required_channels;
+  std::vector<std::string> required_events;
+};
+
 struct ActionGraphDocument {
   std::uint32_t schema_version = 0u;
   AssetId id;
   std::string name;
   std::vector<ActionNode> nodes;
+  std::vector<ActionReactionContractDocument> reaction_contracts;
 };
 
 struct InputBindingDocument {

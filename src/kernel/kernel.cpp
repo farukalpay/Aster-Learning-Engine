@@ -122,10 +122,26 @@ struct AsterRendererHandle__ {
   std::uint64_t asset_lineage_hash = 0u;
   std::uint64_t world_transition_hash = 0u;
   std::uint64_t actor_state_delta_hash = 0u;
+  std::uint64_t sensory_event_hash = 0u;
+  std::uint64_t visibility_set_hash = 0u;
   std::uint64_t encounter_budget_hash = 0u;
   std::uint32_t navigation_valid = 0u;
   std::uint64_t streaming_region_id = 0u;
   float perceptual_salience_score = 0.0f;
+  std::uint32_t perceptual_continuity_accepted = 0u;
+  std::uint32_t perceptual_continuity_required_channel_mask = 0u;
+  std::uint32_t perceptual_continuity_observed_channel_mask = 0u;
+  std::uint32_t perceptual_continuity_missing_channel_mask = 0u;
+  float perceptual_continuity_score = 0.0f;
+  float perceptual_continuity_minimum_score = 0.0f;
+  std::uint64_t reaction_package_hash = 0u;
+  std::uint64_t material_memory_hash = 0u;
+  std::uint64_t lighting_atmosphere_hash = 0u;
+  std::uint64_t ai_attention_hash = 0u;
+  std::uint64_t streaming_residency_lod_hash = 0u;
+  std::uint64_t resource_state_hash = 0u;
+  std::uint64_t event_residue_hash = 0u;
+  std::uint64_t readability_audit_hash = 0u;
 
   AsterRendererHandle__() {
     last_stats.size = sizeof(AsterFrameStats);
@@ -209,6 +225,8 @@ struct AsterWorldHandle__ {
   std::list<std::string> string_scratch;
   std::uint64_t world_transition_hash = 0u;
   std::uint64_t actor_state_delta_hash = 0u;
+  std::uint64_t sensory_event_hash = 0u;
+  std::uint64_t visibility_set_hash = 0u;
   std::size_t actor_delta_count = 0u;
   std::uint64_t render_extraction_hash = 0u;
   std::uint64_t streaming_region_id = 0u;
@@ -225,6 +243,21 @@ struct AsterWorldHandle__ {
   float perceptual_minimum_salience = 0.0f;
   std::uint64_t perceptual_report_hash = 0u;
   std::string perceptual_diagnostic;
+  std::uint32_t perceptual_continuity_accepted = 0u;
+  std::uint32_t perceptual_continuity_required_channel_mask = 0u;
+  std::uint32_t perceptual_continuity_observed_channel_mask = 0u;
+  std::uint32_t perceptual_continuity_missing_channel_mask = 0u;
+  float perceptual_continuity_score = 0.0f;
+  float perceptual_continuity_minimum_score = 0.0f;
+  std::uint64_t reaction_package_hash = 0u;
+  std::uint64_t material_memory_hash = 0u;
+  std::uint64_t lighting_atmosphere_hash = 0u;
+  std::uint64_t ai_attention_hash = 0u;
+  std::uint64_t streaming_residency_lod_hash = 0u;
+  std::uint64_t resource_state_hash = 0u;
+  std::uint64_t event_residue_hash = 0u;
+  std::uint64_t readability_audit_hash = 0u;
+  std::string perceptual_continuity_diagnostic;
   std::string diagnostic;
 
   AsterWorldHandle__(AsterEngineHandle engine, aster::WorldStateConfig config)
@@ -259,6 +292,8 @@ struct AsterAuthoringActionExecutionHandle__ {
 };
 
 namespace {
+
+std::uint64_t mixWorldEvidence(std::uint64_t hash, std::uint64_t value);
 
 AsterStatus makeStatus(const AsterStatusCode code, const char *message) {
   return {sizeof(AsterStatus), ASTER_KERNEL_STRUCT_VERSION_1, code, message};
@@ -299,6 +334,26 @@ bool validRendererSettings(const AsterRendererSettings *value) {
                                  offsetof(AsterRendererSettings, quality_tier));
 }
 
+bool validWorldAdvanceDesc(const AsterWorldAdvanceDesc *value) {
+  return validTailExtendedStruct(value, value == nullptr ? 0u : value->size,
+                                 value == nullptr ? 0u : value->version,
+                                 offsetof(AsterWorldAdvanceDesc,
+                                          perceptual_continuity_budget));
+}
+
+bool validWorldRegionGateReport(const AsterWorldRegionGateReport *value) {
+  return validTailExtendedStruct(value, value == nullptr ? 0u : value->size,
+                                 value == nullptr ? 0u : value->version,
+                                 offsetof(AsterWorldRegionGateReport,
+                                          perceptual_continuity_budget));
+}
+
+bool validWorldForensics(const AsterWorldForensics *value) {
+  return validTailExtendedStruct(value, value == nullptr ? 0u : value->size,
+                                 value == nullptr ? 0u : value->version,
+                                 offsetof(AsterWorldForensics, sensory_event_hash));
+}
+
 bool validFrameForensicsDetailCounts(const AsterFrameForensicsDetailCounts *value) {
   return value != nullptr &&
          value->size >= offsetof(AsterFrameForensicsDetailCounts, object_fate_count) &&
@@ -310,6 +365,17 @@ bool abiStructHasField(const std::size_t size, const std::size_t offset,
   return size >= offset + field_size;
 }
 
+bool hasPerceptualContinuityBudget(const AsterPerceptualContinuityBudget &budget) {
+  return budget.size != 0u;
+}
+
+bool validPerceptualContinuityBudget(const AsterPerceptualContinuityBudget &budget) {
+  return !hasPerceptualContinuityBudget(budget) ||
+         (budget.size >= sizeof(AsterPerceptualContinuityBudget) &&
+          budget.version == ASTER_KERNEL_STRUCT_VERSION_1 &&
+          (budget.diagnostic.data != nullptr || budget.diagnostic.size == 0u));
+}
+
 bool validStringView(const AsterStringView view) {
   return view.data != nullptr || view.size == 0u;
 }
@@ -319,6 +385,50 @@ std::string stringFromView(const AsterStringView view) {
     return {};
   }
   return std::string(view.data, view.size);
+}
+
+std::uint64_t continuityBudgetEvidenceHash(const AsterPerceptualContinuityBudget &budget) {
+  if (!hasPerceptualContinuityBudget(budget)) {
+    return 0u;
+  }
+  std::uint64_t hash = mixWorldEvidence(budget.required_channel_mask,
+                                        budget.observed_channel_mask);
+  hash = mixWorldEvidence(hash, budget.missing_channel_mask);
+  hash = mixWorldEvidence(hash, static_cast<std::uint64_t>(
+                                    std::max(budget.continuity_score, 0.0f) * 1000000.0f));
+  hash = mixWorldEvidence(hash, static_cast<std::uint64_t>(
+                                    std::max(budget.minimum_score, 0.0f) * 1000000.0f));
+  hash = mixWorldEvidence(hash, budget.reaction_package_hash);
+  hash = mixWorldEvidence(hash, budget.material_memory_hash);
+  hash = mixWorldEvidence(hash, budget.lighting_atmosphere_hash);
+  hash = mixWorldEvidence(hash, budget.ai_attention_hash);
+  hash = mixWorldEvidence(hash, budget.streaming_residency_lod_hash);
+  hash = mixWorldEvidence(hash, budget.resource_state_hash);
+  hash = mixWorldEvidence(hash, budget.event_residue_hash);
+  hash = mixWorldEvidence(hash, budget.readability_audit_hash);
+  return hash;
+}
+
+void storeContinuityBudget(AsterWorldHandle__ &world,
+                           const AsterPerceptualContinuityBudget &budget) {
+  if (!hasPerceptualContinuityBudget(budget)) {
+    return;
+  }
+  world.perceptual_continuity_accepted = budget.accepted;
+  world.perceptual_continuity_required_channel_mask = budget.required_channel_mask;
+  world.perceptual_continuity_observed_channel_mask = budget.observed_channel_mask;
+  world.perceptual_continuity_missing_channel_mask = budget.missing_channel_mask;
+  world.perceptual_continuity_score = budget.continuity_score;
+  world.perceptual_continuity_minimum_score = budget.minimum_score;
+  world.reaction_package_hash = budget.reaction_package_hash;
+  world.material_memory_hash = budget.material_memory_hash;
+  world.lighting_atmosphere_hash = budget.lighting_atmosphere_hash;
+  world.ai_attention_hash = budget.ai_attention_hash;
+  world.streaming_residency_lod_hash = budget.streaming_residency_lod_hash;
+  world.resource_state_hash = budget.resource_state_hash;
+  world.event_residue_hash = budget.event_residue_hash;
+  world.readability_audit_hash = budget.readability_audit_hash;
+  world.perceptual_continuity_diagnostic = stringFromView(budget.diagnostic);
 }
 
 AsterStringView viewFromString(const std::string &text) {
@@ -2052,14 +2162,28 @@ AsterStatus aster_kernel_world_advance(const AsterWorldHandle world,
   if (!validWorld(world)) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
   }
-  if (!validStruct(desc) || !validStruct(out_result)) {
+  if (!validWorldAdvanceDesc(desc) || !validStruct(out_result)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH, "world advance struct version is not supported");
+  }
+  const bool has_continuity_budget =
+      abiStructHasField(desc->size, offsetof(AsterWorldAdvanceDesc, perceptual_continuity_budget),
+                        sizeof(desc->perceptual_continuity_budget)) &&
+      hasPerceptualContinuityBudget(desc->perceptual_continuity_budget);
+  if (has_continuity_budget &&
+      !validPerceptualContinuityBudget(desc->perceptual_continuity_budget)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "world advance perceptual continuity budget version is not supported");
   }
 
   std::uint64_t input_intent_hash = mixWorldEvidence(desc->input_event_hash, desc->player_intent_hash);
   input_intent_hash = mixWorldEvidence(input_intent_hash, desc->actor_state_delta_hash);
   input_intent_hash = mixWorldEvidence(input_intent_hash, desc->sensory_event_hash);
   input_intent_hash = mixWorldEvidence(input_intent_hash, desc->visibility_set_hash);
+  if (has_continuity_budget) {
+    input_intent_hash =
+        mixWorldEvidence(input_intent_hash,
+                         continuityBudgetEvidenceHash(desc->perceptual_continuity_budget));
+  }
   const aster::WorldTickResult result =
       world->world.tick({.tick = desc->epoch,
                          .delta_seconds = desc->delta_seconds,
@@ -2067,8 +2191,13 @@ AsterStatus aster_kernel_world_advance(const AsterWorldHandle world,
                          .asset_lineage_hash = desc->asset_lineage_hash});
 
   world->actor_state_delta_hash = desc->actor_state_delta_hash;
+  world->sensory_event_hash = desc->sensory_event_hash;
+  world->visibility_set_hash = desc->visibility_set_hash;
   world->actor_delta_count = desc->actor_state_delta_hash == 0u ? 0u : 1u;
   world->streaming_region_id = desc->streaming_region_id;
+  if (has_continuity_budget) {
+    storeContinuityBudget(*world, desc->perceptual_continuity_budget);
+  }
   world->diagnostic = result.diagnostic;
   if (result.accepted) {
     std::uint64_t transition_hash = mixWorldEvidence(result.world_hash, result.trace_hash);
@@ -2077,6 +2206,11 @@ AsterStatus aster_kernel_world_advance(const AsterWorldHandle world,
     transition_hash = mixWorldEvidence(transition_hash, desc->actor_state_delta_hash);
     transition_hash = mixWorldEvidence(transition_hash, desc->sensory_event_hash);
     transition_hash = mixWorldEvidence(transition_hash, desc->visibility_set_hash);
+    if (has_continuity_budget) {
+      transition_hash =
+          mixWorldEvidence(transition_hash,
+                           continuityBudgetEvidenceHash(desc->perceptual_continuity_budget));
+    }
     world->world_transition_hash = transition_hash;
   }
 
@@ -2097,13 +2231,25 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
   if (!validWorld(world)) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
   }
-  if (!validStruct(report) || !validStruct(&report->navigation) ||
+  if (!validWorldRegionGateReport(report) || !validStruct(&report->navigation) ||
       !validStruct(&report->perceptual_budget)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
                       "world region gate report version is not supported");
   }
+  const bool has_continuity_budget =
+      abiStructHasField(report->size,
+                        offsetof(AsterWorldRegionGateReport, perceptual_continuity_budget),
+                        sizeof(report->perceptual_continuity_budget)) &&
+      hasPerceptualContinuityBudget(report->perceptual_continuity_budget);
+  if (has_continuity_budget &&
+      !validPerceptualContinuityBudget(report->perceptual_continuity_budget)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "world region gate continuity budget version is not supported");
+  }
   if (!validStringView(report->diagnostic) || !validStringView(report->navigation.diagnostic) ||
-      !validStringView(report->perceptual_budget.diagnostic)) {
+      !validStringView(report->perceptual_budget.diagnostic) ||
+      (has_continuity_budget &&
+       !validStringView(report->perceptual_continuity_budget.diagnostic))) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
                       "world region gate diagnostics have a size but no data");
   }
@@ -2113,9 +2259,16 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
   report_hash = mixWorldEvidence(report_hash, report->encounter_budget_hash);
   report_hash = mixWorldEvidence(report_hash, report->resource_probe_hash);
   report_hash = mixWorldEvidence(report_hash, report->perceptual_budget.report_hash);
+  if (has_continuity_budget) {
+    report_hash =
+        mixWorldEvidence(report_hash,
+                         continuityBudgetEvidenceHash(report->perceptual_continuity_budget));
+  }
   const bool accepted = report->verdict == ASTER_WORLD_REGION_GATE_ACCEPTED &&
                         report->navigation.valid != 0u &&
-                        report->perceptual_budget.accepted != 0u;
+                        report->perceptual_budget.accepted != 0u &&
+                        (!has_continuity_budget ||
+                         report->perceptual_continuity_budget.accepted != 0u);
   world->world.noteRegionGate(report->region_id, accepted, report_hash,
                               stringFromView(report->diagnostic));
   world->gate_verdict =
@@ -2133,6 +2286,9 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
   world->perceptual_minimum_salience = report->perceptual_budget.minimum_salience;
   world->perceptual_report_hash = report->perceptual_budget.report_hash;
   world->perceptual_diagnostic = stringFromView(report->perceptual_budget.diagnostic);
+  if (has_continuity_budget) {
+    storeContinuityBudget(*world, report->perceptual_continuity_budget);
+  }
   world->diagnostic = stringFromView(report->diagnostic);
   world->world_transition_hash =
       mixWorldEvidence(world->world_transition_hash == 0u ? world->world.worldHash()
@@ -2172,7 +2328,7 @@ AsterStatus aster_kernel_world_forensics(const AsterWorldHandle world,
   if (!validWorld(world)) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
   }
-  if (!validStruct(out_forensics)) {
+  if (!validWorldForensics(out_forensics)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH, "world forensics version is not supported");
   }
   out_forensics->world_transition_hash = world->world_transition_hash;
@@ -2202,6 +2358,36 @@ AsterStatus aster_kernel_world_forensics(const AsterWorldHandle world,
       .report_hash = world->perceptual_report_hash,
       .diagnostic = worldScratch(world, world->perceptual_diagnostic)};
   out_forensics->diagnostic = worldScratch(world, world->diagnostic);
+  if (abiStructHasField(out_forensics->size, offsetof(AsterWorldForensics, sensory_event_hash),
+                        sizeof(out_forensics->sensory_event_hash))) {
+    out_forensics->sensory_event_hash = world->sensory_event_hash;
+  }
+  if (abiStructHasField(out_forensics->size, offsetof(AsterWorldForensics, visibility_set_hash),
+                        sizeof(out_forensics->visibility_set_hash))) {
+    out_forensics->visibility_set_hash = world->visibility_set_hash;
+  }
+  if (abiStructHasField(out_forensics->size,
+                        offsetof(AsterWorldForensics, perceptual_continuity_budget),
+                        sizeof(out_forensics->perceptual_continuity_budget))) {
+    out_forensics->perceptual_continuity_budget = {
+        .size = sizeof(AsterPerceptualContinuityBudget),
+        .version = ASTER_KERNEL_STRUCT_VERSION_1,
+        .accepted = world->perceptual_continuity_accepted,
+        .required_channel_mask = world->perceptual_continuity_required_channel_mask,
+        .observed_channel_mask = world->perceptual_continuity_observed_channel_mask,
+        .missing_channel_mask = world->perceptual_continuity_missing_channel_mask,
+        .continuity_score = world->perceptual_continuity_score,
+        .minimum_score = world->perceptual_continuity_minimum_score,
+        .reaction_package_hash = world->reaction_package_hash,
+        .material_memory_hash = world->material_memory_hash,
+        .lighting_atmosphere_hash = world->lighting_atmosphere_hash,
+        .ai_attention_hash = world->ai_attention_hash,
+        .streaming_residency_lod_hash = world->streaming_residency_lod_hash,
+        .resource_state_hash = world->resource_state_hash,
+        .event_residue_hash = world->event_residue_hash,
+        .readability_audit_hash = world->readability_audit_hash,
+        .diagnostic = worldScratch(world, world->perceptual_continuity_diagnostic)};
+  }
   return aster_kernel_status_ok();
 }
 
@@ -2781,6 +2967,16 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
   }
   const AsterCameraDesc camera_desc = copyAbiStruct(camera);
   const AsterRendererSettings settings_desc = copyAbiStruct(settings);
+  const bool has_continuity_budget =
+      abiStructHasField(settings->size,
+                        offsetof(AsterRendererSettings, perceptual_continuity_budget),
+                        sizeof(settings_desc.perceptual_continuity_budget)) &&
+      hasPerceptualContinuityBudget(settings_desc.perceptual_continuity_budget);
+  if (has_continuity_budget &&
+      !validPerceptualContinuityBudget(settings_desc.perceptual_continuity_budget)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "renderer perceptual continuity budget version is not supported");
+  }
   if (settings_desc.render_target != nullptr) {
     return aster_kernel_renderer_render_frame_to_target(renderer, scene, settings_desc.render_target,
                                                         &camera_desc, &settings_desc);
@@ -2835,10 +3031,41 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
                                                   settings_desc.asset_lineage_hash,
                                                   settings_desc.world_transition_hash,
                                                   settings_desc.actor_state_delta_hash,
+                                                  settings_desc.sensory_event_hash,
+                                                  settings_desc.visibility_set_hash,
                                                   settings_desc.encounter_budget_hash,
                                                   settings_desc.navigation_valid != 0u,
                                                   settings_desc.streaming_region_id,
-                                                  settings_desc.perceptual_salience_score);
+                                                  settings_desc.perceptual_salience_score,
+                                                  has_continuity_budget &&
+                                                      settings_desc.perceptual_continuity_budget
+                                                              .accepted != 0u,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .required_channel_mask,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .observed_channel_mask,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .missing_channel_mask,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .continuity_score,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .minimum_score,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .reaction_package_hash,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .material_memory_hash,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .lighting_atmosphere_hash,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .ai_attention_hash,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .streaming_residency_lod_hash,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .resource_state_hash,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .event_residue_hash,
+                                                  settings_desc.perceptual_continuity_budget
+                                                      .readability_audit_hash);
     renderer->last_stats = abiFrameStats(stats);
     renderer->active_target = nullptr;
     renderer->has_rendered_frame = true;
@@ -2848,10 +3075,35 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
     renderer->asset_lineage_hash = settings_desc.asset_lineage_hash;
     renderer->world_transition_hash = settings_desc.world_transition_hash;
     renderer->actor_state_delta_hash = settings_desc.actor_state_delta_hash;
+    renderer->sensory_event_hash = settings_desc.sensory_event_hash;
+    renderer->visibility_set_hash = settings_desc.visibility_set_hash;
     renderer->encounter_budget_hash = settings_desc.encounter_budget_hash;
     renderer->navigation_valid = settings_desc.navigation_valid;
     renderer->streaming_region_id = settings_desc.streaming_region_id;
     renderer->perceptual_salience_score = settings_desc.perceptual_salience_score;
+    renderer->perceptual_continuity_accepted =
+        has_continuity_budget ? settings_desc.perceptual_continuity_budget.accepted : 0u;
+    renderer->perceptual_continuity_required_channel_mask =
+        settings_desc.perceptual_continuity_budget.required_channel_mask;
+    renderer->perceptual_continuity_observed_channel_mask =
+        settings_desc.perceptual_continuity_budget.observed_channel_mask;
+    renderer->perceptual_continuity_missing_channel_mask =
+        settings_desc.perceptual_continuity_budget.missing_channel_mask;
+    renderer->perceptual_continuity_score =
+        settings_desc.perceptual_continuity_budget.continuity_score;
+    renderer->perceptual_continuity_minimum_score =
+        settings_desc.perceptual_continuity_budget.minimum_score;
+    renderer->reaction_package_hash = settings_desc.perceptual_continuity_budget.reaction_package_hash;
+    renderer->material_memory_hash = settings_desc.perceptual_continuity_budget.material_memory_hash;
+    renderer->lighting_atmosphere_hash =
+        settings_desc.perceptual_continuity_budget.lighting_atmosphere_hash;
+    renderer->ai_attention_hash = settings_desc.perceptual_continuity_budget.ai_attention_hash;
+    renderer->streaming_residency_lod_hash =
+        settings_desc.perceptual_continuity_budget.streaming_residency_lod_hash;
+    renderer->resource_state_hash = settings_desc.perceptual_continuity_budget.resource_state_hash;
+    renderer->event_residue_hash = settings_desc.perceptual_continuity_budget.event_residue_hash;
+    renderer->readability_audit_hash =
+        settings_desc.perceptual_continuity_budget.readability_audit_hash;
   } catch (...) {
     return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "render frame failed");
   }
@@ -3189,6 +3441,39 @@ AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
                         offsetof(AsterFrameForensicsDetailCounts, perceptual_salience_score),
                         sizeof(out_counts->perceptual_salience_score))) {
     out_counts->perceptual_salience_score = forensics.perceptual_salience_score;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, sensory_event_hash),
+                        sizeof(out_counts->sensory_event_hash))) {
+    out_counts->sensory_event_hash = forensics.sensory_event_hash;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, visibility_set_hash),
+                        sizeof(out_counts->visibility_set_hash))) {
+    out_counts->visibility_set_hash = forensics.visibility_set_hash;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 perceptual_continuity_budget),
+                        sizeof(out_counts->perceptual_continuity_budget))) {
+    out_counts->perceptual_continuity_budget = {
+        .size = sizeof(AsterPerceptualContinuityBudget),
+        .version = ASTER_KERNEL_STRUCT_VERSION_1,
+        .accepted = forensics.perceptual_continuity_accepted ? 1u : 0u,
+        .required_channel_mask = forensics.perceptual_continuity_required_channel_mask,
+        .observed_channel_mask = forensics.perceptual_continuity_observed_channel_mask,
+        .missing_channel_mask = forensics.perceptual_continuity_missing_channel_mask,
+        .continuity_score = forensics.perceptual_continuity_score,
+        .minimum_score = forensics.perceptual_continuity_minimum_score,
+        .reaction_package_hash = forensics.reaction_package_hash,
+        .material_memory_hash = forensics.material_memory_hash,
+        .lighting_atmosphere_hash = forensics.lighting_atmosphere_hash,
+        .ai_attention_hash = forensics.ai_attention_hash,
+        .streaming_residency_lod_hash = forensics.streaming_residency_lod_hash,
+        .resource_state_hash = forensics.resource_state_hash,
+        .event_residue_hash = forensics.event_residue_hash,
+        .readability_audit_hash = forensics.readability_audit_hash,
+        .diagnostic = {}};
   }
   return aster_kernel_status_ok();
 }

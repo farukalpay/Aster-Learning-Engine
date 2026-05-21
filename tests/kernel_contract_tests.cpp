@@ -64,6 +64,7 @@ static_assert(std::is_standard_layout_v<AsterBiomeCell>);
 static_assert(std::is_standard_layout_v<AsterResourceNode>);
 static_assert(std::is_standard_layout_v<AsterNavValidityReport>);
 static_assert(std::is_standard_layout_v<AsterPerceptualBudget>);
+static_assert(std::is_standard_layout_v<AsterPerceptualContinuityBudget>);
 static_assert(std::is_standard_layout_v<AsterWorldDesc>);
 static_assert(std::is_standard_layout_v<AsterWorldAdvanceDesc>);
 static_assert(std::is_standard_layout_v<AsterWorldAdvanceResult>);
@@ -279,7 +280,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 6u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 0u);
+  assert(version.minor == 1u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -1493,6 +1494,42 @@ void testWorldRootAbi6Contracts() {
   assert(aster_kernel_world_advance(world, &advance, &result).code == ASTER_STATUS_OK);
   assert(result.accepted == 1u);
   assert(result.world_transition_hash != 0u);
+  AsterWorldAdvanceDesc old_size_advance = advance;
+  old_size_advance.size = offsetof(AsterWorldAdvanceDesc, perceptual_continuity_budget);
+  old_size_advance.epoch = 2u;
+  AsterWorldAdvanceResult old_size_result{sizeof(AsterWorldAdvanceResult),
+                                          ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_world_advance(world, &old_size_advance, &old_size_result).code ==
+         ASTER_STATUS_OK);
+  assert(old_size_result.world_transition_hash != 0u);
+
+  AsterWorldAdvanceDesc continuity_advance = advance;
+  continuity_advance.epoch = 3u;
+  continuity_advance.perceptual_continuity_budget = {
+      sizeof(AsterPerceptualContinuityBudget),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      1u,
+      ASTER_PERCEPTUAL_CONTINUITY_MATERIAL_MEMORY |
+          ASTER_PERCEPTUAL_CONTINUITY_EVENT_RESIDUE,
+      ASTER_PERCEPTUAL_CONTINUITY_MATERIAL_MEMORY |
+          ASTER_PERCEPTUAL_CONTINUITY_EVENT_RESIDUE,
+      0u,
+      1.0f,
+      0.75f,
+      0x900u,
+      0x901u,
+      0x902u,
+      0x903u,
+      0x904u,
+      0x905u,
+      0x906u,
+      0x907u,
+      {"continuity accepted", 19u}};
+  AsterWorldAdvanceResult continuity_result{sizeof(AsterWorldAdvanceResult),
+                                            ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_world_advance(world, &continuity_advance, &continuity_result).code ==
+         ASTER_STATUS_OK);
+  assert(continuity_result.world_transition_hash != old_size_result.world_transition_hash);
 
   const AsterWorldRegionGateReport rejected_gate{
       sizeof(AsterWorldRegionGateReport),
@@ -1527,6 +1564,50 @@ void testWorldRootAbi6Contracts() {
   assert(forensics.actor_delta_count == 1u);
   assert(forensics.render_extraction_hash == extraction_desc.extraction_hash);
   assert(forensics.trace_hash == extraction.trace_hash);
+  assert(forensics.sensory_event_hash == continuity_advance.sensory_event_hash);
+  assert(forensics.visibility_set_hash == continuity_advance.visibility_set_hash);
+
+  const AsterWorldRegionGateReport continuity_rejected_gate{
+      sizeof(AsterWorldRegionGateReport),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      0x9000u,
+      0x9001u,
+      ASTER_WORLD_REGION_GATE_ACCEPTED,
+      {sizeof(AsterNavValidityReport), ASTER_KERNEL_STRUCT_VERSION_1, 1u, 5u, 0u, 0x9002u,
+       {"valid", 5u}},
+      0x9003u,
+      0x9004u,
+      {sizeof(AsterPerceptualBudget), ASTER_KERNEL_STRUCT_VERSION_1, 1u, 0.88f, 0.60f, 0x9005u,
+       {"readable", 8u}},
+      {"continuity missing", 18u},
+      {sizeof(AsterPerceptualContinuityBudget),
+       ASTER_KERNEL_STRUCT_VERSION_1,
+       0u,
+       ASTER_PERCEPTUAL_CONTINUITY_MATERIAL_MEMORY |
+           ASTER_PERCEPTUAL_CONTINUITY_RESOURCE_STATE,
+       ASTER_PERCEPTUAL_CONTINUITY_MATERIAL_MEMORY,
+       ASTER_PERCEPTUAL_CONTINUITY_RESOURCE_STATE,
+       0.50f,
+       0.90f,
+       0x9100u,
+       0x9101u,
+       0x9102u,
+       0x9103u,
+       0x9104u,
+       0x9105u,
+       0x9106u,
+       0x9107u,
+       {"missing resource state", 22u}}};
+  assert(aster_kernel_world_record_region_gate(world, &continuity_rejected_gate).code ==
+         ASTER_STATUS_OK);
+  AsterWorldForensics continuity_forensics{sizeof(AsterWorldForensics),
+                                           ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_world_forensics(world, &continuity_forensics).code == ASTER_STATUS_OK);
+  assert(continuity_forensics.generated_region_gate == ASTER_WORLD_REGION_GATE_QUARANTINED);
+  assert(continuity_forensics.navigation.valid == 1u);
+  assert(continuity_forensics.perceptual_continuity_budget.accepted == 0u);
+  assert(continuity_forensics.perceptual_continuity_budget.missing_channel_mask ==
+         ASTER_PERCEPTUAL_CONTINUITY_RESOURCE_STATE);
   assert(aster_kernel_world_destroy(world).code == ASTER_STATUS_OK);
   assert(aster_kernel_engine_destroy(engine).code == ASTER_STATUS_OK);
 }

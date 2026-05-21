@@ -286,6 +286,35 @@
     "perceptual_budget": {
       "id": "entry_decision_read",
       "minimum_salience": 0.56
+    },
+    "perceptual_continuity_budget": {
+      "id": "entry_world_reaction",
+      "minimum_score": 0.62,
+      "required_channels": [
+        "spatial_affordance",
+        "hazard_readability",
+        "material_memory",
+        "lighting_atmosphere",
+        "event_residue",
+        "sensory_feedback",
+        "ai_attention",
+        "streaming_residency"
+      ],
+      "reaction_packages": [
+        {
+          "id": "coal_mining_reaction",
+          "action": "action.mine.coal_ore",
+          "minimum_score": 0.68,
+          "required_channels": [
+            "material_memory",
+            "event_residue",
+            "sensory_feedback",
+            "resource_state",
+            "ai_attention",
+            "ui_feedback"
+          ]
+        }
+      ]
     }
   }
 }

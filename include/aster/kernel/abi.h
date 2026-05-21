@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 6u
-#define ASTER_KERNEL_ABI_MINOR 0u
+#define ASTER_KERNEL_ABI_MINOR 1u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -359,6 +359,40 @@ typedef enum AsterWorldExtractionProvenance {
   ASTER_WORLD_EXTRACTION_COMPATIBILITY_SCENE = 0,
   ASTER_WORLD_EXTRACTION_WORLD_TRANSITION = 1
 } AsterWorldExtractionProvenance;
+
+typedef enum AsterPerceptualContinuityChannel {
+  ASTER_PERCEPTUAL_CONTINUITY_SPATIAL_AFFORDANCE = 1u << 0u,
+  ASTER_PERCEPTUAL_CONTINUITY_MOTION_CONTINUITY = 1u << 1u,
+  ASTER_PERCEPTUAL_CONTINUITY_HAZARD_READABILITY = 1u << 2u,
+  ASTER_PERCEPTUAL_CONTINUITY_MATERIAL_MEMORY = 1u << 3u,
+  ASTER_PERCEPTUAL_CONTINUITY_LIGHTING_ATMOSPHERE = 1u << 4u,
+  ASTER_PERCEPTUAL_CONTINUITY_EVENT_RESIDUE = 1u << 5u,
+  ASTER_PERCEPTUAL_CONTINUITY_SENSORY_FEEDBACK = 1u << 6u,
+  ASTER_PERCEPTUAL_CONTINUITY_AI_ATTENTION = 1u << 7u,
+  ASTER_PERCEPTUAL_CONTINUITY_STREAMING_RESIDENCY = 1u << 8u,
+  ASTER_PERCEPTUAL_CONTINUITY_UI_FEEDBACK = 1u << 9u,
+  ASTER_PERCEPTUAL_CONTINUITY_RESOURCE_STATE = 1u << 10u
+} AsterPerceptualContinuityChannel;
+
+typedef struct AsterPerceptualContinuityBudget {
+  size_t size;
+  uint32_t version;
+  uint32_t accepted;
+  uint32_t required_channel_mask;
+  uint32_t observed_channel_mask;
+  uint32_t missing_channel_mask;
+  float continuity_score;
+  float minimum_score;
+  uint64_t reaction_package_hash;
+  uint64_t material_memory_hash;
+  uint64_t lighting_atmosphere_hash;
+  uint64_t ai_attention_hash;
+  uint64_t streaming_residency_lod_hash;
+  uint64_t resource_state_hash;
+  uint64_t event_residue_hash;
+  uint64_t readability_audit_hash;
+  AsterStringView diagnostic;
+} AsterPerceptualContinuityBudget;
 
 typedef enum AsterAuthoringDocumentKind {
   ASTER_AUTHORING_DOCUMENT_UNKNOWN = 0,
@@ -1163,6 +1197,9 @@ typedef struct AsterRendererSettings {
   uint32_t navigation_valid;
   uint64_t streaming_region_id;
   float perceptual_salience_score;
+  uint64_t sensory_event_hash;
+  uint64_t visibility_set_hash;
+  AsterPerceptualContinuityBudget perceptual_continuity_budget;
 } AsterRendererSettings;
 
 typedef struct AsterSystemEntityHandle {
@@ -1271,6 +1308,7 @@ typedef struct AsterWorldAdvanceDesc {
   uint64_t visibility_set_hash;
   uint64_t asset_lineage_hash;
   uint64_t streaming_region_id;
+  AsterPerceptualContinuityBudget perceptual_continuity_budget;
 } AsterWorldAdvanceDesc;
 
 typedef struct AsterWorldAdvanceResult {
@@ -1296,6 +1334,7 @@ typedef struct AsterWorldRegionGateReport {
   uint64_t resource_probe_hash;
   AsterPerceptualBudget perceptual_budget;
   AsterStringView diagnostic;
+  AsterPerceptualContinuityBudget perceptual_continuity_budget;
 } AsterWorldRegionGateReport;
 
 typedef struct AsterWorldRenderExtractionDesc {
@@ -1335,6 +1374,9 @@ typedef struct AsterWorldForensics {
   uint64_t resource_probe_hash;
   AsterPerceptualBudget perceptual_budget;
   AsterStringView diagnostic;
+  uint64_t sensory_event_hash;
+  uint64_t visibility_set_hash;
+  AsterPerceptualContinuityBudget perceptual_continuity_budget;
 } AsterWorldForensics;
 
 typedef struct AsterSystemWorldDesc {
@@ -1549,6 +1591,9 @@ typedef struct AsterFrameForensicsDetailCounts {
   uint32_t navigation_valid;
   uint64_t streaming_region_id;
   float perceptual_salience_score;
+  uint64_t sensory_event_hash;
+  uint64_t visibility_set_hash;
+  AsterPerceptualContinuityBudget perceptual_continuity_budget;
 } AsterFrameForensicsDetailCounts;
 
 typedef struct AsterFramePassStats {

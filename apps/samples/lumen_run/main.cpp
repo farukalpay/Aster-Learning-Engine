@@ -419,7 +419,9 @@ void printLumenWorldGateReport(const aster::LumenCaveWorldGateReport &report) {
             << " encounters=" << report.reachable_encounters
             << " encounter_budget=" << report.encounter_budget
             << " salience=" << report.perceptual_salience_score
-            << "/" << report.perceptual_minimum_salience << '\n';
+            << "/" << report.perceptual_minimum_salience
+            << " continuity=" << report.perceptual_continuity_score
+            << "/" << report.perceptual_continuity_minimum_score << '\n';
   std::cout << "Lumen Run cave world gate diagnostic: " << report.diagnostic << '\n';
 }
 
@@ -442,6 +444,8 @@ std::uint64_t lumenFrameProofHash(const aster::LumenWorldForensics &world,
       hash,
       static_cast<std::uint64_t>(
           aster::stableHash32(world.cave_gate.perceptual_salience_score)));
+  hash = aster::hashCombine64(hash, world.cave_gate.perceptual_continuity_report_hash);
+  hash = aster::hashCombine64(hash, world.coal_mining_reaction.reaction_package_hash);
   return hash;
 }
 
@@ -1421,9 +1425,24 @@ int main(int argc, char **argv) {
           world_forensics.trace_hash, world_forensics.epoch,
           world_forensics.render_extraction_hash, world_forensics.cave_gate.probe_trace_hash,
           world_forensics.world_transition_hash, world_forensics.actor_state_delta_hash,
+          world_forensics.sensory_event_hash, world_forensics.visibility_set_hash,
           world_forensics.cave_gate.encounter_budget_hash,
           world_forensics.cave_gate.navigation_valid, world_forensics.streaming_region_id,
-          world_forensics.cave_gate.perceptual_salience_score);
+          world_forensics.cave_gate.perceptual_salience_score,
+          world_forensics.coal_mining_reaction.accepted,
+          world_forensics.coal_mining_reaction.required_channel_mask,
+          world_forensics.coal_mining_reaction.observed_channel_mask,
+          world_forensics.coal_mining_reaction.missing_channel_mask,
+          world_forensics.coal_mining_reaction.continuity_score,
+          world_forensics.coal_mining_reaction.minimum_score,
+          world_forensics.coal_mining_reaction.reaction_package_hash,
+          world_forensics.coal_mining_reaction.material_memory_hash,
+          world_forensics.coal_mining_reaction.lighting_atmosphere_hash,
+          world_forensics.coal_mining_reaction.ai_attention_hash,
+          world_forensics.coal_mining_reaction.streaming_residency_lod_hash,
+          world_forensics.coal_mining_reaction.resource_state_hash,
+          world_forensics.coal_mining_reaction.event_residue_hash,
+          world_forensics.coal_mining_reaction.readability_audit_hash);
       if (collect_frame_sample) {
         render_times.addSample(clock.now() - render_start);
         ++render_counter_samples;

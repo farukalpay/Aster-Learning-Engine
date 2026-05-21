@@ -896,6 +896,51 @@ void hashNumber(std::uint64_t &hash, const std::uint64_t value) {
   return out;
 }
 
+[[nodiscard]] CaveReactionPackageDocument parseCaveReactionPackageDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
+  CaveReactionPackageDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readStringOr(value, "id", diagnostics, source, path, {});
+  out.action = readStringOr(value, "action", diagnostics, source, path, {});
+  out.minimum_score = readFloatOr(value, "minimum_score", diagnostics, source, path, 0.0f);
+  out.required_channels =
+      readStringArray(value, "required_channels", diagnostics, source, path);
+  return out;
+}
+
+[[nodiscard]] CavePerceptualContinuityBudgetDocument
+parseCavePerceptualContinuityBudgetDocument(const Json &value,
+                                            std::vector<Diagnostic> &diagnostics,
+                                            const std::filesystem::path &source,
+                                            const std::string &path) {
+  CavePerceptualContinuityBudgetDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readStringOr(value, "id", diagnostics, source, path, {});
+  out.minimum_score =
+      readFloatOr(value, "minimum_score", diagnostics, source, path, out.minimum_score);
+  out.required_channels =
+      readStringArray(value, "required_channels", diagnostics, source, path);
+  const Json *reaction_packages = member(value, "reaction_packages");
+  if (reaction_packages != nullptr) {
+    if (reaction_packages->kind != Json::Kind::Array) {
+      addDiagnostic(diagnostics, source, childPath(path, "reaction_packages"),
+                    "expected reaction package array");
+    } else {
+      for (std::size_t i = 0; i < reaction_packages->array.size(); ++i) {
+        out.reaction_packages.push_back(parseCaveReactionPackageDocument(
+            reaction_packages->array[i], diagnostics, source,
+            indexPath(childPath(path, "reaction_packages"), i)));
+      }
+    }
+  }
+  return out;
+}
+
 [[nodiscard]] CaveValidationDocument parseCaveValidationDocument(
     const Json &root, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
     const std::string &path) {
@@ -982,6 +1027,10 @@ void hashNumber(std::uint64_t &hash, const std::uint64_t value) {
   if (const Json *perceptual = member(root, "perceptual_budget")) {
     out.perceptual_budget = parseCavePerceptualBudgetDocument(
         *perceptual, diagnostics, source, childPath(path, "perceptual_budget"));
+  }
+  if (const Json *continuity = member(root, "perceptual_continuity_budget")) {
+    out.perceptual_continuity_budget = parseCavePerceptualContinuityBudgetDocument(
+        *continuity, diagnostics, source, childPath(path, "perceptual_continuity_budget"));
   }
   return out;
 }
@@ -1692,6 +1741,39 @@ LoadResult<ActionGraphDocument> parseActionGraphDocument(std::string_view source
       }
       result.value.nodes.push_back(std::move(node));
     }
+    const Json *reaction_contracts = member(root, "reaction_contracts");
+    if (reaction_contracts != nullptr) {
+      if (reaction_contracts->kind != Json::Kind::Array) {
+        addDiagnostic(result.diagnostics, source_path, "$.reaction_contracts",
+                      "expected reaction contract array");
+      } else {
+        std::set<std::string> contract_ids;
+        for (std::size_t i = 0; i < reaction_contracts->array.size(); ++i) {
+          const Json &contract_json = reaction_contracts->array[i];
+          const std::string path = indexPath("$.reaction_contracts", i);
+          if (!expectObject(contract_json, result.diagnostics, source_path, path)) {
+            continue;
+          }
+          ActionReactionContractDocument contract;
+          contract.id = readString(contract_json, "id", result.diagnostics, source_path, path, true)
+                            .value_or("");
+          contract.minimum_score =
+              readFloatOr(contract_json, "minimum_score", result.diagnostics, source_path, path,
+                          contract.minimum_score);
+          contract.required_channels =
+              readStringArray(contract_json, "required_channels", result.diagnostics,
+                              source_path, path);
+          contract.required_events =
+              readStringArray(contract_json, "required_events", result.diagnostics,
+                              source_path, path);
+          if (!contract.id.empty() && !contract_ids.insert(contract.id).second) {
+            addDiagnostic(result.diagnostics, source_path, childPath(path, "id"),
+                          "duplicate reaction contract id '" + contract.id + "'");
+          }
+          result.value.reaction_contracts.push_back(std::move(contract));
+        }
+      }
+    }
   } catch (const std::exception &error) {
     addDiagnostic(result.diagnostics, source_path, "$", error.what());
   }
@@ -1903,6 +1985,19 @@ std::uint64_t actionGraphContractStamp(const ActionGraphDocument &graph) {
     hashNumber(hash, node.tags.size());
     for (const GameplayTag &tag : node.tags) {
       hashString(hash, tag.value);
+    }
+  }
+  hashNumber(hash, graph.reaction_contracts.size());
+  for (const ActionReactionContractDocument &contract : graph.reaction_contracts) {
+    hashString(hash, contract.id);
+    hashString(hash, std::to_string(contract.minimum_score));
+    hashNumber(hash, contract.required_channels.size());
+    for (const std::string &channel : contract.required_channels) {
+      hashString(hash, channel);
+    }
+    hashNumber(hash, contract.required_events.size());
+    for (const std::string &event : contract.required_events) {
+      hashString(hash, event);
     }
   }
   return hash;
@@ -2163,6 +2258,47 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
     if (budget.minimum_salience < 0.0f || budget.minimum_salience > 1.0f) {
       addError("$.validation.perceptual_budget.minimum_salience",
                "perceptual minimum_salience must be in [0, 1]");
+    }
+  }
+
+  if (cave.validation.perceptual_continuity_budget.has_value()) {
+    const CavePerceptualContinuityBudgetDocument &budget =
+        *cave.validation.perceptual_continuity_budget;
+    if (budget.id.empty()) {
+      addError("$.validation.perceptual_continuity_budget.id",
+               "perceptual continuity budget id must not be empty");
+    }
+    if (budget.minimum_score < 0.0f || budget.minimum_score > 1.0f) {
+      addError("$.validation.perceptual_continuity_budget.minimum_score",
+               "perceptual continuity minimum_score must be in [0, 1]");
+    }
+    if (budget.required_channels.empty()) {
+      addError("$.validation.perceptual_continuity_budget.required_channels",
+               "perceptual continuity budget must require at least one channel");
+    }
+    std::set<std::string> package_ids;
+    for (const CaveReactionPackageDocument &package : budget.reaction_packages) {
+      if (package.id.empty()) {
+        addError("$.validation.perceptual_continuity_budget.reaction_packages",
+                 "reaction package id must not be empty");
+        continue;
+      }
+      if (!package_ids.insert(package.id).second) {
+        addError("$.validation.perceptual_continuity_budget.reaction_packages." + package.id,
+                 "duplicate reaction package id");
+      }
+      if (package.action.empty()) {
+        addError("$.validation.perceptual_continuity_budget.reaction_packages." + package.id,
+                 "reaction package action must not be empty");
+      }
+      if (package.minimum_score < 0.0f || package.minimum_score > 1.0f) {
+        addError("$.validation.perceptual_continuity_budget.reaction_packages." + package.id,
+                 "reaction package minimum_score must be in [0, 1]");
+      }
+      if (package.required_channels.empty()) {
+        addError("$.validation.perceptual_continuity_budget.reaction_packages." + package.id,
+                 "reaction package must require at least one channel");
+      }
     }
   }
 

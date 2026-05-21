@@ -8,6 +8,17 @@ namespace {
 
 constexpr std::uint64_t kLumenWorldSeed64 = 0xA57E4C554D454E57ull;
 constexpr std::uint64_t kLumenEntryRegionId = 0x4C554D454E434156ull;
+constexpr std::uint32_t kContinuitySpatialAffordance = 1u << 0u;
+constexpr std::uint32_t kContinuityMotionContinuity = 1u << 1u;
+constexpr std::uint32_t kContinuityHazardReadability = 1u << 2u;
+constexpr std::uint32_t kContinuityMaterialMemory = 1u << 3u;
+constexpr std::uint32_t kContinuityLightingAtmosphere = 1u << 4u;
+constexpr std::uint32_t kContinuityEventResidue = 1u << 5u;
+constexpr std::uint32_t kContinuitySensoryFeedback = 1u << 6u;
+constexpr std::uint32_t kContinuityAiAttention = 1u << 7u;
+constexpr std::uint32_t kContinuityStreamingResidency = 1u << 8u;
+constexpr std::uint32_t kContinuityUiFeedback = 1u << 9u;
+constexpr std::uint32_t kContinuityResourceState = 1u << 10u;
 
 [[nodiscard]] std::uint64_t lumenHash(std::uint64_t seed, const std::uint64_t value) {
   return hashCombine64(seed == 0u ? kLumenWorldSeed64 : seed, value);
@@ -37,6 +48,61 @@ constexpr std::uint64_t kLumenEntryRegionId = 0x4C554D454E434156ull;
     seed = lumenHash(seed, static_cast<std::uint64_t>(static_cast<unsigned char>(c)));
   }
   return seed;
+}
+
+[[nodiscard]] std::uint32_t lumenContinuityChannelMask(const std::string_view channel) {
+  if (channel == "spatial_affordance") {
+    return kContinuitySpatialAffordance;
+  }
+  if (channel == "motion_continuity") {
+    return kContinuityMotionContinuity;
+  }
+  if (channel == "hazard_readability") {
+    return kContinuityHazardReadability;
+  }
+  if (channel == "material_memory") {
+    return kContinuityMaterialMemory;
+  }
+  if (channel == "lighting_atmosphere") {
+    return kContinuityLightingAtmosphere;
+  }
+  if (channel == "event_residue") {
+    return kContinuityEventResidue;
+  }
+  if (channel == "sensory_feedback") {
+    return kContinuitySensoryFeedback;
+  }
+  if (channel == "ai_attention") {
+    return kContinuityAiAttention;
+  }
+  if (channel == "streaming_residency") {
+    return kContinuityStreamingResidency;
+  }
+  if (channel == "ui_feedback") {
+    return kContinuityUiFeedback;
+  }
+  if (channel == "resource_state") {
+    return kContinuityResourceState;
+  }
+  return 0u;
+}
+
+[[nodiscard]] std::uint32_t
+lumenContinuityChannelMask(const std::vector<std::string> &channels) {
+  std::uint32_t mask = 0u;
+  for (const std::string &channel : channels) {
+    mask |= lumenContinuityChannelMask(channel);
+  }
+  return mask;
+}
+
+[[nodiscard]] float lumenContinuityScore(const std::uint32_t required,
+                                         const std::uint32_t observed) {
+  if (required == 0u) {
+    return 1.0f;
+  }
+  return static_cast<float>(std::popcount(required & observed)) /
+         static_cast<float>(std::popcount(required));
 }
 
 [[nodiscard]] Vec3 lumenSdkVec(const sdk::Vec3 &value) {
@@ -366,6 +432,109 @@ void LumenRun::resetWorldProof() {
   world_forensics_.trace_hash = world_state_.traceHash();
 }
 
+void LumenRun::recordCoalMiningReaction(const std::size_t ore_index,
+                                        const MiningFeedback &feedback,
+                                        const CoalOreNode &ore) {
+  LumenReactionPackageReport report;
+  report.required_channel_mask = kContinuityMaterialMemory | kContinuityEventResidue |
+                                 kContinuitySensoryFeedback | kContinuityResourceState |
+                                 kContinuityAiAttention | kContinuityUiFeedback;
+  report.minimum_score = 0.68f;
+  if (authoring_.valid && authoring_.cave.validation.perceptual_continuity_budget.has_value()) {
+    const sdk::CavePerceptualContinuityBudgetDocument &budget =
+        *authoring_.cave.validation.perceptual_continuity_budget;
+    for (const sdk::CaveReactionPackageDocument &package : budget.reaction_packages) {
+      if (package.id == "coal_mining_reaction") {
+        report.required_channel_mask = lumenContinuityChannelMask(package.required_channels);
+        report.minimum_score = package.minimum_score;
+        break;
+      }
+    }
+  }
+
+  std::uint64_t material_hash = lumenHashString("coal.material-memory", kLumenWorldSeed64);
+  material_hash = lumenHash(material_hash, static_cast<std::uint64_t>(ore_index));
+  material_hash = lumenHash(feedback.crack_fraction, material_hash);
+  material_hash = lumenHash(material_hash, static_cast<std::uint64_t>(std::max(ore.health, 0)));
+  material_hash = lumenHash(material_hash, static_cast<std::uint64_t>(std::max(ore.max_health, 1)));
+  material_hash = lumenHash(feedback.impact_point, material_hash);
+  report.material_memory_hash = material_hash;
+
+  std::uint64_t residue_hash = lumenHashString("coal.event-residue", material_hash);
+  for (const VoxelImpactEvent &event : feedback.impact_events) {
+    residue_hash = lumenHash(residue_hash, static_cast<std::uint64_t>(event.kind));
+    residue_hash = lumenHash(event.intensity, residue_hash);
+    residue_hash = lumenHash(event.crack_fraction, residue_hash);
+    residue_hash = lumenHash(residue_hash, static_cast<std::uint64_t>(std::max(event.particle_count, 0)));
+  }
+  report.event_residue_hash = residue_hash;
+
+  std::size_t attentive_skitters = 0u;
+  std::uint64_t ai_hash = lumenHashString("coal.noise-attention", residue_hash);
+  for (const CaveSkitter &skitter : cave_skitters_) {
+    if (skitter.dead || skitter.state.dead) {
+      continue;
+    }
+    const float distance_to_impact = length(skitter.state.position - feedback.impact_point);
+    if (distance_to_impact <= 24.0f) {
+      ++attentive_skitters;
+      ai_hash = lumenHash(skitter.state.position, ai_hash);
+      ai_hash = lumenHash(distance_to_impact, ai_hash);
+    }
+  }
+  ai_hash = lumenHash(ai_hash, static_cast<std::uint64_t>(attentive_skitters));
+  report.ai_attention_hash = ai_hash;
+
+  std::uint64_t resource_hash = lumenHashString("coal.resource-state", material_hash);
+  resource_hash = lumenHash(resource_hash, static_cast<std::uint64_t>(std::max(ore.health, 0)));
+  resource_hash = lumenHash(resource_hash, static_cast<std::uint64_t>(ore.collected ? 1u : 0u));
+  resource_hash =
+      lumenHash(resource_hash, static_cast<std::uint64_t>(std::max(feedback.resource_quantity, 0)));
+  report.resource_state_hash = resource_hash;
+
+  const InteractionFocus &focus = interaction_.focus();
+  std::uint64_t readability_hash = lumenHashString("coal.ui-readability", resource_hash);
+  readability_hash = lumenHash(focus.visible, readability_hash);
+  readability_hash = lumenHash(readability_hash, static_cast<std::uint64_t>(focus.user_data));
+  readability_hash = lumenHashString(focus.subject_label, readability_hash);
+  report.readability_audit_hash = readability_hash;
+  report.lighting_atmosphere_hash = world_forensics_.cave_gate.perceptual_continuity_report_hash;
+  report.streaming_residency_lod_hash = world_forensics_.streaming_region_id;
+
+  report.observed_channel_mask = 0u;
+  if (report.material_memory_hash != 0u) {
+    report.observed_channel_mask |= kContinuityMaterialMemory;
+  }
+  if (report.event_residue_hash != 0u) {
+    report.observed_channel_mask |= kContinuityEventResidue | kContinuitySensoryFeedback;
+  }
+  if (report.ai_attention_hash != 0u) {
+    report.observed_channel_mask |= kContinuityAiAttention;
+  }
+  if (report.resource_state_hash != 0u) {
+    report.observed_channel_mask |= kContinuityResourceState;
+  }
+  if (report.readability_audit_hash != 0u) {
+    report.observed_channel_mask |= kContinuityUiFeedback;
+  }
+  report.missing_channel_mask = report.required_channel_mask & ~report.observed_channel_mask;
+  report.continuity_score =
+      lumenContinuityScore(report.required_channel_mask, report.observed_channel_mask);
+  report.accepted =
+      report.missing_channel_mask == 0u && report.continuity_score + 0.0001f >= report.minimum_score;
+  std::uint64_t package_hash = lumenHashString("coal.reaction-package", material_hash);
+  package_hash = lumenHash(package_hash, report.material_memory_hash);
+  package_hash = lumenHash(package_hash, report.event_residue_hash);
+  package_hash = lumenHash(package_hash, report.ai_attention_hash);
+  package_hash = lumenHash(package_hash, report.resource_state_hash);
+  package_hash = lumenHash(package_hash, report.readability_audit_hash);
+  package_hash = lumenHash(report.continuity_score, package_hash);
+  report.reaction_package_hash = package_hash;
+  report.diagnostic = report.accepted ? "coal mining reaction continuity accepted"
+                                      : "coal mining reaction continuity missing channels";
+  world_forensics_.coal_mining_reaction = std::move(report);
+}
+
 void LumenRun::rebuildCaveWorldGate() {
   LumenCaveWorldGateReport report;
   report.seed = authoring_.valid && authoring_.cave.validation.probe_agent.has_value()
@@ -576,8 +745,65 @@ void LumenRun::rebuildCaveWorldGate() {
   perceptual_hash = lumenHash(perceptual_hash, static_cast<std::uint64_t>(cave_webs_.size()));
   report.perceptual_report_hash = perceptual_hash;
 
+  std::uint32_t continuity_required = 0u;
+  std::uint32_t continuity_observed = 0u;
+  float continuity_minimum = 0.0f;
+  bool reaction_packages_valid = true;
+  if (authoring_.valid && authoring_.cave.validation.perceptual_continuity_budget.has_value()) {
+    const sdk::CavePerceptualContinuityBudgetDocument &budget =
+        *authoring_.cave.validation.perceptual_continuity_budget;
+    continuity_required = lumenContinuityChannelMask(budget.required_channels);
+    continuity_minimum = budget.minimum_score;
+    for (const sdk::CaveReactionPackageDocument &package : budget.reaction_packages) {
+      const std::uint32_t package_required =
+          lumenContinuityChannelMask(package.required_channels);
+      const std::uint32_t package_observed =
+          package.action == "action.mine.coal_ore"
+              ? kContinuityMaterialMemory | kContinuityEventResidue |
+                    kContinuitySensoryFeedback | kContinuityResourceState |
+                    kContinuityAiAttention | kContinuityUiFeedback
+              : 0u;
+      continuity_observed |= package_observed;
+      const float package_score = lumenContinuityScore(package_required, package_observed);
+      reaction_packages_valid =
+          reaction_packages_valid &&
+          ((package_required & ~package_observed) == 0u &&
+           package_score + 0.0001f >= package.minimum_score);
+    }
+  }
+  if (report.navigation_valid && report.checked_steps > 0u) {
+    continuity_observed |= kContinuitySpatialAffordance | kContinuityMotionContinuity |
+                           kContinuityStreamingResidency;
+  }
+  if (report.reachable_encounters > 0u) {
+    continuity_observed |= kContinuityHazardReadability | kContinuityAiAttention;
+  }
+  if (report.reachable_resources > 0u) {
+    continuity_observed |= kContinuityMaterialMemory | kContinuityEventResidue |
+                           kContinuityResourceState;
+  }
+  if (fixture_count > 0u) {
+    continuity_observed |= kContinuityLightingAtmosphere;
+  }
+  report.perceptual_continuity_required_channel_mask = continuity_required;
+  report.perceptual_continuity_observed_channel_mask = continuity_observed;
+  report.perceptual_continuity_missing_channel_mask = continuity_required & ~continuity_observed;
+  report.perceptual_continuity_score =
+      lumenContinuityScore(continuity_required, continuity_observed);
+  report.perceptual_continuity_minimum_score = continuity_minimum;
+  report.perceptual_continuity_valid =
+      (continuity_required == 0u ||
+       (report.perceptual_continuity_missing_channel_mask == 0u &&
+        report.perceptual_continuity_score + 0.0001f >= continuity_minimum)) &&
+      reaction_packages_valid;
+  std::uint64_t continuity_hash = lumenHashString("lumen.cave.continuity", report.seed);
+  continuity_hash = lumenHash(continuity_hash, continuity_required);
+  continuity_hash = lumenHash(continuity_hash, continuity_observed);
+  continuity_hash = lumenHash(report.perceptual_continuity_score, continuity_hash);
+  report.perceptual_continuity_report_hash = continuity_hash;
+
   bool accepted = report.navigation_valid && report.resource_valid && report.encounter_valid &&
-                  report.perceptual_valid;
+                  report.perceptual_valid && report.perceptual_continuity_valid;
   report.verdict =
       accepted ? LumenWorldGateVerdict::Accepted : LumenWorldGateVerdict::Quarantined;
   if (!report.navigation_valid) {
@@ -592,6 +818,10 @@ void LumenRun::rebuildCaveWorldGate() {
   if (!report.perceptual_valid) {
     report.diagnostic = appendGateReason(report.diagnostic, "perceptual salience below budget");
   }
+  if (!report.perceptual_continuity_valid) {
+    report.diagnostic =
+        appendGateReason(report.diagnostic, "perceptual continuity below budget");
+  }
   if (report.diagnostic.empty()) {
     report.diagnostic = "runtime generated cave world gate accepted";
   }
@@ -602,6 +832,7 @@ void LumenRun::rebuildCaveWorldGate() {
   probe_hash = lumenHash(probe_hash, report.resource_probe_hash);
   probe_hash = lumenHash(probe_hash, report.encounter_budget_hash);
   probe_hash = lumenHash(probe_hash, report.perceptual_report_hash);
+  probe_hash = lumenHash(probe_hash, report.perceptual_continuity_report_hash);
   probe_hash = lumenHashString(lumenGateVerdictName(report.verdict), probe_hash);
   report.probe_trace_hash = probe_hash;
 
@@ -648,6 +879,8 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   actor_hash = lumenHash(actor_hash, static_cast<std::uint64_t>(status_.health));
   actor_hash = lumenHash(actor_hash, static_cast<std::uint64_t>(alive_skitters));
   actor_hash = lumenHash(actor_hash, static_cast<std::uint64_t>(live_ores));
+  actor_hash = lumenHash(actor_hash, world_forensics_.coal_mining_reaction.reaction_package_hash);
+  actor_hash = lumenHash(actor_hash, world_forensics_.coal_mining_reaction.resource_state_hash);
 
   const CaveLightingState cave_light = caveLightingStateAt(player_position_);
   const FocusPromptModel prompt = focusPromptModel();
@@ -657,6 +890,8 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   sensory_hash = lumenHash(cave_light.wall_light, sensory_hash);
   sensory_hash = lumenHash(prompt.visible, sensory_hash);
   sensory_hash = lumenHashString(prompt.subject, sensory_hash);
+  sensory_hash = lumenHash(sensory_hash, world_forensics_.coal_mining_reaction.event_residue_hash);
+  sensory_hash = lumenHash(sensory_hash, world_forensics_.coal_mining_reaction.ai_attention_hash);
 
   std::uint64_t visibility_hash = lumenHashString("visibility-set", sensory_hash);
   visibility_hash = lumenHash(visibility_hash, static_cast<std::uint64_t>(scene_.objects().size()));
@@ -693,6 +928,8 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   transition_hash = lumenHash(transition_hash, sensory_hash);
   transition_hash = lumenHash(transition_hash, visibility_hash);
   transition_hash = lumenHash(transition_hash, world_forensics_.cave_gate.probe_trace_hash);
+  transition_hash =
+      lumenHash(transition_hash, world_forensics_.coal_mining_reaction.reaction_package_hash);
   world_forensics_.world_transition_hash = transition_hash;
 }
 

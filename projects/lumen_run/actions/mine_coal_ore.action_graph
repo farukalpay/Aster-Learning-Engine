@@ -13,5 +13,28 @@
       },
       "tags": ["interaction.mineable", "resource.coal"]
     }
+  ],
+  "reaction_contracts": [
+    {
+      "id": "coal_mining_reaction",
+      "minimum_score": 0.68,
+      "required_channels": [
+        "material_memory",
+        "event_residue",
+        "sensory_feedback",
+        "resource_state",
+        "ai_attention",
+        "ui_feedback"
+      ],
+      "required_events": [
+        "surface_hit",
+        "crack",
+        "shard_burst",
+        "dust_burst",
+        "carve_resource_state_write",
+        "ai_noise_attention",
+        "ui_feedback"
+      ]
+    }
   ]
 }
