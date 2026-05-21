@@ -13,25 +13,49 @@ struct ProjectionPolicy {
   CoordinateHandedness handedness = CoordinateHandedness::RightHanded;
   ClipDepthRange depth_range = ClipDepthRange::ZeroToOne;
   DepthDirection depth_direction = DepthDirection::ReverseZ;
+  ViewportOrigin viewport_origin = ViewportOrigin::TopLeft;
+  bool y_flip = true;
+  MatrixStorageOrder matrix_storage = MatrixStorageOrder::ColumnMajor;
+  VectorConvention vector_convention = VectorConvention::ColumnVector;
 };
 
 [[nodiscard]] inline constexpr ProjectionPolicy defaultProjectionPolicy() {
   return {};
 }
 
-[[nodiscard]] inline constexpr RenderConvention defaultRenderConvention() {
+[[nodiscard]] inline constexpr ProjectionConvention defaultProjectionConvention() {
   return {};
 }
 
-[[nodiscard]] inline constexpr ProjectionPolicy projectionPolicy(const RenderConvention convention) {
-  return {convention.handedness, convention.depth_range, convention.depth_direction};
+[[nodiscard]] inline constexpr RenderConvention defaultRenderConvention() {
+  return defaultProjectionConvention();
+}
+
+[[nodiscard]] inline constexpr ProjectionPolicy projectionPolicy(
+    const ProjectionConvention convention) {
+  return {.handedness = convention.handedness,
+          .depth_range = convention.depth_range,
+          .depth_direction = convention.depth_direction,
+          .viewport_origin = convention.viewport_origin,
+          .y_flip = convention.y_flip,
+          .matrix_storage = convention.matrix_storage,
+          .vector_convention = convention.vector_convention};
+}
+
+[[nodiscard]] inline constexpr ProjectionConvention projectionConventionFromPolicy(
+    const ProjectionPolicy policy) {
+  return {.handedness = policy.handedness,
+          .depth_range = policy.depth_range,
+          .depth_direction = policy.depth_direction,
+          .viewport_origin = policy.viewport_origin,
+          .y_flip = policy.y_flip,
+          .matrix_storage = policy.matrix_storage,
+          .vector_convention = policy.vector_convention};
 }
 
 [[nodiscard]] inline constexpr RenderConvention renderConventionFromProjectionPolicy(
     const ProjectionPolicy policy) {
-  return {.handedness = policy.handedness,
-          .depth_range = policy.depth_range,
-          .depth_direction = policy.depth_direction};
+  return projectionConventionFromPolicy(policy);
 }
 
 enum class RayOriginPolicy {
@@ -74,6 +98,32 @@ enum class RayOriginPolicy {
 
 [[nodiscard]] inline Direction transformDirection(const Direction direction, const Mat4 &matrix) {
   return Direction{transformVector(matrix, direction.value)};
+}
+
+[[nodiscard]] inline ClipFromWorld operator*(const ClipFromView clip_from_view,
+                                             const ViewFromWorld view_from_world) {
+  return ClipFromWorld{clip_from_view.value * view_from_world.value};
+}
+
+[[nodiscard]] inline MathResult<WorldFromClip>
+inverse(const ClipFromWorld clip_from_world, const MathPolicy policy = defaultMathPolicy()) {
+  const MathResult<Mat4> result = inverse(clip_from_world.value, policy);
+  return result ? MathResult<WorldFromClip>::success(WorldFromClip{result.value})
+                : MathResult<WorldFromClip>::failure(result.diagnostics.error,
+                                                     result.diagnostics.message);
+}
+
+[[nodiscard]] inline MathResult<WorldNormalFromLocal> worldNormalFromLocal(
+    const WorldFromLocal world_from_local, const MathPolicy policy = defaultMathPolicy()) {
+  const MathResult<Mat3> result = normalMatrix(world_from_local.value, policy);
+  return result ? MathResult<WorldNormalFromLocal>::success(WorldNormalFromLocal{result.value})
+                : MathResult<WorldNormalFromLocal>::failure(result.diagnostics.error,
+                                                            result.diagnostics.message);
+}
+
+[[nodiscard]] inline Normal transformNormal(const Normal normal,
+                                            const WorldNormalFromLocal normal_from_local) {
+  return Normal{normalizeOr(normal_from_local.value * normal.value, {0.0f, 1.0f, 0.0f})};
 }
 
 [[nodiscard]] inline Mat4 translation(const Vec3 offset) {
@@ -436,7 +486,10 @@ enum class RayOriginPolicy {
       policy.depth_direction == DepthDirection::ReverseZ
           ? (policy.depth_range == ClipDepthRange::NegativeOneToOne ? 1.0f : 1.0f)
           : (policy.depth_range == ClipDepthRange::NegativeOneToOne ? -1.0f : 0.0f);
-  const float z_far = policy.depth_direction == DepthDirection::ReverseZ ? 0.0f : 1.0f;
+  const float z_far =
+      policy.depth_direction == DepthDirection::ReverseZ
+          ? (policy.depth_range == ClipDepthRange::NegativeOneToOne ? -1.0f : 0.0f)
+          : 1.0f;
   const float view_near =
       policy.handedness == CoordinateHandedness::RightHanded ? -near_plane : near_plane;
   const float view_far =
@@ -485,10 +538,14 @@ enum class RayOriginPolicy {
 
 [[nodiscard]] inline NdcPoint divideByW(const ClipPoint clip) {
   const float inv_w = 1.0f / clip.w;
-  return {clip.x * inv_w, clip.y * inv_w, clip.z * inv_w};
+  return NdcPoint{clip.x * inv_w, clip.y * inv_w, clip.z * inv_w};
 }
 
 [[nodiscard]] inline MathResult<NdcPoint> clipToNdc(const ClipPoint clip) {
+  if (!allFinite(clip.value)) {
+    return MathResult<NdcPoint>::failure(MathError::NonFiniteInput,
+                                         "Clip to NDC requires finite clip coordinates.");
+  }
   if (std::abs(clip.w) <= 0.000001f) {
     return MathResult<NdcPoint>::failure(MathError::DegenerateInput,
                                          "Cannot divide by a near-zero clip W.");
@@ -496,8 +553,16 @@ enum class RayOriginPolicy {
   return MathResult<NdcPoint>::success(divideByW(clip));
 }
 
+[[nodiscard]] inline bool allFinite(const Viewport viewport) {
+  return allFinite(viewport.origin) && allFinite(viewport.size);
+}
+
 [[nodiscard]] inline MathResult<ScreenPoint> ndcToScreen(const NdcPoint ndc,
                                                          const Viewport viewport) {
+  if (!allFinite(ndc.value) || !allFinite(viewport)) {
+    return MathResult<ScreenPoint>::failure(
+        MathError::NonFiniteInput, "NDC to screen requires finite coordinates and viewport.");
+  }
   if (viewport.size.x <= 0.0f || viewport.size.y <= 0.0f) {
     return MathResult<ScreenPoint>::failure(MathError::InvalidArgument,
                                             "Viewport must have a positive size.");
@@ -508,12 +573,16 @@ enum class RayOriginPolicy {
                              ? 1.0f - normalized_y
                              : normalized_y;
   return MathResult<ScreenPoint>::success(
-      {viewport.origin.x + normalized_x * viewport.size.x,
-       viewport.origin.y + screen_y * viewport.size.y, ndc.z});
+      ScreenPoint{viewport.origin.x + normalized_x * viewport.size.x,
+                  viewport.origin.y + screen_y * viewport.size.y, ndc.z});
 }
 
 [[nodiscard]] inline MathResult<NdcPoint> screenToNdc(const ScreenPoint screen,
                                                       const Viewport viewport) {
+  if (!allFinite(screen.value) || !allFinite(viewport)) {
+    return MathResult<NdcPoint>::failure(
+        MathError::NonFiniteInput, "Screen to NDC requires finite coordinates and viewport.");
+  }
   if (viewport.size.x <= 0.0f || viewport.size.y <= 0.0f) {
     return MathResult<NdcPoint>::failure(MathError::InvalidArgument,
                                          "Viewport must have a positive size.");
@@ -523,12 +592,16 @@ enum class RayOriginPolicy {
   const float normalized_y =
       viewport.origin_convention == ViewportOrigin::TopLeft ? 1.0f - screen_y : screen_y;
   return MathResult<NdcPoint>::success(
-      {normalized_x * 2.0f - 1.0f, normalized_y * 2.0f - 1.0f, screen.z});
+      NdcPoint{normalized_x * 2.0f - 1.0f, normalized_y * 2.0f - 1.0f, screen.z});
 }
 
 [[nodiscard]] inline MathResult<ScreenPoint> project(const WorldPoint point,
                                                      const WorldToClip world_to_clip,
                                                      const Viewport viewport) {
+  if (!allFinite(point.value) || !allFinite(world_to_clip.value)) {
+    return MathResult<ScreenPoint>::failure(
+        MathError::NonFiniteInput, "World to screen projection requires finite inputs.");
+  }
   const MathResult<NdcPoint> ndc = clipToNdc(transformPoint(point, world_to_clip));
   if (!ndc) {
     return MathResult<ScreenPoint>::failure(ndc.diagnostics.error, ndc.diagnostics.message);
@@ -539,17 +612,26 @@ enum class RayOriginPolicy {
 [[nodiscard]] inline MathResult<WorldPoint> unproject(const ScreenPoint screen,
                                                       const ClipToWorld clip_to_world,
                                                       const Viewport viewport) {
+  if (!allFinite(screen.value) || !allFinite(clip_to_world.value)) {
+    return MathResult<WorldPoint>::failure(
+        MathError::NonFiniteInput, "Screen to world unprojection requires finite inputs.");
+  }
   const MathResult<NdcPoint> ndc = screenToNdc(screen, viewport);
   if (!ndc) {
     return MathResult<WorldPoint>::failure(ndc.diagnostics.error, ndc.diagnostics.message);
   }
   const Vec4 world = clip_to_world.value * Vec4{ndc.value.x, ndc.value.y, ndc.value.z, 1.0f};
+  if (!allFinite(world)) {
+    return MathResult<WorldPoint>::failure(
+        MathError::NonFiniteInput, "Screen to world unprojection produced non-finite coordinates.");
+  }
   if (std::abs(world.w) <= 0.000001f) {
     return MathResult<WorldPoint>::failure(MathError::DegenerateInput,
                                            "Unproject cannot divide by a near-zero world W.",
                                            WorldPoint{world.x, world.y, world.z});
   }
-  return MathResult<WorldPoint>::success({world.x / world.w, world.y / world.w, world.z / world.w});
+  return MathResult<WorldPoint>::success(
+      WorldPoint{world.x / world.w, world.y / world.w, world.z / world.w});
 }
 
 [[nodiscard]] inline MathResult<WorldRay> screenRay(
@@ -561,7 +643,10 @@ enum class RayOriginPolicy {
                                ? 1.0f
                                : (policy.depth_range == ClipDepthRange::NegativeOneToOne ? -1.0f
                                                                                           : 0.0f);
-  const float far_depth = policy.depth_direction == DepthDirection::ReverseZ ? 0.0f : 1.0f;
+  const float far_depth =
+      policy.depth_direction == DepthDirection::ReverseZ
+          ? (policy.depth_range == ClipDepthRange::NegativeOneToOne ? -1.0f : 0.0f)
+          : 1.0f;
   const MathResult<WorldPoint> near_point =
       unproject(ScreenPoint{screen.x, screen.y, near_depth}, clip_to_world, viewport);
   const MathResult<WorldPoint> far_point =

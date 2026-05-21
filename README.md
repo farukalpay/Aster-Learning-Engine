@@ -102,7 +102,7 @@ aster::writeFramebufferPpm("/tmp/aster_first_scene.ppm", 1280, 720);
 Run built-in lab scenes:
 
 ```bash
-./build/aster_preview --scene material-lab --output /tmp/material_lab.ppm --width 1280 --height 720 --samples 2
+./build/aster_preview --scene material-lab --output assets/screenshots/material_lab.png --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene mesh-lab --output /tmp/mesh_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene lighting-lab --output /tmp/lighting_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene scene-lab --output /tmp/scene_lab.ppm --width 1280 --height 720 --samples 2
@@ -279,7 +279,7 @@ gallery material.
 ```bash
 mkdir -p assets/screenshots /tmp/aster_learning_shots
 
-./build/aster_preview --scene material-lab --output /tmp/aster_learning_shots/material_lab.ppm --width 1280 --height 720 --samples 2
+./build/aster_preview --scene material-lab --output assets/screenshots/material_lab.png --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene mesh-lab --output /tmp/aster_learning_shots/mesh_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene lighting-lab --output /tmp/aster_learning_shots/lighting_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene scene-lab --output /tmp/aster_learning_shots/scene_lab.ppm --width 1280 --height 720 --samples 2
@@ -288,7 +288,6 @@ mkdir -p assets/screenshots /tmp/aster_learning_shots
 ./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_run.ppm --capture-route classic-gauntlet --screenshot-frame 160 --capture-hud --msaa 0 --window-width 1280 --window-height 720
 ./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_cave_interior.ppm --capture-route classic-gauntlet --screenshot-frame 160 --msaa 0 --window-width 1280 --window-height 720
 
-sips -s format png /tmp/aster_learning_shots/material_lab.ppm --out assets/screenshots/material_lab.png
 sips -s format png /tmp/aster_learning_shots/mesh_lab.ppm --out assets/screenshots/mesh_lab.png
 sips -s format png /tmp/aster_learning_shots/lighting_lab.ppm --out assets/screenshots/lighting_lab.png
 sips -s format png /tmp/aster_learning_shots/scene_lab.ppm --out assets/screenshots/scene_lab.png

@@ -227,8 +227,9 @@ aster::Vec3 saturatedColor(const aster::Vec3 color) {
 
 void applyIndustrialLensColor(aster::Material &lens_material, const aster::Vec3 color) {
   const aster::Vec3 saturated = saturatedColor(color);
-  lens_material.base_color = mixColor(saturated * 0.46f, {0.030f, 0.036f, 0.038f}, 0.16f);
-  lens_material.emission_color = saturated;
+  lens_material.base_color =
+      aster::LinearRgb{mixColor(saturated * 0.46f, {0.030f, 0.036f, 0.038f}, 0.16f)};
+  lens_material.emission_color = aster::EmissionColor{saturated};
   lens_material.emission_strength = std::max(lens_material.emission_strength, 0.64f);
 }
 
@@ -272,8 +273,8 @@ aster::Material material(const aster::Vec3 base, const aster::Vec3 emission, con
                          const float pattern_depth = 0.0f, const float pattern_contrast = 0.0f,
                          const float pattern_mortar = 0.08f,
                          const aster::ProceduralSurfaceLayer procedural = {}) {
-  return aster::makeMaterial({.base_color = base,
-                              .emission_color = emission,
+  return aster::makeMaterial({.base_color = aster::LinearRgb{base},
+                              .emission_color = aster::EmissionColor{emission},
                               .roughness = roughness,
                               .metallic = metallic,
                               .emission_strength = glow,
@@ -299,7 +300,8 @@ aster::Material lumenPlacedResourceMaterial(const aster::ItemDefinition *definit
                 .roughness_variation = 0.26f,
                 .height_shading = 0.28f});
   if (definition != nullptr) {
-    placed_stone.base_color = mixColor(placed_stone.base_color, definition->tint, 0.26f);
+    placed_stone.base_color =
+        aster::LinearRgb{mixColor(placed_stone.base_color.value, definition->tint, 0.26f)};
   }
   placed_stone.camera_occlusion = aster::CameraOcclusionPolicy::Solid;
   placed_stone.cull_mode = aster::FaceCullMode::Back;

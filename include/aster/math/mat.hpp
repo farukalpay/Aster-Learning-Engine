@@ -103,25 +103,48 @@ template <typename Tag> struct SemanticMat4 {
   Mat4 value{};
 
   constexpr SemanticMat4() = default;
-  constexpr SemanticMat4(const Mat4 matrix) : value(matrix) {}
+  constexpr explicit SemanticMat4(const Mat4 matrix) : value(matrix) {}
   constexpr SemanticMat4(const SemanticMat4 &) = default;
   constexpr SemanticMat4 &operator=(const SemanticMat4 &) = default;
 
-  [[nodiscard]] constexpr operator Mat4() const {
+  [[nodiscard]] constexpr const Mat4 &matrix() const {
     return value;
   }
 
-  constexpr SemanticMat4 &operator=(const Mat4 matrix) {
-    value = matrix;
-    return *this;
+  [[nodiscard]] constexpr Mat4 &matrix() {
+    return value;
   }
 };
 
-using LocalToWorld = SemanticMat4<LocalToWorldTag>;
-using WorldToView = SemanticMat4<WorldToViewTag>;
-using ViewToClip = SemanticMat4<ViewToClipTag>;
-using WorldToClip = SemanticMat4<WorldToClipTag>;
-using ClipToWorld = SemanticMat4<ClipToWorldTag>;
+template <typename Tag> struct SemanticMat3 {
+  Mat3 value{};
+
+  constexpr SemanticMat3() = default;
+  constexpr explicit SemanticMat3(const Mat3 matrix) : value(matrix) {}
+  constexpr SemanticMat3(const SemanticMat3 &) = default;
+  constexpr SemanticMat3 &operator=(const SemanticMat3 &) = default;
+
+  [[nodiscard]] constexpr const Mat3 &matrix() const {
+    return value;
+  }
+
+  [[nodiscard]] constexpr Mat3 &matrix() {
+    return value;
+  }
+};
+
+using WorldFromLocal = SemanticMat4<WorldFromLocalTag>;
+using ViewFromWorld = SemanticMat4<ViewFromWorldTag>;
+using ClipFromView = SemanticMat4<ClipFromViewTag>;
+using ClipFromWorld = SemanticMat4<ClipFromWorldTag>;
+using WorldFromClip = SemanticMat4<WorldFromClipTag>;
+using WorldNormalFromLocal = SemanticMat3<WorldNormalFromLocalTag>;
+
+using LocalToWorld = WorldFromLocal;
+using WorldToView = ViewFromWorld;
+using ViewToClip = ClipFromView;
+using WorldToClip = ClipFromWorld;
+using ClipToWorld = WorldFromClip;
 
 struct Viewport {
   Vec2 origin{};
@@ -129,7 +152,7 @@ struct Viewport {
   ViewportOrigin origin_convention = ViewportOrigin::TopLeft;
 };
 
-struct RenderConvention {
+struct ProjectionConvention {
   CoordinateHandedness handedness = CoordinateHandedness::RightHanded;
   ClipDepthRange depth_range = ClipDepthRange::ZeroToOne;
   DepthDirection depth_direction = DepthDirection::ReverseZ;
@@ -140,6 +163,8 @@ struct RenderConvention {
   WindingOrder winding = WindingOrder::CounterClockwise;
   CullConvention cull = CullConvention::Back;
 };
+
+using RenderConvention = ProjectionConvention;
 
 template <typename T, std::size_t Columns, std::size_t Rows>
 [[nodiscard]] inline constexpr T at(const Mat<T, Columns, Rows> &matrix, const int row,

@@ -10,6 +10,7 @@
 #include "aster/geometry/fracture_mesh.hpp"
 #include "aster/geometry/primate_anatomy.hpp"
 #include "aster/geometry/terrain_mesh.hpp"
+#include "aster/material/procedural_surface.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -28,8 +29,8 @@ Material material(const Vec3 base, const Vec3 emission, const float roughness, c
                   const Vec2 pattern_scale = {1.0f, 1.0f}, const float pattern_depth = 0.0f,
                   const float pattern_contrast = 0.0f, const float pattern_mortar = 0.08f,
                   const ProceduralSurfaceLayer procedural = {}) {
-  return makeMaterial({.base_color = base,
-                       .emission_color = emission,
+  return makeMaterial({.base_color = LinearRgb{base},
+                       .emission_color = EmissionColor{emission},
                        .roughness = roughness,
                        .metallic = metallic,
                        .emission_strength = glow,
@@ -96,14 +97,20 @@ std::shared_ptr<const CpuMesh> labTerrainMesh() {
 }
 
 float labSoilHeightAt(const float px, const float pz) {
-  const float macro = std::sin(px * 0.11f + pz * 0.07f) * 0.070f +
-                      std::sin(px * 0.23f - pz * 0.15f) * 0.045f;
-  const float broad = std::sin(px * 0.86f + pz * 0.44f) * 0.020f +
-                      std::sin(px * 1.42f - pz * 0.77f) * 0.012f;
-  const float grit = std::sin(px * 5.40f + pz * 3.30f) * 0.0040f +
-                     std::sin(px * 8.70f - pz * 6.10f) * 0.0022f;
-  const float settled = std::sin((px + pz) * 0.26f) * 0.012f;
-  return macro + broad + grit + settled;
+  const Vec3 up{0.0f, 1.0f, 0.0f};
+  const float macro =
+      (asterSurfaceProjectedFbm({px + 4.7f, 0.0f, pz - 2.1f}, up, 0.075f, 71.0f, 5) - 0.5f) *
+      0.34f;
+  const float packed =
+      (asterSurfaceProjectedFbm({px - 1.3f, 0.0f, pz + 6.2f}, up, 0.31f, 83.0f, 4) - 0.5f) *
+      0.11f;
+  const float crust =
+      (asterSurfaceRidgedFbm({px * 0.92f, 0.0f, pz * 0.92f}, up, 0.82f, 97.0f, 4) - 0.5f) *
+      0.040f;
+  const float gritty =
+      (asterSurfaceValueNoise({px * 4.4f, 0.0f, pz * 4.4f}) - 0.5f) * 0.009f;
+  const float settled = std::sin(px * 0.18f - pz * 0.10f) * 0.020f;
+  return macro + packed + crust + gritty + settled;
 }
 
 Vec3 labSoilNormalAt(const float px, const float pz) {
@@ -118,11 +125,11 @@ Vec3 labSoilNormalAt(const float px, const float pz) {
 std::shared_ptr<const CpuMesh> labSoilPatchMesh() {
   static const std::shared_ptr<const CpuMesh> mesh = [] {
     CpuMesh soil;
-    constexpr int columns = 96;
-    constexpr int rows = 68;
-    constexpr float width = 420.0f;
-    constexpr float depth = 340.0f;
-    constexpr float side_drop = 0.18f;
+    constexpr int columns = 60;
+    constexpr int rows = 44;
+    constexpr float width = 900.0f;
+    constexpr float depth = 1100.0f;
+    constexpr float side_drop = 0.42f;
     soil.vertices.reserve(static_cast<std::size_t>(columns * rows + columns * 4 + rows * 4));
     for (int z = 0; z < rows; ++z) {
       const float v = static_cast<float>(z) / static_cast<float>(rows - 1);
@@ -134,7 +141,7 @@ std::shared_ptr<const CpuMesh> labSoilPatchMesh() {
         vertex.position = {px, labSoilHeightAt(px, pz), pz};
         vertex.normal = labSoilNormalAt(px, pz);
         vertex.tangent = {1.0f, 0.0f, 0.0f, 1.0f};
-        vertex.uv = {u * 4.0f, v * 3.0f};
+        vertex.uv = {u * 8.0f, v * 6.0f};
         vertex.ambient_occlusion = 0.90f + vertex.normal.y * 0.06f;
         soil.vertices.push_back(vertex);
       }
@@ -418,27 +425,27 @@ Scene makeIndustrialPipeScene() {
 Scene makeMaterialLabShowcaseScene() {
   Scene scene;
   scene.reflectionProbes().push_back({"material lab soft sky probe",
-                                      {0.0f, 1.40f, -1.0f},
-                                      9.0f,
-                                      {0.48f, 0.62f, 0.82f},
-                                      {0.19f, 0.145f, 0.096f},
-                                      {1.08f, 1.04f, 0.95f},
-                                      1.22f,
+                                      {0.0f, 1.60f, -1.4f},
+                                      11.0f,
+                                      {0.56f, 0.70f, 0.95f},
+                                      {0.18f, 0.125f, 0.072f},
+                                      {1.12f, 1.08f, 0.98f},
+                                      1.38f,
                                       {}});
 
   Material soil_surface =
-      material({0.125f, 0.102f, 0.074f}, {}, 0.95f, 0.0f, 0.0f, 0.86f, 2.8f, 0.10f,
-               0.76f, SurfacePattern::TerrainBlend, {3.8f, 4.6f}, 0.24f, 0.58f, 0.052f,
-               {.macro_variation = 0.74f,
-                .micro_normal_strength = 0.48f,
-                .roughness_variation = 0.38f,
+      material({0.118f, 0.095f, 0.066f}, {}, 0.96f, 0.0f, 0.0f, 0.94f, 3.6f, 0.12f,
+               0.72f, SurfacePattern::TerrainBlend, {5.6f, 6.8f}, 0.30f, 0.74f, 0.052f,
+               {.macro_variation = 0.88f,
+                .micro_normal_strength = 0.62f,
+                .roughness_variation = 0.46f,
                 .physical_texel_density = 1080.0f,
-                .height_normal_coupling = 0.92f,
-                .roughness_height_coupling = 0.72f,
-                .macro_frequency_breakup = 0.62f,
-                .micro_frequency_breakup = 0.82f,
-                .wetness = 0.06f,
-                .height_shading = 0.34f});
+                .height_normal_coupling = 1.04f,
+                .roughness_height_coupling = 0.84f,
+                .macro_frequency_breakup = 0.92f,
+                .micro_frequency_breakup = 1.02f,
+                .wetness = 0.035f,
+                .height_shading = 0.46f});
   soil_surface.edge_sheen_color = {0.026f, 0.022f, 0.017f};
   soil_surface.edge_sheen_roughness = 0.72f;
   const Material floor_material = makeSupportSurfaceMaterial(soil_surface);
@@ -453,23 +460,23 @@ Scene makeMaterialLabShowcaseScene() {
   scene.objects().push_back(floor);
 
   Material brushed_aluminium =
-      material({0.70f, 0.73f, 0.72f}, {0.006f, 0.008f, 0.009f}, 0.32f, 0.96f, 0.0f,
-               0.34f, 24.0f, 0.10f, 0.90f, SurfacePattern::FiberStrands,
-               {18.0f, 2.0f}, 0.08f, 0.22f, 0.04f,
-               {.macro_variation = 0.34f,
-                .micro_normal_strength = 0.070f,
-                .roughness_variation = 0.14f,
+      material({0.62f, 0.66f, 0.66f}, {0.004f, 0.006f, 0.008f}, 0.26f, 0.98f, 0.0f,
+               0.58f, 30.0f, 0.12f, 0.88f, SurfacePattern::FiberStrands,
+               {32.0f, 1.15f}, 0.11f, 0.36f, 0.04f,
+               {.macro_variation = 0.26f,
+                .micro_normal_strength = 0.19f,
+                .roughness_variation = 0.28f,
                 .physical_texel_density = 1152.0f,
-                .height_normal_coupling = 0.50f,
-                .roughness_height_coupling = 0.42f,
-                .macro_frequency_breakup = 0.28f,
-                .micro_frequency_breakup = 0.84f,
-                .wetness = 0.02f,
-                .height_shading = 0.08f});
-  brushed_aluminium.dielectric_reflectance = 0.56f;
-  brushed_aluminium.coat_strength = 0.10f;
-  brushed_aluminium.coat_roughness = 0.22f;
-  brushed_aluminium.tangent_anisotropy = 0.84f;
+                .height_normal_coupling = 0.78f,
+                .roughness_height_coupling = 0.62f,
+                .macro_frequency_breakup = 0.36f,
+                .micro_frequency_breakup = 1.02f,
+                .wetness = 0.01f,
+                .height_shading = 0.12f});
+  brushed_aluminium.dielectric_reflectance = 0.64f;
+  brushed_aluminium.coat_strength = 0.08f;
+  brushed_aluminium.coat_roughness = 0.18f;
+  brushed_aluminium.tangent_anisotropy = 0.92f;
 
   Material honed_slate =
       material({0.155f, 0.180f, 0.190f}, {}, 0.64f, 0.01f, 0.0f, 0.82f, 7.5f, 0.30f,
@@ -491,51 +498,51 @@ Scene makeMaterialLabShowcaseScene() {
   honed_slate.edge_sheen_roughness = 0.64f;
 
   Material green_marble =
-      material({0.115f, 0.250f, 0.190f}, {0.002f, 0.004f, 0.003f}, 0.36f, 0.0f, 0.0f,
-               0.72f, 8.4f, 0.05f, 0.88f, SurfacePattern::CoalVein, {3.6f, 4.8f},
-               0.16f, 0.50f, 0.045f,
-               {.macro_variation = 0.42f,
-                .micro_normal_strength = 0.28f,
-                .roughness_variation = 0.26f,
+      material({0.070f, 0.245f, 0.185f}, {0.004f, 0.007f, 0.005f}, 0.28f, 0.0f, 0.0f,
+               0.86f, 10.2f, 0.06f, 0.90f, SurfacePattern::CoalVein, {5.8f, 7.6f},
+               0.20f, 0.74f, 0.045f,
+               {.macro_variation = 0.50f,
+                .micro_normal_strength = 0.22f,
+                .roughness_variation = 0.34f,
                 .physical_texel_density = 864.0f,
-                .height_normal_coupling = 0.48f,
-                .roughness_height_coupling = 0.44f,
-                .macro_frequency_breakup = 0.42f,
-                .micro_frequency_breakup = 0.46f,
-                .wetness = 0.08f,
+                .height_normal_coupling = 0.54f,
+                .roughness_height_coupling = 0.56f,
+                .macro_frequency_breakup = 0.60f,
+                .micro_frequency_breakup = 0.54f,
+                .wetness = 0.04f,
                 .height_shading = 0.12f});
-  green_marble.dielectric_reflectance = 0.66f;
-  green_marble.coat_strength = 0.32f;
-  green_marble.coat_roughness = 0.16f;
-  green_marble.edge_sheen_color = {0.050f, 0.085f, 0.060f};
-  green_marble.edge_sheen_roughness = 0.44f;
+  green_marble.dielectric_reflectance = 0.74f;
+  green_marble.coat_strength = 0.46f;
+  green_marble.coat_roughness = 0.13f;
+  green_marble.edge_sheen_color = {0.070f, 0.120f, 0.085f};
+  green_marble.edge_sheen_roughness = 0.34f;
 
-  Material oiled_walnut =
-      material({0.315f, 0.175f, 0.075f}, {0.002f, 0.001f, 0.000f}, 0.48f, 0.0f, 0.0f,
-               0.88f, 10.0f, 0.10f, 0.86f, SurfacePattern::FiberStrands,
-               {14.0f, 2.4f}, 0.18f, 0.58f, 0.04f,
-               {.macro_variation = 0.32f,
-                .micro_normal_strength = 0.36f,
+  Material crackle_ceramic =
+      material({0.72f, 0.66f, 0.56f}, {0.006f, 0.004f, 0.002f}, 0.34f, 0.0f, 0.0f,
+               0.76f, 7.2f, 0.04f, 0.92f, SurfacePattern::AmberResin,
+               {7.4f, 5.8f}, 0.12f, 0.66f, 0.04f,
+               {.macro_variation = 0.40f,
+                .micro_normal_strength = 0.18f,
                 .roughness_variation = 0.30f,
-                .physical_texel_density = 920.0f,
-                .height_normal_coupling = 0.62f,
-                .roughness_height_coupling = 0.50f,
-                .macro_frequency_breakup = 0.44f,
-                .micro_frequency_breakup = 0.72f,
-                .wetness = 0.10f,
-                .height_shading = 0.18f});
-  oiled_walnut.dielectric_reflectance = 0.46f;
-  oiled_walnut.coat_strength = 0.24f;
-  oiled_walnut.coat_roughness = 0.30f;
-  oiled_walnut.edge_sheen_color = {0.070f, 0.036f, 0.012f};
-  oiled_walnut.edge_sheen_roughness = 0.70f;
+                .physical_texel_density = 980.0f,
+                .height_normal_coupling = 0.44f,
+                .roughness_height_coupling = 0.48f,
+                .macro_frequency_breakup = 0.52f,
+                .micro_frequency_breakup = 0.64f,
+                .wetness = 0.02f,
+                .height_shading = 0.10f});
+  crackle_ceramic.dielectric_reflectance = 0.56f;
+  crackle_ceramic.coat_strength = 0.42f;
+  crackle_ceramic.coat_roughness = 0.18f;
+  crackle_ceramic.edge_sheen_color = {0.090f, 0.078f, 0.055f};
+  crackle_ceramic.edge_sheen_roughness = 0.52f;
 
-  const Material materials[] = {brushed_aluminium, honed_slate, green_marble, oiled_walnut};
+  const Material materials[] = {brushed_aluminium, honed_slate, green_marble, crackle_ceramic};
   const char *names[] = {"brushed aluminium material sphere", "honed slate material sphere",
-                         "green marble material sphere", "oiled walnut material sphere"};
-  const float sphere_x[] = {-2.80f, -0.96f, 0.90f, 2.48f};
-  const float sphere_z[] = {-0.22f, 0.14f, -0.05f, 0.10f};
-  constexpr float sphere_radius = 0.56f;
+                         "polished jade material sphere", "crackle ceramic material sphere"};
+  const float sphere_x[] = {-2.70f, -0.88f, 0.92f, 2.70f};
+  const float sphere_z[] = {-0.20f, 0.12f, -0.08f, 0.08f};
+  constexpr float sphere_radius = 0.55f;
   for (std::size_t i = 0; i < 4u; ++i) {
     RenderObject object;
     object.name = names[i];
@@ -546,8 +553,8 @@ Scene makeMaterialLabShowcaseScene() {
     object.transform.scale = {sphere_radius, sphere_radius, sphere_radius};
     object.material = materials[i];
     object.casts_contact_shadow = true;
-    object.contact_shadow_strength = 0.88f;
-    object.contact_shadow_radius_scale = 1.12f;
+    object.contact_shadow_strength = 1.0f;
+    object.contact_shadow_radius_scale = 1.22f;
     scene.objects().push_back(object);
   }
 

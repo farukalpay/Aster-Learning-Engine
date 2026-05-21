@@ -81,6 +81,7 @@ struct D3D12SceneUniforms {
 struct D3D12ObjectUniforms {
   float model[16]{};
   float model_view_projection[16]{};
+  float normal_matrix[16]{};
   float base_color_opacity[4]{};
   float emission_strength[4]{};
   float material_params[4]{};
@@ -118,6 +119,22 @@ bool depthPolicyUsesBias(const aster::RenderDepthPolicy policy) {
   return policy.layer != aster::RenderDepthLayer::BaseSurface ||
          std::abs(policy.constant_bias) > 0.0f || std::abs(policy.slope_bias) > 0.0f ||
          std::abs(policy.normal_offset) > 0.0f;
+}
+
+aster::Mat4 normalMatrix4OrIdentity(const aster::Mat4 &model) {
+  const aster::MathResult<aster::WorldNormalFromLocal> normal_from_local =
+      aster::worldNormalFromLocal(aster::WorldFromLocal{model});
+  if (!normal_from_local) {
+    return aster::identity();
+  }
+  aster::Mat4 out = aster::identity();
+  const aster::Mat3 &normal = normal_from_local.value.value;
+  for (int column = 0; column < 3; ++column) {
+    for (int row = 0; row < 3; ++row) {
+      aster::setAt(out, row, column, aster::at(normal, row, column));
+    }
+  }
+  return out;
 }
 
 D3D12_HEAP_PROPERTIES heapProperties(const D3D12_HEAP_TYPE type) {
@@ -216,6 +233,7 @@ aster::RenderBackendCapabilities d3d12Capabilities() {
           .supports_ui_composite = false,
           .supports_gpu_timestamps = false,
           .graph_resource_mask = graph_resources,
+          .projection_convention = aster::defaultProjectionConvention(),
           .capability_table = d3d12CapabilityTable()};
 }
 
@@ -258,6 +276,7 @@ cbuffer SceneBuffer : register(b0) {
 struct Object {
   float4x4 model;
   float4x4 mvp;
+  float4x4 normal_matrix;
   float4 base_color_opacity;
   float4 emission_strength;
   float4 material_params;
@@ -451,7 +470,7 @@ VSOut vs_main(VSIn input, uint instance_id : SV_InstanceID) {
   VSOut outp;
   outp.position = mul(object.mvp, local);
   outp.world = mul(object.model, local).xyz;
-  outp.normal = normalize(mul(object.model, float4(input.normal.xyz, 0.0)).xyz);
+  outp.normal = normalize(mul(object.normal_matrix, float4(input.normal.xyz, 0.0)).xyz);
   outp.tangent = float4(normalize(mul(object.model, float4(input.tangent.xyz, 0.0)).xyz), input.tangent.w);
   outp.uv = input.uv_ao.xy;
   outp.ao = input.uv_ao.z;
@@ -1429,10 +1448,12 @@ private:
         static_cast<float>(std::max(width_, 1)) / static_cast<float>(std::max(height_, 1));
     const aster::Mat4 mvp =
         camera.projectionMatrix(aspect_ratio).value * camera.viewMatrix().value * model;
+    const aster::Mat4 normal_matrix = normalMatrix4OrIdentity(model);
     D3D12ObjectUniforms uniforms;
     std::memcpy(uniforms.model, model.m.data(), sizeof(uniforms.model));
     std::memcpy(uniforms.model_view_projection, mvp.m.data(),
                 sizeof(uniforms.model_view_projection));
+    std::memcpy(uniforms.normal_matrix, normal_matrix.m.data(), sizeof(uniforms.normal_matrix));
     uniforms.base_color_opacity[0] = object.material.base_color.x;
     uniforms.base_color_opacity[1] = object.material.base_color.y;
     uniforms.base_color_opacity[2] = object.material.base_color.z;

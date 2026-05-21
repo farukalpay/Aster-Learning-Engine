@@ -785,8 +785,8 @@ Material makeAsterPipeMaterial(const std::string &slot_id) {
                                         .rim_soot = 0.24f}});
   }
   const bool hardware = slot_id == "pipe.hardware";
-  return makeMaterial({.base_color = hardware ? Vec3{0.20f, 0.18f, 0.15f}
-                                              : Vec3{0.30f, 0.135f, 0.060f},
+  return makeMaterial({.base_color = hardware ? LinearRgb{0.20f, 0.18f, 0.15f}
+                                              : LinearRgb{0.30f, 0.135f, 0.060f},
                        .roughness = hardware ? 0.84f : 0.72f,
                        .metallic = hardware ? 0.74f : 0.48f,
                        .detail_strength = hardware ? 0.78f : 1.02f,

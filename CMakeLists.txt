@@ -823,6 +823,9 @@ if(ASTER_BUILD_TESTS)
       scene_contract
       industrial_pipe_scene
       showcase_lab_scenes
+      showcase_lab_scenes_environment_radiance
+      showcase_lab_scenes_debug_view_response
+      showcase_lab_scenes_contact_shadow_falloff
       software_preview_renderer
       software_depth_policy_coplanar
       software_depth_policy_object_order

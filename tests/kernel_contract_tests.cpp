@@ -289,52 +289,77 @@ void testMathAbi5Contracts() {
          ASTER_STATUS_OK);
   assert(std::abs(rotated.x + 1.0f) < 0.0001f);
 
-  AsterMat4 projection{};
-  diagnostics = {};
-  assert(aster_kernel_math_mat4_perspective(
-             1.0f, 1.0f, 0.05f, 100.0f, ASTER_MATH_COORDINATE_RIGHT_HANDED,
-             ASTER_MATH_CLIP_DEPTH_ZERO_TO_ONE, ASTER_MATH_DEPTH_REVERSE_Z, &projection,
-             &diagnostics)
-             .code == ASTER_STATUS_OK);
-  AsterMat4 view{};
-  assert(aster_kernel_math_mat4_look_at({0.0f, 0.0f, 4.0f}, {0.0f, 0.0f, 0.0f},
-                                        {0.0f, 1.0f, 0.0f},
-                                        ASTER_MATH_COORDINATE_RIGHT_HANDED, &view,
-                                        &diagnostics)
-             .code == ASTER_STATUS_OK);
-  AsterMat4 world_to_clip{};
-  assert(aster_kernel_math_mat4_multiply(&projection, &view, &world_to_clip).code ==
-         ASTER_STATUS_OK);
-  AsterMat4 clip_to_world{};
-  assert(aster_kernel_math_mat4_inverse(&world_to_clip, &policy, &clip_to_world,
-                                        &diagnostics)
-             .code == ASTER_STATUS_OK);
-  const AsterViewport viewport{{0.0f, 0.0f}, {640.0f, 480.0f}, 1u};
+  for (const AsterMathCoordinateHandedness handedness :
+       {ASTER_MATH_COORDINATE_RIGHT_HANDED, ASTER_MATH_COORDINATE_LEFT_HANDED}) {
+    for (const AsterMathClipDepthRange depth_range :
+         {ASTER_MATH_CLIP_DEPTH_ZERO_TO_ONE, ASTER_MATH_CLIP_DEPTH_NEGATIVE_ONE_TO_ONE}) {
+      for (const AsterMathDepthDirection depth_direction :
+           {ASTER_MATH_DEPTH_FORWARD_Z, ASTER_MATH_DEPTH_REVERSE_Z}) {
+        for (const uint32_t origin_top_left : {0u, 1u}) {
+          AsterMat4 projection{};
+          diagnostics = {};
+          assert(aster_kernel_math_mat4_perspective(
+                     1.0f, 1.0f, 0.05f, 100.0f, handedness, depth_range, depth_direction,
+                     &projection, &diagnostics)
+                     .code == ASTER_STATUS_OK);
+          AsterMat4 view{};
+          const AsterVec3 eye =
+              handedness == ASTER_MATH_COORDINATE_RIGHT_HANDED ? AsterVec3{0.0f, 0.0f, 4.0f}
+                                                               : AsterVec3{0.0f, 0.0f, -4.0f};
+          assert(aster_kernel_math_mat4_look_at(eye, {0.0f, 0.0f, 0.0f},
+                                                {0.0f, 1.0f, 0.0f}, handedness, &view,
+                                                &diagnostics)
+                     .code == ASTER_STATUS_OK);
+          AsterMat4 world_to_clip{};
+          assert(aster_kernel_math_mat4_multiply(&projection, &view, &world_to_clip).code ==
+                 ASTER_STATUS_OK);
+          AsterMat4 clip_to_world{};
+          diagnostics = {};
+          assert(aster_kernel_math_mat4_inverse(&world_to_clip, &policy, &clip_to_world,
+                                                &diagnostics)
+                     .code == ASTER_STATUS_OK);
+          const AsterViewport viewport{{0.0f, 0.0f}, {640.0f, 480.0f}, origin_top_left};
+          const AsterWorldPoint world_point{{0.2f, -0.1f, 0.0f}};
+          AsterScreenPoint screen_point{};
+          diagnostics = {};
+          assert(aster_kernel_math_world_to_screen(world_point, &world_to_clip, &viewport,
+                                                   &screen_point, &diagnostics)
+                     .code == ASTER_STATUS_OK);
+          AsterWorldPoint restored_point{};
+          assert(aster_kernel_math_screen_to_world(screen_point, &clip_to_world, &viewport,
+                                                   &restored_point, &diagnostics)
+                     .code == ASTER_STATUS_OK);
+          assert(std::abs(restored_point.value.x - world_point.value.x) < 0.002f);
+          assert(std::abs(restored_point.value.y - world_point.value.y) < 0.002f);
+          assert(std::abs(restored_point.value.z - world_point.value.z) < 0.002f);
+          const AsterProjectionConvention convention{handedness,
+                                                     depth_range,
+                                                     depth_direction,
+                                                     origin_top_left,
+                                                     1u,
+                                                     1u,
+                                                     1u};
+          AsterWorldRay world_ray{};
+          assert(aster_kernel_math_screen_to_world_ray(screen_point, &clip_to_world, &viewport,
+                                                       &convention, {eye}, &world_ray,
+                                                       &diagnostics)
+                     .code == ASTER_STATUS_OK);
+          const float expected_z =
+              handedness == ASTER_MATH_COORDINATE_RIGHT_HANDED ? -1.0f : 1.0f;
+          assert(world_ray.direction.z * expected_z > 0.99f);
+        }
+      }
+    }
+  }
+
+  const AsterViewport bad_viewport{{0.0f, 0.0f}, {0.0f, 480.0f}, 1u};
   const AsterWorldPoint world_point{{0.2f, -0.1f, 0.0f}};
-  AsterScreenPoint screen_point{};
-  assert(aster_kernel_math_world_to_screen(world_point, &world_to_clip, &viewport, &screen_point,
+  AsterScreenPoint bad_screen{};
+  diagnostics = {};
+  assert(aster_kernel_math_world_to_screen(world_point, &identity, &bad_viewport, &bad_screen,
                                            &diagnostics)
-             .code == ASTER_STATUS_OK);
-  AsterWorldPoint restored_point{};
-  assert(aster_kernel_math_screen_to_world(screen_point, &clip_to_world, &viewport,
-                                           &restored_point, &diagnostics)
-             .code == ASTER_STATUS_OK);
-  assert(std::abs(restored_point.value.x - world_point.value.x) < 0.002f);
-  assert(std::abs(restored_point.value.y - world_point.value.y) < 0.002f);
-  assert(std::abs(restored_point.value.z - world_point.value.z) < 0.002f);
-  const AsterProjectionConvention convention{ASTER_MATH_COORDINATE_RIGHT_HANDED,
-                                             ASTER_MATH_CLIP_DEPTH_ZERO_TO_ONE,
-                                             ASTER_MATH_DEPTH_REVERSE_Z,
-                                             1u,
-                                             1u,
-                                             1u,
-                                             1u};
-  AsterWorldRay world_ray{};
-  assert(aster_kernel_math_screen_to_world_ray(screen_point, &clip_to_world, &viewport,
-                                               &convention, {{0.0f, 0.0f, 4.0f}}, &world_ray,
-                                               &diagnostics)
-             .code == ASTER_STATUS_OK);
-  assert(world_ray.direction.z < -0.99f);
+             .code == ASTER_STATUS_INVALID_ARGUMENT);
+  assert(diagnostics.error == ASTER_MATH_ERROR_INVALID_ARGUMENT);
 }
 
 void testRendererAbi5Lifecycle() {

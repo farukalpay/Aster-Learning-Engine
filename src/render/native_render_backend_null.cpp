@@ -40,6 +40,7 @@ aster::RenderBackendCapabilities nullCapabilities() {
           .supports_ui_composite = false,
           .supports_gpu_timestamps = false,
           .graph_resource_mask = graph_resources,
+          .projection_convention = aster::defaultProjectionConvention(),
           .capability_table = nullCapabilityTable()};
 }
 

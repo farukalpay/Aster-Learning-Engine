@@ -17,7 +17,7 @@
 
 namespace aster {
 
-enum class AsterAssetFactoryStageKind {
+enum class AsterAssetFoundryStageKind {
   SourceGeometry,
   ModifierStack,
   SurfaceContract,
@@ -27,41 +27,41 @@ enum class AsterAssetFactoryStageKind {
   Package,
 };
 
-enum class AsterAssetFactoryPhysicsProxyKind {
+enum class AsterAssetFoundryPhysicsProxyKind {
   BoundsBox,
   RadialCapsule,
   TriangleMesh,
 };
 
-enum class AsterPipeFactoryVariant {
+enum class AsterPipeFoundryVariant {
   ReferenceSilhouette,
   IndustrialHardware,
 };
 
-enum class AsterAssetFactoryDiagnosticSeverity {
+enum class AsterAssetFoundryDiagnosticSeverity {
   Info,
   Warning,
   Error,
 };
 
-struct AsterAssetFactorySignalRule {
+struct AsterAssetFoundrySignalRule {
   std::string id;
   float minimum_average = 0.0f;
   float minimum_coverage = 0.0f;
   float weight = 1.0f;
 };
 
-struct AsterAssetFactorySignalSample {
+struct AsterAssetFoundrySignalSample {
   std::string id;
   float average = 0.0f;
   float coverage = 0.0f;
   float maximum = 0.0f;
 };
 
-struct AsterAssetFactorySurfaceCoverage {
+struct AsterAssetFoundrySurfaceCoverage {
   std::string contract_id;
   std::size_t sample_count = 0u;
-  std::vector<AsterAssetFactorySignalSample> signals;
+  std::vector<AsterAssetFoundrySignalSample> signals;
   std::vector<std::string> claimed_signals;
   std::vector<std::string> rejected_signals;
   std::vector<std::string> diagnostics;
@@ -69,7 +69,7 @@ struct AsterAssetFactorySurfaceCoverage {
   bool passed = true;
 };
 
-struct AsterAssetFactorySurfaceContract {
+struct AsterAssetFoundrySurfaceContract {
   std::string id;
   std::string label;
   std::string material_slot;
@@ -78,14 +78,14 @@ struct AsterAssetFactorySurfaceContract {
   float min_physical_texel_density = 768.0f;
   float min_height_normal_coupling = 0.50f;
   float min_roughness_height_coupling = 0.40f;
-  std::vector<AsterAssetFactorySignalRule> required_signals;
-  std::vector<AsterAssetFactorySignalRule> forbidden_signals;
+  std::vector<AsterAssetFoundrySignalRule> required_signals;
+  std::vector<AsterAssetFoundrySignalRule> forbidden_signals;
 };
 
-struct AsterAssetFactoryPhysicsProxy {
+struct AsterAssetFoundryPhysicsProxy {
   std::string id;
   std::string label;
-  AsterAssetFactoryPhysicsProxyKind kind = AsterAssetFactoryPhysicsProxyKind::BoundsBox;
+  AsterAssetFoundryPhysicsProxyKind kind = AsterAssetFoundryPhysicsProxyKind::BoundsBox;
   Vec3 center{};
   Vec3 half_extents{0.5f, 0.5f, 0.5f};
   float radius = 0.5f;
@@ -97,9 +97,9 @@ struct AsterAssetFactoryPhysicsProxy {
   PhysicsCollisionFilter filter{};
 };
 
-struct AsterAssetFactoryStage {
+struct AsterAssetFoundryStage {
   std::string id;
-  AsterAssetFactoryStageKind kind = AsterAssetFactoryStageKind::SourceGeometry;
+  AsterAssetFoundryStageKind kind = AsterAssetFoundryStageKind::SourceGeometry;
   std::string label;
   std::vector<std::string> depends_on;
   AssetModifierStack modifier_stack;
@@ -110,9 +110,9 @@ struct AsterAssetFactoryStage {
   std::vector<std::string> creative_variant_tags;
 };
 
-struct AsterAssetFactoryStageReport {
+struct AsterAssetFoundryStageReport {
   std::string id;
-  AsterAssetFactoryStageKind kind = AsterAssetFactoryStageKind::SourceGeometry;
+  AsterAssetFoundryStageKind kind = AsterAssetFoundryStageKind::SourceGeometry;
   bool executed = false;
   bool passed = true;
   std::uint32_t quality_score = 100u;
@@ -123,31 +123,31 @@ struct AsterAssetFactoryStageReport {
   std::vector<std::string> diagnostics;
 };
 
-struct AsterAssetFactoryRecipe {
+struct AsterAssetFoundryRecipe {
   std::string asset_id;
   std::string label;
   std::string source_provenance_id;
   CpuMesh source_mesh;
   Material material{};
   std::vector<CpuMesh> authored_lods;
-  std::vector<AsterAssetFactoryStage> stages;
-  std::vector<AsterAssetFactorySurfaceContract> surface_contracts;
-  std::vector<AsterAssetFactoryPhysicsProxy> physics_proxies;
+  std::vector<AsterAssetFoundryStage> stages;
+  std::vector<AsterAssetFoundrySurfaceContract> surface_contracts;
+  std::vector<AsterAssetFoundryPhysicsProxy> physics_proxies;
   std::vector<std::string> visual_brief_claims;
   std::vector<std::string> visual_brief_rejections;
   std::vector<std::string> dependency_edges;
   std::vector<std::string> creative_variant_tags;
 };
 
-struct AsterAssetFactoryBuildResult {
+struct AsterAssetFoundryBuildResult {
   std::string asset_id;
   std::string stable_recipe_hash;
   CpuMesh mesh;
   Material material{};
   std::vector<CpuMesh> lods;
   std::vector<PhysicsBodyDesc> physics_bodies;
-  std::vector<AsterAssetFactoryStageReport> stage_reports;
-  std::vector<AsterAssetFactorySurfaceCoverage> surface_coverages;
+  std::vector<AsterAssetFoundryStageReport> stage_reports;
+  std::vector<AsterAssetFoundrySurfaceCoverage> surface_coverages;
   std::vector<std::string> dependency_edges;
   std::vector<std::string> visual_brief_claims;
   std::vector<std::string> visual_brief_rejections;
@@ -156,14 +156,14 @@ struct AsterAssetFactoryBuildResult {
   bool production_ready = false;
 };
 
-struct AsterAssetFactoryQualityDiagnostic {
-  AsterAssetFactoryDiagnosticSeverity severity = AsterAssetFactoryDiagnosticSeverity::Info;
+struct AsterAssetFoundryQualityDiagnostic {
+  AsterAssetFoundryDiagnosticSeverity severity = AsterAssetFoundryDiagnosticSeverity::Info;
   std::string category;
   std::string stage_id;
   std::string message;
 };
 
-struct AsterAssetFactoryLodSummary {
+struct AsterAssetFoundryLodSummary {
   std::uint32_t level = 0u;
   std::size_t vertices = 0u;
   std::size_t indices = 0u;
@@ -172,7 +172,7 @@ struct AsterAssetFactoryLodSummary {
   bool generated_by_factory = true;
 };
 
-struct AsterAssetFactoryPhysicsProxySummary {
+struct AsterAssetFoundryPhysicsProxySummary {
   std::string id;
   std::string shape;
   Vec3 center{};
@@ -185,57 +185,57 @@ struct AsterAssetFactoryPhysicsProxySummary {
   bool query_enabled = true;
 };
 
-struct AsterAssetFactoryVisualBriefRow {
+struct AsterAssetFoundryVisualBriefRow {
   std::string signal;
   std::string status;
   std::string source;
   float weight = 1.0f;
 };
 
-struct AsterAssetFactoryRecipeAudit {
+struct AsterAssetFoundryRecipeAudit {
   std::string asset_id;
   std::string stable_recipe_hash;
   std::vector<std::string> stage_order;
   std::vector<std::string> missing_dependencies;
   std::vector<std::string> surface_contract_ids;
   std::vector<std::string> physics_proxy_ids;
-  std::vector<AsterAssetFactoryLodSummary> lod_summary;
-  std::vector<AsterAssetFactoryVisualBriefRow> visual_brief_rows;
-  std::vector<AsterAssetFactoryQualityDiagnostic> diagnostics;
+  std::vector<AsterAssetFoundryLodSummary> lod_summary;
+  std::vector<AsterAssetFoundryVisualBriefRow> visual_brief_rows;
+  std::vector<AsterAssetFoundryQualityDiagnostic> diagnostics;
   std::uint32_t quality_score = 0u;
   bool production_ready = false;
 };
 
 [[nodiscard]] std::string_view
-asterAssetFactoryDiagnosticSeverityName(AsterAssetFactoryDiagnosticSeverity severity) noexcept;
+asterAssetFoundryDiagnosticSeverityName(AsterAssetFoundryDiagnosticSeverity severity) noexcept;
 [[nodiscard]] std::string_view
-asterAssetFactoryStageKindName(AsterAssetFactoryStageKind kind) noexcept;
+asterAssetFoundryStageKindName(AsterAssetFoundryStageKind kind) noexcept;
 [[nodiscard]] std::string_view
-asterAssetFactoryPhysicsProxyKindName(AsterAssetFactoryPhysicsProxyKind kind) noexcept;
-[[nodiscard]] std::vector<AsterAssetFactoryQualityDiagnostic>
-validateAsterAssetFactoryRecipe(const AsterAssetFactoryRecipe &recipe);
-[[nodiscard]] std::vector<AsterAssetFactoryLodSummary>
-summarizeAsterAssetFactoryLods(const AsterAssetFactoryBuildResult &result);
-[[nodiscard]] std::vector<AsterAssetFactoryPhysicsProxySummary>
-summarizeAsterAssetFactoryPhysicsProxies(const AsterAssetFactoryRecipe &recipe);
-[[nodiscard]] std::vector<AsterAssetFactoryVisualBriefRow>
-makeAsterAssetFactoryVisualBriefRows(const AsterAssetFactoryRecipe &recipe,
-                                     const AsterAssetFactoryBuildResult &result);
-[[nodiscard]] AsterAssetFactoryRecipeAudit
-auditAsterAssetFactoryBuild(const AsterAssetFactoryRecipe &recipe,
-                            const AsterAssetFactoryBuildResult &result);
+asterAssetFoundryPhysicsProxyKindName(AsterAssetFoundryPhysicsProxyKind kind) noexcept;
+[[nodiscard]] std::vector<AsterAssetFoundryQualityDiagnostic>
+validateAsterAssetFoundryRecipe(const AsterAssetFoundryRecipe &recipe);
+[[nodiscard]] std::vector<AsterAssetFoundryLodSummary>
+summarizeAsterAssetFoundryLods(const AsterAssetFoundryBuildResult &result);
+[[nodiscard]] std::vector<AsterAssetFoundryPhysicsProxySummary>
+summarizeAsterAssetFoundryPhysicsProxies(const AsterAssetFoundryRecipe &recipe);
+[[nodiscard]] std::vector<AsterAssetFoundryVisualBriefRow>
+makeAsterAssetFoundryVisualBriefRows(const AsterAssetFoundryRecipe &recipe,
+                                     const AsterAssetFoundryBuildResult &result);
+[[nodiscard]] AsterAssetFoundryRecipeAudit
+auditAsterAssetFoundryBuild(const AsterAssetFoundryRecipe &recipe,
+                            const AsterAssetFoundryBuildResult &result);
 [[nodiscard]] std::vector<std::string>
-describeAsterAssetFactoryAudit(const AsterAssetFactoryRecipeAudit &audit);
-[[nodiscard]] std::string stableAsterAssetFactoryRecipeHash(
-    const AsterAssetFactoryRecipe &recipe);
+describeAsterAssetFoundryAudit(const AsterAssetFoundryRecipeAudit &audit);
+[[nodiscard]] std::string stableAsterAssetFoundryRecipeHash(
+    const AsterAssetFoundryRecipe &recipe);
 [[nodiscard]] PhysicsBodyDesc
-asterAssetFactoryPhysicsBodyDesc(const AsterAssetFactoryPhysicsProxy &proxy,
+asterAssetFoundryPhysicsBodyDesc(const AsterAssetFoundryPhysicsProxy &proxy,
                                  std::shared_ptr<const CpuMesh> mesh = {});
-[[nodiscard]] AsterAssetFactoryBuildResult
-buildAsterAssetFactoryRecipe(const AsterAssetFactoryRecipe &recipe);
-[[nodiscard]] AsterAssetFactoryRecipe
-makeAsterPipeFactoryRecipe(AsterPipeAssetSpec spec = {},
-                           AsterPipeFactoryVariant variant =
-                               AsterPipeFactoryVariant::ReferenceSilhouette);
+[[nodiscard]] AsterAssetFoundryBuildResult
+buildAsterAssetFoundryRecipe(const AsterAssetFoundryRecipe &recipe);
+[[nodiscard]] AsterAssetFoundryRecipe
+makeAsterPipeFoundryRecipe(AsterPipeAssetSpec spec = {},
+                           AsterPipeFoundryVariant variant =
+                               AsterPipeFoundryVariant::ReferenceSilhouette);
 
 } // namespace aster

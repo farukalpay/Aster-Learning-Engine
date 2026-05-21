@@ -1003,4 +1003,99 @@ CookLineageReport buildCookLineageReport(const AssetDatabase &database) {
   return report;
 }
 
+AsterAssetFoundryStory buildAsterAssetFoundryStory(const AssetLibrary &library,
+                                                   const CookLineageReport &lineage,
+                                                   const NodePreviewCache *preview_cache) {
+  const AssetFoundryReport foundry = buildAssetFoundryReport(library);
+  AsterAssetFoundryStory story;
+  story.asset_count = library.assets.size();
+  story.production_ready_assets = static_cast<std::size_t>(
+      std::count_if(library.assets.begin(), library.assets.end(),
+                    [](const AssetRepresentation &asset) { return asset.production_ready; }));
+  story.dependency_edge_count =
+      std::max(foundry.dependency_edge_count, lineage.dependency_edge_count);
+  story.preview_artifacts = static_cast<std::size_t>(
+      std::count_if(library.assets.begin(), library.assets.end(),
+                    [](const AssetRepresentation &asset) {
+                      return !asset.preview_path.empty();
+                    }));
+  story.node_preview_records = preview_cache == nullptr ? 0u : preview_cache->size();
+
+  const auto append_step = [&story](std::string id, std::string kind, std::string evidence,
+                                    const bool ready) {
+    story.steps.push_back({.id = std::move(id),
+                           .kind = std::move(kind),
+                           .evidence = std::move(evidence),
+                           .ready = ready});
+  };
+
+  const bool catalog_ready = story.asset_count > 0u &&
+                             foundry.catalog_audit.orphaned_assets == 0u &&
+                             foundry.catalog_audit.duplicate_catalog_paths == 0u;
+  append_step("catalog-audit", "catalog",
+              std::to_string(foundry.catalog_audit.catalog_count) + " catalogs, " +
+                  std::to_string(story.asset_count) + " assets",
+              catalog_ready);
+
+  const bool recipe_ready = foundry.import_recipes.size() == story.asset_count &&
+                            std::all_of(foundry.import_recipes.begin(),
+                                        foundry.import_recipes.end(),
+                                        [](const AssetImportRecipe &recipe) {
+                                          return !recipe.id.empty() && !recipe.guid.empty() &&
+                                                 !recipe.kind.empty();
+                                        });
+  append_step("import-recipe-audit", "recipe",
+              std::to_string(foundry.import_recipes.size()) + " stable import recipes",
+              recipe_ready);
+
+  const bool stable_hash_ready =
+      !library.assets.empty() &&
+      std::all_of(library.assets.begin(), library.assets.end(),
+                  [](const AssetRepresentation &asset) {
+                    const bool has_hash = !asset.content_hash.empty() ||
+                                          !asset.derived_hashes.source_hash.empty() ||
+                                          !asset.derived_hashes.dependency_hash.empty() ||
+                                          !asset.derived_hashes.artifact_hash.empty();
+                    return !asset.guid.empty() && has_hash;
+                  });
+  append_step("stable-guid-hash", "hash",
+              std::to_string(story.asset_count) + " assets checked for GUID/hash continuity",
+              stable_hash_ready);
+
+  append_step("dependency-graph", "graph",
+              std::to_string(story.dependency_edge_count) + " dependency edges",
+              story.asset_count == 0u || story.dependency_edge_count > 0u);
+
+  const bool lineage_ready = lineage.asset_count == story.asset_count &&
+                             lineage.production_ready_assets == story.production_ready_assets &&
+                             lineage.diagnostics.empty();
+  append_step("cook-lineage", "lineage",
+              std::to_string(lineage.production_ready_assets) + "/" +
+                  std::to_string(lineage.asset_count) + " production-ready cooked assets",
+              lineage_ready);
+
+  const bool preview_ready = story.preview_artifacts > 0u || story.node_preview_records > 0u;
+  append_step("node-preview-cache", "preview",
+              std::to_string(story.preview_artifacts) + " preview artifacts, " +
+                  std::to_string(story.node_preview_records) + " node preview records",
+              preview_ready);
+
+  story.diagnostics = foundry.diagnostics;
+  story.diagnostics.insert(story.diagnostics.end(), foundry.catalog_audit.diagnostics.begin(),
+                           foundry.catalog_audit.diagnostics.end());
+  story.diagnostics.insert(story.diagnostics.end(), lineage.diagnostics.begin(),
+                           lineage.diagnostics.end());
+  for (const AsterAssetFoundryLineageStep &step : story.steps) {
+    if (!step.ready) {
+      story.diagnostics.push_back(step.id + ": " + step.evidence);
+    }
+  }
+  story.production_ready =
+      story.asset_count > 0u && story.production_ready_assets == story.asset_count &&
+      story.diagnostics.empty() &&
+      std::all_of(story.steps.begin(), story.steps.end(),
+                  [](const AsterAssetFoundryLineageStep &step) { return step.ready; });
+  return story;
+}
+
 } // namespace aster

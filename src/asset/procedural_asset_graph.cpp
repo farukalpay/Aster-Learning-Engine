@@ -451,10 +451,10 @@ CpuMesh proceduralAssetGraphMesh(const ProceduralAssetGraphPackage &package) {
                                 materialParamOr(package.material, "rim_soot", 0.88f),
                             .wet_streak_count =
                                 materialParamIntOr(package.material, "wet_streaks", 7)};
-    const AsterPipeFactoryVariant variant =
-        primitive == "industrial-pipe" ? AsterPipeFactoryVariant::IndustrialHardware
-                                       : AsterPipeFactoryVariant::ReferenceSilhouette;
-    return buildAsterAssetFactoryRecipe(makeAsterPipeFactoryRecipe(spec, variant)).mesh;
+    const AsterPipeFoundryVariant variant =
+        primitive == "industrial-pipe" ? AsterPipeFoundryVariant::IndustrialHardware
+                                       : AsterPipeFoundryVariant::ReferenceSilhouette;
+    return buildAsterAssetFoundryRecipe(makeAsterPipeFoundryRecipe(spec, variant)).mesh;
   }
   if (primitive == "sphere" || primitive == "uv-sphere") {
     return makeUvSphere(32, 16, 1.0f);

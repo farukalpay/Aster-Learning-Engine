@@ -8,6 +8,7 @@
 #include "aster/math/gameplay.hpp"
 #include "aster/math/packing.hpp"
 #include "aster/math/sampling.hpp"
+#include "aster/math/tangent_space.hpp"
 #include "aster/math/transform.hpp"
 
 #include <array>
@@ -24,7 +25,11 @@
 namespace {
 
 void expectNear(const float actual, const float expected, const float tolerance) {
-  assert(std::abs(actual - expected) <= tolerance);
+  if (std::abs(actual - expected) > tolerance) {
+    std::cerr << "expectNear failed: actual=" << actual << " expected=" << expected
+              << " tolerance=" << tolerance << '\n';
+    assert(false);
+  }
 }
 
 void expectNearVec3(const aster::Vec3 actual, const aster::Vec3 expected,
@@ -32,6 +37,28 @@ void expectNearVec3(const aster::Vec3 actual, const aster::Vec3 expected,
   expectNear(actual.x, expected.x, tolerance);
   expectNear(actual.y, expected.y, tolerance);
   expectNear(actual.z, expected.z, tolerance);
+}
+
+float expectedNearDepth(const aster::ProjectionPolicy policy) {
+  return policy.depth_direction == aster::DepthDirection::ReverseZ
+             ? 1.0f
+             : (policy.depth_range == aster::ClipDepthRange::NegativeOneToOne ? -1.0f
+                                                                               : 0.0f);
+}
+
+float expectedFarDepth(const aster::ProjectionPolicy policy) {
+  return policy.depth_direction == aster::DepthDirection::ReverseZ
+             ? (policy.depth_range == aster::ClipDepthRange::NegativeOneToOne ? -1.0f : 0.0f)
+             : 1.0f;
+}
+
+void expectDepthEndpoint(const aster::Mat4 &projection, const aster::ProjectionPolicy policy,
+                         const float distance, const float expected_depth) {
+  const float view_z =
+      policy.handedness == aster::CoordinateHandedness::RightHanded ? -distance : distance;
+  const aster::Vec4 clip = projection * aster::Vec4{0.0f, 0.0f, view_z, 1.0f};
+  assert(std::abs(clip.w) > 0.000001f);
+  expectNear(clip.z / clip.w, expected_depth, 0.0005f);
 }
 
 std::array<aster::Vec3, 8> cubePoints(const aster::Vec3 center, const aster::Vec3 half) {
@@ -245,9 +272,9 @@ void testRandomizedTransformProjectionAndQuaternionProperties() {
         aster::project(world, world_to_clip, viewport);
     assert(screen);
     const aster::MathResult<aster::WorldPoint> restored =
-        aster::unproject(screen.value, {clip_to_world_matrix.value}, viewport);
+        aster::unproject(screen.value, aster::ClipToWorld{clip_to_world_matrix.value}, viewport);
     assert(restored);
-    expectNearVec3(restored.value, world.value, 0.003f);
+    expectNearVec3(restored.value.value, world.value, 0.003f);
     for (int component = 0; component < 3; ++component) {
       const float actual = restored.value.value[component];
       const float expected = world.value[component];
@@ -268,6 +295,133 @@ void testRandomizedTransformProjectionAndQuaternionProperties() {
   assert(report.good());
 }
 
+void testProjectionConventionMatrix() {
+  constexpr float near_plane = 0.05f;
+  constexpr float far_plane = 80.0f;
+  const aster::Viewport base_viewport{{13.0f, 17.0f}, {800.0f, 600.0f}};
+  for (const aster::CoordinateHandedness handedness :
+       {aster::CoordinateHandedness::RightHanded, aster::CoordinateHandedness::LeftHanded}) {
+    for (const aster::ClipDepthRange depth_range :
+         {aster::ClipDepthRange::ZeroToOne, aster::ClipDepthRange::NegativeOneToOne}) {
+      for (const aster::DepthDirection depth_direction :
+           {aster::DepthDirection::ForwardZ, aster::DepthDirection::ReverseZ}) {
+        for (const aster::ViewportOrigin viewport_origin :
+             {aster::ViewportOrigin::TopLeft, aster::ViewportOrigin::BottomLeft}) {
+          for (const bool perspective_mode : {true, false}) {
+            aster::ProjectionPolicy policy{.handedness = handedness,
+                                           .depth_range = depth_range,
+                                           .depth_direction = depth_direction,
+                                           .viewport_origin = viewport_origin};
+            const aster::MathResult<aster::Mat4> projection =
+                perspective_mode
+                    ? aster::perspective(aster::radians(58.0f), 4.0f / 3.0f, near_plane,
+                                         far_plane, policy)
+                    : aster::orthographic(-4.0f, 4.0f, -3.0f, 3.0f, near_plane,
+                                          far_plane, policy);
+            assert(projection);
+            expectDepthEndpoint(projection.value, policy, near_plane, expectedNearDepth(policy));
+            expectDepthEndpoint(projection.value, policy, far_plane, expectedFarDepth(policy));
+
+            const aster::Vec3 eye =
+                handedness == aster::CoordinateHandedness::RightHanded
+                    ? aster::Vec3{0.0f, 1.0f, 6.0f}
+                    : aster::Vec3{0.0f, 1.0f, -6.0f};
+            const aster::Vec3 target{0.0f, 0.2f, 0.0f};
+            const aster::MathResult<aster::Mat4> view =
+                aster::lookAt(eye, target, {0.0f, 1.0f, 0.0f}, handedness);
+            assert(view);
+            const aster::ClipFromWorld world_to_clip =
+                aster::ClipFromView{projection.value} * aster::ViewFromWorld{view.value};
+            const aster::MathResult<aster::WorldFromClip> clip_to_world =
+                aster::inverse(world_to_clip);
+            assert(clip_to_world);
+            aster::Viewport viewport = base_viewport;
+            viewport.origin_convention = viewport_origin;
+            const aster::WorldPoint world{target + aster::Vec3{0.17f, -0.11f, 0.0f}};
+            const aster::MathResult<aster::ScreenPoint> screen =
+                aster::project(world, world_to_clip, viewport);
+            assert(screen);
+            const aster::MathResult<aster::WorldPoint> restored =
+                aster::unproject(screen.value, clip_to_world.value, viewport);
+            assert(restored);
+            expectNearVec3(restored.value.value, world.value, 0.005f);
+
+            const aster::ScreenPoint center{
+                viewport.origin.x + viewport.size.x * 0.5f,
+                viewport.origin.y + viewport.size.y * 0.5f,
+                expectedNearDepth(policy)};
+            const aster::MathResult<aster::WorldRay> ray =
+                aster::screenRay(center, clip_to_world.value, viewport, policy,
+                                 aster::RayOriginPolicy::PerspectiveEye,
+                                 aster::WorldPoint{eye});
+            assert(ray);
+            const aster::Vec3 expected_direction = aster::normalize(target - eye);
+            assert(aster::dot(ray.value.direction.value, expected_direction) >= 0.999f);
+          }
+        }
+      }
+    }
+  }
+}
+
+void testProjectionAndTangentFailureProperties() {
+  const aster::Viewport viewport{{0.0f, 0.0f}, {640.0f, 480.0f}};
+  aster::Mat4 non_finite = aster::identity();
+  non_finite.m[0] = std::numeric_limits<float>::infinity();
+  const aster::MathResult<aster::ScreenPoint> bad_project =
+      aster::project(aster::WorldPoint{0.0f, 0.0f, 0.0f},
+                     aster::WorldToClip{non_finite}, viewport);
+  assert(!bad_project);
+  assert(bad_project.diagnostics.error == aster::MathError::NonFiniteInput);
+
+  const aster::MathResult<aster::WorldPoint> bad_unproject =
+      aster::unproject(aster::ScreenPoint{std::numeric_limits<float>::quiet_NaN(), 0.0f,
+                                          0.0f},
+                       aster::ClipToWorld{aster::identity()}, viewport);
+  assert(!bad_unproject);
+  assert(bad_unproject.diagnostics.error == aster::MathError::NonFiniteInput);
+
+  const aster::MathResult<aster::WorldNormalFromLocal> singular_normal =
+      aster::worldNormalFromLocal(aster::WorldFromLocal{aster::scale({1.0f, 0.0f, 1.0f})});
+  assert(!singular_normal);
+  assert(singular_normal.diagnostics.error == aster::MathError::SingularMatrix);
+
+  const aster::MathResult<aster::WorldNormalFromLocal> non_uniform_normal =
+      aster::worldNormalFromLocal(aster::WorldFromLocal{aster::scale({2.0f, 4.0f, 0.5f})});
+  assert(non_uniform_normal);
+  const aster::Normal transformed_y =
+      aster::transformNormal(aster::Normal{0.0f, 1.0f, 0.0f}, non_uniform_normal.value);
+  expectNear(aster::length(transformed_y.value), 1.0f, 0.0001f);
+  assert(aster::dot(transformed_y.value, {0.0f, 1.0f, 0.0f}) >= 0.999f);
+
+  const aster::MathResult<aster::WorldNormalFromLocal> negative_normal =
+      aster::worldNormalFromLocal(aster::WorldFromLocal{aster::scale({-1.0f, 2.0f, 3.0f})});
+  assert(negative_normal);
+  const aster::Normal transformed_x =
+      aster::transformNormal(aster::Normal{1.0f, 0.0f, 0.0f}, negative_normal.value);
+  assert(aster::dot(transformed_x.value, {-1.0f, 0.0f, 0.0f}) >= 0.999f);
+
+  const aster::TangentFrame frame =
+      aster::tangentFrameFromTriangle({0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f},
+                                      {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f},
+                                      {1.0f, 0.0f}, {0.0f, 1.0f});
+  const aster::TangentFrame mirrored =
+      aster::tangentFrameFromTriangle({0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f},
+                                      {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f},
+                                      {-1.0f, 0.0f}, {0.0f, 1.0f});
+  assert(frame.handedness == 1.0f);
+  assert(mirrored.handedness == -1.0f);
+  const aster::MathResult<aster::TangentFrame> negative_scaled =
+      aster::transformTangentFrame(frame, aster::WorldFromLocal{aster::scale({-1.0f, 1.0f, 1.0f})});
+  assert(negative_scaled);
+  assert(negative_scaled.value.handedness == -1.0f);
+  const aster::MathResult<aster::TangentFrame> mirrored_negative_scaled =
+      aster::transformTangentFrame(mirrored,
+                                   aster::WorldFromLocal{aster::scale({-1.0f, 1.0f, 1.0f})});
+  assert(mirrored_negative_scaled);
+  assert(mirrored_negative_scaled.value.handedness == 1.0f);
+}
+
 } // namespace
 
 int main() {
@@ -276,6 +430,8 @@ int main() {
   testHashRngPackingAndSampling();
   testPredicatesBoundsCollisionAndAuthoring();
   testRandomizedTransformProjectionAndQuaternionProperties();
+  testProjectionConventionMatrix();
+  testProjectionAndTangentFailureProperties();
   std::cout << "math_property_tests passed.\n";
   return 0;
 }

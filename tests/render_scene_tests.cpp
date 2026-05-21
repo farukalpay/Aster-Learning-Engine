@@ -11,6 +11,7 @@
 #include "aster/rhi/resource_lifetime_validator.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <cstdlib>
 #include <span>
@@ -270,20 +271,64 @@ void testShowcaseLabSceneContracts() {
   std::size_t organic_fibers = 0u;
   std::size_t mineral_veins = 0u;
   std::size_t stratified_rocks = 0u;
+  std::size_t resins = 0u;
   std::size_t contact_casters = 0u;
+  std::size_t material_spheres = 0u;
+  std::unordered_set<int> roughness_buckets;
+  std::unordered_set<int> normal_buckets;
+  bool has_brushed_metal_response = false;
+  bool has_stratified_normal_response = false;
+  bool has_mineral_clearcoat_response = false;
+  bool has_ceramic_resin_response = false;
   for (const aster::RenderObject &object : material_lab.objects()) {
     const aster::MaterialSurfaceProfile profile = aster::resolveMaterialSurfaceProfile(object.material);
     terrain_layers += profile == aster::MaterialSurfaceProfile::TerrainLayer ? 1u : 0u;
     organic_fibers += profile == aster::MaterialSurfaceProfile::OrganicFiber ? 1u : 0u;
     mineral_veins += profile == aster::MaterialSurfaceProfile::MineralVein ? 1u : 0u;
     stratified_rocks += profile == aster::MaterialSurfaceProfile::StratifiedRock ? 1u : 0u;
+    resins += profile == aster::MaterialSurfaceProfile::Resin ? 1u : 0u;
     contact_casters += object.casts_contact_shadow ? 1u : 0u;
+    if (object.name.find("material sphere") != std::string::npos) {
+      ++material_spheres;
+      roughness_buckets.insert(static_cast<int>(std::round(object.material.roughness * 20.0f)));
+      normal_buckets.insert(static_cast<int>(aster::materialSurfaceProfileId(profile)) * 10000 +
+                            static_cast<int>(std::round(object.material.procedural.micro_normal_strength * 20.0f)) *
+                                1000 +
+                            static_cast<int>(std::round(object.material.procedural.height_normal_coupling * 20.0f)) *
+                                10 +
+                            static_cast<int>(std::round(object.material.procedural.micro_frequency_breakup * 20.0f)));
+      has_brushed_metal_response =
+          has_brushed_metal_response ||
+          (profile == aster::MaterialSurfaceProfile::OrganicFiber &&
+           object.material.metallic > 0.90f && object.material.tangent_anisotropy > 0.80f);
+      has_stratified_normal_response =
+          has_stratified_normal_response ||
+          (profile == aster::MaterialSurfaceProfile::StratifiedRock &&
+           object.material.procedural.micro_normal_strength > 0.50f &&
+           object.material.procedural.roughness_height_coupling > 0.60f);
+      has_mineral_clearcoat_response =
+          has_mineral_clearcoat_response ||
+          (profile == aster::MaterialSurfaceProfile::MineralVein &&
+           object.material.coat_strength > 0.35f && object.material.dielectric_reflectance > 0.65f);
+      has_ceramic_resin_response =
+          has_ceramic_resin_response ||
+          (profile == aster::MaterialSurfaceProfile::Resin &&
+           object.material.coat_strength > 0.35f && object.material.pattern_contrast > 0.55f);
+    }
   }
   assert(terrain_layers >= 1u);
-  assert(organic_fibers >= 2u);
+  assert(organic_fibers >= 1u);
   assert(mineral_veins >= 1u);
   assert(stratified_rocks >= 1u);
+  assert(resins >= 1u);
   assert(contact_casters >= 4u);
+  assert(material_spheres == 4u);
+  assert(roughness_buckets.size() >= 3u);
+  assert(normal_buckets.size() >= 3u);
+  assert(has_brushed_metal_response);
+  assert(has_stratified_normal_response);
+  assert(has_mineral_clearcoat_response);
+  assert(has_ceramic_resin_response);
 }
 
 void testSoftwarePreviewRendererProducesImage() {
@@ -514,6 +559,11 @@ void testFrameMathDiagnostics() {
   camera.pitch = aster::radians(14.0f);
   camera.radius = 5.0f;
   camera.vertical_fov = aster::radians(44.0f);
+  camera.projection_policy.handedness = aster::CoordinateHandedness::LeftHanded;
+  camera.projection_policy.depth_range = aster::ClipDepthRange::NegativeOneToOne;
+  camera.projection_policy.depth_direction = aster::DepthDirection::ForwardZ;
+  camera.projection_policy.viewport_origin = aster::ViewportOrigin::BottomLeft;
+  camera.projection_policy.matrix_storage = aster::MatrixStorageOrder::RowMajor;
 
   aster::RendererSettings settings;
   settings.atmosphere.enabled = false;
@@ -538,6 +588,9 @@ void testFrameMathDiagnostics() {
   bool saw_math_contract = false;
   bool saw_singular_normal = false;
   bool saw_negative_scale = false;
+  bool saw_projection_mismatch = false;
+  bool saw_viewport_mismatch = false;
+  bool saw_backend_drift = false;
   for (const aster::FrameDiagnosticEvent &event : forensics.events) {
     saw_math_contract =
         saw_math_contract || event.kind == aster::FrameDiagnosticKind::MathContract;
@@ -545,10 +598,20 @@ void testFrameMathDiagnostics() {
         saw_singular_normal || event.kind == aster::FrameDiagnosticKind::SingularNormalMatrix;
     saw_negative_scale =
         saw_negative_scale || event.kind == aster::FrameDiagnosticKind::NegativeScaleTangentFlip;
+    saw_projection_mismatch =
+        saw_projection_mismatch ||
+        event.kind == aster::FrameDiagnosticKind::ProjectionConventionMismatch;
+    saw_viewport_mismatch =
+        saw_viewport_mismatch || event.kind == aster::FrameDiagnosticKind::ViewportOriginMismatch;
+    saw_backend_drift =
+        saw_backend_drift || event.kind == aster::FrameDiagnosticKind::BackendProjectionDrift;
   }
   assert(saw_math_contract);
   assert(saw_singular_normal);
   assert(saw_negative_scale);
+  assert(saw_projection_mismatch);
+  assert(saw_viewport_mismatch);
+  assert(saw_backend_drift);
   assert(aster::mathDiagnosticCount() == 0u);
 
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
@@ -982,6 +1045,23 @@ void testFrameDebuggerEvidenceTimelineAndRegressionLab() {
                        return entry.pass_encode_seconds >= 0.0 &&
                               entry.pass != aster::RenderGraphPass::SceneColorDepth;
                      }));
+  const aster::AsterRenderProofSummary proof =
+      aster::summarizeAsterRenderProof(forensics);
+  assert(proof.production_trace_ready);
+  assert(proof.ready_signals >= 9u);
+  assert(proof.descriptor_pressure > 0u);
+  assert(proof.pipeline_cache_hits + proof.pipeline_cache_misses > 0u);
+  assert(proof.backend_fallbacks > 0u);
+  assert(std::any_of(proof.rows.begin(), proof.rows.end(),
+                     [](const aster::AsterRenderProofRow &row) {
+                       return row.signal == aster::AsterRenderProofSignal::VisualRegression &&
+                              row.ready && row.hash != 0u;
+                     }));
+  assert(std::any_of(proof.rows.begin(), proof.rows.end(),
+                     [](const aster::AsterRenderProofRow &row) {
+                       return row.signal == aster::AsterRenderProofSignal::AssetProvenance &&
+                              row.ready && row.count > 0u;
+                     }));
 
   std::filesystem::remove_all(dir);
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
@@ -1259,6 +1339,326 @@ PixelStats measurePixels(const aster::SoftwareFrameBuffer &framebuffer) {
   stats.mean_luma /= static_cast<double>(pixels);
   stats.unique_rgb = unique.size();
   return stats;
+}
+
+struct PixelProbe {
+  double r = 0.0;
+  double g = 0.0;
+  double b = 0.0;
+  double luma = 0.0;
+};
+
+PixelProbe samplePixel(const aster::SoftwareFrameBuffer &framebuffer, int x, int y) {
+  x = std::clamp(x, 0, framebuffer.width() - 1);
+  y = std::clamp(y, 0, framebuffer.height() - 1);
+  const std::span<const std::uint8_t> rgba = framebuffer.rgba8();
+  const std::size_t offset = static_cast<std::size_t>(y * framebuffer.width() + x) * 4u;
+  PixelProbe pixel;
+  pixel.r = static_cast<double>(rgba[offset + 0u]) / 255.0;
+  pixel.g = static_cast<double>(rgba[offset + 1u]) / 255.0;
+  pixel.b = static_cast<double>(rgba[offset + 2u]) / 255.0;
+  pixel.luma = pixel.r * 0.2126 + pixel.g * 0.7152 + pixel.b * 0.0722;
+  return pixel;
+}
+
+PixelProbe meanPatch(const aster::SoftwareFrameBuffer &framebuffer, int x0, int y0, int x1,
+                     int y1) {
+  x0 = std::clamp(x0, 0, framebuffer.width());
+  x1 = std::clamp(x1, 0, framebuffer.width());
+  y0 = std::clamp(y0, 0, framebuffer.height());
+  y1 = std::clamp(y1, 0, framebuffer.height());
+  if (x1 <= x0) {
+    x1 = std::min(x0 + 1, framebuffer.width());
+  }
+  if (y1 <= y0) {
+    y1 = std::min(y0 + 1, framebuffer.height());
+  }
+  PixelProbe patch;
+  std::size_t count = 0u;
+  for (int y = y0; y < y1; ++y) {
+    for (int x = x0; x < x1; ++x) {
+      const PixelProbe pixel = samplePixel(framebuffer, x, y);
+      patch.r += pixel.r;
+      patch.g += pixel.g;
+      patch.b += pixel.b;
+      patch.luma += pixel.luma;
+      ++count;
+    }
+  }
+  const double inv_count = 1.0 / static_cast<double>(std::max<std::size_t>(count, 1u));
+  patch.r *= inv_count;
+  patch.g *= inv_count;
+  patch.b *= inv_count;
+  patch.luma *= inv_count;
+  return patch;
+}
+
+double colorDistance(const PixelProbe a, const PixelProbe b) {
+  const double dr = a.r - b.r;
+  const double dg = a.g - b.g;
+  const double db = a.b - b.b;
+  return std::sqrt(dr * dr + dg * dg + db * db);
+}
+
+struct ContactDropStats {
+  double max_drop = 0.0;
+  std::size_t core_pixels = 0u;
+  std::size_t falloff_pixels = 0u;
+  std::size_t drop_buckets = 0u;
+};
+
+ContactDropStats measurePositiveLumaDrop(const aster::SoftwareFrameBuffer &baseline,
+                                         const aster::SoftwareFrameBuffer &contact) {
+  assert(baseline.width() == contact.width());
+  assert(baseline.height() == contact.height());
+  std::vector<double> drops;
+  drops.reserve(static_cast<std::size_t>(baseline.width() * baseline.height()));
+  ContactDropStats stats;
+  for (int y = 0; y < baseline.height(); ++y) {
+    for (int x = 0; x < baseline.width(); ++x) {
+      const double drop = samplePixel(baseline, x, y).luma - samplePixel(contact, x, y).luma;
+      if (drop > 0.002) {
+        drops.push_back(drop);
+        stats.max_drop = std::max(stats.max_drop, drop);
+      }
+    }
+  }
+  std::unordered_set<int> buckets;
+  for (const double drop : drops) {
+    stats.core_pixels += drop >= stats.max_drop * 0.76 ? 1u : 0u;
+    stats.falloff_pixels += drop >= stats.max_drop * 0.20 ? 1u : 0u;
+    buckets.insert(static_cast<int>(std::round(drop * 255.0)));
+  }
+  stats.drop_buckets = buckets.size();
+  return stats;
+}
+
+aster::OrbitCamera materialLabContractCamera() {
+  aster::OrbitCamera camera;
+  camera.target = {0.02f, 0.54f, -0.03f};
+  camera.yaw = aster::radians(19.0f);
+  camera.pitch = aster::radians(17.0f);
+  camera.radius = 7.05f;
+  camera.vertical_fov = aster::radians(42.0f);
+  return camera;
+}
+
+aster::RendererSettings materialLabContractSettings() {
+  aster::RendererSettings settings;
+  settings.exposure = 1.08f;
+  settings.ambient_strength = 0.24f;
+  settings.ambient_floor = 0.012f;
+  settings.indirect_albedo_floor = 0.012f;
+  settings.use_aces_tonemap = true;
+  settings.procedural_surface_normals = true;
+  settings.sun_light.enabled = true;
+  settings.sun_light.direction_to_light = {-0.52f, 0.80f, 0.30f};
+  settings.sun_light.color = {1.0f, 0.90f, 0.74f};
+  settings.sun_light.intensity = 4.65f;
+  settings.pipeline.clear_color = {0.020f, 0.036f, 0.062f};
+  settings.sky_ambient_color = {0.50f, 0.66f, 0.92f};
+  settings.ground_ambient_color = {0.165f, 0.118f, 0.074f};
+  settings.atmosphere.enabled = true;
+  settings.atmosphere.fog_color = {0.128f, 0.160f, 0.205f};
+  settings.atmosphere.fog_start = 3.8f;
+  settings.atmosphere.fog_end = 16.0f;
+  settings.atmosphere.fog_strength = 0.50f;
+  settings.atmosphere.fog_falloff = aster::AtmosphereFogFalloff::Exponential;
+  settings.atmosphere.fog_power = 1.55f;
+  settings.atmosphere.saturation = 1.22f;
+  settings.atmosphere.contrast = 1.08f;
+  settings.grounding.enabled = true;
+  settings.grounding.contact_shadows = true;
+  settings.grounding.auto_contact_shadows = true;
+  settings.grounding.contact_shadow_strength = 0.84f;
+  settings.grounding.contact_shadow_radius_scale = 1.26f;
+  settings.grounding.contact_shadow_max_radius = 1.58f;
+  settings.occlusion.enabled = true;
+  settings.occlusion.radius = 1.28f;
+  settings.occlusion.strength = 0.54f;
+  settings.occlusion.sample_count = 16u;
+  settings.occlusion.contact_hardening = 0.36f;
+  settings.shadows.enabled = true;
+  settings.shadows.cascaded_directional = true;
+  settings.shadows.directional_cascades = 2u;
+  settings.shadows.atlas_size = 160u;
+  settings.shadows.max_distance = 16.0f;
+  settings.shadows.pcf_radius = 0.42f;
+  settings.reflections.enabled = true;
+  settings.reflections.static_local_probes = true;
+  settings.reflections.probe_resolution = 16u;
+  settings.reflections.max_active_probes = 1u;
+  settings.reflections.fallback_intensity = 1.42f;
+  settings.surface_scale.physical_texel_density = 1024.0f;
+  settings.surface_scale.height_normal_coupling = 0.94f;
+  settings.surface_scale.roughness_height_coupling = 0.72f;
+  settings.surface_scale.macro_frequency_breakup = 0.58f;
+  settings.surface_scale.micro_frequency_breakup = 0.82f;
+  settings.light_rig = {
+      aster::Light{{-3.6f, 3.7f, 1.8f}, {9.5f, 7.2f, 5.0f}, 1.0f, 0.82f},
+      aster::Light{{2.9f, 1.9f, 1.5f}, {1.6f, 2.7f, 5.8f}, 1.0f, 1.05f},
+      aster::Light{{0.4f, 2.9f, -3.0f}, {3.2f, 4.3f, 6.4f}, 1.0f, 1.22f},
+  };
+  return settings;
+}
+
+aster::Scene contactFalloffProbeScene() {
+  aster::Scene scene;
+  aster::RenderObject floor;
+  floor.name = "contact falloff support floor";
+  floor.primitive = aster::MeshPrimitive::Plane;
+  floor.transform.scale = {3.2f, 1.0f, 2.6f};
+  floor.material = aster::makeSupportSurfaceMaterial(
+      aster::makeMaterial({.base_color = {0.34f, 0.30f, 0.23f},
+                           .roughness = 0.88f,
+                           .ambient_occlusion = 0.98f,
+                           .surface_profile = aster::MaterialSurfaceProfile::TerrainLayer,
+                           .surface_pattern = aster::SurfacePattern::TerrainBlend,
+                           .pattern_scale = {4.0f, 5.0f},
+                           .pattern_depth = 0.18f,
+                           .pattern_contrast = 0.42f}));
+  floor.auto_contact_shadow = false;
+  scene.objects().push_back(floor);
+
+  aster::RenderObject caster;
+  caster.name = "contact falloff ceramic caster";
+  caster.primitive = aster::MeshPrimitive::Sphere;
+  caster.transform.position = {0.0f, 0.52f, 0.0f};
+  caster.transform.scale = {0.52f, 0.52f, 0.52f};
+  caster.material = aster::makeMaterial({.base_color = {0.74f, 0.70f, 0.62f},
+                                         .roughness = 0.34f,
+                                         .dielectric_reflectance = 0.54f,
+                                         .coat_strength = 0.32f,
+                                         .coat_roughness = 0.18f,
+                                         .ambient_occlusion = 0.96f,
+                                         .surface_profile = aster::MaterialSurfaceProfile::Resin,
+                                         .surface_pattern = aster::SurfacePattern::AmberResin,
+                                         .pattern_scale = {5.0f, 4.0f},
+                                         .pattern_depth = 0.08f,
+                                         .pattern_contrast = 0.50f});
+  caster.casts_contact_shadow = true;
+  caster.contact_shadow_strength = 1.0f;
+  caster.contact_shadow_radius_scale = 1.30f;
+  scene.objects().push_back(caster);
+
+  scene.reflectionProbes().push_back({.name = "contact falloff probe",
+                                      .position = {0.0f, 1.1f, -0.2f},
+                                      .influence_radius = 5.0f,
+                                      .sky_irradiance = {0.34f, 0.44f, 0.62f},
+                                      .ground_irradiance = {0.20f, 0.15f, 0.10f},
+                                      .specular_tint = {1.0f, 0.94f, 0.84f},
+                                      .intensity = 1.0f});
+  return scene;
+}
+
+void testShowcaseLabScenesEnvironmentRadiance() {
+  const aster::Scene empty_scene;
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.0f, 0.0f};
+  camera.yaw = aster::radians(11.0f);
+  camera.pitch = aster::radians(0.0f);
+  camera.radius = 2.8f;
+  camera.vertical_fov = aster::radians(68.0f);
+
+  aster::RendererSettings settings = materialLabContractSettings();
+  settings.grounding.enabled = false;
+  settings.shadows.enabled = false;
+  settings.occlusion.enabled = false;
+  settings.reflections.enabled = false;
+
+  const aster::SoftwareFrameBuffer frame =
+      aster::renderSoftwarePreview(empty_scene, camera,
+                                   {.width = 72,
+                                    .height = 44,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = settings});
+  const PixelStats stats = measurePixels(frame);
+  const PixelProbe zenith = meanPatch(frame, 0, 0, frame.width(), 5);
+  const PixelProbe horizon = meanPatch(frame, 0, 18, frame.width(), 25);
+  const PixelProbe lower_air = meanPatch(frame, 0, 34, frame.width(), frame.height());
+  assert(stats.unique_rgb > 24u);
+  assert(colorDistance(zenith, horizon) > 0.030);
+  assert(colorDistance(horizon, lower_air) > 0.018);
+  assert(std::abs(zenith.luma - lower_air.luma) > 0.020);
+}
+
+void testShowcaseLabScenesDebugViewResponse() {
+  const aster::Scene scene = aster::makeMaterialLabShowcaseScene();
+  const aster::OrbitCamera camera = materialLabContractCamera();
+  aster::RendererSettings settings = materialLabContractSettings();
+
+  settings.material_debug_view = aster::MaterialDebugView::Roughness;
+  const aster::SoftwareFrameBuffer roughness =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 84,
+                                    .height = 52,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = settings});
+
+  settings.material_debug_view = aster::MaterialDebugView::Normal;
+  const aster::SoftwareFrameBuffer normal =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 84,
+                                    .height = 52,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = settings});
+
+  const PixelStats roughness_stats = measurePixels(roughness);
+  const PixelStats normal_stats = measurePixels(normal);
+  assert(roughness_stats.unique_rgb > 18u);
+  assert(normal_stats.unique_rgb > roughness_stats.unique_rgb);
+  assert(std::abs(roughness_stats.mean_luma - normal_stats.mean_luma) > 0.030);
+  assert(!std::equal(roughness.rgba8().begin(), roughness.rgba8().end(), normal.rgba8().begin(),
+                     normal.rgba8().end()));
+}
+
+void testShowcaseLabScenesContactShadowFalloff() {
+  const aster::Scene scene = contactFalloffProbeScene();
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.38f, 0.0f};
+  camera.yaw = aster::radians(34.0f);
+  camera.pitch = aster::radians(19.0f);
+  camera.radius = 3.7f;
+  camera.vertical_fov = aster::radians(42.0f);
+
+  aster::RendererSettings contact_settings = materialLabContractSettings();
+  contact_settings.exposure = 1.03f;
+  contact_settings.ambient_strength = 0.32f;
+  contact_settings.sun_light.intensity = 2.2f;
+  contact_settings.atmosphere.enabled = false;
+  contact_settings.shadows.enabled = false;
+  contact_settings.occlusion.enabled = false;
+  contact_settings.grounding.enabled = true;
+  contact_settings.grounding.contact_shadows = true;
+  contact_settings.grounding.contact_shadow_strength = 0.86f;
+  contact_settings.grounding.contact_shadow_radius_scale = 1.36f;
+  contact_settings.grounding.contact_shadow_max_radius = 1.20f;
+
+  aster::RendererSettings baseline_settings = contact_settings;
+  baseline_settings.grounding.contact_shadows = false;
+
+  const aster::SoftwareFrameBuffer baseline =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 84,
+                                    .height = 56,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = baseline_settings});
+  const aster::SoftwareFrameBuffer contact =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 84,
+                                    .height = 56,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = contact_settings});
+  const ContactDropStats stats = measurePositiveLumaDrop(baseline, contact);
+  assert(stats.max_drop > 0.025);
+  assert(stats.core_pixels >= 6u);
+  assert(stats.falloff_pixels > stats.core_pixels * 2u);
+  assert(stats.drop_buckets >= 8u);
 }
 
 void testRetroStyleNeutralSoftwarePreviewMatchesDefault() {
@@ -2362,6 +2762,9 @@ constexpr TestCase kTestCases[] = {
     {"scene_contract", testSceneContract},
     {"industrial_pipe_scene", testIndustrialPipeSceneContract},
     {"showcase_lab_scenes", testShowcaseLabSceneContracts},
+    {"showcase_lab_scenes_environment_radiance", testShowcaseLabScenesEnvironmentRadiance},
+    {"showcase_lab_scenes_debug_view_response", testShowcaseLabScenesDebugViewResponse},
+    {"showcase_lab_scenes_contact_shadow_falloff", testShowcaseLabScenesContactShadowFalloff},
     {"software_preview_renderer", testSoftwarePreviewRendererProducesImage},
     {"software_depth_policy_coplanar", testSoftwareDepthPolicySeparatesCoplanarAttachments},
     {"software_depth_policy_object_order", testSoftwareDepthPolicyIsStableAcrossObjectOrder},

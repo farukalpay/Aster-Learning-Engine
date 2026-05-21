@@ -70,10 +70,10 @@ aster::OrbitCamera makeCamera(const std::string &scene_name) {
     return camera;
   }
   if (scene_name == "material-lab") {
-    camera.target = {0.05f, 0.58f, -0.02f};
-    camera.yaw = aster::radians(20.0f);
-    camera.pitch = aster::radians(11.0f);
-    camera.radius = 6.80f;
+    camera.target = {0.02f, 0.54f, -0.03f};
+    camera.yaw = aster::radians(19.0f);
+    camera.pitch = aster::radians(17.0f);
+    camera.radius = 7.05f;
     camera.vertical_fov = aster::radians(42.0f);
     return camera;
   }
@@ -181,25 +181,25 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
     settings.atmosphere.fog_strength = 0.12f;
   }
   if (scene_name == "material-lab") {
-    settings.exposure = 1.16f;
-    settings.ambient_strength = 0.27f;
+    settings.exposure = 1.08f;
+    settings.ambient_strength = 0.24f;
     settings.ambient_floor = 0.012f;
-    settings.indirect_albedo_floor = 0.018f;
+    settings.indirect_albedo_floor = 0.012f;
     settings.sun_light.direction_to_light = {-0.52f, 0.80f, 0.30f};
     settings.sun_light.color = {1.0f, 0.90f, 0.74f};
-    settings.sun_light.intensity = 5.40f;
-    settings.pipeline.clear_color = {0.018f, 0.032f, 0.052f};
-    settings.sky_ambient_color = {0.44f, 0.60f, 0.82f};
-    settings.ground_ambient_color = {0.18f, 0.13f, 0.085f};
+    settings.sun_light.intensity = 4.65f;
+    settings.pipeline.clear_color = {0.020f, 0.036f, 0.062f};
+    settings.sky_ambient_color = {0.50f, 0.66f, 0.92f};
+    settings.ground_ambient_color = {0.165f, 0.118f, 0.074f};
     settings.atmosphere.enabled = true;
-    settings.atmosphere.fog_color = {0.090f, 0.125f, 0.165f};
-    settings.atmosphere.fog_start = 2.8f;
-    settings.atmosphere.fog_end = 12.0f;
-    settings.atmosphere.fog_strength = 0.42f;
+    settings.atmosphere.fog_color = {0.128f, 0.160f, 0.205f};
+    settings.atmosphere.fog_start = 3.8f;
+    settings.atmosphere.fog_end = 16.0f;
+    settings.atmosphere.fog_strength = 0.50f;
     settings.atmosphere.fog_falloff = aster::AtmosphereFogFalloff::Exponential;
     settings.atmosphere.fog_power = 1.55f;
-    settings.atmosphere.saturation = 1.04f;
-    settings.atmosphere.contrast = 1.06f;
+    settings.atmosphere.saturation = 1.22f;
+    settings.atmosphere.contrast = 1.08f;
     settings.atmosphere.shadow_tint = {0.68f, 0.76f, 0.90f};
     settings.atmosphere.shadow_tint_strength = 0.10f;
     settings.atmosphere.highlight_tint = {1.08f, 0.98f, 0.82f};
@@ -207,10 +207,11 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
     settings.grounding.enabled = true;
     settings.grounding.contact_shadows = true;
     settings.grounding.auto_contact_shadows = true;
-    settings.grounding.contact_shadow_strength = 0.82f;
-    settings.grounding.contact_shadow_radius_scale = 1.16f;
-    settings.occlusion.radius = 1.20f;
-    settings.occlusion.strength = 0.46f;
+    settings.grounding.contact_shadow_strength = 0.84f;
+    settings.grounding.contact_shadow_radius_scale = 1.26f;
+    settings.grounding.contact_shadow_max_radius = 1.58f;
+    settings.occlusion.radius = 1.28f;
+    settings.occlusion.strength = 0.54f;
     settings.occlusion.sample_count = 16u;
     settings.occlusion.contact_hardening = 0.36f;
     settings.shadows.enabled = true;
@@ -218,12 +219,12 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
     settings.shadows.directional_cascades = 2u;
     settings.shadows.atlas_size = 160u;
     settings.shadows.max_distance = 16.0f;
-    settings.shadows.pcf_radius = 0.30f;
+    settings.shadows.pcf_radius = 0.42f;
     settings.reflections.enabled = true;
     settings.reflections.static_local_probes = true;
     settings.reflections.probe_resolution = 16u;
     settings.reflections.max_active_probes = 1u;
-    settings.reflections.fallback_intensity = 1.18f;
+    settings.reflections.fallback_intensity = 1.42f;
     settings.surface_scale.physical_texel_density = 1024.0f;
     settings.surface_scale.height_normal_coupling = 0.94f;
     settings.surface_scale.roughness_height_coupling = 0.72f;
@@ -231,9 +232,9 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
     settings.surface_scale.micro_frequency_breakup = 0.82f;
     settings.presentation.focal_length_mm = 50.0f;
     settings.light_rig = {
-        aster::Light{{-3.4f, 3.6f, 1.7f}, {11.0f, 8.4f, 5.8f}, 1.0f, 0.80f},
-        aster::Light{{2.7f, 1.8f, 1.5f}, {1.8f, 3.0f, 5.6f}, 1.0f, 1.00f},
-        aster::Light{{0.4f, 2.7f, -2.8f}, {3.8f, 4.8f, 6.4f}, 1.0f, 1.18f},
+        aster::Light{{-3.6f, 3.7f, 1.8f}, {9.5f, 7.2f, 5.0f}, 1.0f, 0.82f},
+        aster::Light{{2.9f, 1.9f, 1.5f}, {1.6f, 2.7f, 5.8f}, 1.0f, 1.05f},
+        aster::Light{{0.4f, 2.9f, -3.0f}, {3.2f, 4.3f, 6.4f}, 1.0f, 1.22f},
     };
   }
   if (scene_name == "industrial-pipe") {

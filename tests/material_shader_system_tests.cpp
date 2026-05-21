@@ -624,6 +624,28 @@ void testRenderQualityProfileContracts() {
                      [](const aster::RenderQualityIssue &issue) {
                        return issue.category == "surface-fidelity";
                      }));
+  aster::MaterialAsset signal_asset = loaded.value;
+  signal_asset.authoring["energy_conservation"] = "LitPBR";
+  signal_asset.authoring["tangent_basis"] = "mikktspace";
+  signal_asset.authoring["temporal_stability"] = "mip-biased-parallax";
+  signal_asset.preview["environment"] = "material_lab";
+  signal_asset.preview["reflection_probe"] = "static-local";
+  const aster::AsterMaterialSignalSummary signal_summary =
+      aster::summarizeAsterMaterialSignals(signal_asset, validation, production);
+  assert(signal_summary.image_proof_ready);
+  assert(signal_summary.ready_signals == signal_summary.rows.size());
+  assert(signal_summary.score >= 70u);
+  assert(std::any_of(signal_summary.rows.begin(), signal_summary.rows.end(),
+                     [](const aster::AsterMaterialSignalRow &row) {
+                       return row.kind == aster::AsterMaterialSignalKind::RustWetness &&
+                              row.ready && row.strength > 0.5f;
+                     }));
+  assert(std::any_of(signal_summary.rows.begin(), signal_summary.rows.end(),
+                     [](const aster::AsterMaterialSignalRow &row) {
+                       return row.kind ==
+                                  aster::AsterMaterialSignalKind::NormalHeightCoupling &&
+                              row.ready && row.strength > 0.5f;
+                     }));
 
   const aster::MaterialAssetLoadResult broken =
       aster::parseMaterialAsset(R"mat(

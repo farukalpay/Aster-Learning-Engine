@@ -98,43 +98,43 @@ void appendHash(std::uint64_t &hash, const ProceduralSurfaceLayer &layer) {
   return std::find(values.begin(), values.end(), needle) != values.end();
 }
 
-[[nodiscard]] bool stageExists(const AsterAssetFactoryRecipe &recipe, const std::string &id) {
+[[nodiscard]] bool stageExists(const AsterAssetFoundryRecipe &recipe, const std::string &id) {
   return std::any_of(recipe.stages.begin(), recipe.stages.end(),
-                     [&](const AsterAssetFactoryStage &stage) { return stage.id == id; });
+                     [&](const AsterAssetFoundryStage &stage) { return stage.id == id; });
 }
 
 [[nodiscard]] bool duplicateId(const std::vector<std::string> &seen, const std::string &id) {
   return std::find(seen.begin(), seen.end(), id) != seen.end();
 }
 
-[[nodiscard]] const AsterAssetFactorySurfaceContract *
-findSurfaceContract(const AsterAssetFactoryRecipe &recipe, const std::string &id) {
+[[nodiscard]] const AsterAssetFoundrySurfaceContract *
+findSurfaceContract(const AsterAssetFoundryRecipe &recipe, const std::string &id) {
   const auto found =
       std::find_if(recipe.surface_contracts.begin(), recipe.surface_contracts.end(),
-                   [&](const AsterAssetFactorySurfaceContract &contract) {
+                   [&](const AsterAssetFoundrySurfaceContract &contract) {
                      return contract.id == id;
                    });
   return found == recipe.surface_contracts.end() ? nullptr : &*found;
 }
 
-[[nodiscard]] const AsterAssetFactoryPhysicsProxy *
-findPhysicsProxy(const AsterAssetFactoryRecipe &recipe, const std::string &id) {
+[[nodiscard]] const AsterAssetFoundryPhysicsProxy *
+findPhysicsProxy(const AsterAssetFoundryRecipe &recipe, const std::string &id) {
   const auto found = std::find_if(recipe.physics_proxies.begin(), recipe.physics_proxies.end(),
-                                  [&](const AsterAssetFactoryPhysicsProxy &proxy) {
+                                  [&](const AsterAssetFoundryPhysicsProxy &proxy) {
                                     return proxy.id == id;
                                   });
   return found == recipe.physics_proxies.end() ? nullptr : &*found;
 }
 
-[[nodiscard]] AsterAssetFactoryDiagnosticSeverity severityFromMessage(
+[[nodiscard]] AsterAssetFoundryDiagnosticSeverity severityFromMessage(
     const std::string &message) {
   if (message.rfind("error:", 0u) == 0u) {
-    return AsterAssetFactoryDiagnosticSeverity::Error;
+    return AsterAssetFoundryDiagnosticSeverity::Error;
   }
   if (message.rfind("warning:", 0u) == 0u) {
-    return AsterAssetFactoryDiagnosticSeverity::Warning;
+    return AsterAssetFoundryDiagnosticSeverity::Warning;
   }
-  return AsterAssetFactoryDiagnosticSeverity::Info;
+  return AsterAssetFoundryDiagnosticSeverity::Info;
 }
 
 [[nodiscard]] std::string stripDiagnosticPrefix(const std::string &message) {
@@ -153,31 +153,31 @@ findPhysicsProxy(const AsterAssetFactoryRecipe &recipe, const std::string &id) {
   return message;
 }
 
-[[nodiscard]] bool coverageClaimsSignal(const AsterAssetFactoryBuildResult &result,
+[[nodiscard]] bool coverageClaimsSignal(const AsterAssetFoundryBuildResult &result,
                                         const std::string &signal) {
   return std::any_of(result.surface_coverages.begin(), result.surface_coverages.end(),
-                     [&](const AsterAssetFactorySurfaceCoverage &coverage) {
+                     [&](const AsterAssetFoundrySurfaceCoverage &coverage) {
                        return containsText(coverage.claimed_signals, signal);
                      });
 }
 
-[[nodiscard]] bool coverageRejectsSignal(const AsterAssetFactoryBuildResult &result,
+[[nodiscard]] bool coverageRejectsSignal(const AsterAssetFoundryBuildResult &result,
                                          const std::string &signal) {
   return std::any_of(result.surface_coverages.begin(), result.surface_coverages.end(),
-                     [&](const AsterAssetFactorySurfaceCoverage &coverage) {
+                     [&](const AsterAssetFoundrySurfaceCoverage &coverage) {
                        return containsText(coverage.rejected_signals, signal);
                      });
 }
 
-[[nodiscard]] float visualBriefWeight(const AsterAssetFactoryRecipe &recipe,
+[[nodiscard]] float visualBriefWeight(const AsterAssetFoundryRecipe &recipe,
                                       const std::string &signal) {
-  for (const AsterAssetFactorySurfaceContract &contract : recipe.surface_contracts) {
-    for (const AsterAssetFactorySignalRule &rule : contract.required_signals) {
+  for (const AsterAssetFoundrySurfaceContract &contract : recipe.surface_contracts) {
+    for (const AsterAssetFoundrySignalRule &rule : contract.required_signals) {
       if (rule.id == signal) {
         return rule.weight;
       }
     }
-    for (const AsterAssetFactorySignalRule &rule : contract.forbidden_signals) {
+    for (const AsterAssetFoundrySignalRule &rule : contract.forbidden_signals) {
       if (rule.id == signal) {
         return rule.weight;
       }
@@ -229,10 +229,10 @@ findPhysicsProxy(const AsterAssetFactoryRecipe &recipe, const std::string &id) {
   return 0.0f;
 }
 
-[[nodiscard]] AsterAssetFactorySignalSample
-sampleSignal(const CpuMesh &mesh, const AsterAssetFactorySurfaceContract &contract,
-             const AsterAssetFactorySignalRule &rule) {
-  AsterAssetFactorySignalSample out;
+[[nodiscard]] AsterAssetFoundrySignalSample
+sampleSignal(const CpuMesh &mesh, const AsterAssetFoundrySurfaceContract &contract,
+             const AsterAssetFoundrySignalRule &rule) {
+  AsterAssetFoundrySignalSample out;
   out.id = rule.id;
   if (mesh.vertices.empty()) {
     return out;
@@ -259,9 +259,9 @@ sampleSignal(const CpuMesh &mesh, const AsterAssetFactorySurfaceContract &contra
   return out;
 }
 
-[[nodiscard]] AsterAssetFactorySurfaceCoverage
-evaluateSurfaceContract(const CpuMesh &mesh, const AsterAssetFactorySurfaceContract &contract) {
-  AsterAssetFactorySurfaceCoverage coverage;
+[[nodiscard]] AsterAssetFoundrySurfaceCoverage
+evaluateSurfaceContract(const CpuMesh &mesh, const AsterAssetFoundrySurfaceContract &contract) {
+  AsterAssetFoundrySurfaceCoverage coverage;
   coverage.contract_id = contract.id;
   coverage.sample_count = mesh.vertices.size();
   coverage.passed = true;
@@ -287,8 +287,8 @@ evaluateSurfaceContract(const CpuMesh &mesh, const AsterAssetFactorySurfaceContr
     coverage.quality_score = std::min(coverage.quality_score, 74u);
     coverage.diagnostics.push_back("warning: roughness/height coupling is below contract floor");
   }
-  for (const AsterAssetFactorySignalRule &rule : contract.required_signals) {
-    AsterAssetFactorySignalSample sample = sampleSignal(mesh, contract, rule);
+  for (const AsterAssetFoundrySignalRule &rule : contract.required_signals) {
+    AsterAssetFoundrySignalSample sample = sampleSignal(mesh, contract, rule);
     const bool passed =
         sample.average >= rule.minimum_average && sample.coverage >= rule.minimum_coverage;
     if (passed) {
@@ -303,8 +303,8 @@ evaluateSurfaceContract(const CpuMesh &mesh, const AsterAssetFactorySurfaceContr
     }
     coverage.signals.push_back(std::move(sample));
   }
-  for (const AsterAssetFactorySignalRule &rule : contract.forbidden_signals) {
-    AsterAssetFactorySignalSample sample = sampleSignal(mesh, contract, rule);
+  for (const AsterAssetFoundrySignalRule &rule : contract.forbidden_signals) {
+    AsterAssetFoundrySignalSample sample = sampleSignal(mesh, contract, rule);
     const bool present =
         sample.average >= rule.minimum_average || sample.coverage >= rule.minimum_coverage;
     if (present) {
@@ -337,7 +337,7 @@ evaluateSurfaceContract(const CpuMesh &mesh, const AsterAssetFactorySurfaceContr
   return applyAssetModifierStack(mesh, stack).mesh;
 }
 
-[[nodiscard]] std::vector<CpuMesh> makeLods(const AsterAssetFactoryRecipe &recipe,
+[[nodiscard]] std::vector<CpuMesh> makeLods(const AsterAssetFoundryRecipe &recipe,
                                             const CpuMesh &mesh) {
   if (!recipe.authored_lods.empty()) {
     return recipe.authored_lods;
@@ -371,13 +371,13 @@ evaluateSurfaceContract(const CpuMesh &mesh, const AsterAssetFactorySurfaceContr
           .rim_soot = spec.rim_soot_strength};
 }
 
-[[nodiscard]] AsterAssetFactoryPhysicsProxy proxyFromPipe(
+[[nodiscard]] AsterAssetFoundryPhysicsProxy proxyFromPipe(
     const AsterPipeCollisionProxy &pipe_proxy, const AsterPipeAssetSpec &spec) {
   const float wetness = saturate(spec.wetness_strength);
   const float rust = saturate(spec.rust_strength);
   return {.id = "physics.pipe.runtime-bounds",
           .label = "Rusted pipe runtime bounds proxy",
-          .kind = AsterAssetFactoryPhysicsProxyKind::BoundsBox,
+          .kind = AsterAssetFoundryPhysicsProxyKind::BoundsBox,
           .center = pipe_proxy.center,
           .half_extents = pipe_proxy.half_extents,
           .radius = pipe_proxy.radius,
@@ -391,17 +391,17 @@ evaluateSurfaceContract(const CpuMesh &mesh, const AsterAssetFactorySurfaceContr
           .filter = {.layer_bits = 1u, .collides_with = 0xffffffffu}};
 }
 
-[[nodiscard]] std::vector<AsterAssetFactoryStage> pipeStages(const AsterPipeAssetSpec &spec) {
-  AsterAssetFactoryStage source;
+[[nodiscard]] std::vector<AsterAssetFoundryStage> pipeStages(const AsterPipeAssetSpec &spec) {
+  AsterAssetFoundryStage source;
   source.id = "stage.pipe.source";
-  source.kind = AsterAssetFactoryStageKind::SourceGeometry;
+  source.kind = AsterAssetFoundryStageKind::SourceGeometry;
   source.label = "Aster pipe source assembly";
   source.minimum_quality = 90u;
   source.creative_variant_tags = {"reference-silhouette"};
 
-  AsterAssetFactoryStage polish;
+  AsterAssetFoundryStage polish;
   polish.id = "stage.pipe.modifier-stack";
-  polish.kind = AsterAssetFactoryStageKind::ModifierStack;
+  polish.kind = AsterAssetFoundryStageKind::ModifierStack;
   polish.label = "Factory modifier pass for weld/rim polish";
   polish.depends_on = {source.id};
   polish.minimum_quality = 75u;
@@ -418,39 +418,39 @@ evaluateSurfaceContract(const CpuMesh &mesh, const AsterAssetFactorySurfaceContr
        .seed = spec.seed ^ 0xA57E0002u,
        .creative_variant_tags = {"micro-pitting"}}};
 
-  AsterAssetFactoryStage surface;
+  AsterAssetFoundryStage surface;
   surface.id = "stage.pipe.surface-contract";
-  surface.kind = AsterAssetFactoryStageKind::SurfaceContract;
+  surface.kind = AsterAssetFoundryStageKind::SurfaceContract;
   surface.label = "Corroded pipe visual brief contract";
   surface.depends_on = {polish.id};
   surface.surface_contract_id = "surface.pipe.corrosion";
   surface.minimum_quality = 82u;
 
-  AsterAssetFactoryStage lod;
+  AsterAssetFoundryStage lod;
   lod.id = "stage.pipe.lod";
-  lod.kind = AsterAssetFactoryStageKind::LodRecipe;
+  lod.kind = AsterAssetFoundryStageKind::LodRecipe;
   lod.label = "Factory generated LOD chain";
   lod.depends_on = {surface.id};
   lod.minimum_quality = 70u;
 
-  AsterAssetFactoryStage physics;
+  AsterAssetFoundryStage physics;
   physics.id = "stage.pipe.physics";
-  physics.kind = AsterAssetFactoryStageKind::PhysicsProxy;
+  physics.kind = AsterAssetFoundryStageKind::PhysicsProxy;
   physics.label = "Runtime collision/query proxy";
   physics.depends_on = {lod.id};
   physics.physics_proxy_id = "physics.pipe.runtime-bounds";
   physics.minimum_quality = 80u;
 
-  AsterAssetFactoryStage quality;
+  AsterAssetFoundryStage quality;
   quality.id = "stage.pipe.quality";
-  quality.kind = AsterAssetFactoryStageKind::QualityGate;
+  quality.kind = AsterAssetFoundryStageKind::QualityGate;
   quality.label = "Visual brief and cook contract gate";
   quality.depends_on = {physics.id};
   quality.minimum_quality = 88u;
 
-  AsterAssetFactoryStage package;
+  AsterAssetFoundryStage package;
   package.id = "stage.pipe.package";
-  package.kind = AsterAssetFactoryStageKind::Package;
+  package.kind = AsterAssetFoundryStageKind::Package;
   package.label = "Asset graph package handoff";
   package.depends_on = {quality.id};
   package.minimum_quality = 80u;
@@ -459,57 +459,57 @@ evaluateSurfaceContract(const CpuMesh &mesh, const AsterAssetFactorySurfaceContr
 
 } // namespace
 
-std::string_view asterAssetFactoryDiagnosticSeverityName(
-    const AsterAssetFactoryDiagnosticSeverity severity) noexcept {
+std::string_view asterAssetFoundryDiagnosticSeverityName(
+    const AsterAssetFoundryDiagnosticSeverity severity) noexcept {
   switch (severity) {
-  case AsterAssetFactoryDiagnosticSeverity::Info:
+  case AsterAssetFoundryDiagnosticSeverity::Info:
     return "info";
-  case AsterAssetFactoryDiagnosticSeverity::Warning:
+  case AsterAssetFoundryDiagnosticSeverity::Warning:
     return "warning";
-  case AsterAssetFactoryDiagnosticSeverity::Error:
+  case AsterAssetFoundryDiagnosticSeverity::Error:
     return "error";
   }
   return "unknown";
 }
 
-std::string_view asterAssetFactoryStageKindName(
-    const AsterAssetFactoryStageKind kind) noexcept {
+std::string_view asterAssetFoundryStageKindName(
+    const AsterAssetFoundryStageKind kind) noexcept {
   switch (kind) {
-  case AsterAssetFactoryStageKind::SourceGeometry:
+  case AsterAssetFoundryStageKind::SourceGeometry:
     return "source-geometry";
-  case AsterAssetFactoryStageKind::ModifierStack:
+  case AsterAssetFoundryStageKind::ModifierStack:
     return "modifier-stack";
-  case AsterAssetFactoryStageKind::SurfaceContract:
+  case AsterAssetFoundryStageKind::SurfaceContract:
     return "surface-contract";
-  case AsterAssetFactoryStageKind::LodRecipe:
+  case AsterAssetFoundryStageKind::LodRecipe:
     return "lod-recipe";
-  case AsterAssetFactoryStageKind::PhysicsProxy:
+  case AsterAssetFoundryStageKind::PhysicsProxy:
     return "physics-proxy";
-  case AsterAssetFactoryStageKind::QualityGate:
+  case AsterAssetFoundryStageKind::QualityGate:
     return "quality-gate";
-  case AsterAssetFactoryStageKind::Package:
+  case AsterAssetFoundryStageKind::Package:
     return "package";
   }
   return "unknown";
 }
 
-std::string_view asterAssetFactoryPhysicsProxyKindName(
-    const AsterAssetFactoryPhysicsProxyKind kind) noexcept {
+std::string_view asterAssetFoundryPhysicsProxyKindName(
+    const AsterAssetFoundryPhysicsProxyKind kind) noexcept {
   switch (kind) {
-  case AsterAssetFactoryPhysicsProxyKind::BoundsBox:
+  case AsterAssetFoundryPhysicsProxyKind::BoundsBox:
     return "bounds-box";
-  case AsterAssetFactoryPhysicsProxyKind::RadialCapsule:
+  case AsterAssetFoundryPhysicsProxyKind::RadialCapsule:
     return "radial-capsule";
-  case AsterAssetFactoryPhysicsProxyKind::TriangleMesh:
+  case AsterAssetFoundryPhysicsProxyKind::TriangleMesh:
     return "triangle-mesh";
   }
   return "unknown";
 }
 
-std::vector<AsterAssetFactoryQualityDiagnostic>
-validateAsterAssetFactoryRecipe(const AsterAssetFactoryRecipe &recipe) {
-  std::vector<AsterAssetFactoryQualityDiagnostic> diagnostics;
-  const auto push = [&](const AsterAssetFactoryDiagnosticSeverity severity,
+std::vector<AsterAssetFoundryQualityDiagnostic>
+validateAsterAssetFoundryRecipe(const AsterAssetFoundryRecipe &recipe) {
+  std::vector<AsterAssetFoundryQualityDiagnostic> diagnostics;
+  const auto push = [&](const AsterAssetFoundryDiagnosticSeverity severity,
                        std::string category, std::string stage_id, std::string message) {
     diagnostics.push_back({.severity = severity,
                            .category = std::move(category),
@@ -518,109 +518,109 @@ validateAsterAssetFactoryRecipe(const AsterAssetFactoryRecipe &recipe) {
   };
 
   if (recipe.asset_id.empty()) {
-    push(AsterAssetFactoryDiagnosticSeverity::Error, "identity", {},
+    push(AsterAssetFoundryDiagnosticSeverity::Error, "identity", {},
          "factory recipe is missing an asset id");
   }
   if (recipe.source_mesh.vertices.empty() || recipe.source_mesh.indices.empty()) {
-    push(AsterAssetFactoryDiagnosticSeverity::Error, "source", {},
+    push(AsterAssetFoundryDiagnosticSeverity::Error, "source", {},
          "factory recipe has no source render mesh");
   }
   if (recipe.stages.empty()) {
-    push(AsterAssetFactoryDiagnosticSeverity::Error, "stage", {},
+    push(AsterAssetFoundryDiagnosticSeverity::Error, "stage", {},
          "factory recipe declares no stages");
   }
   if (recipe.visual_brief_claims.empty()) {
-    push(AsterAssetFactoryDiagnosticSeverity::Warning, "visual-brief", {},
+    push(AsterAssetFoundryDiagnosticSeverity::Warning, "visual-brief", {},
          "factory recipe declares no visual brief claims");
   }
   if (recipe.visual_brief_rejections.empty()) {
-    push(AsterAssetFactoryDiagnosticSeverity::Warning, "visual-brief", {},
+    push(AsterAssetFoundryDiagnosticSeverity::Warning, "visual-brief", {},
          "factory recipe declares no forbidden-signal rejections");
   }
 
   std::vector<std::string> stage_ids;
   stage_ids.reserve(recipe.stages.size());
-  for (const AsterAssetFactoryStage &stage : recipe.stages) {
+  for (const AsterAssetFoundryStage &stage : recipe.stages) {
     if (stage.id.empty()) {
-      push(AsterAssetFactoryDiagnosticSeverity::Error, "stage", {},
+      push(AsterAssetFoundryDiagnosticSeverity::Error, "stage", {},
            "factory stage is missing an id");
       continue;
     }
     if (duplicateId(stage_ids, stage.id)) {
-      push(AsterAssetFactoryDiagnosticSeverity::Error, "stage", stage.id,
+      push(AsterAssetFoundryDiagnosticSeverity::Error, "stage", stage.id,
            "factory stage id is duplicated");
     }
     stage_ids.push_back(stage.id);
   }
-  for (const AsterAssetFactoryStage &stage : recipe.stages) {
+  for (const AsterAssetFoundryStage &stage : recipe.stages) {
     for (const std::string &dependency : stage.depends_on) {
       if (!stageExists(recipe, dependency)) {
-        push(AsterAssetFactoryDiagnosticSeverity::Error, "dependency", stage.id,
+        push(AsterAssetFoundryDiagnosticSeverity::Error, "dependency", stage.id,
              "stage depends on unknown stage: " + dependency);
       }
     }
-    if (stage.kind == AsterAssetFactoryStageKind::SurfaceContract &&
+    if (stage.kind == AsterAssetFoundryStageKind::SurfaceContract &&
         findSurfaceContract(recipe, stage.surface_contract_id) == nullptr) {
-      push(AsterAssetFactoryDiagnosticSeverity::Error, "surface", stage.id,
+      push(AsterAssetFoundryDiagnosticSeverity::Error, "surface", stage.id,
            "stage references a missing surface contract: " + stage.surface_contract_id);
     }
-    if (stage.kind == AsterAssetFactoryStageKind::PhysicsProxy &&
+    if (stage.kind == AsterAssetFoundryStageKind::PhysicsProxy &&
         findPhysicsProxy(recipe, stage.physics_proxy_id) == nullptr) {
-      push(AsterAssetFactoryDiagnosticSeverity::Error, "physics", stage.id,
+      push(AsterAssetFoundryDiagnosticSeverity::Error, "physics", stage.id,
            "stage references a missing physics proxy: " + stage.physics_proxy_id);
     }
   }
 
   std::vector<std::string> contract_ids;
   contract_ids.reserve(recipe.surface_contracts.size());
-  for (const AsterAssetFactorySurfaceContract &contract : recipe.surface_contracts) {
+  for (const AsterAssetFoundrySurfaceContract &contract : recipe.surface_contracts) {
     if (contract.id.empty()) {
-      push(AsterAssetFactoryDiagnosticSeverity::Error, "surface", {},
+      push(AsterAssetFoundryDiagnosticSeverity::Error, "surface", {},
            "surface contract is missing an id");
       continue;
     }
     if (duplicateId(contract_ids, contract.id)) {
-      push(AsterAssetFactoryDiagnosticSeverity::Error, "surface", contract.id,
+      push(AsterAssetFoundryDiagnosticSeverity::Error, "surface", contract.id,
            "surface contract id is duplicated");
     }
     contract_ids.push_back(contract.id);
     if (contract.required_signals.empty()) {
-      push(AsterAssetFactoryDiagnosticSeverity::Warning, "surface", contract.id,
+      push(AsterAssetFoundryDiagnosticSeverity::Warning, "surface", contract.id,
            "surface contract has no required signals");
     }
   }
 
   std::vector<std::string> proxy_ids;
   proxy_ids.reserve(recipe.physics_proxies.size());
-  for (const AsterAssetFactoryPhysicsProxy &proxy : recipe.physics_proxies) {
+  for (const AsterAssetFoundryPhysicsProxy &proxy : recipe.physics_proxies) {
     if (proxy.id.empty()) {
-      push(AsterAssetFactoryDiagnosticSeverity::Error, "physics", {},
+      push(AsterAssetFoundryDiagnosticSeverity::Error, "physics", {},
            "physics proxy is missing an id");
       continue;
     }
     if (duplicateId(proxy_ids, proxy.id)) {
-      push(AsterAssetFactoryDiagnosticSeverity::Error, "physics", proxy.id,
+      push(AsterAssetFoundryDiagnosticSeverity::Error, "physics", proxy.id,
            "physics proxy id is duplicated");
     }
     proxy_ids.push_back(proxy.id);
-    if (proxy.kind == AsterAssetFactoryPhysicsProxyKind::BoundsBox &&
+    if (proxy.kind == AsterAssetFoundryPhysicsProxyKind::BoundsBox &&
         (proxy.half_extents.x <= 0.0f || proxy.half_extents.y <= 0.0f ||
          proxy.half_extents.z <= 0.0f)) {
-      push(AsterAssetFactoryDiagnosticSeverity::Error, "physics", proxy.id,
+      push(AsterAssetFoundryDiagnosticSeverity::Error, "physics", proxy.id,
            "bounds proxy has non-positive half extents");
     }
-    if (proxy.kind == AsterAssetFactoryPhysicsProxyKind::TriangleMesh &&
+    if (proxy.kind == AsterAssetFoundryPhysicsProxyKind::TriangleMesh &&
         proxy.triangle_budget == 0u) {
-      push(AsterAssetFactoryDiagnosticSeverity::Warning, "physics", proxy.id,
+      push(AsterAssetFoundryDiagnosticSeverity::Warning, "physics", proxy.id,
            "triangle mesh proxy has no declared triangle budget");
     }
   }
   return diagnostics;
 }
 
-std::vector<AsterAssetFactoryLodSummary>
-summarizeAsterAssetFactoryLods(const AsterAssetFactoryBuildResult &result) {
-  std::vector<AsterAssetFactoryLodSummary> summaries;
+std::vector<AsterAssetFoundryLodSummary>
+summarizeAsterAssetFoundryLods(const AsterAssetFoundryBuildResult &result) {
+  std::vector<AsterAssetFoundryLodSummary> summaries;
   if (result.lods.empty()) {
     const float triangles = std::max(static_cast<float>(result.mesh.indices.size() / 3u), 1.0f);
     summaries.push_back({.level = 0u,
@@ -650,14 +650,14 @@ summarizeAsterAssetFactoryLods(const AsterAssetFactoryBuildResult &result) {
   return summaries;
 }
 
-std::vector<AsterAssetFactoryPhysicsProxySummary>
-summarizeAsterAssetFactoryPhysicsProxies(const AsterAssetFactoryRecipe &recipe) {
-  std::vector<AsterAssetFactoryPhysicsProxySummary> summaries;
+std::vector<AsterAssetFoundryPhysicsProxySummary>
+summarizeAsterAssetFoundryPhysicsProxies(const AsterAssetFoundryRecipe &recipe) {
+  std::vector<AsterAssetFoundryPhysicsProxySummary> summaries;
   summaries.reserve(recipe.physics_proxies.size());
-  for (const AsterAssetFactoryPhysicsProxy &proxy : recipe.physics_proxies) {
+  for (const AsterAssetFoundryPhysicsProxy &proxy : recipe.physics_proxies) {
     summaries.push_back(
         {.id = proxy.id,
-         .shape = std::string(asterAssetFactoryPhysicsProxyKindName(proxy.kind)),
+         .shape = std::string(asterAssetFoundryPhysicsProxyKindName(proxy.kind)),
          .center = proxy.center,
          .half_extents = proxy.half_extents,
          .radius = proxy.radius,
@@ -670,10 +670,10 @@ summarizeAsterAssetFactoryPhysicsProxies(const AsterAssetFactoryRecipe &recipe) 
   return summaries;
 }
 
-std::vector<AsterAssetFactoryVisualBriefRow>
-makeAsterAssetFactoryVisualBriefRows(const AsterAssetFactoryRecipe &recipe,
-                                     const AsterAssetFactoryBuildResult &result) {
-  std::vector<AsterAssetFactoryVisualBriefRow> rows;
+std::vector<AsterAssetFoundryVisualBriefRow>
+makeAsterAssetFoundryVisualBriefRows(const AsterAssetFoundryRecipe &recipe,
+                                     const AsterAssetFoundryBuildResult &result) {
+  std::vector<AsterAssetFoundryVisualBriefRow> rows;
   rows.reserve(recipe.visual_brief_claims.size() + recipe.visual_brief_rejections.size());
   for (const std::string &claim : recipe.visual_brief_claims) {
     const bool direct_claim = containsText(result.visual_brief_claims, claim);
@@ -699,23 +699,23 @@ makeAsterAssetFactoryVisualBriefRows(const AsterAssetFactoryRecipe &recipe,
   return rows;
 }
 
-AsterAssetFactoryRecipeAudit auditAsterAssetFactoryBuild(
-    const AsterAssetFactoryRecipe &recipe, const AsterAssetFactoryBuildResult &result) {
-  AsterAssetFactoryRecipeAudit audit;
+AsterAssetFoundryRecipeAudit auditAsterAssetFoundryBuild(
+    const AsterAssetFoundryRecipe &recipe, const AsterAssetFoundryBuildResult &result) {
+  AsterAssetFoundryRecipeAudit audit;
   audit.asset_id = recipe.asset_id;
   audit.stable_recipe_hash = result.stable_recipe_hash.empty()
-                                 ? stableAsterAssetFactoryRecipeHash(recipe)
+                                 ? stableAsterAssetFoundryRecipeHash(recipe)
                                  : result.stable_recipe_hash;
   audit.quality_score = result.quality_score;
   audit.production_ready = result.production_ready;
-  audit.lod_summary = summarizeAsterAssetFactoryLods(result);
-  audit.visual_brief_rows = makeAsterAssetFactoryVisualBriefRows(recipe, result);
-  audit.diagnostics = validateAsterAssetFactoryRecipe(recipe);
+  audit.lod_summary = summarizeAsterAssetFoundryLods(result);
+  audit.visual_brief_rows = makeAsterAssetFoundryVisualBriefRows(recipe, result);
+  audit.diagnostics = validateAsterAssetFoundryRecipe(recipe);
 
   audit.stage_order.reserve(recipe.stages.size());
   std::vector<std::string> completed;
   completed.reserve(recipe.stages.size());
-  for (const AsterAssetFactoryStage &stage : recipe.stages) {
+  for (const AsterAssetFoundryStage &stage : recipe.stages) {
     audit.stage_order.push_back(stage.id);
     for (const std::string &dependency : stage.depends_on) {
       if (!containsText(completed, dependency)) {
@@ -724,17 +724,17 @@ AsterAssetFactoryRecipeAudit auditAsterAssetFactoryBuild(
     }
     completed.push_back(stage.id);
   }
-  for (const AsterAssetFactorySurfaceContract &contract : recipe.surface_contracts) {
+  for (const AsterAssetFoundrySurfaceContract &contract : recipe.surface_contracts) {
     audit.surface_contract_ids.push_back(contract.id);
   }
-  for (const AsterAssetFactoryPhysicsProxy &proxy : recipe.physics_proxies) {
+  for (const AsterAssetFoundryPhysicsProxy &proxy : recipe.physics_proxies) {
     audit.physics_proxy_ids.push_back(proxy.id);
   }
-  for (const AsterAssetFactoryStageReport &stage_report : result.stage_reports) {
+  for (const AsterAssetFoundryStageReport &stage_report : result.stage_reports) {
     for (const std::string &message : stage_report.diagnostics) {
       audit.diagnostics.push_back(
           {.severity = severityFromMessage(message),
-           .category = std::string(asterAssetFactoryStageKindName(stage_report.kind)),
+           .category = std::string(asterAssetFoundryStageKindName(stage_report.kind)),
            .stage_id = stage_report.id,
            .message = stripDiagnosticPrefix(message)});
     }
@@ -749,7 +749,7 @@ AsterAssetFactoryRecipeAudit auditAsterAssetFactoryBuild(
 }
 
 std::vector<std::string>
-describeAsterAssetFactoryAudit(const AsterAssetFactoryRecipeAudit &audit) {
+describeAsterAssetFoundryAudit(const AsterAssetFoundryRecipeAudit &audit) {
   std::vector<std::string> lines;
   lines.reserve(4u + audit.stage_order.size() + audit.lod_summary.size() +
                 audit.visual_brief_rows.size() + audit.diagnostics.size());
@@ -768,7 +768,7 @@ describeAsterAssetFactoryAudit(const AsterAssetFactoryRecipeAudit &audit) {
   for (const std::string &dependency : audit.missing_dependencies) {
     lines.push_back("missing_dependency=" + dependency);
   }
-  for (const AsterAssetFactoryLodSummary &lod : audit.lod_summary) {
+  for (const AsterAssetFoundryLodSummary &lod : audit.lod_summary) {
     std::ostringstream line;
     line << "lod[" << lod.level << "] vertices=" << lod.vertices
          << " indices=" << lod.indices << " ratio=" << std::fixed
@@ -776,16 +776,16 @@ describeAsterAssetFactoryAudit(const AsterAssetFactoryRecipeAudit &audit) {
          << " screen=" << lod.recommended_screen_coverage;
     lines.push_back(line.str());
   }
-  for (const AsterAssetFactoryVisualBriefRow &row : audit.visual_brief_rows) {
+  for (const AsterAssetFoundryVisualBriefRow &row : audit.visual_brief_rows) {
     std::ostringstream line;
     line << "visual_brief " << row.signal << "=" << row.status
          << " source=" << row.source << " weight=" << std::fixed
          << std::setprecision(2) << row.weight;
     lines.push_back(line.str());
   }
-  for (const AsterAssetFactoryQualityDiagnostic &diagnostic : audit.diagnostics) {
+  for (const AsterAssetFoundryQualityDiagnostic &diagnostic : audit.diagnostics) {
     std::ostringstream line;
-    line << asterAssetFactoryDiagnosticSeverityName(diagnostic.severity) << ":"
+    line << asterAssetFoundryDiagnosticSeverityName(diagnostic.severity) << ":"
          << diagnostic.category;
     if (!diagnostic.stage_id.empty()) {
       line << ":" << diagnostic.stage_id;
@@ -796,16 +796,16 @@ describeAsterAssetFactoryAudit(const AsterAssetFactoryRecipeAudit &audit) {
   return lines;
 }
 
-std::string stableAsterAssetFactoryRecipeHash(const AsterAssetFactoryRecipe &recipe) {
+std::string stableAsterAssetFoundryRecipeHash(const AsterAssetFoundryRecipe &recipe) {
   std::uint64_t hash = fnvSeed();
   appendHash(hash, recipe.asset_id);
   appendHash(hash, recipe.label);
   appendHash(hash, recipe.source_provenance_id);
   appendHash(hash, recipe.source_mesh.vertices.size());
   appendHash(hash, recipe.source_mesh.indices.size());
-  for (const AsterAssetFactoryStage &stage : recipe.stages) {
+  for (const AsterAssetFoundryStage &stage : recipe.stages) {
     appendHash(hash, stage.id);
-    appendHash(hash, asterAssetFactoryStageKindName(stage.kind));
+    appendHash(hash, asterAssetFoundryStageKindName(stage.kind));
     appendHash(hash, stage.minimum_quality);
     appendHash(hash, stage.enabled ? 1u : 0u);
     appendHash(hash, stage.surface_contract_id);
@@ -818,28 +818,28 @@ std::string stableAsterAssetFactoryRecipeHash(const AsterAssetFactoryRecipe &rec
       appendHash(hash, tag);
     }
   }
-  for (const AsterAssetFactorySurfaceContract &contract : recipe.surface_contracts) {
+  for (const AsterAssetFoundrySurfaceContract &contract : recipe.surface_contracts) {
     appendHash(hash, contract.id);
     appendHash(hash, contract.material_slot);
     appendHash(hash, contract.detail_scale);
     appendHash(hash, contract.min_physical_texel_density);
     appendHash(hash, contract.layer);
-    for (const AsterAssetFactorySignalRule &rule : contract.required_signals) {
+    for (const AsterAssetFoundrySignalRule &rule : contract.required_signals) {
       appendHash(hash, rule.id);
       appendHash(hash, rule.minimum_average);
       appendHash(hash, rule.minimum_coverage);
       appendHash(hash, rule.weight);
     }
-    for (const AsterAssetFactorySignalRule &rule : contract.forbidden_signals) {
+    for (const AsterAssetFoundrySignalRule &rule : contract.forbidden_signals) {
       appendHash(hash, rule.id);
       appendHash(hash, rule.minimum_average);
       appendHash(hash, rule.minimum_coverage);
       appendHash(hash, rule.weight);
     }
   }
-  for (const AsterAssetFactoryPhysicsProxy &proxy : recipe.physics_proxies) {
+  for (const AsterAssetFoundryPhysicsProxy &proxy : recipe.physics_proxies) {
     appendHash(hash, proxy.id);
-    appendHash(hash, asterAssetFactoryPhysicsProxyKindName(proxy.kind));
+    appendHash(hash, asterAssetFoundryPhysicsProxyKindName(proxy.kind));
     appendHash(hash, proxy.center);
     appendHash(hash, proxy.half_extents);
     appendHash(hash, proxy.radius);
@@ -858,8 +858,8 @@ std::string stableAsterAssetFactoryRecipeHash(const AsterAssetFactoryRecipe &rec
   return hex64(hash, "aster-factory-0x");
 }
 
-PhysicsBodyDesc asterAssetFactoryPhysicsBodyDesc(
-    const AsterAssetFactoryPhysicsProxy &proxy, std::shared_ptr<const CpuMesh> mesh) {
+PhysicsBodyDesc asterAssetFoundryPhysicsBodyDesc(
+    const AsterAssetFoundryPhysicsProxy &proxy, std::shared_ptr<const CpuMesh> mesh) {
   PhysicsBodyDesc desc;
   desc.type = PhysicsBodyType::Static;
   desc.position = proxy.center;
@@ -870,14 +870,14 @@ PhysicsBodyDesc asterAssetFactoryPhysicsBodyDesc(
   desc.filter.query_enabled = proxy.query_enabled;
   desc.allow_sleep = false;
   switch (proxy.kind) {
-  case AsterAssetFactoryPhysicsProxyKind::BoundsBox:
+  case AsterAssetFoundryPhysicsProxyKind::BoundsBox:
     desc.shape = PhysicsShapeType::Box;
     break;
-  case AsterAssetFactoryPhysicsProxyKind::RadialCapsule:
+  case AsterAssetFoundryPhysicsProxyKind::RadialCapsule:
     desc.shape = PhysicsShapeType::Capsule;
     desc.half_extents.y = std::max(proxy.length * 0.5f, proxy.half_extents.y);
     break;
-  case AsterAssetFactoryPhysicsProxyKind::TriangleMesh:
+  case AsterAssetFoundryPhysicsProxyKind::TriangleMesh:
     desc.shape = PhysicsShapeType::TriangleMesh;
     desc.mesh = std::move(mesh);
     desc.mesh_double_sided = true;
@@ -886,11 +886,11 @@ PhysicsBodyDesc asterAssetFactoryPhysicsBodyDesc(
   return desc;
 }
 
-AsterAssetFactoryBuildResult buildAsterAssetFactoryRecipe(
-    const AsterAssetFactoryRecipe &recipe) {
-  AsterAssetFactoryBuildResult result;
+AsterAssetFoundryBuildResult buildAsterAssetFoundryRecipe(
+    const AsterAssetFoundryRecipe &recipe) {
+  AsterAssetFoundryBuildResult result;
   result.asset_id = recipe.asset_id;
-  result.stable_recipe_hash = stableAsterAssetFactoryRecipeHash(recipe);
+  result.stable_recipe_hash = stableAsterAssetFoundryRecipeHash(recipe);
   result.mesh = recipe.source_mesh;
   result.material = recipe.material;
   result.dependency_edges = recipe.dependency_edges;
@@ -900,8 +900,8 @@ AsterAssetFactoryBuildResult buildAsterAssetFactoryRecipe(
   result.production_ready = true;
 
   std::vector<std::string> completed;
-  for (const AsterAssetFactoryStage &stage : recipe.stages) {
-    AsterAssetFactoryStageReport report;
+  for (const AsterAssetFoundryStage &stage : recipe.stages) {
+    AsterAssetFoundryStageReport report;
     report.id = stage.id;
     report.kind = stage.kind;
     report.executed = stage.enabled;
@@ -923,14 +923,14 @@ AsterAssetFactoryBuildResult buildAsterAssetFactoryRecipe(
     }
     if (report.passed) {
       switch (stage.kind) {
-      case AsterAssetFactoryStageKind::SourceGeometry:
+      case AsterAssetFoundryStageKind::SourceGeometry:
         if (result.mesh.vertices.empty() || result.mesh.indices.empty()) {
           report.passed = false;
           report.quality_score = 0u;
           report.diagnostics.push_back("error: source geometry is empty");
         }
         break;
-      case AsterAssetFactoryStageKind::ModifierStack:
+      case AsterAssetFoundryStageKind::ModifierStack:
         if (!stage.modifier_stack.modifiers.empty()) {
           AssetModifierStackResult modified =
               applyAssetModifierStack(result.mesh, stage.modifier_stack);
@@ -943,8 +943,8 @@ AsterAssetFactoryBuildResult buildAsterAssetFactoryRecipe(
           }
         }
         break;
-      case AsterAssetFactoryStageKind::SurfaceContract: {
-        const AsterAssetFactorySurfaceContract *contract =
+      case AsterAssetFoundryStageKind::SurfaceContract: {
+        const AsterAssetFoundrySurfaceContract *contract =
             findSurfaceContract(recipe, stage.surface_contract_id);
         if (contract == nullptr) {
           report.passed = false;
@@ -953,7 +953,7 @@ AsterAssetFactoryBuildResult buildAsterAssetFactoryRecipe(
                                        stage.surface_contract_id);
           break;
         }
-        AsterAssetFactorySurfaceCoverage coverage =
+        AsterAssetFoundrySurfaceCoverage coverage =
             evaluateSurfaceContract(result.mesh, *contract);
         report.passed = coverage.passed;
         report.quality_score = coverage.quality_score;
@@ -962,7 +962,7 @@ AsterAssetFactoryBuildResult buildAsterAssetFactoryRecipe(
         result.surface_coverages.push_back(std::move(coverage));
         break;
       }
-      case AsterAssetFactoryStageKind::LodRecipe:
+      case AsterAssetFoundryStageKind::LodRecipe:
         result.lods = makeLods(recipe, result.mesh);
         if (result.lods.size() < 3u) {
           report.passed = false;
@@ -970,8 +970,8 @@ AsterAssetFactoryBuildResult buildAsterAssetFactoryRecipe(
           report.diagnostics.push_back("warning: factory recipe produced fewer than three LODs");
         }
         break;
-      case AsterAssetFactoryStageKind::PhysicsProxy: {
-        const AsterAssetFactoryPhysicsProxy *proxy =
+      case AsterAssetFoundryStageKind::PhysicsProxy: {
+        const AsterAssetFoundryPhysicsProxy *proxy =
             findPhysicsProxy(recipe, stage.physics_proxy_id);
         if (proxy == nullptr) {
           report.passed = false;
@@ -980,17 +980,17 @@ AsterAssetFactoryBuildResult buildAsterAssetFactoryRecipe(
           break;
         }
         std::shared_ptr<const CpuMesh> mesh;
-        if (proxy->kind == AsterAssetFactoryPhysicsProxyKind::TriangleMesh) {
+        if (proxy->kind == AsterAssetFoundryPhysicsProxyKind::TriangleMesh) {
           mesh = std::make_shared<const CpuMesh>(result.mesh);
         }
-        result.physics_bodies.push_back(asterAssetFactoryPhysicsBodyDesc(*proxy, std::move(mesh)));
-        if (!proxy->covers_render_bounds && proxy->kind == AsterAssetFactoryPhysicsProxyKind::BoundsBox) {
+        result.physics_bodies.push_back(asterAssetFoundryPhysicsBodyDesc(*proxy, std::move(mesh)));
+        if (!proxy->covers_render_bounds && proxy->kind == AsterAssetFoundryPhysicsProxyKind::BoundsBox) {
           report.quality_score = 82u;
           report.diagnostics.push_back("warning: bounds proxy does not claim render coverage");
         }
         break;
       }
-      case AsterAssetFactoryStageKind::QualityGate:
+      case AsterAssetFoundryStageKind::QualityGate:
         if (result.visual_brief_claims.empty()) {
           report.passed = false;
           report.quality_score = 68u;
@@ -1002,7 +1002,7 @@ AsterAssetFactoryBuildResult buildAsterAssetFactoryRecipe(
           report.diagnostics.push_back("warning: quality gate has no rejected forbidden signals");
         }
         break;
-      case AsterAssetFactoryStageKind::Package:
+      case AsterAssetFoundryStageKind::Package:
         result.dependency_edges.push_back("factory:" + result.stable_recipe_hash +
                                           " -> package:" + recipe.asset_id);
         break;
@@ -1040,15 +1040,15 @@ AsterAssetFactoryBuildResult buildAsterAssetFactoryRecipe(
   return result;
 }
 
-AsterAssetFactoryRecipe makeAsterPipeFactoryRecipe(AsterPipeAssetSpec spec,
-                                                   const AsterPipeFactoryVariant variant) {
-  spec.include_flanges = variant == AsterPipeFactoryVariant::IndustrialHardware;
-  spec.include_bolts = variant == AsterPipeFactoryVariant::IndustrialHardware;
+AsterAssetFoundryRecipe makeAsterPipeFoundryRecipe(AsterPipeAssetSpec spec,
+                                                   const AsterPipeFoundryVariant variant) {
+  spec.include_flanges = variant == AsterPipeFoundryVariant::IndustrialHardware;
+  spec.include_bolts = variant == AsterPipeFoundryVariant::IndustrialHardware;
   const AsterPipeAsset pipe = makeAsterPipeAsset(spec);
 
-  AsterAssetFactoryRecipe recipe;
+  AsterAssetFoundryRecipe recipe;
   recipe.asset_id = spec.asset_id;
-  recipe.label = variant == AsterPipeFactoryVariant::IndustrialHardware
+  recipe.label = variant == AsterPipeFoundryVariant::IndustrialHardware
                      ? "Aster rusted pipe industrial hardware recipe"
                      : "Aster rusted pipe reference silhouette recipe";
   recipe.source_provenance_id = "aster.asset_factory.pipe.v2";
@@ -1063,7 +1063,7 @@ AsterAssetFactoryRecipe makeAsterPipeFactoryRecipe(AsterPipeAssetSpec spec,
   recipe.dependency_edges.push_back("surface_contract -> procedural_surface_signals");
   recipe.dependency_edges.push_back("physics_proxy -> PhysicsBodyDesc");
   recipe.creative_variant_tags =
-      variant == AsterPipeFactoryVariant::IndustrialHardware
+      variant == AsterPipeFoundryVariant::IndustrialHardware
           ? std::vector<std::string>{"industrial-hardware", "optional-flange-bolts"}
           : std::vector<std::string>{"reference-silhouette", "no-extra-hardware"};
   recipe.visual_brief_claims = {"corroded_orange_brown_rust",

@@ -54,6 +54,7 @@ struct RenderBackendCapabilities {
   bool supports_ui_composite = false;
   bool supports_gpu_timestamps = false;
   std::uint32_t graph_resource_mask = 0u;
+  ProjectionConvention projection_convention = defaultProjectionConvention();
   rhi::DeviceCapabilities capability_table{};
 };
 
@@ -739,6 +740,39 @@ struct FrameForensics {
   rhi::FrameTrace rhi_trace{};
 };
 
+enum class AsterRenderProofSignal : std::uint32_t {
+  PassProvenance,
+  DescriptorPressure,
+  PipelineCache,
+  ResourceLifetime,
+  BackendFallback,
+  AssetProvenance,
+  VisualRegression,
+  ClusteredLighting,
+  SurfaceFidelity,
+};
+
+struct AsterRenderProofRow {
+  AsterRenderProofSignal signal = AsterRenderProofSignal::PassProvenance;
+  std::string label;
+  std::string evidence;
+  std::size_t count = 0u;
+  bool ready = false;
+  std::uint64_t hash = 0u;
+};
+
+struct AsterRenderProofSummary {
+  bool production_trace_ready = false;
+  std::size_t ready_signals = 0u;
+  std::size_t blocked_signals = 0u;
+  std::size_t descriptor_pressure = 0u;
+  std::size_t pipeline_cache_hits = 0u;
+  std::size_t pipeline_cache_misses = 0u;
+  std::size_t backend_fallbacks = 0u;
+  std::vector<AsterRenderProofRow> rows;
+  std::vector<std::string> diagnostics;
+};
+
 class GpuFrameProfiler {
 public:
   explicit GpuFrameProfiler(bool supported = false,
@@ -903,6 +937,9 @@ private:
 [[nodiscard]] std::string_view
 frameDebuggerTimelineEventKindName(FrameDebuggerTimelineEventKind kind);
 [[nodiscard]] std::string_view frameResourceProvenanceKindName(FrameResourceProvenanceKind kind);
+[[nodiscard]] std::string_view asterRenderProofSignalName(AsterRenderProofSignal signal);
+[[nodiscard]] AsterRenderProofSummary summarizeAsterRenderProof(
+    const FrameForensics &forensics);
 [[nodiscard]] std::string_view renderStylePresetName(RenderStylePreset preset);
 [[nodiscard]] std::optional<RenderStylePreset> parseRenderStylePreset(std::string_view value);
 [[nodiscard]] RenderStyleProfile makeRenderStyleProfile(RenderStylePreset preset);

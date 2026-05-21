@@ -4,30 +4,33 @@
 #pragma once
 
 #include "aster/math/geometry.hpp"
+#include "aster/math/mat4.hpp"
 
 namespace aster {
 
 struct TangentFrame {
-  Vec3 normal{0.0f, 1.0f, 0.0f};
-  Vec3 tangent{1.0f, 0.0f, 0.0f};
-  Vec3 bitangent{0.0f, 0.0f, 1.0f};
+  Normal normal{0.0f, 1.0f, 0.0f};
+  Direction tangent{1.0f, 0.0f, 0.0f};
+  Direction bitangent{0.0f, 0.0f, 1.0f};
   float handedness = 1.0f;
 };
 
 [[nodiscard]] inline TangentFrame makeTangentFrame(const Vec3 normal,
                                                    const Vec3 tangent_hint = {1.0f, 0.0f, 0.0f}) {
   TangentFrame frame;
-  frame.normal = normalizeOr(normal, {0.0f, 1.0f, 0.0f});
-  Vec3 tangent = tangent_hint - frame.normal * dot(frame.normal, tangent_hint);
+  frame.normal = Normal{normalizeOr(normal, {0.0f, 1.0f, 0.0f})};
+  Vec3 tangent = tangent_hint - frame.normal.value * dot(frame.normal.value, tangent_hint);
   if (lengthSquared(tangent) <= 0.000001f) {
     const Vec3 reference =
         std::abs(frame.normal.y) > 0.80f ? Vec3{1.0f, 0.0f, 0.0f} : Vec3{0.0f, 1.0f, 0.0f};
-    tangent = cross(reference, frame.normal);
+    tangent = cross(reference, frame.normal.value);
   }
-  frame.tangent = normalizeOr(tangent, {1.0f, 0.0f, 0.0f});
-  frame.bitangent = normalizeOr(cross(frame.normal, frame.tangent), {0.0f, 0.0f, 1.0f});
-  frame.handedness = dot(cross(frame.normal, frame.tangent), frame.bitangent) < 0.0f ? -1.0f
-                                                                                     : 1.0f;
+  frame.tangent = Direction{normalizeOr(tangent, {1.0f, 0.0f, 0.0f})};
+  frame.bitangent = Direction{normalizeOr(cross(frame.normal.value, frame.tangent.value),
+                                          {0.0f, 0.0f, 1.0f})};
+  frame.handedness =
+      dot(cross(frame.normal.value, frame.tangent.value), frame.bitangent.value) < 0.0f ? -1.0f
+                                                                                        : 1.0f;
   return frame;
 }
 
@@ -47,9 +50,37 @@ struct TangentFrame {
   const Vec3 tangent = (edge_ab * uv_ac.y - edge_ac * uv_ab.y) * inv;
   const Vec3 bitangent = (edge_ac * uv_ab.x - edge_ab * uv_ac.x) * inv;
   TangentFrame frame = makeTangentFrame(normal, tangent);
-  frame.handedness = dot(cross(frame.normal, frame.tangent), bitangent) < 0.0f ? -1.0f : 1.0f;
-  frame.bitangent = cross(frame.normal, frame.tangent) * frame.handedness;
+  frame.handedness =
+      dot(cross(frame.normal.value, frame.tangent.value), bitangent) < 0.0f ? -1.0f : 1.0f;
+  frame.bitangent = Direction{cross(frame.normal.value, frame.tangent.value) * frame.handedness};
   return frame;
+}
+
+[[nodiscard]] inline MathResult<TangentFrame> transformTangentFrame(
+    const TangentFrame frame, const WorldFromLocal world_from_local,
+    const MathPolicy policy = defaultMathPolicy()) {
+  const MathResult<WorldNormalFromLocal> normal_from_local =
+      worldNormalFromLocal(world_from_local, policy);
+  if (!normal_from_local) {
+    return MathResult<TangentFrame>::failure(normal_from_local.diagnostics.error,
+                                             normal_from_local.diagnostics.message);
+  }
+
+  TangentFrame out;
+  out.normal = transformNormal(frame.normal, normal_from_local.value);
+  Vec3 tangent = transformVector(world_from_local.value, frame.tangent.value);
+  tangent = tangent - out.normal.value * dot(out.normal.value, tangent);
+  if (length(tangent) <= 0.000001f) {
+    const Vec3 reference =
+        std::abs(out.normal.y) > 0.80f ? Vec3{1.0f, 0.0f, 0.0f} : Vec3{0.0f, 1.0f, 0.0f};
+    tangent = cross(reference, out.normal.value);
+  }
+  out.tangent = Direction{normalizeOr(tangent, {1.0f, 0.0f, 0.0f})};
+  const float scale_handedness =
+      determinant(upperLeftMat3(world_from_local.value)) < 0.0f ? -1.0f : 1.0f;
+  out.handedness = frame.handedness * scale_handedness;
+  out.bitangent = Direction{cross(out.normal.value, out.tangent.value) * out.handedness};
+  return MathResult<TangentFrame>::success(out);
 }
 
 } // namespace aster

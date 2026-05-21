@@ -159,8 +159,8 @@ void LumenRun::updateEquipmentVisuals(const float dt) {
     object.transform.rotation =
         quatFromEulerXyz({0.0f, status_.elapsed_seconds * 1.6f + static_cast<float>(i), 0.0f});
     object.transform.scale = {particle.size, particle.size * 1.55f, particle.size};
-    object.material.base_color = particle.tint;
-    object.material.emission_color = particle.tint;
+    object.material.base_color = LinearRgb{particle.tint};
+    object.material.emission_color = EmissionColor{particle.tint};
     object.material.emission_strength = 0.66f;
   }
 }

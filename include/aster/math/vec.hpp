@@ -191,17 +191,16 @@ template <typename Tag> struct SemanticVec3 {
   constexpr SemanticVec3() : value{} {}
   constexpr SemanticVec3(const float x_value, const float y_value, const float z_value)
       : value{x_value, y_value, z_value} {}
-  constexpr SemanticVec3(const Vec3 vec) : value(vec) {}
+  constexpr explicit SemanticVec3(const Vec3 vec) : value(vec) {}
   constexpr SemanticVec3(const SemanticVec3 &) = default;
   constexpr SemanticVec3 &operator=(const SemanticVec3 &) = default;
 
-  [[nodiscard]] constexpr operator Vec3() const {
+  [[nodiscard]] constexpr const Vec3 &raw() const {
     return value;
   }
 
-  constexpr SemanticVec3 &operator=(const Vec3 vec) {
-    value = vec;
-    return *this;
+  [[nodiscard]] constexpr Vec3 &raw() {
+    return value;
   }
 
   constexpr SemanticVec3 &operator=(std::initializer_list<float> values) {
@@ -232,17 +231,16 @@ template <typename Tag> struct SemanticVec4 {
   constexpr SemanticVec4(const float x_value, const float y_value, const float z_value,
                          const float w_value)
       : value{x_value, y_value, z_value, w_value} {}
-  constexpr SemanticVec4(const Vec4 vec) : value(vec) {}
+  constexpr explicit SemanticVec4(const Vec4 vec) : value(vec) {}
   constexpr SemanticVec4(const SemanticVec4 &) = default;
   constexpr SemanticVec4 &operator=(const SemanticVec4 &) = default;
 
-  [[nodiscard]] constexpr operator Vec4() const {
+  [[nodiscard]] constexpr const Vec4 &raw() const {
     return value;
   }
 
-  constexpr SemanticVec4 &operator=(const Vec4 vec) {
-    value = vec;
-    return *this;
+  [[nodiscard]] constexpr Vec4 &raw() {
+    return value;
   }
 
   constexpr SemanticVec4 &operator=(std::initializer_list<float> values) {
@@ -304,6 +302,12 @@ struct WorldToViewTag {};
 struct ViewToClipTag {};
 struct WorldToClipTag {};
 struct ClipToWorldTag {};
+struct WorldFromLocalTag {};
+struct ViewFromWorldTag {};
+struct ClipFromViewTag {};
+struct ClipFromWorldTag {};
+struct WorldFromClipTag {};
+struct WorldNormalFromLocalTag {};
 
 using WorldPoint = SemanticVec3<WorldPointTag>;
 using LocalPoint = SemanticVec3<LocalPointTag>;

@@ -61,7 +61,7 @@ ViewToClip Camera::projectionMatrix(const float aspect_ratio) const {
 }
 
 WorldToClip Camera::viewProjectionMatrix(const float aspect_ratio) const {
-  return WorldToClip{projectionMatrix(aspect_ratio).value * viewMatrix().value};
+  return projectionMatrix(aspect_ratio) * viewMatrix();
 }
 
 CameraRay Camera::screenRay(const ScreenPoint pointer, const Viewport viewport) const {
@@ -70,8 +70,9 @@ CameraRay Camera::screenRay(const ScreenPoint pointer, const Viewport viewport) 
   const float aspect = width / height;
   Viewport sanitized_viewport = viewport;
   sanitized_viewport.size = {width, height};
-  const MathResult<Mat4> clip_to_world_result = inverse(viewProjectionMatrix(aspect).value);
-  const ClipToWorld clip_to_world{clip_to_world_result ? clip_to_world_result.value : identity()};
+  const MathResult<ClipToWorld> clip_to_world_result = inverse(viewProjectionMatrix(aspect));
+  const ClipToWorld clip_to_world{clip_to_world_result ? clip_to_world_result.value.value
+                                                       : identity()};
   const RayOriginPolicy origin_policy = projection_mode == CameraProjectionMode::Perspective
                                             ? RayOriginPolicy::PerspectiveEye
                                             : RayOriginPolicy::NearPlane;
@@ -89,12 +90,12 @@ WorldPoint Camera::unproject(const ScreenPoint window, const Viewport viewport) 
   const float height = std::max(viewport.size.y, 1.0f);
   Viewport sanitized_viewport = viewport;
   sanitized_viewport.size = {width, height};
-  const MathResult<Mat4> clip_to_world = inverse(viewProjectionMatrix(width / height).value);
+  const MathResult<ClipToWorld> clip_to_world = inverse(viewProjectionMatrix(width / height));
   if (!clip_to_world) {
     return {};
   }
   const MathResult<WorldPoint> result =
-      aster::unproject(window, ClipToWorld{clip_to_world.value}, sanitized_viewport);
+      aster::unproject(window, clip_to_world.value, sanitized_viewport);
   return result ? result.value : WorldPoint{};
 }
 

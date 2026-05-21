@@ -15,6 +15,7 @@
 #include "aster/physics/xpbd_constraints.hpp"
 #include "aster/render/preview_compositor.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <filesystem>
@@ -89,6 +90,10 @@ aster::AssetDatabase makeTinyDatabase() {
   record.platform = "desktop";
   record.import_preset.name = "production";
   record.import_preset.lod_policy = "lod-chain";
+  record.derived_hashes.source_hash = "source-hash-wet";
+  record.derived_hashes.dependency_hash = "dependency-hash-wet";
+  record.derived_hashes.artifact_hash = "artifact-hash-wet";
+  record.derived_hashes.pipeline_cache_key = "pipeline-wet";
   record.fate_report.production_ready = true;
   record.outputs.push_back({.role = "preview", .kind = "ppm", .path = "preview/wet.ppm"});
   record.dependency_edges.push_back(
@@ -149,6 +154,30 @@ void assertAssetLibrary() {
   assert(lineage.production_ready_assets == 1u);
   assert(lineage.assets.front().id == "material.wet");
   assert(!lineage.assets.front().production_readiness_reasons.empty());
+
+  aster::NodePreviewCache preview_cache;
+  preview_cache.put({.node_id = "material.wet.preview",
+                     .refresh_state = 1u,
+                     .width = 1u,
+                     .height = 1u,
+                     .content_hash = 0xabcdu,
+                     .rgba8 = {255u, 255u, 255u, 255u}});
+  const aster::AsterAssetFoundryStory story =
+      aster::buildAsterAssetFoundryStory(library, lineage, &preview_cache);
+  assert(story.production_ready);
+  assert(story.asset_count == 1u);
+  assert(story.production_ready_assets == 1u);
+  assert(story.dependency_edge_count == 1u);
+  assert(story.preview_artifacts == 1u);
+  assert(story.node_preview_records == 1u);
+  assert(std::any_of(story.steps.begin(), story.steps.end(),
+                     [](const aster::AsterAssetFoundryLineageStep &step) {
+                       return step.id == "cook-lineage" && step.ready;
+                     }));
+  assert(std::any_of(story.steps.begin(), story.steps.end(),
+                     [](const aster::AsterAssetFoundryLineageStep &step) {
+                       return step.id == "stable-guid-hash" && step.ready;
+                     }));
 }
 
 void assertAssetRegistryAndDerivedCache() {

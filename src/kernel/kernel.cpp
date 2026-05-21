@@ -768,8 +768,20 @@ aster::ProjectionPolicy projectionPolicy(const AsterProjectionConvention *conven
   if (convention == nullptr) {
     return aster::defaultProjectionPolicy();
   }
-  return projectionPolicy(convention->handedness, convention->depth_range,
-                          convention->depth_direction);
+  aster::ProjectionPolicy policy =
+      projectionPolicy(convention->handedness, convention->depth_range,
+                       convention->depth_direction);
+  policy.viewport_origin = convention->viewport_origin_top_left != 0u
+                               ? aster::ViewportOrigin::TopLeft
+                               : aster::ViewportOrigin::BottomLeft;
+  policy.y_flip = convention->y_flip != 0u;
+  policy.matrix_storage = convention->column_major != 0u
+                              ? aster::MatrixStorageOrder::ColumnMajor
+                              : aster::MatrixStorageOrder::RowMajor;
+  policy.vector_convention = convention->column_vector != 0u
+                                 ? aster::VectorConvention::ColumnVector
+                                 : aster::VectorConvention::RowVector;
+  return policy;
 }
 
 aster::MeshPrimitive meshPrimitive(const AsterKernelMeshPrimitive primitive) {

@@ -60,12 +60,20 @@ inline Vec3 aces_tonemap(const Vec3 value) {
                0.0f, 1.0f);
 }
 
+inline LinearRgb acesToneMap(const HdrColor value) {
+  return LinearRgb{aces_tonemap(value.value)};
+}
+
 inline Vec3 reinhard_tonemap(const Vec3 value) {
   return {
       value.x / (value.x + 1.0f),
       value.y / (value.y + 1.0f),
       value.z / (value.z + 1.0f),
   };
+}
+
+inline LinearRgb reinhardToneMap(const HdrColor value) {
+  return LinearRgb{reinhard_tonemap(value.value)};
 }
 
 inline Vec3 gamma_encode(const Vec3 linear) {
@@ -75,6 +83,10 @@ inline Vec3 gamma_encode(const Vec3 linear) {
       std::pow(clamp(linear.y, 0.0f, 1.0f), inverse_gamma),
       std::pow(clamp(linear.z, 0.0f, 1.0f), inverse_gamma),
   };
+}
+
+inline Srgb gammaEncode(const LinearRgb linear) {
+  return Srgb{gamma_encode(linear.value)};
 }
 
 } // namespace aster

@@ -188,6 +188,24 @@ struct CookLineageReport {
   std::vector<std::string> diagnostics;
 };
 
+struct AsterAssetFoundryLineageStep {
+  std::string id;
+  std::string kind;
+  std::string evidence;
+  bool ready = false;
+};
+
+struct AsterAssetFoundryStory {
+  bool production_ready = false;
+  std::size_t asset_count = 0u;
+  std::size_t production_ready_assets = 0u;
+  std::size_t dependency_edge_count = 0u;
+  std::size_t preview_artifacts = 0u;
+  std::size_t node_preview_records = 0u;
+  std::vector<AsterAssetFoundryLineageStep> steps;
+  std::vector<std::string> diagnostics;
+};
+
 struct AssetFileListEntry {
   std::filesystem::path path;
   std::string kind;
@@ -303,5 +321,8 @@ buildAssetLibraryManifest(const AssetLibrary &library,
 [[nodiscard]] AssetImportRecipe buildAssetImportRecipe(const AssetRepresentation &asset);
 [[nodiscard]] AssetFoundryReport buildAssetFoundryReport(const AssetLibrary &library);
 [[nodiscard]] CookLineageReport buildCookLineageReport(const AssetDatabase &database);
+[[nodiscard]] AsterAssetFoundryStory buildAsterAssetFoundryStory(
+    const AssetLibrary &library, const CookLineageReport &lineage,
+    const NodePreviewCache *preview_cache = nullptr);
 
 } // namespace aster

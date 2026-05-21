@@ -825,8 +825,8 @@ void LumenRun::rebuildScene() {
   };
 
   Material prism_statue_stone = dark_masonry;
-  prism_statue_stone.base_color = mixColor(prism_statue_stone.base_color, {0.18f, 0.205f, 0.20f},
-                                           0.34f);
+  prism_statue_stone.base_color =
+      LinearRgb{mixColor(prism_statue_stone.base_color.value, {0.18f, 0.205f, 0.20f}, 0.34f)};
   prism_statue_stone.roughness = 0.88f;
   prism_statue_stone.metallic = 0.0f;
   prism_statue_stone.edge_wear = 0.38f;
@@ -837,13 +837,14 @@ void LumenRun::rebuildScene() {
                                    .height_shading = 0.14f};
   prism_statue_stone.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material prism_statue_trim = pond_stone;
-  prism_statue_trim.base_color = mixColor(prism_statue_trim.base_color, {0.26f, 0.30f, 0.30f},
-                                          0.36f);
+  prism_statue_trim.base_color =
+      LinearRgb{mixColor(prism_statue_trim.base_color.value, {0.26f, 0.30f, 0.30f}, 0.36f)};
   prism_statue_trim.roughness = 0.82f;
   prism_statue_trim.edge_wear = 0.44f;
   prism_statue_trim.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material prism_inlay = weathered_iron;
-  prism_inlay.base_color = mixColor(prism_inlay.base_color, {0.08f, 0.12f, 0.13f}, 0.46f);
+  prism_inlay.base_color =
+      LinearRgb{mixColor(prism_inlay.base_color.value, {0.08f, 0.12f, 0.13f}, 0.46f)};
   prism_inlay.emission_color = {0.10f, 0.36f, 0.42f};
   prism_inlay.emission_strength = 0.08f;
   prism_inlay.camera_occlusion = CameraOcclusionPolicy::Solid;
@@ -1787,16 +1788,18 @@ void LumenRun::rebuildScene() {
     const Vec3 house_rotation{0.0f, yaw, 0.0f};
 
     Material gothic_stone = cave_mouth_stone;
-    gothic_stone.base_color = mixColor(gothic_stone.base_color, {0.22f, 0.23f, 0.21f}, 0.46f);
+    gothic_stone.base_color =
+        LinearRgb{mixColor(gothic_stone.base_color.value, {0.22f, 0.23f, 0.21f}, 0.46f)};
     gothic_stone.edge_wear = 0.34f;
     gothic_stone.ambient_occlusion = 0.86f;
     gothic_stone.camera_occlusion = CameraOcclusionPolicy::Solid;
     Material gothic_dark_stone = gothic_stone;
-    gothic_dark_stone.base_color = mixColor(gothic_dark_stone.base_color, {0.10f, 0.105f, 0.10f},
-                                            0.36f);
+    gothic_dark_stone.base_color =
+        LinearRgb{mixColor(gothic_dark_stone.base_color.value, {0.10f, 0.105f, 0.10f}, 0.36f)};
     gothic_dark_stone.pattern_depth = 0.12f;
     Material gothic_timber = sign_wood;
-    gothic_timber.base_color = mixColor(gothic_timber.base_color, {0.18f, 0.10f, 0.055f}, 0.42f);
+    gothic_timber.base_color =
+        LinearRgb{mixColor(gothic_timber.base_color.value, {0.18f, 0.10f, 0.055f}, 0.42f)};
     gothic_timber.surface_pattern = SurfacePattern::PaintedWood;
     gothic_timber.pattern_scale = {5.4f, 13.0f};
     gothic_timber.pattern_depth = 0.050f;

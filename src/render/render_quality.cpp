@@ -3,6 +3,8 @@
 
 #include "aster/render/render_quality.hpp"
 
+#include "aster/material/material_compiler.hpp"
+
 #include <algorithm>
 #include <initializer_list>
 #include <map>
@@ -32,6 +34,20 @@ bool hasFloatParamAbove(const MaterialAsset &asset, const std::string_view key,
                         const float threshold) {
   const auto found = asset.params.find(std::string(key));
   return found != asset.params.end() && found->second > threshold;
+}
+
+float floatParamOr(const MaterialAsset &asset, const std::string_view key, const float fallback) {
+  const auto found = asset.params.find(std::string(key));
+  return found == asset.params.end() ? fallback : found->second;
+}
+
+float strongestFloatParam(const MaterialAsset &asset,
+                          const std::initializer_list<std::string_view> keys) {
+  float value = 0.0f;
+  for (const std::string_view key : keys) {
+    value = std::max(value, floatParamOr(asset, key, 0.0f));
+  }
+  return value;
 }
 
 bool mapHasAnyKey(const std::map<std::string, std::string> &values,
@@ -106,6 +122,28 @@ std::string_view reflectionProbeModeName(const ReflectionProbeMode mode) {
     return "streaming-local";
   }
   return "disabled";
+}
+
+std::string_view asterMaterialSignalKindName(const AsterMaterialSignalKind kind) {
+  switch (kind) {
+  case AsterMaterialSignalKind::ShaderVariant:
+    return "shader-variant";
+  case AsterMaterialSignalKind::TypedBindingLayout:
+    return "typed-binding-layout";
+  case AsterMaterialSignalKind::RustWetness:
+    return "rust-wetness";
+  case AsterMaterialSignalKind::CavityEdgeWear:
+    return "cavity-edge-wear";
+  case AsterMaterialSignalKind::NormalHeightCoupling:
+    return "normal-height-coupling";
+  case AsterMaterialSignalKind::TextureRoleProof:
+    return "texture-role-proof";
+  case AsterMaterialSignalKind::PreviewReadiness:
+    return "preview-readiness";
+  case AsterMaterialSignalKind::SurfaceFidelity:
+    return "surface-fidelity";
+  }
+  return "shader-variant";
 }
 
 RenderQualityProfile makeRenderQualityProfile(const RenderQualityTier tier) {
@@ -496,6 +534,116 @@ MaterialQualityReport evaluateMaterialQuality(const MaterialAsset &asset,
   report.score = penalty >= 100u ? 0u : 100u - penalty;
   report.production_ready = !hasError(report) && report.score >= 70u;
   return report;
+}
+
+AsterMaterialSignalSummary summarizeAsterMaterialSignals(const MaterialAsset &asset,
+                                                         const TextureSetValidation &textures,
+                                                         const RenderQualityProfile &profile) {
+  AsterMaterialSignalSummary summary;
+  const MaterialQualityReport quality = evaluateMaterialQuality(asset, textures, profile);
+  const CompiledMaterialAsset compiled = compileMaterialAssetForRendering(asset);
+  summary.score = quality.score;
+
+  const auto append_row = [&summary](const AsterMaterialSignalKind kind, std::string label,
+                                     std::string evidence, const float strength,
+                                     const bool ready) {
+    summary.rows.push_back({.kind = kind,
+                            .label = std::move(label),
+                            .evidence = std::move(evidence),
+                            .strength = std::clamp(strength, 0.0f, 1.0f),
+                            .ready = ready});
+    if (ready) {
+      ++summary.ready_signals;
+    } else {
+      ++summary.blocked_signals;
+      summary.diagnostics.push_back(
+          std::string(asterMaterialSignalKindName(kind)) + ": signal has no authored proof");
+    }
+  };
+
+  append_row(AsterMaterialSignalKind::ShaderVariant, "shader variant specialization",
+             compiled.variant.tag.empty() ? "no variant tag" : compiled.variant.tag,
+             compiled.variant.stable_hash == 0u && asset.procedural_shader_variant_key == 0u
+                 ? 0.0f
+                 : 1.0f,
+             compiled.variant.stable_hash != 0u || asset.procedural_shader_variant_key != 0u);
+
+  append_row(AsterMaterialSignalKind::TypedBindingLayout, "typed binding layout",
+             std::to_string(compiled.binding_layout.bindings.size()) + " typed bindings",
+             static_cast<float>(std::min<std::size_t>(compiled.binding_layout.bindings.size(), 8u)) /
+                 8.0f,
+             !compiled.binding_layout.bindings.empty());
+
+  const float wetness_strength =
+      strongestFloatParam(asset, {"wetness", "wetness_strength", "rust_strength",
+                                  "oxidation_strength", "oxide_strength"});
+  const bool rust_wetness_ready =
+      wetness_strength > 0.0f || hasAnyTextureRole(asset, {"wetness", "rust", "oxide"}) ||
+      assetHasAnyMetadata(asset, {"wetness", "rust", "oxide", "corrosion"});
+  append_row(AsterMaterialSignalKind::RustWetness, "rust and wetness response",
+             std::to_string(static_cast<double>(wetness_strength)) +
+                 " authored wet/rust parameter strength",
+             wetness_strength > 0.0f ? wetness_strength : (rust_wetness_ready ? 0.5f : 0.0f),
+             rust_wetness_ready);
+
+  const float cavity_edge_strength =
+      std::max(strongestFloatParam(asset, {"cavity_strength", "cavity_grime_strength",
+                                           "edge_wear", "edge_wear_strength",
+                                           "roughness_height_coupling"}),
+               hasAnyTextureRole(asset, {"ao", "occlusion", "orm"}) ? 0.55f : 0.0f);
+  append_row(AsterMaterialSignalKind::CavityEdgeWear, "cavity and edge-wear separation",
+             std::to_string(static_cast<double>(cavity_edge_strength)) +
+                 " cavity/edge signal strength",
+             cavity_edge_strength, cavity_edge_strength > 0.0f);
+
+  const float normal_height_strength =
+      std::max(strongestFloatParam(asset, {"height_normal_coupling", "micro_normal_strength",
+                                           "height_shading", "parallax_strength"}),
+               (hasTextureRole(asset, "normal") && hasTextureRole(asset, "height")) ? 0.62f
+                                                                                    : 0.0f);
+  append_row(AsterMaterialSignalKind::NormalHeightCoupling,
+             "normal, height, and roughness coupling",
+             std::to_string(static_cast<double>(normal_height_strength)) +
+                 " normal-height signal strength",
+             normal_height_strength, normal_height_strength > 0.0f);
+
+  const std::size_t valid_texture_count =
+      static_cast<std::size_t>(std::count_if(textures.textures.begin(), textures.textures.end(),
+                                             [](const TextureAssetMetadata &texture) {
+                                               return texture.valid;
+                                             }));
+  append_row(AsterMaterialSignalKind::TextureRoleProof, "texture role proof",
+             std::to_string(valid_texture_count) + " valid texture metadata records",
+             static_cast<float>(valid_texture_count) /
+                 static_cast<float>(std::max<std::size_t>(asset.textures.size(), 1u)),
+             textures.ok && valid_texture_count >= asset.textures.size());
+
+  const bool preview_ready =
+      !asset.preview.empty() || !asset.quality_profile.empty() ||
+      assetHasAnyMetadata(asset, {"preview", "artist_preview", "environment", "reflection_probe"});
+  append_row(AsterMaterialSignalKind::PreviewReadiness, "artist preview proof",
+             preview_ready ? "preview metadata is authored" : "preview metadata missing",
+             preview_ready ? 1.0f : 0.0f, preview_ready);
+
+  const float texel_density =
+      floatParamOr(asset, "physical_texel_density", floatParamOr(asset, "texel_density", 0.0f));
+  const bool surface_ready =
+      quality.production_ready &&
+      (!profile.surface_fidelity.require_physical_texel_density ||
+       texel_density >= profile.surface_fidelity.minimum_physical_texel_density ||
+       assetHasAnyMetadata(asset, {"physical_texel_density", "texel_density", "meters_per_texel"}));
+  append_row(AsterMaterialSignalKind::SurfaceFidelity, "image-proven surface fidelity",
+             std::to_string(quality.score) + " material quality score",
+             static_cast<float>(quality.score) / 100.0f, surface_ready);
+
+  for (const RenderQualityIssue &issue : quality.issues) {
+    summary.diagnostics.push_back(issue.category + ": " + issue.message);
+  }
+  for (const MaterialDiagnostic &diagnostic : compiled.diagnostics) {
+    summary.diagnostics.push_back("material-compiler: " + diagnostic.message);
+  }
+  summary.image_proof_ready = quality.production_ready && summary.blocked_signals == 0u;
+  return summary;
 }
 
 } // namespace aster

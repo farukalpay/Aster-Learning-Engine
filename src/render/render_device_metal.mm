@@ -176,6 +176,7 @@ struct MetalSceneUniforms {
 struct MetalObjectUniforms {
   float model[16]{};
   float model_view_projection[16]{};
+  float normal_matrix[16]{};
   float base_color_opacity[4]{};
   float emission_strength[4]{};
   float material_params[4]{};
@@ -187,7 +188,7 @@ struct MetalObjectUniforms {
   float texture_flags0[4]{};
   float texture_flags1[4]{};
   float texture_flags2[4]{};
-  float object_padding[52]{};
+  float object_padding[36]{};
 };
 
 struct MetalMeshBuffers {
@@ -207,6 +208,22 @@ struct LocalBounds {
   aster::Vec3 min{};
   aster::Vec3 max{};
 };
+
+aster::Mat4 normalMatrix4OrIdentity(const aster::Mat4 &model) {
+  const aster::MathResult<aster::WorldNormalFromLocal> normal_from_local =
+      aster::worldNormalFromLocal(aster::WorldFromLocal{model});
+  if (!normal_from_local) {
+    return aster::identity();
+  }
+  aster::Mat4 out = aster::identity();
+  const aster::Mat3 &normal = normal_from_local.value.value;
+  for (int column = 0; column < 3; ++column) {
+    for (int row = 0; row < 3; ++row) {
+      aster::setAt(out, row, column, aster::at(normal, row, column));
+    }
+  }
+  return out;
+}
 
 float saturate(const float value) {
   return std::clamp(value, 0.0f, 1.0f);
@@ -596,11 +613,12 @@ public:
            "render_params; float4 shadow_params; float4 reflection_params; Light lights[64]; "
            "ShadowCascade shadows[4]; Probe probes[4]; "
            "};\n"
-           "struct Object { float4x4 model; float4x4 mvp; float4 base_color_opacity; "
+           "struct Object { float4x4 model; float4x4 mvp; float4x4 normal_matrix; "
+           "float4 base_color_opacity; "
            "float4 emission_strength; float4 material_params; float4 pattern_params; "
            "float4 pattern_params2; float4 procedural_params; float4 procedural_params2; "
            "float4 material_flags; float4 texture_flags0; float4 texture_flags1; "
-           "float4 texture_flags2; float4 object_padding[13]; };\n"
+           "float4 texture_flags2; float4 object_padding[9]; };\n"
            "struct VSOut { float4 position [[position]]; float3 world; float3 normal; float2 uv; "
            "float ao; float4 tangent; uint object_index; };\n"
            "float saturate1(float v) { return clamp(v, 0.0, 1.0); }\n"
@@ -955,7 +973,7 @@ public:
            "float4 local = float4(v.position.xyz, 1.0); VSOut out; "
            "out.position = object.mvp * local; out.world = "
            "(object.model * local).xyz; "
-           "  out.normal = normalize((object.model * float4(v.normal.xyz, 0.0)).xyz); "
+           "  out.normal = normalize((object.normal_matrix * float4(v.normal.xyz, 0.0)).xyz); "
            "out.tangent = float4(normalize((object.model * float4(v.tangent.xyz, 0.0)).xyz), "
            "v.tangent.w); out.uv = "
            "v.uv_ao.xy; out.ao = v.uv_ao.z; out.object_index = instance_id; return out;\n"
@@ -1536,6 +1554,7 @@ public:
             .supports_ui_composite = true,
             .supports_gpu_timestamps = false,
             .graph_resource_mask = graph_resources,
+            .projection_convention = aster::defaultProjectionConvention(),
             .capability_table = metalCapabilityTable()};
   }
 
@@ -1634,9 +1653,11 @@ private:
                   aster::rotation_y(static_cast<float>(frame_seconds) * object.spin_rate)
             : object.transform.matrix();
     const aster::Mat4 mvp = view_projection * model;
+    const aster::Mat4 normal_matrix = normalMatrix4OrIdentity(model);
     MetalObjectUniforms out;
     std::memcpy(out.model, model.m.data(), sizeof(out.model));
     std::memcpy(out.model_view_projection, mvp.m.data(), sizeof(out.model_view_projection));
+    std::memcpy(out.normal_matrix, normal_matrix.m.data(), sizeof(out.normal_matrix));
     return out;
   }
 
@@ -2128,9 +2149,11 @@ private:
         static_cast<float>(std::max(width_, 1)) / static_cast<float>(std::max(height_, 1));
     const aster::Mat4 mvp =
         camera.projectionMatrix(aspect_ratio).value * camera.viewMatrix().value * model;
+    const aster::Mat4 normal_matrix = normalMatrix4OrIdentity(model);
     MetalObjectUniforms out;
     std::memcpy(out.model, model.m.data(), sizeof(out.model));
     std::memcpy(out.model_view_projection, mvp.m.data(), sizeof(out.model_view_projection));
+    std::memcpy(out.normal_matrix, normal_matrix.m.data(), sizeof(out.normal_matrix));
     out.base_color_opacity[0] = object.material.base_color.x;
     out.base_color_opacity[1] = object.material.base_color.y;
     out.base_color_opacity[2] = object.material.base_color.z;

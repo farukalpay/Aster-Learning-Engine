@@ -9,6 +9,7 @@
 #include "aster/core/signal.hpp"
 
 #include <atomic>
+#include <type_traits>
 
 namespace {
 
@@ -51,6 +52,15 @@ void testVectorAliasesAndShaderHelpers() {
   expectNear(reflected.y, 1.0f, 0.0001f);
   expectNear(aster::distance(aster::Vec3{1.0f, 2.0f, 3.0f}, aster::Vec3{1.0f, 2.0f, 5.0f}),
              2.0f, 0.0001f);
+}
+
+void testSemanticMathBoundaries() {
+  static_assert(!std::is_convertible_v<aster::WorldPoint, aster::Vec3>);
+  static_assert(!std::is_convertible_v<aster::ClipPoint, aster::Vec4>);
+  static_assert(!std::is_convertible_v<aster::WorldToClip, aster::Mat4>);
+  static_assert(!std::is_convertible_v<aster::WorldFromLocal, aster::Mat4>);
+  static_assert(std::is_constructible_v<aster::WorldPoint, aster::Vec3>);
+  static_assert(std::is_constructible_v<aster::WorldToClip, aster::Mat4>);
 }
 
 void testMatrixComposition() {
@@ -541,6 +551,7 @@ tool.history = "on"
 int main() {
   testVectorMath();
   testVectorAliasesAndShaderHelpers();
+  testSemanticMathBoundaries();
   testMatrixComposition();
   testMat3AndNormalMatrix();
   testMatrixInverseAndDeterminant();

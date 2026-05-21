@@ -590,10 +590,11 @@ Mat4 nodeMatrix(const Json &node) {
 }
 
 Vec3 transformNormal(const Mat4 &matrix, const Vec3 value) {
-  if (const MathResult<Mat3> normal_matrix = normalMatrix(matrix)) {
-    const Vec3 transformed = normal_matrix.value * value;
+  if (const MathResult<WorldNormalFromLocal> normal_from_local =
+          worldNormalFromLocal(WorldFromLocal{matrix})) {
+    const Vec3 transformed = aster::transformNormal(Normal{value}, normal_from_local.value).value;
     if (length(transformed) > 0.0001f) {
-      return normalizeOr(transformed, {0.0f, 1.0f, 0.0f});
+      return transformed;
     }
   }
   return normalizeOr(transformVector(matrix, value), {0.0f, 1.0f, 0.0f});

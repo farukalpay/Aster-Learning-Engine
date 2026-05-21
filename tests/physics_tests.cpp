@@ -502,7 +502,7 @@ void testPhysicsBroadphaseGeneratedParity() {
   assert(pairs == expected);
 }
 
-void testAssetFactoryPipePhysicsProxyQueries() {
+void testAssetFoundryPipePhysicsProxyQueries() {
   aster::AsterPipeAssetSpec dry_spec{.asset_id = "physics.factory.pipe.dry",
                                      .radial_segments = 48,
                                      .length_segments = 12,
@@ -518,10 +518,10 @@ void testAssetFactoryPipePhysicsProxyQueries() {
   wet_spec.asset_id = "physics.factory.pipe.wet";
   wet_spec.wetness_strength = 0.46f;
 
-  const aster::AsterAssetFactoryBuildResult dry =
-      aster::buildAsterAssetFactoryRecipe(aster::makeAsterPipeFactoryRecipe(dry_spec));
-  const aster::AsterAssetFactoryBuildResult wet =
-      aster::buildAsterAssetFactoryRecipe(aster::makeAsterPipeFactoryRecipe(wet_spec));
+  const aster::AsterAssetFoundryBuildResult dry =
+      aster::buildAsterAssetFoundryRecipe(aster::makeAsterPipeFoundryRecipe(dry_spec));
+  const aster::AsterAssetFoundryBuildResult wet =
+      aster::buildAsterAssetFoundryRecipe(aster::makeAsterPipeFoundryRecipe(wet_spec));
   assert(dry.production_ready);
   assert(wet.production_ready);
   assert(dry.physics_bodies.size() == 1u);
@@ -577,7 +577,7 @@ int main() {
   testContinuousHorizontalCollisionBlocksFastSweep();
   testPhysicsFluidVolumeDragAndBuoyancy();
   testPhysicsBroadphaseGeneratedParity();
-  testAssetFactoryPipePhysicsProxyQueries();
+  testAssetFoundryPipePhysicsProxyQueries();
   std::cout << "physics_tests passed.\n";
   return 0;
 }

@@ -178,15 +178,47 @@ struct MaterialQualityReport {
   std::vector<RenderQualityIssue> issues;
 };
 
+enum class AsterMaterialSignalKind : std::uint32_t {
+  ShaderVariant,
+  TypedBindingLayout,
+  RustWetness,
+  CavityEdgeWear,
+  NormalHeightCoupling,
+  TextureRoleProof,
+  PreviewReadiness,
+  SurfaceFidelity,
+};
+
+struct AsterMaterialSignalRow {
+  AsterMaterialSignalKind kind = AsterMaterialSignalKind::ShaderVariant;
+  std::string label;
+  std::string evidence;
+  float strength = 0.0f;
+  bool ready = false;
+};
+
+struct AsterMaterialSignalSummary {
+  bool image_proof_ready = false;
+  std::uint32_t score = 0u;
+  std::size_t ready_signals = 0u;
+  std::size_t blocked_signals = 0u;
+  std::vector<AsterMaterialSignalRow> rows;
+  std::vector<std::string> diagnostics;
+};
+
 [[nodiscard]] std::string_view renderQualityTierName(RenderQualityTier tier);
 [[nodiscard]] std::string_view shadowTechniqueName(ShadowTechnique technique);
 [[nodiscard]] std::string_view reflectionProbeModeName(ReflectionProbeMode mode);
+[[nodiscard]] std::string_view asterMaterialSignalKindName(AsterMaterialSignalKind kind);
 
 [[nodiscard]] RenderQualityProfile makeRenderQualityProfile(RenderQualityTier tier);
 void applyRenderQualityProfile(RendererSettings &settings, const RenderQualityProfile &profile);
 [[nodiscard]] TextureImportOptions textureImportOptionsForQuality(
     const RenderQualityProfile &profile, bool require_existing_files = true);
 [[nodiscard]] MaterialQualityReport evaluateMaterialQuality(
+    const MaterialAsset &asset, const TextureSetValidation &textures,
+    const RenderQualityProfile &profile = makeRenderQualityProfile(RenderQualityTier::Production));
+[[nodiscard]] AsterMaterialSignalSummary summarizeAsterMaterialSignals(
     const MaterialAsset &asset, const TextureSetValidation &textures,
     const RenderQualityProfile &profile = makeRenderQualityProfile(RenderQualityTier::Production));
 

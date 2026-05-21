@@ -64,7 +64,7 @@ bool startsWith(const std::string &value, const std::string &prefix) {
   return value.rfind(prefix, 0u) == 0u;
 }
 
-bool hasDiagnosticContaining(const aster::AsterAssetFactoryBuildResult &result,
+bool hasDiagnosticContaining(const aster::AsterAssetFoundryBuildResult &result,
                              const std::string &needle) {
   return std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
                      [&](const std::string &diagnostic) {
@@ -79,25 +79,25 @@ bool hasPartContaining(const aster::AsterPipeAsset &asset, const std::string &ne
                      });
 }
 
-bool hasClaim(const aster::AsterAssetFactoryBuildResult &result, const std::string &claim) {
+bool hasClaim(const aster::AsterAssetFoundryBuildResult &result, const std::string &claim) {
   return std::find(result.visual_brief_claims.begin(), result.visual_brief_claims.end(), claim) !=
          result.visual_brief_claims.end();
 }
 
-bool hasRejectedSignal(const aster::AsterAssetFactoryBuildResult &result,
+bool hasRejectedSignal(const aster::AsterAssetFoundryBuildResult &result,
                        const std::string &signal) {
   return std::any_of(result.surface_coverages.begin(), result.surface_coverages.end(),
-                     [&](const aster::AsterAssetFactorySurfaceCoverage &coverage) {
+                     [&](const aster::AsterAssetFoundrySurfaceCoverage &coverage) {
                        return std::find(coverage.rejected_signals.begin(),
                                         coverage.rejected_signals.end(), signal) !=
                               coverage.rejected_signals.end();
                      });
 }
 
-bool hasVisualBriefStatus(const aster::AsterAssetFactoryRecipeAudit &audit,
+bool hasVisualBriefStatus(const aster::AsterAssetFoundryRecipeAudit &audit,
                           const std::string &signal, const std::string &status) {
   return std::any_of(audit.visual_brief_rows.begin(), audit.visual_brief_rows.end(),
-                     [&](const aster::AsterAssetFactoryVisualBriefRow &row) {
+                     [&](const aster::AsterAssetFoundryVisualBriefRow &row) {
                        return row.signal == signal && row.status == status;
                      });
 }
@@ -140,25 +140,25 @@ aster::AsterPipeAssetSpec testPipeSpec() {
 }
 
 void testDeterministicRecipeHash() {
-  const aster::AsterAssetFactoryRecipe recipe =
-      aster::makeAsterPipeFactoryRecipe(testPipeSpec());
-  const std::string first = aster::stableAsterAssetFactoryRecipeHash(recipe);
-  const std::string second = aster::stableAsterAssetFactoryRecipeHash(recipe);
+  const aster::AsterAssetFoundryRecipe recipe =
+      aster::makeAsterPipeFoundryRecipe(testPipeSpec());
+  const std::string first = aster::stableAsterAssetFoundryRecipeHash(recipe);
+  const std::string second = aster::stableAsterAssetFoundryRecipeHash(recipe);
   assert(first == second);
   assert(startsWith(first, "aster-factory-0x"));
 
   aster::AsterPipeAssetSpec changed = testPipeSpec();
   changed.seed ^= 0x51u;
   const std::string changed_hash =
-      aster::stableAsterAssetFactoryRecipeHash(aster::makeAsterPipeFactoryRecipe(changed));
+      aster::stableAsterAssetFoundryRecipeHash(aster::makeAsterPipeFoundryRecipe(changed));
   assert(first != changed_hash);
 }
 
 void testRecipeBuildStagesAndLods() {
-  const aster::AsterAssetFactoryRecipe recipe =
-      aster::makeAsterPipeFactoryRecipe(testPipeSpec());
-  const aster::AsterAssetFactoryBuildResult result =
-      aster::buildAsterAssetFactoryRecipe(recipe);
+  const aster::AsterAssetFoundryRecipe recipe =
+      aster::makeAsterPipeFoundryRecipe(testPipeSpec());
+  const aster::AsterAssetFoundryBuildResult result =
+      aster::buildAsterAssetFoundryRecipe(recipe);
   assert(result.production_ready);
   assert(result.quality_score >= 82u);
   assert(result.stage_reports.size() == recipe.stages.size());
@@ -171,15 +171,15 @@ void testRecipeBuildStagesAndLods() {
   assert(hasClaim(result, "raised_weld_rings"));
   assert(hasRejectedSignal(result, "clean_plastic_surface"));
   assert(hasRejectedSignal(result, "monochrome_material"));
-  const std::vector<aster::AsterAssetFactoryQualityDiagnostic> validation =
-      aster::validateAsterAssetFactoryRecipe(recipe);
+  const std::vector<aster::AsterAssetFoundryQualityDiagnostic> validation =
+      aster::validateAsterAssetFoundryRecipe(recipe);
   assert(std::none_of(validation.begin(), validation.end(),
-                      [](const aster::AsterAssetFactoryQualityDiagnostic &diagnostic) {
+                      [](const aster::AsterAssetFoundryQualityDiagnostic &diagnostic) {
                         return diagnostic.severity ==
-                               aster::AsterAssetFactoryDiagnosticSeverity::Error;
+                               aster::AsterAssetFoundryDiagnosticSeverity::Error;
                       }));
-  const aster::AsterAssetFactoryRecipeAudit audit =
-      aster::auditAsterAssetFactoryBuild(recipe, result);
+  const aster::AsterAssetFoundryRecipeAudit audit =
+      aster::auditAsterAssetFoundryBuild(recipe, result);
   assert(audit.production_ready);
   assert(audit.stage_order.size() == recipe.stages.size());
   assert(audit.missing_dependencies.empty());
@@ -189,13 +189,13 @@ void testRecipeBuildStagesAndLods() {
   assert(audit.physics_proxy_ids.front() == "physics.pipe.runtime-bounds");
   assert(hasVisualBriefStatus(audit, "raised_weld_rings", "claimed"));
   assert(hasVisualBriefStatus(audit, "decorative_bolts_without_reference", "rejected"));
-  const std::vector<aster::AsterAssetFactoryPhysicsProxySummary> proxy_summary =
-      aster::summarizeAsterAssetFactoryPhysicsProxies(recipe);
+  const std::vector<aster::AsterAssetFoundryPhysicsProxySummary> proxy_summary =
+      aster::summarizeAsterAssetFoundryPhysicsProxies(recipe);
   assert(proxy_summary.size() == 1u);
   assert(proxy_summary.front().shape == "bounds-box");
   assert(proxy_summary.front().covers_render_bounds);
   assert(proxy_summary.front().friction > 0.70f);
-  const std::vector<std::string> audit_lines = aster::describeAsterAssetFactoryAudit(audit);
+  const std::vector<std::string> audit_lines = aster::describeAsterAssetFoundryAudit(audit);
   assert(std::any_of(audit_lines.begin(), audit_lines.end(), [](const std::string &line) {
     return line.find("visual_brief raised_weld_rings=claimed") != std::string::npos;
   }));
@@ -209,44 +209,44 @@ void testRecipeBuildStagesAndLods() {
 }
 
 void testStageDependencyDiagnostics() {
-  aster::AsterAssetFactoryRecipe recipe = aster::makeAsterPipeFactoryRecipe(testPipeSpec());
+  aster::AsterAssetFoundryRecipe recipe = aster::makeAsterPipeFoundryRecipe(testPipeSpec());
   std::swap(recipe.stages[0], recipe.stages[1]);
-  const aster::AsterAssetFactoryBuildResult result =
-      aster::buildAsterAssetFactoryRecipe(recipe);
+  const aster::AsterAssetFoundryBuildResult result =
+      aster::buildAsterAssetFoundryRecipe(recipe);
   assert(!result.production_ready);
   assert(hasDiagnosticContaining(result, "stage dependency has not completed"));
-  const aster::AsterAssetFactoryRecipeAudit audit =
-      aster::auditAsterAssetFactoryBuild(recipe, result);
+  const aster::AsterAssetFoundryRecipeAudit audit =
+      aster::auditAsterAssetFoundryBuild(recipe, result);
   assert(!audit.missing_dependencies.empty());
   assert(std::any_of(audit.diagnostics.begin(), audit.diagnostics.end(),
-                     [](const aster::AsterAssetFactoryQualityDiagnostic &diagnostic) {
+                     [](const aster::AsterAssetFoundryQualityDiagnostic &diagnostic) {
                        return diagnostic.severity ==
-                              aster::AsterAssetFactoryDiagnosticSeverity::Error;
+                              aster::AsterAssetFoundryDiagnosticSeverity::Error;
                      }));
 }
 
 void testRecipeValidationCatchesBrokenContracts() {
-  aster::AsterAssetFactoryRecipe recipe = aster::makeAsterPipeFactoryRecipe(testPipeSpec());
+  aster::AsterAssetFoundryRecipe recipe = aster::makeAsterPipeFoundryRecipe(testPipeSpec());
   recipe.surface_contracts.clear();
   recipe.physics_proxies.front().half_extents.y = 0.0f;
-  const std::vector<aster::AsterAssetFactoryQualityDiagnostic> diagnostics =
-      aster::validateAsterAssetFactoryRecipe(recipe);
+  const std::vector<aster::AsterAssetFoundryQualityDiagnostic> diagnostics =
+      aster::validateAsterAssetFoundryRecipe(recipe);
   assert(std::any_of(diagnostics.begin(), diagnostics.end(),
-                     [](const aster::AsterAssetFactoryQualityDiagnostic &diagnostic) {
+                     [](const aster::AsterAssetFoundryQualityDiagnostic &diagnostic) {
                        return diagnostic.category == "surface" &&
                               diagnostic.severity ==
-                                  aster::AsterAssetFactoryDiagnosticSeverity::Error;
+                                  aster::AsterAssetFoundryDiagnosticSeverity::Error;
                      }));
   assert(std::any_of(diagnostics.begin(), diagnostics.end(),
-                     [](const aster::AsterAssetFactoryQualityDiagnostic &diagnostic) {
+                     [](const aster::AsterAssetFoundryQualityDiagnostic &diagnostic) {
                        return diagnostic.category == "physics" &&
                               diagnostic.message.find("non-positive") != std::string::npos;
                      }));
-  const aster::AsterAssetFactoryBuildResult result =
-      aster::buildAsterAssetFactoryRecipe(recipe);
-  const aster::AsterAssetFactoryRecipeAudit audit =
-      aster::auditAsterAssetFactoryBuild(recipe, result);
-  const std::vector<std::string> lines = aster::describeAsterAssetFactoryAudit(audit);
+  const aster::AsterAssetFoundryBuildResult result =
+      aster::buildAsterAssetFoundryRecipe(recipe);
+  const aster::AsterAssetFoundryRecipeAudit audit =
+      aster::auditAsterAssetFoundryBuild(recipe, result);
+  const std::vector<std::string> lines = aster::describeAsterAssetFoundryAudit(audit);
   assert(std::any_of(lines.begin(), lines.end(), [](const std::string &line) {
     return line.find("surface") != std::string::npos;
   }));
@@ -265,9 +265,9 @@ void testDefaultAndHardwareVariants() {
   assert(hasPartContaining(hardware_pipe, "flange"));
   assert(hasPartContaining(hardware_pipe, "bolt"));
 
-  const aster::AsterAssetFactoryBuildResult hardware_result =
-      aster::buildAsterAssetFactoryRecipe(aster::makeAsterPipeFactoryRecipe(
-          testPipeSpec(), aster::AsterPipeFactoryVariant::IndustrialHardware));
+  const aster::AsterAssetFoundryBuildResult hardware_result =
+      aster::buildAsterAssetFoundryRecipe(aster::makeAsterPipeFoundryRecipe(
+          testPipeSpec(), aster::AsterPipeFoundryVariant::IndustrialHardware));
   assert(hardware_result.production_ready);
 }
 
@@ -277,10 +277,10 @@ void testPhysicsProxyConversionAndQueries() {
   aster::AsterPipeAssetSpec wet = testPipeSpec();
   wet.wetness_strength = 0.45f;
 
-  const aster::AsterAssetFactoryBuildResult dry_result =
-      aster::buildAsterAssetFactoryRecipe(aster::makeAsterPipeFactoryRecipe(dry));
-  const aster::AsterAssetFactoryBuildResult wet_result =
-      aster::buildAsterAssetFactoryRecipe(aster::makeAsterPipeFactoryRecipe(wet));
+  const aster::AsterAssetFoundryBuildResult dry_result =
+      aster::buildAsterAssetFoundryRecipe(aster::makeAsterPipeFoundryRecipe(dry));
+  const aster::AsterAssetFoundryBuildResult wet_result =
+      aster::buildAsterAssetFoundryRecipe(aster::makeAsterPipeFoundryRecipe(wet));
   assert(dry_result.production_ready);
   assert(wet_result.production_ready);
   assert(dry_result.physics_bodies.front().material.friction >
