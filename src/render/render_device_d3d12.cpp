@@ -544,8 +544,26 @@ float4 fs_main(VSOut input) : SV_Target0 {
     color += albedo * (ndotl * 0.84 + 0.12) * scene_lights[i].color_intensity.rgb * (scene_lights[i].color_intensity.w / soft);
   }
   color = lerp(color, albedo * max(scene_exposure_ambient.y + scene_exposure_ambient.z + 0.14, 0.18), saturate(scene_style_params.x));
+  float3 local_scatter = float3(0.0, 0.0, 0.0);
+  float source_halo = 0.0;
+  for (uint i = 0; i < uint(scene_lighting_params.x); ++i) {
+    float3 lv = scene_lights[i].position_radius.xyz - input.world;
+    float d2 = max(dot(lv, lv), 0.0001);
+    float r = max(scene_lights[i].position_radius.w, 0.08);
+    float soft = max(d2, r * r + 0.0001);
+    float core = 1.0 - smooth1(r * r * 0.20, r * r * 10.0, d2);
+    float scatter = saturate(scene_fog_color_strength.w) * max(scene_style_params2.w, 0.0) * (0.018 + core * 0.16);
+    float3 medium_color = lerp(scene_lights[i].color_intensity.rgb, float3(1.0, 0.78, 0.58), 0.38);
+    local_scatter += medium_color * (scene_lights[i].color_intensity.w / soft) * scatter;
+    source_halo = max(source_halo, core);
+  }
+  float scatter_luma = dot(local_scatter, float3(0.2126, 0.7152, 0.0722));
+  if (scatter_luma > 0.18) {
+    local_scatter *= 0.18 / scatter_luma;
+  }
   float fog = style_fog(distance(scene_camera_time.xyz, input.world));
-  color = lerp(color, scene_fog_color_strength.rgb, saturate(fog));
+  color += local_scatter * (0.10 + source_halo * 0.22);
+  color = lerp(color, scene_fog_color_strength.rgb + local_scatter * 0.42, saturate(fog));
   float luma = dot(color, float3(0.2126, 0.7152, 0.0722));
   color = lerp(float3(luma, luma, luma), color, saturate(scene_fog_params.z));
   color = (color - 0.5) * max(scene_fog_params.w, 0.0) + 0.5;
@@ -1608,6 +1626,7 @@ private:
     uniforms.style_params2[0] = settings.style.procedural_sample_snap;
     uniforms.style_params2[1] = static_cast<float>(settings.atmosphere.fog_falloff);
     uniforms.style_params2[2] = settings.atmosphere.fog_power;
+    uniforms.style_params2[3] = settings.atmosphere.local_light_scattering;
     std::vector<aster::Light> selected_lights;
     if (settings.clustered_lighting.enabled && clustered_lights != nullptr &&
         !clustered_lights->visible_lights.empty()) {

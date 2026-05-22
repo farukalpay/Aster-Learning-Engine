@@ -44,7 +44,7 @@ include(CheckIncludeFileCXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-set(ASTER_KERNEL_PACKAGE_VERSION "5.3.0")
+set(ASTER_KERNEL_PACKAGE_VERSION "6.3.0")
 
 if(WIN32 AND NOT MINGW)
   set(ASTER_RUST_STATICLIB_NAME "aster_runtime.lib")
@@ -298,6 +298,7 @@ set(ASTER_GEOMETRY_SOURCES
   "${PROJECT_SOURCE_DIR}/src/geometry/terrain_mesh.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/terrain_sculpt.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/tube_mesh.cpp"
+  "${PROJECT_SOURCE_DIR}/src/geometry/traversable_manifold.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/voxel_cave.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/voxel_structure.cpp"
   "${PROJECT_SOURCE_DIR}/src/geometry/water_mesh.cpp"
@@ -783,6 +784,14 @@ if(ASTER_BUILD_TESTS)
   if(ASTER_BUILD_STUDIO)
     add_test(NAME aster_lumen_run_validate_cave
              COMMAND aster_lumen_run --validate-cave)
+    add_test(NAME aster_lumen_run_cave_vision
+             COMMAND aster_lumen_run --playtest-vision --vision-route cave-regression
+                     --vision-out "${PROJECT_BINARY_DIR}/test-artifacts/lumen_run_cave_vision"
+                     --vision-width 480 --vision-height 270 --no-vsync)
+    add_test(NAME aster_lumen_run_cave_lighting_vision
+             COMMAND aster_lumen_run --playtest-lighting --lighting-route cave-regression
+                     --lighting-out "${PROJECT_BINARY_DIR}/test-artifacts/lumen_run_cave_lighting"
+                     --lighting-width 480 --lighting-height 270 --no-vsync)
     add_test(NAME aster_lumen_run_smoke_test
              COMMAND aster_lumen_run --smoke-test --no-vsync)
     add_test(NAME aster_studio_material_lab_smoke
@@ -838,6 +847,7 @@ if(ASTER_BUILD_TESTS)
       showcase_lab_scenes_debug_view_response
       showcase_lab_scenes_contact_shadow_falloff
       software_preview_renderer
+      software_lighting_probe_media
       software_depth_policy_coplanar
       software_depth_policy_object_order
       prepare_scene_custom_mesh_cache

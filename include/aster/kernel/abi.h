@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 6u
-#define ASTER_KERNEL_ABI_MINOR 1u
+#define ASTER_KERNEL_ABI_MINOR 3u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -290,7 +290,16 @@ typedef enum AsterKernelFrameDiagnosticKind {
   ASTER_KERNEL_FRAME_DIAGNOSTIC_ASSET_PROVENANCE_WARNING = 15,
   ASTER_KERNEL_FRAME_DIAGNOSTIC_TEXTURE_ROLE_DEGRADED = 16,
   ASTER_KERNEL_FRAME_DIAGNOSTIC_MESH_ATTRIBUTE_DEGRADED = 17,
-  ASTER_KERNEL_FRAME_DIAGNOSTIC_SURFACE_PRESENTATION_WARNING = 18
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_SURFACE_PRESENTATION_WARNING = 18,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_VISIBLE_VOID = 19,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_SUPPORT_RENDER_MISMATCH = 20,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_Z_FIGHT_CANDIDATE = 21,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_TRAVERSAL_BLOCKER = 22,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_LIGHT_SOURCE_UNREADABLE = 23,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_VOLUMETRIC_LIGHT_MISSING = 24,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_LIGHT_FALLOFF_DISCONTINUITY = 25,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_CAVE_LIGHT_EXPOSURE_UNDERFLOW = 26,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_CAVE_LIGHT_EXPOSURE_OVERFLOW = 27
 } AsterKernelFrameDiagnosticKind;
 
 typedef enum AsterValidationKind {
@@ -310,7 +319,11 @@ typedef enum AsterValidationKind {
   ASTER_VALIDATION_WORLD_MONOTONICITY = 13,
   ASTER_VALIDATION_WORLD_STALE_ENTITY = 14,
   ASTER_VALIDATION_WORLD_TRANSACTION_HAZARD = 15,
-  ASTER_VALIDATION_WORLD_REPLAY_MISMATCH = 16
+  ASTER_VALIDATION_WORLD_REPLAY_MISMATCH = 16,
+  ASTER_VALIDATION_VISIBLE_VOID = 17,
+  ASTER_VALIDATION_SUPPORT_RENDER_MISMATCH = 18,
+  ASTER_VALIDATION_Z_FIGHT_CANDIDATE = 19,
+  ASTER_VALIDATION_TRAVERSAL_BLOCKER = 20
 } AsterValidationKind;
 
 typedef enum AsterSystemComponentAccessMode {
@@ -1735,6 +1748,105 @@ typedef struct AsterCaptureDesc {
   uint32_t height;
 } AsterCaptureDesc;
 
+typedef enum AsterFrameVisionProbeArtifactFlags {
+  ASTER_FRAME_VISION_PROBE_ARTIFACT_DEFAULT = 0,
+  ASTER_FRAME_VISION_PROBE_ARTIFACT_PNG = 1u << 0u,
+  ASTER_FRAME_VISION_PROBE_ARTIFACT_JSON = 1u << 1u
+} AsterFrameVisionProbeArtifactFlags;
+
+typedef struct AsterFrameVisionProbeDesc {
+  size_t size;
+  uint32_t version;
+  AsterStringView output_dir;
+  AsterStringView label;
+  uint32_t width;
+  uint32_t height;
+  uint32_t artifact_flags;
+  float visible_void_luminance_threshold;
+  float max_visible_void_fraction;
+  uint32_t max_zfight_candidate_pixels;
+  uint32_t max_support_mismatch_count;
+  uint32_t max_traversal_blocked_count;
+  float max_support_render_delta_m;
+} AsterFrameVisionProbeDesc;
+
+typedef struct AsterFrameVisionProbeResult {
+  size_t size;
+  uint32_t version;
+  uint32_t accepted;
+  uint32_t width;
+  uint32_t height;
+  uint64_t pixel_count;
+  uint64_t visible_void_count;
+  uint64_t zfight_candidate_count;
+  uint64_t support_mismatch_count;
+  uint64_t traversal_blocked_count;
+  float visible_void_fraction;
+  float max_support_render_delta_m;
+  AsterStringView png_path;
+  AsterStringView json_path;
+  AsterKernelFrameDiagnosticKind diagnostic_kind;
+} AsterFrameVisionProbeResult;
+
+typedef enum AsterFrameLightingProbeArtifactFlags {
+  ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_DEFAULT = 0,
+  ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_PNG = 1u << 0u,
+  ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_JSON = 1u << 1u,
+  ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_HEATMAP_PNG = 1u << 2u
+} AsterFrameLightingProbeArtifactFlags;
+
+typedef struct AsterFrameLightingProbeDesc {
+  size_t size;
+  uint32_t version;
+  AsterStringView output_dir;
+  AsterStringView label;
+  uint32_t width;
+  uint32_t height;
+  uint32_t artifact_flags;
+  float min_source_mean_luminance;
+  float min_air_scatter_mean_luminance;
+  uint32_t min_air_scatter_pixels;
+  float min_source_to_air_ratio;
+  float max_source_to_air_ratio;
+  float min_falloff_continuity_score;
+  float max_temporal_lighting_delta;
+  float source_luminance_threshold;
+  float air_scatter_luminance_threshold;
+  float max_overexposed_pixel_fraction;
+  float overexposed_luminance_threshold;
+  float min_frame_mean_luminance;
+  float max_frame_mean_luminance;
+} AsterFrameLightingProbeDesc;
+
+typedef struct AsterFrameLightingProbeResult {
+  size_t size;
+  uint32_t version;
+  uint32_t accepted;
+  uint32_t width;
+  uint32_t height;
+  uint64_t pixel_count;
+  uint64_t source_visible_pixels;
+  uint64_t air_scatter_pixels;
+  uint64_t light_source_unreadable_count;
+  uint64_t volumetric_light_missing_count;
+  uint64_t light_falloff_discontinuity_count;
+  uint64_t cave_light_exposure_underflow_count;
+  float source_mean_luminance;
+  float air_scatter_mean_luminance;
+  float surface_direct_mean_luminance;
+  float source_to_air_ratio;
+  float falloff_continuity_score;
+  float temporal_lighting_delta;
+  AsterStringView png_path;
+  AsterStringView json_path;
+  AsterStringView heatmap_png_path;
+  AsterKernelFrameDiagnosticKind diagnostic_kind;
+  uint64_t overexposed_pixels;
+  uint64_t cave_light_exposure_overflow_count;
+  uint64_t cave_light_exposure_overbright_count;
+  float frame_mean_luminance;
+} AsterFrameLightingProbeResult;
+
 ASTER_KERNEL_API AsterAbiVersion aster_kernel_abi_version(void);
 ASTER_KERNEL_API AsterStatus aster_kernel_status_ok(void);
 ASTER_KERNEL_API AsterStatus aster_kernel_status_from_code(AsterStatusCode code);
@@ -1907,6 +2019,14 @@ ASTER_KERNEL_API AsterStatus aster_kernel_renderer_capture(AsterRendererHandle r
                                                            const AsterCaptureDesc *desc);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_capture_render_target(
     AsterRendererHandle renderer, AsterRenderTargetHandle target, const AsterCaptureDesc *desc);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_vision_probe(
+    AsterRendererHandle renderer, AsterSceneHandle scene, const AsterCameraDesc *camera,
+    const AsterRendererSettings *settings, const AsterFrameVisionProbeDesc *desc,
+    AsterFrameVisionProbeResult *out_result);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_lighting_probe(
+    AsterRendererHandle renderer, AsterSceneHandle scene, const AsterCameraDesc *camera,
+    const AsterRendererSettings *settings, const AsterFrameLightingProbeDesc *desc,
+    AsterFrameLightingProbeResult *out_result);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_last_stats(AsterRendererHandle renderer,
                                                               AsterFrameStats *out_stats);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_validation_event_count(

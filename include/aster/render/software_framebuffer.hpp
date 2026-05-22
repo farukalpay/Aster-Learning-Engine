@@ -59,6 +59,10 @@ public:
     return rgba_;
   }
 
+  [[nodiscard]] std::span<const float> depth() const noexcept {
+    return depth_;
+  }
+
 private:
   void putPixel(int x, int y, float depth, FrameColor color, bool depth_test, bool depth_write,
                 bool alpha_blend);

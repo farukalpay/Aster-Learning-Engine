@@ -254,6 +254,12 @@ struct AtmosphereSettings {
   float fog_strength = 0.0f;
   AtmosphereFogFalloff fog_falloff = AtmosphereFogFalloff::SmoothLinear;
   float fog_power = 1.0f;
+  float local_light_scattering = 0.0f;
+  float local_light_extinction = 0.06f;
+  float source_glow_strength = 0.0f;
+  float source_glow_radius_scale = 1.0f;
+  float phase_anisotropy = 0.18f;
+  std::uint32_t volumetric_light_steps = 6u;
   float saturation = 1.0f;
   float contrast = 1.0f;
   Vec3 shadow_tint{0.70f, 0.78f, 0.88f};

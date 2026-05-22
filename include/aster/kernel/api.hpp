@@ -1290,6 +1290,34 @@ public:
     return Status(aster_kernel_renderer_capture_render_target(handle_, target.get(), &desc));
   }
 
+  [[nodiscard]] Result<AsterFrameVisionProbeResult>
+  frameVisionProbe(const Scene &scene, const AsterCameraDesc &camera,
+                   const AsterRendererSettings &settings,
+                   const AsterFrameVisionProbeDesc &desc) noexcept {
+    AsterFrameVisionProbeResult result{sizeof(AsterFrameVisionProbeResult),
+                                       ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_frame_vision_probe(
+        handle_, scene.get(), &camera, &settings, &desc, &result));
+    if (!status) {
+      return Result<AsterFrameVisionProbeResult>(status);
+    }
+    return Result<AsterFrameVisionProbeResult>(std::move(result));
+  }
+
+  [[nodiscard]] Result<AsterFrameLightingProbeResult>
+  frameLightingProbe(const Scene &scene, const AsterCameraDesc &camera,
+                     const AsterRendererSettings &settings,
+                     const AsterFrameLightingProbeDesc &desc) noexcept {
+    AsterFrameLightingProbeResult result{sizeof(AsterFrameLightingProbeResult),
+                                         ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_frame_lighting_probe(
+        handle_, scene.get(), &camera, &settings, &desc, &result));
+    if (!status) {
+      return Result<AsterFrameLightingProbeResult>(status);
+    }
+    return Result<AsterFrameLightingProbeResult>(std::move(result));
+  }
+
   [[nodiscard]] Result<AsterFrameStats> lastStats() const noexcept {
     AsterFrameStats stats{sizeof(AsterFrameStats), ASTER_KERNEL_STRUCT_VERSION_1};
     const Status status(aster_kernel_renderer_last_stats(handle_, &stats));

@@ -330,8 +330,6 @@ void testLumenCaveVisualContracts() {
   bool saw_cave_liner = false;
   bool saw_cave_seal = false;
   bool saw_cave_throat = false;
-  bool saw_cave_floor = false;
-  bool saw_deep_cave_floor = false;
   bool saw_authored_cave = false;
   bool saw_deep_cave = false;
   bool saw_central_grass_field = false;
@@ -341,8 +339,6 @@ void testLumenCaveVisualContracts() {
   int cave_skitter_count = 0;
   bool saw_coal_ore = false;
   bool saw_wall_light_lens = false;
-  const aster::RenderObject *cave_floor_object = nullptr;
-  const aster::RenderObject *deep_cave_floor_object = nullptr;
   const aster::RenderObject *parkour_chest_base = nullptr;
   std::vector<const aster::RenderObject *> cave_shell_objects;
   int coal_ore_count = 0;
@@ -425,23 +421,8 @@ void testLumenCaveVisualContracts() {
       assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
       assert(countFacesOpposingVertexNormals(*object.custom_mesh) == 0u);
     }
-    if (object.name == "Walkable packed cave floor") {
-      saw_cave_floor = true;
-      cave_floor_object = &object;
-      assert(object.material.opacity >= 0.999f);
-      assert(object.material.cull_mode == aster::FaceCullMode::Back);
-      assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
-    }
-    if (object.name == "Walkable deep cave floor") {
-      saw_deep_cave_floor = true;
-      deep_cave_floor_object = &object;
-      assert(object.custom_mesh != nullptr);
-      assert(!object.custom_mesh->vertices.empty());
-      assert(object.material.opacity >= 0.999f);
-      assert(object.material.cull_mode == aster::FaceCullMode::Back);
-      assert(object.material.render_role == aster::MaterialRenderRole::SupportSurface);
-      assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
-    }
+    assert(object.name != "Walkable packed cave floor");
+    assert(object.name != "Walkable deep cave floor");
     if (object.name == "Authored cave interior") {
       saw_authored_cave = true;
       cave_shell_objects.push_back(&object);
@@ -531,13 +512,15 @@ void testLumenCaveVisualContracts() {
       assert(aster::length({object.transform.scale.x, object.transform.scale.y,
                             object.transform.scale.z}) > 0.30f);
     }
-    if (object.name == "Industrial red cave wall light glowing lens") {
+    if (object.name == "Industrial amber cave wall light glowing lens") {
       saw_wall_light_lens = true;
       assert(object.material.surface_pattern == aster::SurfacePattern::AmberResin);
       assert(object.material.emission_strength > 0.60f);
       assert(object.material.emission_color.x > object.material.emission_color.z);
-      assert(object.material.emission_color.y < object.material.emission_color.x * 0.35f);
-      assert(object.material.emission_color.z < object.material.emission_color.x * 0.20f);
+      assert(object.material.emission_color.y > object.material.emission_color.x * 0.52f);
+      assert(object.material.emission_color.y < object.material.emission_color.x * 0.90f);
+      assert(object.material.emission_color.z > object.material.emission_color.x * 0.30f);
+      assert(object.material.emission_color.z < object.material.emission_color.x * 0.70f);
       assert(object.material.depth_policy.layer == aster::RenderDepthLayer::SurfaceAttachment);
       assert(!object.camera_occlusion_fade);
     }
@@ -552,8 +535,6 @@ void testLumenCaveVisualContracts() {
   assert(saw_cave_liner);
   assert(saw_cave_seal);
   assert(saw_cave_throat);
-  assert(saw_cave_floor);
-  assert(saw_deep_cave_floor);
   assert(saw_authored_cave);
   assert(saw_deep_cave);
   assert(saw_cave_web);
@@ -564,33 +545,30 @@ void testLumenCaveVisualContracts() {
   assert(coal_ore_count >= 4);
   assert(saw_wall_light_lens);
   assert(parkour_chest_base != nullptr);
-  assert(cave_floor_object != nullptr);
-  assert(cave_floor_object->custom_mesh != nullptr);
-  assert(deep_cave_floor_object != nullptr);
-  assert(deep_cave_floor_object->custom_mesh != nullptr);
   assert(!cave_shell_objects.empty());
-  const auto assert_floor_has_no_shell_overlap = [&](const aster::RenderObject &floor_object) {
-    std::size_t checked_centerline_samples = 0u;
-    for (const aster::Vertex &vertex : floor_object.custom_mesh->vertices) {
-      if (std::abs(vertex.uv.x - 0.50f) > 0.015f) {
-        continue;
+  const auto sample_visible_cave_support = [&](const aster::SurfaceSupportQuery &query) {
+    aster::TerrainSurfaceSample best{};
+    for (const aster::RenderObject *shell : cave_shell_objects) {
+      assert(shell != nullptr);
+      assert(shell->custom_mesh != nullptr);
+      const aster::TerrainSurfaceSample shell_support =
+          aster::sampleMeshSupport(*shell->custom_mesh, shell->transform, query, 0.30f);
+      if (!best.valid || (shell_support.valid && shell_support.height > best.height)) {
+        best = shell_support;
       }
-      const aster::Vec3 point = aster::transformPoint(floor_object.transform, vertex.position);
-      const aster::SurfaceSupportQuery shell_query{{point.x, point.z}, point.y + 0.08f, 0.08f,
-                                                   0.16f};
-      for (const aster::RenderObject *shell : cave_shell_objects) {
-        assert(shell != nullptr);
-        assert(shell->custom_mesh != nullptr);
-        const aster::TerrainSurfaceSample overlap =
-            aster::sampleMeshSupport(*shell->custom_mesh, shell->transform, shell_query, 0.20f);
-        assert(!overlap.valid);
-      }
-      ++checked_centerline_samples;
     }
-    assert(checked_centerline_samples >= 8u);
+    return best;
   };
-  assert_floor_has_no_shell_overlap(*cave_floor_object);
-  assert_floor_has_no_shell_overlap(*deep_cave_floor_object);
+  for (const float progress : {8.0f, 16.0f, 24.0f, 32.0f}) {
+    const aster::Vec3 cave_position = run.caveFrameReportPosition(progress);
+    const aster::TerrainSurfaceSample visible_support =
+        sample_visible_cave_support({{cave_position.x, cave_position.z},
+                                     cave_position.y,
+                                     0.10f,
+                                     1.15f});
+    assert(visible_support.valid);
+    assert(visible_support.normal.y > 0.30f);
+  }
   float chest_floor_height = -1000.0f;
   for (const aster::Vec3 local_offset :
        {aster::Vec3{0.0f, 0.0f, 0.0f},
@@ -609,19 +587,9 @@ void testLumenCaveVisualContracts() {
                                            parkour_chest_base->transform.position.y + 0.50f,
                                            1.20f,
                                            4.0f};
-    const aster::TerrainSurfaceSample chest_entry_floor =
-        aster::sampleMeshSupport(*cave_floor_object->custom_mesh, cave_floor_object->transform,
-                                 query, 0.30f);
-    if (chest_entry_floor.valid) {
-      chest_floor_height = std::max(chest_floor_height, chest_entry_floor.height);
-    }
-    if (deep_cave_floor_object != nullptr && deep_cave_floor_object->custom_mesh != nullptr) {
-      const aster::TerrainSurfaceSample chest_deep_floor =
-          aster::sampleMeshSupport(*deep_cave_floor_object->custom_mesh,
-                                   deep_cave_floor_object->transform, query, 0.30f);
-      if (chest_deep_floor.valid) {
-        chest_floor_height = std::max(chest_floor_height, chest_deep_floor.height);
-      }
+    const aster::TerrainSurfaceSample chest_floor = sample_visible_cave_support(query);
+    if (chest_floor.valid) {
+      chest_floor_height = std::max(chest_floor_height, chest_floor.height);
     }
   }
   assert(chest_floor_height > -999.0f);
@@ -698,10 +666,11 @@ void testLumenDeepCaveCaptureLightingContract() {
     }
   }
   mean_luma /= static_cast<double>(std::max<std::size_t>(rgba.size() / 4u, 1u));
-  assert(mean_luma < 0.22);
-  assert(red_dominant_pixels > 8u);
-  assert(bright_neutral_pixels < 420u);
-  assert(green_dominant_pixels < 32u);
+  assert(mean_luma > 0.08);
+  assert(mean_luma < 0.42);
+  assert(red_dominant_pixels < 2200u);
+  assert(bright_neutral_pixels < 2800u);
+  assert(green_dominant_pixels < 520u);
 
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
@@ -728,6 +697,28 @@ void testLumenCaveTraversalAndLightingContracts() {
       throw std::runtime_error(message);
     }
   };
+  run.relocatePlayer({31.0f, 0.80f, -57.80f}, aster::radians(180.0f));
+  const int entrance_recovery_lives = run.status().lives;
+  const aster::Vec3 entrance_recovery_target{31.0f, 7.0f, -70.0f};
+  for (int frame = 0; frame < 210; ++frame) {
+    const aster::Vec3 position = run.playerPosition();
+    aster::Vec2 move_axis{entrance_recovery_target.x - position.x,
+                          entrance_recovery_target.z - position.z};
+    const float move_length = aster::length(move_axis);
+    if (move_length > 0.001f) {
+      move_axis = move_axis / move_length;
+    }
+    run.update(1.0f / 60.0f, move_axis, true, false);
+  }
+  const aster::Vec3 entrance_recovered_position = run.playerPosition();
+  require_lumen_transition(run.status().lives == entrance_recovery_lives,
+                           "cave entrance floor recovery respawned the player");
+  require_lumen_transition(aster::length({entrance_recovered_position.x, 0.0f,
+                                          entrance_recovered_position.z}) > 55.0f,
+                           "cave entrance floor recovery dropped the player below world bounds");
+  require_lumen_transition(entrance_recovered_position.y > 5.0f,
+                           "cave entrance floor recovery failed to snap back to the threshold");
+
   const aster::Vec3 web_approach_position =
       cave_web_center + aster::Vec3{0.0f, -0.10f, 2.35f};
   run.relocatePlayer(web_approach_position, aster::radians(180.0f));
@@ -843,6 +834,48 @@ void testLumenCaveTraversalAndLightingContracts() {
   require_lumen_transition(planar_distance_to_approach(returned_position) <
                                return_initial_distance - 3.0f,
                            "player could not backtrack through the cave connector");
+
+  const aster::Vec3 deep_chunk_target = run.caveFrameReportPosition(32.0f);
+  const auto planar_distance_to_deep_chunk = [&](const aster::Vec3 position) {
+    const aster::Vec2 delta{deep_chunk_target.x - position.x, deep_chunk_target.z - position.z};
+    return aster::length(delta);
+  };
+  run.relocatePlayer(web_approach_position, aster::radians(180.0f));
+  const float deep_initial_distance = planar_distance_to_deep_chunk(run.playerPosition());
+  for (int frame = 0; frame < 1120; ++frame) {
+    const aster::Vec3 position = run.playerPosition();
+    aster::Vec2 move_axis{deep_chunk_target.x - position.x, deep_chunk_target.z - position.z};
+    const float move_length = aster::length(move_axis);
+    if (move_length > 0.001f) {
+      move_axis = move_axis / move_length;
+    }
+    run.update(1.0f / 60.0f, move_axis, true, false);
+  }
+  const aster::Vec3 deep_chunk_position = run.playerPosition();
+  require_lumen_transition(aster::length({deep_chunk_position.x, 0.0f, deep_chunk_position.z}) >
+                               80.0f,
+                           "deep cave traversal crossed the world-bounds guard and respawned");
+  require_lumen_transition(planar_distance_to_deep_chunk(deep_chunk_position) <
+                               deep_initial_distance - 12.0f,
+                           "deep cave traversal stopped on the wrong chunk support surface");
+  require_lumen_transition(deep_chunk_position.y < web_approach_position.y - 1.25f,
+                           "deep cave traversal climbed onto upper terrain instead of descending");
+
+  const float deep_return_initial_distance = planar_distance_to_approach(deep_chunk_position);
+  for (int frame = 0; frame < 900; ++frame) {
+    const aster::Vec3 position = run.playerPosition();
+    aster::Vec2 move_axis{web_approach_position.x - position.x,
+                          web_approach_position.z - position.z};
+    const float move_length = aster::length(move_axis);
+    if (move_length > 0.001f) {
+      move_axis = move_axis / move_length;
+    }
+    run.update(1.0f / 60.0f, move_axis, true, false);
+  }
+  const aster::Vec3 deep_returned_position = run.playerPosition();
+  require_lumen_transition(planar_distance_to_approach(deep_returned_position) <
+                               deep_return_initial_distance - 8.0f,
+                           "player could not backtrack after crossing into a deeper cave chunk");
   const aster::CaveLightingState spawn_cave_light = run.caveLightingStateAt({0.0f, 0.32f, 0.0f});
   assert(spawn_cave_light.interior < 0.001f);
   assert(spawn_cave_light.entrance_light < 0.001f);
@@ -852,23 +885,24 @@ void testLumenCaveTraversalAndLightingContracts() {
   const aster::CaveLightingState cave_light = run.caveLightingState();
   assert(cave_light.interior > 0.20f);
   assert(!cave_light.wall_lights.empty());
-  bool saw_red_fixture_light = false;
-  aster::CaveWallLightSample red_fixture_light{};
+  bool saw_readable_fixture_light = false;
+  aster::CaveWallLightSample readable_fixture_light{};
   for (const aster::CaveWallLightSample &light : cave_light.wall_lights) {
-    const bool red_fixture_color =
-        light.color.x > 0.90f && light.color.y < light.color.x * 0.35f &&
-        light.color.z < light.color.x * 0.20f;
-    if (red_fixture_color && light.intensity > 12.0f && light.source_radius > 0.0f &&
+    const bool readable_fixture_color =
+        light.color.x > 0.90f && light.color.y > light.color.x * 0.52f &&
+        light.color.y < light.color.x * 0.90f && light.color.z > light.color.x * 0.30f &&
+        light.color.z < light.color.x * 0.70f;
+    if (readable_fixture_color && light.intensity > 6.0f && light.source_radius > 0.0f &&
         light.source_radius <= 2.40f) {
-      saw_red_fixture_light = true;
-      red_fixture_light = light;
+      saw_readable_fixture_light = true;
+      readable_fixture_light = light;
       break;
     }
   }
-  assert(saw_red_fixture_light);
+  assert(saw_readable_fixture_light);
   assert(cave_light.wall_light >= 0.0f && cave_light.wall_light <= 1.0f);
   const aster::CaveLightingState near_fixture_light =
-      run.caveLightingStateAt(red_fixture_light.position);
+      run.caveLightingStateAt(readable_fixture_light.position);
   assert(near_fixture_light.wall_light > spawn_cave_light.wall_light + 0.05f);
 
   run.reset();
@@ -903,7 +937,7 @@ void testLumenPondWallLightIsMountedOutsideWater() {
                                  inner_water->transform.position.z};
   bool saw_wall_fixture = false;
   for (const aster::RenderObject &object : run.scene().objects()) {
-    if (object.name != "Industrial red cave wall light glowing lens") {
+    if (object.name != "Industrial amber cave wall light glowing lens") {
       continue;
     }
     const aster::Vec2 delta{object.transform.position.x - water_center.x,

@@ -436,7 +436,7 @@ void LumenRun::rebuildScene() {
   cave_mouth_stone.procedural.macro_frequency_breakup = 0.42f;
   cave_mouth_stone.procedural.micro_frequency_breakup = 0.58f;
   Material cave_wall =
-      material({0.082f, 0.066f, 0.052f}, {0.008f, 0.006f, 0.003f}, 0.95f, 0.0f, 0.012f, 1.00f,
+      material({0.052f, 0.050f, 0.046f}, {0.003f, 0.002f, 0.001f}, 0.96f, 0.0f, 0.008f, 1.00f,
                11.8f, 0.30f, 0.56f, SurfacePattern::CaveRock, {2.9f, 5.6f}, 0.132f, 0.92f,
                0.052f);
   cave_wall.cull_mode = FaceCullMode::Back;
@@ -454,13 +454,13 @@ void LumenRun::rebuildScene() {
   cave_wall.procedural.macro_frequency_breakup = 0.52f;
   cave_wall.procedural.micro_frequency_breakup = 0.72f;
   Material cave_entrance_wall = cave_wall;
-  cave_entrance_wall.base_color = {0.104f, 0.082f, 0.062f};
-  cave_entrance_wall.emission_color = {0.030f, 0.020f, 0.010f};
-  cave_entrance_wall.emission_strength = 0.032f;
+  cave_entrance_wall.base_color = {0.066f, 0.060f, 0.052f};
+  cave_entrance_wall.emission_color = {0.012f, 0.010f, 0.007f};
+  cave_entrance_wall.emission_strength = 0.016f;
   cave_entrance_wall.ambient_occlusion = 0.48f;
   cave_entrance_wall.procedural.wetness = 0.12f;
   Material cave_floor = makeSupportSurfaceMaterial(cave_wall);
-  cave_floor.base_color = {0.070f, 0.058f, 0.046f};
+  cave_floor.base_color = {0.046f, 0.044f, 0.041f};
   cave_floor.pattern_scale = {4.0f, 5.8f};
   cave_floor.pattern_depth = 0.118f;
   cave_floor.ambient_occlusion = 0.36f;
@@ -478,7 +478,7 @@ void LumenRun::rebuildScene() {
       .constant_bias = 0.00006f,
       .slope_bias = 0.00008f};
   Material cave_wet_streak =
-      material({0.070f, 0.058f, 0.046f}, {0.018f, 0.012f, 0.007f}, 0.48f, 0.0f, 0.020f, 0.90f,
+      material({0.046f, 0.044f, 0.040f}, {0.007f, 0.006f, 0.004f}, 0.50f, 0.0f, 0.014f, 0.90f,
                18.0f, 0.02f, 0.42f, SurfacePattern::CaveRock, {1.3f, 9.2f}, 0.030f, 0.48f,
                0.035f,
                {.macro_variation = 0.42f,
@@ -499,7 +499,7 @@ void LumenRun::rebuildScene() {
   cave_wet_streak.cull_mode = FaceCullMode::None;
   cave_wet_streak.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_scratch_mark =
-      material({0.105f, 0.074f, 0.052f}, {0.006f, 0.002f, 0.001f}, 0.82f, 0.0f, 0.004f, 0.50f,
+      material({0.062f, 0.054f, 0.046f}, {0.003f, 0.002f, 0.001f}, 0.84f, 0.0f, 0.003f, 0.50f,
                22.0f, 0.18f, 0.66f, SurfacePattern::WeatheredStone, {18.0f, 3.0f}, 0.012f,
                0.72f, 0.040f);
   cave_scratch_mark.opacity = 0.56f;
@@ -510,7 +510,7 @@ void LumenRun::rebuildScene() {
   cave_scratch_mark.cull_mode = FaceCullMode::None;
   cave_scratch_mark.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_soot_rust =
-      material({0.074f, 0.052f, 0.034f}, {0.004f, 0.002f, 0.001f}, 0.96f, 0.02f, 0.0f, 0.46f,
+      material({0.046f, 0.041f, 0.035f}, {0.001f, 0.001f, 0.001f}, 0.98f, 0.02f, 0.0f, 0.46f,
                10.0f, 0.22f, 0.48f, SurfacePattern::WeatheredMetal, {4.0f, 9.0f}, 0.014f, 0.50f,
                0.050f);
   cave_soot_rust.opacity = 0.20f;
@@ -521,7 +521,7 @@ void LumenRun::rebuildScene() {
   cave_soot_rust.cull_mode = FaceCullMode::None;
   cave_soot_rust.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_dust_accumulation =
-      material({0.078f, 0.060f, 0.044f}, {0.001f, 0.001f, 0.0f}, 0.98f, 0.0f, 0.0f, 0.58f,
+      material({0.052f, 0.049f, 0.043f}, {0.001f, 0.001f, 0.0f}, 0.98f, 0.0f, 0.0f, 0.58f,
                8.0f, 0.06f, 0.72f, SurfacePattern::CaveRock, {3.4f, 5.0f}, 0.014f, 0.36f,
                0.070f,
                {.macro_variation = 0.36f,
@@ -541,7 +541,7 @@ void LumenRun::rebuildScene() {
   cave_dust_accumulation.cull_mode = FaceCullMode::None;
   cave_dust_accumulation.camera_occlusion = CameraOcclusionPolicy::Solid;
   Material cave_talus = makeSupportSurfaceMaterial(
-      material({0.155f, 0.150f, 0.128f}, {0.010f, 0.008f, 0.005f}, 0.94f, 0.0f, 0.008f, 0.82f, 8.6f,
+      material({0.112f, 0.108f, 0.096f}, {0.006f, 0.005f, 0.003f}, 0.95f, 0.0f, 0.006f, 0.82f, 8.6f,
                0.30f, 0.62f, SurfacePattern::CaveRock, {2.8f, 5.4f}, 0.052f, 0.72f, 0.055f));
   cave_talus.camera_occlusion = CameraOcclusionPolicy::Solid;
   cave_talus.procedural = {.macro_variation = 0.34f,
@@ -555,7 +555,7 @@ void LumenRun::rebuildScene() {
                            .wetness = 0.08f,
                            .height_shading = 0.14f};
   Material cave_calcite =
-      material({0.092f, 0.070f, 0.052f}, {0.002f, 0.001f, 0.0f}, 0.94f, 0.0f, 0.0f, 0.96f,
+      material({0.060f, 0.055f, 0.048f}, {0.001f, 0.001f, 0.0f}, 0.95f, 0.0f, 0.0f, 0.96f,
                12.0f, 0.30f, 0.62f, SurfacePattern::CaveRock, {3.0f, 9.0f}, 0.082f, 0.80f,
                0.055f);
   cave_calcite.camera_occlusion = CameraOcclusionPolicy::Solid;
@@ -575,7 +575,7 @@ void LumenRun::rebuildScene() {
   coal_ore_material.double_sided = false;
   coal_ore_material.cull_mode = FaceCullMode::Back;
   Material ironstone_ore_material =
-      material({0.245f, 0.155f, 0.105f}, {0.42f, 0.19f, 0.075f}, 0.78f, 0.08f, 0.040f, 0.82f,
+      material({0.150f, 0.118f, 0.092f}, {0.22f, 0.12f, 0.060f}, 0.80f, 0.08f, 0.030f, 0.82f,
                14.0f, 0.28f, 0.86f, SurfacePattern::CaveRock, {3.8f, 6.8f}, 0.180f, 0.94f,
                0.055f);
   ironstone_ore_material.opacity = 1.0f;
@@ -1017,9 +1017,9 @@ void LumenRun::rebuildScene() {
     visual.backplate = keepCameraSolid(appendScenery("Industrial red cave wall light backplate",
                                                      MeshPrimitive::Box, base + normal * 0.018f,
                                                      {0.48f, 0.30f, 0.036f}, rotation, metal));
-    visual.lens = keepCameraSolid(appendScenery("Industrial red cave wall light glowing lens",
+    visual.lens = keepCameraSolid(appendScenery("Industrial amber cave wall light glowing lens",
                                                 MeshPrimitive::Box, placement.lens_position,
-                                                {0.36f, 0.19f, 0.032f}, rotation, lens));
+                                                {0.42f, 0.24f, 0.044f}, rotation, lens));
     if (visual.lens < scene_.objects().size()) {
       applyIndustrialLensColor(scene_.objects()[visual.lens].material, placement.light_color);
     }
@@ -1235,6 +1235,10 @@ void LumenRun::rebuildScene() {
   CaveComplex cave_complex = buildCaveComplex(cave_spec);
   const CaveComplexSpec deep_cave_spec = authoredDeepCaveSpec(authoring_, cave_spec.tunnel);
   CaveComplex deep_cave_complex = buildCaveComplex(deep_cave_spec);
+  const std::shared_ptr<const TraversableManifold> cave_manifold =
+      std::make_shared<const TraversableManifold>(cave_complex.traversable_manifold);
+  const std::shared_ptr<const TraversableManifold> deep_cave_manifold =
+      std::make_shared<const TraversableManifold>(deep_cave_complex.traversable_manifold);
   const LumenCaveWebPlacement web_placement = lumenCaveWebPlacement(cave_floor_y);
   CaveWebObstacle cave_web;
   cave_web.id = "lumen.cave_web.0";
@@ -2019,21 +2023,17 @@ void LumenRun::rebuildScene() {
   decorative_ground_surfaces.addMesh({cave_portal_floor_mesh, {}, 0.46f});
   const std::shared_ptr<const CpuMesh> cave_floor_mesh =
       makeSharedMesh(std::move(cave_complex.floor_mesh));
-  appendGeneratedScenery("Walkable packed cave floor", cave_floor_mesh, {0.0f, 0.0f, 0.0f},
-                         {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, cave_floor);
   support_surfaces_.addMesh({cave_floor_mesh, {}, 0.36f});
-  decorative_ground_surfaces.addMesh({cave_floor_mesh, {}, 0.36f});
   const std::shared_ptr<const CpuMesh> deep_cave_floor_mesh =
       makeSharedMesh(std::move(deep_cave_complex.floor_mesh));
-  appendGeneratedScenery("Walkable deep cave floor", deep_cave_floor_mesh, {0.0f, 0.0f, 0.0f},
-                         {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, cave_floor);
   support_surfaces_.addMesh({deep_cave_floor_mesh, {}, 0.36f});
-  decorative_ground_surfaces.addMesh({deep_cave_floor_mesh, {}, 0.36f});
   cave_floor_supports_.push_back({.tunnel = cave_spec.tunnel,
+                                  .manifold = cave_manifold,
                                   .floor_mesh = cave_floor_mesh,
                                   .portal_floor_mesh = cave_portal_floor_mesh,
                                   .min_normal_y = 0.30f});
   cave_floor_supports_.push_back({.tunnel = deep_cave_spec.tunnel,
+                                  .manifold = deep_cave_manifold,
                                   .floor_mesh = deep_cave_floor_mesh,
                                   .min_normal_y = 0.30f});
   std::size_t cave_chunk_index = 0;
@@ -2970,7 +2970,7 @@ void LumenRun::rebuildPhysicsWorld() {
   player_body.allow_sleep = false;
   player_body_ = physics_.addBody(player_body);
 
-  const float arena_extent = std::max(tuning_.playable_radius, tuning_.arena_radius * 5.8f);
+  const float arena_extent = std::max(tuning_.arena_radius * 5.8f, tuning_.arena_radius + 18.0f);
   PhysicsBodyDesc floor_body;
   floor_body.type = PhysicsBodyType::Static;
   floor_body.shape = PhysicsShapeType::Box;

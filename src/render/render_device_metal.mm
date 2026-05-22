@@ -1101,11 +1101,25 @@ public:
            "scene.lights[i].color_intensity.rgb * (scene.lights[i].color_intensity.w / soft)); } "
            "color = mix(color, albedo * max(scene.exposure_ambient.y + scene.exposure_ambient.z "
            "+ 0.14, 0.18), clamp(scene.style_params.x, 0.0, 1.0)); "
+           "float3 local_scatter = float3(0.0); float source_halo = 0.0; "
+           "for (uint i = 0; i < uint(scene.lighting_params.x); ++i) { float3 lv = "
+           "scene.lights[i].position_radius.xyz - in.world; float d2 = max(dot(lv, lv), "
+           "0.0001); float r = max(scene.lights[i].position_radius.w, 0.08); float soft = "
+           "max(d2, r * r + 0.0001); float core = 1.0 - smooth1(r * r * 0.20, r * r * 10.0, "
+           "d2); float scatter = clamp(scene.fog_color_strength.w, 0.0, 1.0) * "
+           "max(scene.style_params2.w, 0.0) * (0.018 + core * 0.16); float3 medium_color = "
+           "mix(scene.lights[i].color_intensity.rgb, float3(1.0, 0.78, 0.58), 0.38); "
+           "local_scatter += medium_color * (scene.lights[i].color_intensity.w / soft) * "
+           "scatter; source_halo = max(source_halo, core); } "
+           "float scatter_luma = dot(local_scatter, float3(0.2126, 0.7152, 0.0722)); if "
+           "(scatter_luma > 0.18) { local_scatter *= 0.18 / scatter_luma; } "
            "float fog = style_fog(distance(scene.camera_time.xyz, in.world), scene); if "
            "(scene.render_params.z > 0.5 && scene.render_params.w > 0.5) { float2 screen_uv = "
            "clamp(in.position.xy / max(scene.render_params.xy, float2(1.0)), float2(0.0), "
            "float2(1.0)); fog = max(fog, fog_volume.sample(material_sampler, screen_uv).a); } "
-           "color = mix(color, scene.fog_color_strength.rgb, clamp(fog, 0.0, 1.0)); float luma = "
+           "color += local_scatter * (0.10 + source_halo * 0.22); "
+           "color = mix(color, scene.fog_color_strength.rgb + local_scatter * 0.42, clamp(fog, 0.0, "
+           "1.0)); float luma = "
            "dot(color, float3(0.2126, 0.7152, 0.0722)); "
            "color = mix(float3(luma), color, clamp(scene.fog_params.z, 0.0, 2.0)); color = (color "
            "- 0.5) * max(scene.fog_params.w, 0.0) + 0.5; "
@@ -1817,6 +1831,7 @@ private:
     out.style_params2[0] = settings.style.procedural_sample_snap;
     out.style_params2[1] = static_cast<float>(settings.atmosphere.fog_falloff);
     out.style_params2[2] = settings.atmosphere.fog_power;
+    out.style_params2[3] = settings.atmosphere.local_light_scattering;
     std::vector<aster::Light> selected_lights;
     if (settings.clustered_lighting.enabled && clustered_lights != nullptr &&
         !clustered_lights->visible_lights.empty()) {

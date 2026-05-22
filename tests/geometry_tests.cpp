@@ -727,6 +727,69 @@ void testCaveInteriorVolume() {
   assert(!complex.tunnel_chunks.empty());
   assert(!complex.collision_mesh.vertices.empty());
   assert(!complex.collision_mesh.indices.empty());
+  const aster::TraversableManifold &manifold = complex.traversable_manifold;
+  assert(manifold.stations.size() >= 16u);
+  assert(!manifold.structural_mesh.vertices.empty());
+  assert(!manifold.structural_mesh.indices.empty());
+  assert(!manifold.support_mesh.vertices.empty());
+  assert(!manifold.support_mesh.indices.empty());
+  assert(!manifold.collision_mesh.vertices.empty());
+  assert(!manifold.collision_mesh.indices.empty());
+  assert(manifold.diagnostics.structural_vertices == manifold.structural_mesh.vertices.size());
+  assert(manifold.diagnostics.support_vertices == manifold.support_mesh.vertices.size());
+  assert(manifold.diagnostics.collision_vertices == manifold.collision_mesh.vertices.size());
+  assert(manifold.diagnostics.seam_gap_samples == 0u);
+  assert(manifold.diagnostics.max_floor_wall_gap < 0.55f);
+  const auto assert_valid_indices = [](const aster::CpuMesh &mesh) {
+    for (const std::uint32_t index : mesh.indices) {
+      assert(index < mesh.vertices.size());
+    }
+  };
+  assert_valid_indices(manifold.structural_mesh);
+  assert_valid_indices(manifold.support_mesh);
+  assert_valid_indices(manifold.collision_mesh);
+  for (const float t : {0.25f, 0.5625f, 0.84375f}) {
+    const aster::CaveTunnelFrame frame = aster::sampleCaveTunnelFrame(tunnel, t);
+    const aster::Vec3 support_probe = frame.floor_center + frame.up * 0.34f;
+    const aster::TraversableManifoldSupportSample support =
+        aster::sampleTraversableManifoldSupport(
+            manifold, {.position = support_probe,
+                       .actor_radius = 0.30f,
+                       .max_above = 0.70f,
+                       .max_below = 0.70f});
+    assert(support.valid);
+    assert(support.walkable);
+    assert(support.lateral_clearance > 0.12f);
+    assert(std::abs(support.height - frame.floor_center.y) < 0.12f);
+
+    const aster::SurfaceSupportQuery mesh_query{{support_probe.x, support_probe.z},
+                                                support_probe.y,
+                                                0.10f,
+                                                0.75f};
+    const aster::TerrainSurfaceSample render_floor =
+        aster::sampleMeshSupport(manifold.structural_mesh, {}, mesh_query, 0.30f);
+    const aster::TerrainSurfaceSample support_floor =
+        aster::sampleMeshSupport(manifold.support_mesh, {}, mesh_query, 0.30f);
+    const aster::TerrainSurfaceSample collision_floor =
+        aster::sampleMeshSupport(manifold.collision_mesh, {}, mesh_query, 0.30f);
+    assert(render_floor.valid);
+    assert(support_floor.valid);
+    assert(!collision_floor.valid);
+    assert(std::abs(render_floor.height - support_floor.height) < 0.035f);
+
+    const aster::Vec3 wall_probe =
+        frame.floor_center + frame.side * (frame.floor_half_width + 0.42f) + frame.up * 0.34f;
+    const aster::TraversableManifoldSupportSample wall_support =
+        aster::sampleTraversableManifoldSupport(
+            manifold, {.position = wall_probe,
+                       .actor_radius = 0.30f,
+                       .max_above = 0.70f,
+                       .max_below = 0.70f});
+    assert(wall_support.inside_envelope);
+    assert(!wall_support.walkable);
+    assert(wall_support.lateral_penetration > 0.0f);
+    assert(aster::dot(wall_support.obstacle_normal, frame.side) < -0.80f);
+  }
   assert(!complex.features.empty());
   assert(complex.portal_mesh.vertices.size() > 18u);
   assert(countOpenIndexedEdges(complex.portal_mesh) == 0u);
@@ -746,6 +809,27 @@ void testCaveInteriorVolume() {
     assert(!chunk.vertices.empty());
     assert(!chunk.indices.empty());
     assert(countFacesOpposingVertexNormals(chunk) == 0u);
+  }
+  const auto lowest_chunk_shoulder = [&](const float t, const float side_sign) {
+    const aster::CaveTunnelFrame frame = aster::sampleCaveTunnelFrame(tunnel, t);
+    float lowest = std::numeric_limits<float>::infinity();
+    for (const aster::CpuMesh &chunk : complex.tunnel_chunks) {
+      for (const aster::Vertex &vertex : chunk.vertices) {
+        const aster::Vec3 offset = vertex.position - frame.floor_center;
+        const float along = aster::dot(offset, frame.tangent);
+        const float lateral = aster::dot(offset, frame.side) * side_sign;
+        const float vertical = aster::dot(offset, frame.up);
+        if (std::abs(along) < 0.55f && lateral > frame.floor_half_width * 1.05f &&
+            lateral < frame.floor_half_width + 0.45f && vertical > -0.08f) {
+          lowest = std::min(lowest, vertical);
+        }
+      }
+    }
+    return lowest;
+  };
+  for (const float t : {0.25f, 0.5625f, 0.84375f}) {
+    assert(lowest_chunk_shoulder(t, -1.0f) < 0.16f);
+    assert(lowest_chunk_shoulder(t, 1.0f) < 0.16f);
   }
   assert(countFacesOpposingVertexNormals(complex.collision_mesh) == 0u);
   assert(!complex.portal_floor_mesh.vertices.empty());

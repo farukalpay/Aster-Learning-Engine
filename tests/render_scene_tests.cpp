@@ -363,6 +363,82 @@ void testSoftwarePreviewRendererProducesImage() {
   assert(has_non_black_pixel);
 }
 
+void testSoftwareLightingProbeMeasuresLocalMedia() {
+  aster::Scene scene;
+  aster::RenderObject floor;
+  floor.name = "lighting probe cave floor";
+  floor.primitive = aster::MeshPrimitive::Plane;
+  floor.transform.position = {0.0f, -0.42f, 0.0f};
+  floor.transform.scale = {3.6f, 1.0f, 3.6f};
+  floor.material.base_color = {0.26f, 0.22f, 0.19f};
+  floor.material.roughness = 0.92f;
+  floor.material.surface_profile = aster::MaterialSurfaceProfile::StratifiedRock;
+  scene.objects().push_back(floor);
+
+  aster::RenderObject lamp;
+  lamp.name = "lighting probe emissive source";
+  lamp.primitive = aster::MeshPrimitive::Sphere;
+  lamp.transform.position = {0.0f, 0.62f, 0.05f};
+  lamp.transform.scale = {0.22f, 0.22f, 0.22f};
+  lamp.material.base_color = {1.0f, 0.28f, 0.12f};
+  lamp.material.emission_color = {1.0f, 0.26f, 0.08f};
+  lamp.material.emission_strength = 2.8f;
+  lamp.material.roughness = 0.34f;
+  scene.objects().push_back(lamp);
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.32f, 0.0f};
+  camera.yaw = 0.0f;
+  camera.pitch = aster::radians(6.0f);
+  camera.radius = 2.7f;
+  camera.vertical_fov = aster::radians(48.0f);
+
+  aster::RendererSettings settings;
+  settings.exposure = 1.12f;
+  settings.ambient_strength = 0.055f;
+  settings.ambient_floor = 0.012f;
+  settings.sky_ambient_color = {0.08f, 0.06f, 0.05f};
+  settings.ground_ambient_color = {0.055f, 0.038f, 0.032f};
+  settings.atmosphere.enabled = true;
+  settings.atmosphere.fog_color = {0.12f, 0.045f, 0.028f};
+  settings.atmosphere.fog_start = 0.35f;
+  settings.atmosphere.fog_end = 5.2f;
+  settings.atmosphere.fog_strength = 0.36f;
+  settings.atmosphere.local_light_scattering = 0.64f;
+  settings.atmosphere.local_light_extinction = 0.052f;
+  settings.atmosphere.source_glow_strength = 1.08f;
+  settings.atmosphere.phase_anisotropy = 0.32f;
+  settings.atmosphere.volumetric_light_steps = 6u;
+  settings.light_rig = {aster::Light{{0.0f, 0.62f, 0.05f}, {7.0f, 1.85f, 0.72f}, 1.0f, 0.74f}};
+
+  const aster::SoftwarePreviewResult result =
+      aster::renderSoftwarePreviewWithProbe(scene, camera,
+                                            {.width = 64,
+                                             .height = 36,
+                                             .samples_per_axis = 1,
+                                             .frame_seconds = 0.0,
+                                             .settings = settings});
+  assert(result.lighting.width == 64);
+  assert(result.lighting.height == 36);
+  assert(result.lighting.pixels.size() == 64u * 36u);
+  float max_direct = 0.0f;
+  float max_volume = 0.0f;
+  float max_source = 0.0f;
+  std::uint64_t volume_pixels = 0u;
+  for (const aster::SoftwareLightingProbePixel &pixel : result.lighting.pixels) {
+    max_direct = std::max(max_direct, pixel.direct_light_luminance);
+    max_volume = std::max(max_volume, pixel.volumetric_light_luminance);
+    max_source = std::max(max_source, pixel.source_readability_luminance);
+    if (pixel.volumetric_light_luminance > 0.0005f) {
+      ++volume_pixels;
+    }
+  }
+  assert(max_direct > 0.01f);
+  assert(max_volume > 0.001f);
+  assert(max_source > 0.10f);
+  assert(volume_pixels > 16u);
+}
+
 void testSoftwareDepthPolicySeparatesCoplanarAttachments() {
   aster::SoftwareFrameBuffer framebuffer;
   framebuffer.resize(32, 32);
@@ -2894,6 +2970,7 @@ constexpr TestCase kTestCases[] = {
     {"showcase_lab_scenes_debug_view_response", testShowcaseLabScenesDebugViewResponse},
     {"showcase_lab_scenes_contact_shadow_falloff", testShowcaseLabScenesContactShadowFalloff},
     {"software_preview_renderer", testSoftwarePreviewRendererProducesImage},
+    {"software_lighting_probe_media", testSoftwareLightingProbeMeasuresLocalMedia},
     {"software_depth_policy_coplanar", testSoftwareDepthPolicySeparatesCoplanarAttachments},
     {"software_depth_policy_object_order", testSoftwareDepthPolicyIsStableAcrossObjectOrder},
     {"prepare_scene_custom_mesh_cache", testPrepareSceneInvalidatesCustomMeshCache},

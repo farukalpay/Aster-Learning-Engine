@@ -15,19 +15,24 @@
 #include "aster/platform/window.hpp"
 #include "aster/render/frame_capture.hpp"
 #include "aster/render/render_device.hpp"
+#include "aster/render/software_preview_renderer.hpp"
+#include "aster/render/visual_regression.hpp"
 #include "aster/ui/hud_layer.hpp"
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <optional>
 #include <sstream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <stdexcept>
@@ -325,44 +330,65 @@ void applyCaveRenderEnvironment(aster::RendererSettings &settings,
   const float cave_depth = std::clamp(light.depth, 0.0f, 1.0f);
   const float chamber_fill = std::clamp(light.chamber, 0.0f, 1.0f);
   const float source_fill = std::clamp(light.wall_light, 0.0f, 1.0f);
-  const aster::Vec3 red_source = {light.wall_light_color.x * 0.020f,
-                                  light.wall_light_color.y * 0.004f,
-                                  light.wall_light_color.z * 0.003f};
+  const aster::Vec3 warm_source = {light.wall_light_color.x * 0.058f,
+                                   light.wall_light_color.y * 0.061f,
+                                   light.wall_light_color.z * 0.052f};
   const aster::Vec3 cave_source_ambient =
-      mixVec({0.004f, 0.004f, 0.004f}, red_source, source_fill * 0.28f);
+      mixVec({0.012f, 0.010f, 0.009f}, warm_source, 0.18f + source_fill * 0.34f);
   const aster::Vec3 cave_sky_tint =
-      mixVec({0.003f, 0.003f, 0.004f}, cave_source_ambient, source_fill * 0.18f);
+      mixVec({0.007f, 0.007f, 0.008f}, cave_source_ambient, 0.14f + source_fill * 0.24f);
   const aster::Vec3 cave_ground_tint =
-      mixVec({0.003f, 0.0025f, 0.002f}, cave_source_ambient * 0.60f, source_fill * 0.16f);
+      mixVec({0.009f, 0.008f, 0.007f}, cave_source_ambient * 0.56f, 0.10f + source_fill * 0.20f);
+  const aster::Vec3 cave_air_tint =
+      mixVec({0.014f, 0.013f, 0.012f}, light.wall_light_color * 0.034f, source_fill * 0.22f);
 
   settings.ambient_strength =
       std::lerp(baseline.ambient_strength,
-                0.014f + source_fill * 0.004f + chamber_fill * 0.003f - cave_depth * 0.004f,
+                0.034f + source_fill * 0.018f + chamber_fill * 0.008f - cave_depth * 0.012f,
                 interior);
-  settings.ambient_floor = std::lerp(baseline.ambient_floor, 0.0f, interior);
-  settings.indirect_albedo_floor = std::lerp(baseline.indirect_albedo_floor, 0.0f, interior);
+  settings.ambient_floor =
+      std::lerp(baseline.ambient_floor, 0.005f + source_fill * 0.003f, interior);
+  settings.indirect_albedo_floor =
+      std::lerp(baseline.indirect_albedo_floor, 0.006f + chamber_fill * 0.002f, interior);
   settings.sky_ambient_color = mixVec(baseline.sky_ambient_color, cave_sky_tint, interior);
   settings.ground_ambient_color = mixVec(baseline.ground_ambient_color, cave_ground_tint, interior);
   settings.pipeline.clear_color =
-      mixVec(baseline.clear_color, {0.001f, 0.001f, 0.001f}, interior);
+      mixVec(baseline.clear_color, {0.006f, 0.004f, 0.003f}, interior);
   settings.exposure =
-      std::lerp(baseline.exposure, 0.84f + source_fill * 0.035f + chamber_fill * 0.012f, interior);
+      std::lerp(baseline.exposure, 0.82f + source_fill * 0.032f + chamber_fill * 0.012f,
+                interior);
   settings.atmosphere.fog_color =
-      mixVec(baseline.atmosphere.fog_color, {0.004f, 0.003f, 0.003f}, interior);
-  settings.atmosphere.fog_start = std::lerp(baseline.atmosphere.fog_start, 2.0f, interior);
+      mixVec(baseline.atmosphere.fog_color, cave_air_tint, interior);
+  settings.atmosphere.fog_start = std::lerp(baseline.atmosphere.fog_start, 0.78f, interior);
   settings.atmosphere.fog_end =
-      std::lerp(baseline.atmosphere.fog_end, 6.8f + source_fill * 1.4f + chamber_fill * 1.2f,
+      std::lerp(baseline.atmosphere.fog_end, 9.8f + source_fill * 2.8f + chamber_fill * 1.6f,
                 interior);
   settings.atmosphere.fog_strength =
-      std::lerp(baseline.atmosphere.fog_strength, 0.46f + cave_depth * 0.20f, interior);
+      std::lerp(baseline.atmosphere.fog_strength, 0.18f + cave_depth * 0.06f, interior);
+  settings.atmosphere.local_light_scattering =
+      std::lerp(baseline.atmosphere.local_light_scattering,
+                0.25f + source_fill * 0.09f + chamber_fill * 0.032f, interior);
+  settings.atmosphere.local_light_extinction =
+      std::lerp(baseline.atmosphere.local_light_extinction, 0.060f + cave_depth * 0.026f,
+                interior);
+  settings.atmosphere.source_glow_strength =
+      std::lerp(baseline.atmosphere.source_glow_strength, 1.02f + source_fill * 0.18f, interior);
+  settings.atmosphere.source_glow_radius_scale =
+      std::lerp(baseline.atmosphere.source_glow_radius_scale, 1.04f, interior);
+  settings.atmosphere.phase_anisotropy =
+      std::lerp(baseline.atmosphere.phase_anisotropy, 0.28f, interior);
+  settings.atmosphere.volumetric_light_steps = std::max(settings.atmosphere.volumetric_light_steps, 6u);
   settings.atmosphere.saturation =
-      std::lerp(baseline.atmosphere.saturation, 0.42f + source_fill * 0.20f, interior);
-  settings.atmosphere.contrast = std::lerp(baseline.atmosphere.contrast, 1.32f, interior);
+      std::lerp(baseline.atmosphere.saturation, 0.66f + source_fill * 0.10f, interior);
+  settings.atmosphere.contrast = std::lerp(baseline.atmosphere.contrast, 1.06f, interior);
+  settings.post.bloom = true;
+  settings.post.bloom_threshold = std::lerp(settings.post.bloom_threshold, 1.24f, interior);
+  settings.post.bloom_intensity = std::lerp(settings.post.bloom_intensity, 0.09f, interior);
   settings.sun_light.intensity =
       std::lerp(baseline.sun_light.intensity, 0.0f, interior);
   settings.style.unlit_mix = std::lerp(settings.style.unlit_mix, 0.0f, interior);
   for (std::size_t i = 0; i < settings.light_rig.size(); ++i) {
-    settings.light_rig[i].intensity *= std::lerp(1.0f, 0.0f, interior);
+    settings.light_rig[i].intensity *= std::lerp(1.0f, 0.08f, interior);
   }
 }
 
@@ -555,6 +581,734 @@ std::filesystem::path framePath(const std::filesystem::path &directory, const in
   return directory / name.str();
 }
 
+std::string lowerPathExtension(const std::filesystem::path &path) {
+  std::string extension = path.extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return extension;
+}
+
+void writeActiveFramebufferCapture(const std::filesystem::path &path, const int width,
+                                   const int height) {
+  if (lowerPathExtension(path) == ".png") {
+    aster::writeFramebufferPng(path, width, height);
+  } else {
+    aster::writeFramebufferPpm(path, width, height);
+  }
+}
+
+std::string jsonEscape(const std::string_view text) {
+  std::string out;
+  out.reserve(text.size() + 8u);
+  for (const char c : text) {
+    switch (c) {
+    case '\\':
+      out += "\\\\";
+      break;
+    case '"':
+      out += "\\\"";
+      break;
+    case '\n':
+      out += "\\n";
+      break;
+    case '\r':
+      out += "\\r";
+      break;
+    case '\t':
+      out += "\\t";
+      break;
+    default:
+      out += c;
+      break;
+    }
+  }
+  return out;
+}
+
+aster::RendererSettings makeVisionRendererSettings(const aster::RenderStyleProfile &render_style) {
+  aster::RendererSettings settings;
+  settings.procedural_surface_normals = true;
+  settings.exposure = 1.34f;
+  settings.ambient_strength = 0.36f;
+  settings.ambient_floor = 0.072f;
+  settings.sky_ambient_color = {0.48f, 0.56f, 0.66f};
+  settings.ground_ambient_color = {0.25f, 0.24f, 0.19f};
+  settings.sun_light.enabled = true;
+  settings.sun_light.direction_to_light = {-0.46f, 0.86f, 0.30f};
+  settings.sun_light.color = {1.00f, 0.84f, 0.58f};
+  settings.sun_light.intensity = 1.72f;
+  settings.light_rig = {{{-4.6f, 3.2f, 2.8f}, {4.4f, 3.25f, 2.05f}, 0.28f, 3.0f},
+                        {{4.8f, 2.4f, -3.4f}, {1.15f, 1.35f, 2.10f}, 0.22f, 3.5f},
+                        {{0.0f, 2.8f, -5.8f}, {1.35f, 1.02f, 0.72f}, 0.16f, 4.0f},
+                        {{0.0f, 2.0f, 4.8f}, {0.76f, 0.86f, 1.12f}, 0.13f, 3.5f}};
+  settings.pipeline.clear_color = {0.092f, 0.122f, 0.158f};
+  settings.pipeline.tone_mapper = aster::ToneMapper::PbrNeutral;
+  settings.grounding.enabled = true;
+  settings.grounding.contact_shadows = true;
+  settings.grounding.auto_contact_shadows = true;
+  settings.grounding.surface_occlusion_strength = 0.34f;
+  settings.grounding.surface_occlusion_height = 1.05f;
+  settings.grounding.surface_occlusion_mix = 0.28f;
+  settings.grounding.surface_occlusion_min = 0.78f;
+  settings.grounding.contact_shadow_strength = 0.24f;
+  settings.grounding.contact_shadow_radius_scale = 1.12f;
+  settings.grounding.contact_shadow_max_radius = 1.18f;
+  settings.grounding.contact_shadow_receiver_height = 1.06f;
+  settings.grounding.contact_shadow_receiver_bias = 0.020f;
+  settings.grounding.contact_shadow_detail_scale = 10.0f;
+  settings.atmosphere.enabled = true;
+  settings.atmosphere.fog_color = {0.175f, 0.205f, 0.250f};
+  settings.atmosphere.fog_start = 8.0f;
+  settings.atmosphere.fog_end = 28.0f;
+  settings.atmosphere.fog_strength = 0.10f;
+  settings.atmosphere.saturation = 1.22f;
+  settings.atmosphere.contrast = 1.10f;
+  settings.atmosphere.shadow_tint = {0.52f, 0.64f, 0.86f};
+  settings.atmosphere.shadow_tint_strength = 0.16f;
+  settings.atmosphere.highlight_tint = {1.10f, 1.02f, 0.82f};
+  settings.atmosphere.highlight_tint_strength = 0.10f;
+  settings.style = render_style;
+  aster::applyRenderStyleProfile(settings, render_style);
+  return settings;
+}
+
+RenderEnvironmentBaseline baselineFromSettings(const aster::RendererSettings &settings) {
+  return {.light_rig = settings.light_rig,
+          .sun_light = settings.sun_light,
+          .ambient_strength = settings.ambient_strength,
+          .ambient_floor = settings.ambient_floor,
+          .sky_ambient_color = settings.sky_ambient_color,
+          .ground_ambient_color = settings.ground_ambient_color,
+          .atmosphere = settings.atmosphere,
+          .clear_color = settings.pipeline.clear_color,
+          .exposure = settings.exposure,
+          .indirect_albedo_floor = settings.indirect_albedo_floor};
+}
+
+struct VisionFrameMetrics {
+  std::string label;
+  float progress = 0.0f;
+  std::filesystem::path png_path;
+  std::uint64_t visible_void_rays = 0u;
+  std::uint64_t black_void_pixels = 0u;
+  std::uint64_t zfight_candidate_pixels = 0u;
+  std::uint64_t support_render_mismatch_count = 0u;
+  float max_support_render_delta_m = 0.0f;
+};
+
+struct VisionStageMetrics {
+  std::string label;
+  float start_progress = 0.0f;
+  float end_progress = 0.0f;
+  float progress_delta_m = 0.0f;
+  std::uint32_t blocked_frames = 0u;
+  std::uint32_t upper_terrain_snap_count = 0u;
+  std::uint32_t respawn_count = 0u;
+};
+
+struct VisionPlaytestMetrics {
+  std::string route;
+  std::filesystem::path output_dir;
+  std::vector<VisionFrameMetrics> frames;
+  std::vector<VisionStageMetrics> stages;
+  std::uint64_t visible_void_rays = 0u;
+  std::uint64_t black_void_pixels = 0u;
+  std::uint64_t zfight_candidate_pixels = 0u;
+  std::uint64_t support_render_mismatch_count = 0u;
+  std::uint32_t blocked_frames = 0u;
+  std::uint32_t respawn_count = 0u;
+  std::uint32_t upper_terrain_snap_count = 0u;
+  float max_support_render_delta_m = 0.0f;
+  bool accepted = false;
+};
+
+VisionFrameMetrics analyzeVisionFrame(const std::string &label, const float progress,
+                                      const std::filesystem::path &png_path,
+                                      const aster::SoftwarePreviewResult &frame,
+                                      const aster::SoftwarePreviewResult &jitter) {
+  VisionFrameMetrics metrics;
+  metrics.label = label;
+  metrics.progress = progress;
+  metrics.png_path = png_path;
+  const int width = frame.probe.width;
+  const int height = frame.probe.height;
+  const std::span<const std::uint8_t> rgba = frame.framebuffer.rgba8();
+  if (width <= 0 || height <= 0 || frame.probe.pixels.size() != jitter.probe.pixels.size()) {
+    return metrics;
+  }
+  const int min_x = std::max(0, static_cast<int>(static_cast<float>(width) * 0.06f));
+  const int max_x = std::min(width, static_cast<int>(static_cast<float>(width) * 0.94f));
+  const int min_y = std::max(0, static_cast<int>(static_cast<float>(height) * 0.16f));
+  const int max_y = std::min(height, static_cast<int>(static_cast<float>(height) * 0.92f));
+  for (int y = min_y; y < max_y; ++y) {
+    for (int x = min_x; x < max_x; ++x) {
+      const std::size_t index =
+          static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x);
+      const aster::SoftwarePreviewProbePixel &hit = frame.probe.pixels[index];
+      const aster::SoftwarePreviewProbePixel &jitter_hit = jitter.probe.pixels[index];
+      if (hit.hit != 0u && jitter_hit.hit != 0u &&
+          hit.render_role == aster::MaterialRenderRole::Surface &&
+          jitter_hit.render_role == aster::MaterialRenderRole::Surface &&
+          hit.depth_layer == aster::RenderDepthLayer::BaseSurface &&
+          jitter_hit.depth_layer == aster::RenderDepthLayer::BaseSurface &&
+          hit.object_label_hash != jitter_hit.object_label_hash &&
+          std::abs(hit.distance - jitter_hit.distance) <= 0.00035f &&
+          aster::dot(aster::normalize(hit.normal), aster::normalize(jitter_hit.normal)) > 0.98f) {
+        ++metrics.zfight_candidate_pixels;
+      }
+      const std::size_t base = index * 4u;
+      if (base + 2u < rgba.size()) {
+        const std::uint32_t luma =
+            static_cast<std::uint32_t>(rgba[base + 0u]) * 54u +
+            static_cast<std::uint32_t>(rgba[base + 1u]) * 183u +
+            static_cast<std::uint32_t>(rgba[base + 2u]) * 19u;
+        if (hit.hit == 0u && luma <= 2u * 256u) {
+          ++metrics.visible_void_rays;
+          ++metrics.black_void_pixels;
+        }
+      }
+    }
+  }
+  return metrics;
+}
+
+void writeVisionJson(const VisionPlaytestMetrics &metrics) {
+  const std::filesystem::path json_path = metrics.output_dir / (metrics.route + ".json");
+  std::ofstream file(json_path, std::ios::binary);
+  if (!file) {
+    throw std::runtime_error("could not write Lumen cave vision metrics: " + json_path.string());
+  }
+  file << std::fixed << std::setprecision(6);
+  file << "{\n";
+  file << "  \"route\": \"" << jsonEscape(metrics.route) << "\",\n";
+  file << "  \"accepted\": " << (metrics.accepted ? "true" : "false") << ",\n";
+  file << "  \"visible_void_rays\": " << metrics.visible_void_rays << ",\n";
+  file << "  \"black_void_pixels\": " << metrics.black_void_pixels << ",\n";
+  file << "  \"zfight_candidate_pixels\": " << metrics.zfight_candidate_pixels << ",\n";
+  file << "  \"support_render_mismatch_count\": " << metrics.support_render_mismatch_count
+       << ",\n";
+  file << "  \"max_support_render_delta_m\": " << metrics.max_support_render_delta_m << ",\n";
+  file << "  \"blocked_frames\": " << metrics.blocked_frames << ",\n";
+  file << "  \"respawn_count\": " << metrics.respawn_count << ",\n";
+  file << "  \"upper_terrain_snap_count\": " << metrics.upper_terrain_snap_count << ",\n";
+  file << "  \"thresholds\": {\n";
+  file << "    \"visible_void_rays\": 0,\n";
+  file << "    \"zfight_candidate_pixels\": 0,\n";
+  file << "    \"max_support_render_delta_m\": 0.080000,\n";
+  file << "    \"blocked_frames\": 0,\n";
+  file << "    \"respawn_count\": 0,\n";
+  file << "    \"upper_terrain_snap_count\": 0\n";
+  file << "  },\n";
+  file << "  \"stages\": [\n";
+  for (std::size_t i = 0; i < metrics.stages.size(); ++i) {
+    const VisionStageMetrics &stage = metrics.stages[i];
+    file << "    {\"label\": \"" << jsonEscape(stage.label) << "\", \"start_progress\": "
+         << stage.start_progress << ", \"end_progress\": " << stage.end_progress
+         << ", \"progress_delta_m\": " << stage.progress_delta_m
+         << ", \"blocked_frames\": " << stage.blocked_frames
+         << ", \"respawn_count\": " << stage.respawn_count
+         << ", \"upper_terrain_snap_count\": " << stage.upper_terrain_snap_count << "}";
+    file << (i + 1u < metrics.stages.size() ? ",\n" : "\n");
+  }
+  file << "  ],\n";
+  file << "  \"frames\": [\n";
+  for (std::size_t i = 0; i < metrics.frames.size(); ++i) {
+    const VisionFrameMetrics &frame = metrics.frames[i];
+    file << "    {\"label\": \"" << jsonEscape(frame.label) << "\", \"progress\": "
+         << frame.progress << ", \"visible_void_rays\": " << frame.visible_void_rays
+         << ", \"black_void_pixels\": " << frame.black_void_pixels
+         << ", \"zfight_candidate_pixels\": " << frame.zfight_candidate_pixels
+         << ", \"support_render_mismatch_count\": " << frame.support_render_mismatch_count
+         << ", \"max_support_render_delta_m\": " << frame.max_support_render_delta_m
+         << ", \"png_path\": \"" << jsonEscape(frame.png_path.string()) << "\"}";
+    file << (i + 1u < metrics.frames.size() ? ",\n" : "\n");
+  }
+  file << "  ]\n";
+  file << "}\n";
+}
+
+void simulateVisionStage(aster::LumenRun &game, VisionPlaytestMetrics &metrics,
+                         const std::string &label, const float start_progress,
+                         const float end_progress, const float min_progress_delta_m) {
+  VisionStageMetrics stage;
+  stage.label = label;
+  stage.start_progress = start_progress;
+  stage.end_progress = end_progress;
+  game.relocatePlayer(game.caveFrameReportPosition(start_progress),
+                      game.caveFrameReportCameraYaw(start_progress));
+  game.updateRenderInterpolation(1.0f);
+  const int initial_lives = game.status().lives;
+  const aster::Vec3 start = game.playerPosition();
+  const aster::Vec3 target = game.caveFrameReportPosition(end_progress);
+  for (int frame = 0; frame < 180; ++frame) {
+    const aster::Vec3 player = game.playerPosition();
+    const aster::Vec3 to_target{target.x - player.x, 0.0f, target.z - player.z};
+    const float distance = aster::length(to_target);
+    aster::Vec2 axis{};
+    if (distance > 0.08f) {
+      const aster::Vec3 dir = to_target / distance;
+      axis = {dir.x, dir.z};
+    }
+    game.update(static_cast<float>(kSimulationStepSeconds), axis, true, false);
+    game.updateRenderInterpolation(1.0f);
+    const aster::Vec3 after = game.playerPosition();
+    const float stage_ceiling_guard = std::max(start.y, target.y) + 2.10f;
+    if (after.y > stage_ceiling_guard) {
+      ++stage.upper_terrain_snap_count;
+    }
+  }
+  const aster::Vec3 final_player = game.playerPosition();
+  const float final_distance =
+      aster::length(aster::Vec3{target.x - final_player.x, 0.0f, target.z - final_player.z});
+  const float total_distance =
+      aster::length(aster::Vec3{target.x - start.x, 0.0f, target.z - start.z});
+  stage.progress_delta_m = std::max(total_distance - final_distance, 0.0f);
+  if (stage.progress_delta_m + 0.001f < min_progress_delta_m) {
+    ++stage.blocked_frames;
+  }
+  stage.respawn_count =
+      game.status().lives < initial_lives ? static_cast<std::uint32_t>(initial_lives - game.status().lives)
+                                          : 0u;
+  metrics.blocked_frames += stage.blocked_frames;
+  metrics.respawn_count += stage.respawn_count;
+  metrics.upper_terrain_snap_count += stage.upper_terrain_snap_count;
+  metrics.stages.push_back(stage);
+}
+
+VisionFrameMetrics renderVisionFrame(aster::LumenRun &game, const std::string &label,
+                                     const float progress, const int width, const int height,
+                                     const aster::RenderStyleProfile &render_style,
+                                     const std::filesystem::path &output_dir) {
+  game.relocatePlayer(game.caveFrameReportPosition(progress), game.caveFrameReportCameraYaw(progress));
+  game.updateRenderInterpolation(1.0f);
+  aster::OrbitCamera camera;
+  camera.target = game.caveFrameReportLookTarget(progress, 1.15f);
+  camera.pitch = aster::radians(6.0f);
+  camera.yaw = game.caveFrameReportCameraYaw(progress);
+  camera.radius = game.resolveCameraRadius(camera.target, camera.yaw, camera.pitch, 2.70f);
+  camera.vertical_fov = aster::radians(54.0f);
+  aster::RendererSettings settings = makeVisionRendererSettings(render_style);
+  const RenderEnvironmentBaseline baseline = baselineFromSettings(settings);
+  const aster::CaveLightingState cave_light = game.caveLightingStateAt(camera.target);
+  restoreRenderEnvironment(settings, baseline);
+  aster::applyRenderStyleProfile(settings, render_style);
+  applyCaveRenderEnvironment(settings, baseline, cave_light);
+  for (const aster::CaveWallLightSample &light : cave_light.wall_lights) {
+    settings.light_rig.push_back({light.position, light.color, light.intensity, light.source_radius});
+  }
+  const aster::SoftwarePreviewOptions options{.width = width,
+                                              .height = height,
+                                              .samples_per_axis = 1,
+                                              .frame_seconds = static_cast<double>(progress),
+                                              .settings = settings};
+  aster::SoftwarePreviewResult frame =
+      aster::renderSoftwarePreviewWithProbe(game.scene(), camera, options);
+  aster::OrbitCamera jitter_camera = camera;
+  jitter_camera.yaw += aster::radians(0.045f);
+  aster::SoftwarePreviewResult jitter =
+      aster::renderSoftwarePreviewWithProbe(game.scene(), jitter_camera, options);
+  const std::filesystem::path png_path = output_dir / (label + ".png");
+  aster::writeFrameBufferPng(frame.framebuffer, png_path, width, height);
+  return analyzeVisionFrame(label, progress, png_path, frame, jitter);
+}
+
+VisionPlaytestMetrics runLumenCaveVisionPlaytest(aster::LumenRun &game,
+                                                 const std::string &route,
+                                                 const std::filesystem::path &output_dir,
+                                                 const int width, const int height,
+                                                 const aster::RenderStyleProfile &render_style) {
+  if (route != "cave-regression") {
+    throw std::runtime_error("unknown Lumen Run vision route '" + route +
+                             "'; expected cave-regression");
+  }
+  std::filesystem::create_directories(output_dir);
+  game.setPlayerAvatarVisible(false);
+  VisionPlaytestMetrics metrics;
+  metrics.route = route;
+  metrics.output_dir = output_dir;
+  simulateVisionStage(game, metrics, "cave_entry_to_web_area", 1.0f, 8.5f, 2.8f);
+  simulateVisionStage(game, metrics, "web_area_to_chamber", 8.5f, 18.0f, 3.4f);
+  simulateVisionStage(game, metrics, "chamber_to_deep_connector", 18.0f, 31.0f, 4.2f);
+  simulateVisionStage(game, metrics, "deep_backtrack", 31.0f, 12.0f, 3.8f);
+
+  const std::vector<std::pair<std::string, float>> probes = {{"cave_entrance", 3.0f},
+                                                             {"web_area", 9.0f},
+                                                             {"chamber", 18.0f},
+                                                             {"deep_connector", 30.0f},
+                                                             {"backtrack", 12.0f}};
+  for (const auto &[label, progress] : probes) {
+    VisionFrameMetrics frame =
+        renderVisionFrame(game, label, progress, width, height, render_style, output_dir);
+    metrics.visible_void_rays += frame.visible_void_rays;
+    metrics.black_void_pixels += frame.black_void_pixels;
+    metrics.zfight_candidate_pixels += frame.zfight_candidate_pixels;
+    metrics.support_render_mismatch_count += frame.support_render_mismatch_count;
+    metrics.max_support_render_delta_m =
+        std::max(metrics.max_support_render_delta_m, frame.max_support_render_delta_m);
+    metrics.frames.push_back(std::move(frame));
+  }
+  metrics.accepted = metrics.visible_void_rays == 0u &&
+                     metrics.zfight_candidate_pixels == 0u &&
+                     metrics.max_support_render_delta_m <= 0.08f &&
+                     metrics.blocked_frames == 0u && metrics.respawn_count == 0u &&
+                     metrics.upper_terrain_snap_count == 0u;
+  writeVisionJson(metrics);
+  return metrics;
+}
+
+struct LightingFrameMetrics {
+  std::string label;
+  float progress = 0.0f;
+  std::filesystem::path png_path;
+  std::filesystem::path heatmap_path;
+  std::uint64_t source_visible_pixels = 0u;
+  std::uint64_t air_scatter_pixels = 0u;
+  std::uint64_t light_source_unreadable_count = 0u;
+  std::uint64_t volumetric_light_missing_count = 0u;
+  std::uint64_t light_falloff_discontinuity_count = 0u;
+  std::uint64_t cave_light_exposure_underflow_count = 0u;
+  std::uint64_t cave_light_exposure_overflow_count = 0u;
+  std::uint64_t cave_light_exposure_overbright_count = 0u;
+  std::uint64_t overexposed_pixels = 0u;
+  float source_mean_luminance = 0.0f;
+  float air_scatter_mean_luminance = 0.0f;
+  float frame_mean_luminance = 0.0f;
+  float surface_direct_mean_luminance = 0.0f;
+  float source_to_air_ratio = 0.0f;
+  float falloff_continuity_score = 1.0f;
+  float temporal_lighting_delta = 0.0f;
+};
+
+struct LightingPlaytestMetrics {
+  std::string route;
+  std::filesystem::path output_dir;
+  std::vector<LightingFrameMetrics> frames;
+  std::uint64_t source_visible_pixels = 0u;
+  std::uint64_t air_scatter_pixels = 0u;
+  std::uint64_t light_source_unreadable_count = 0u;
+  std::uint64_t volumetric_light_missing_count = 0u;
+  std::uint64_t light_falloff_discontinuity_count = 0u;
+  std::uint64_t cave_light_exposure_underflow_count = 0u;
+  std::uint64_t cave_light_exposure_overflow_count = 0u;
+  std::uint64_t cave_light_exposure_overbright_count = 0u;
+  std::uint64_t overexposed_pixels = 0u;
+  float min_source_mean_luminance = 100000.0f;
+  float min_air_scatter_mean_luminance = 100000.0f;
+  float min_frame_mean_luminance = 100000.0f;
+  float max_frame_mean_luminance = 0.0f;
+  float min_falloff_continuity_score = 1.0f;
+  float max_temporal_lighting_delta = 0.0f;
+  bool accepted = false;
+};
+
+LightingFrameMetrics analyzeLightingFrame(const std::string &label, const float progress,
+                                          const std::filesystem::path &png_path,
+                                          const std::filesystem::path &heatmap_path,
+                                          const aster::SoftwarePreviewResult &frame) {
+  constexpr float kSourceThreshold = 0.045f;
+  constexpr float kAirThreshold = 0.0012f;
+  constexpr float kMinSourceMean = 0.055f;
+  constexpr float kMinAirMean = 0.0018f;
+  constexpr std::uint64_t kMinAirPixels = 96u;
+  constexpr float kMinRatio = 1.20f;
+  constexpr float kMaxRatio = 240.0f;
+  constexpr float kMinFalloff = 0.18f;
+  constexpr float kMinFrameMean = 0.040f;
+  constexpr float kMaxFrameMean = 0.255f;
+  constexpr float kOverexposedLuminance = 232.0f;
+  constexpr float kMaxOverexposedFraction = 0.028f;
+  LightingFrameMetrics metrics;
+  metrics.label = label;
+  metrics.progress = progress;
+  metrics.png_path = png_path;
+  metrics.heatmap_path = heatmap_path;
+  double source_sum = 0.0;
+  double air_sum = 0.0;
+  double direct_sum = 0.0;
+  double direct_delta_sum = 0.0;
+  float previous_direct = -1.0f;
+  std::uint64_t direct_pixels = 0u;
+  for (const aster::SoftwareLightingProbePixel &pixel : frame.lighting.pixels) {
+    if (pixel.source_readability_luminance >= kSourceThreshold) {
+      source_sum += pixel.source_readability_luminance;
+      ++metrics.source_visible_pixels;
+    }
+    if (pixel.volumetric_light_luminance >= kAirThreshold) {
+      air_sum += pixel.volumetric_light_luminance;
+      ++metrics.air_scatter_pixels;
+    }
+    if (pixel.direct_light_luminance > 0.00001f) {
+      direct_sum += pixel.direct_light_luminance;
+      if (previous_direct >= 0.0f) {
+        direct_delta_sum += std::abs(pixel.direct_light_luminance - previous_direct);
+      }
+      previous_direct = pixel.direct_light_luminance;
+      ++direct_pixels;
+    }
+  }
+  const std::span<const std::uint8_t> rgba = frame.framebuffer.rgba8();
+  double frame_luma_sum = 0.0;
+  std::uint64_t frame_pixels = 0u;
+  for (std::size_t offset = 0u; offset + 3u < rgba.size(); offset += 4u) {
+    const float red = static_cast<float>(rgba[offset + 0u]);
+    const float green = static_cast<float>(rgba[offset + 1u]);
+    const float blue = static_cast<float>(rgba[offset + 2u]);
+    const float luma = red * 0.2126f + green * 0.7152f + blue * 0.0722f;
+    frame_luma_sum += static_cast<double>(luma / 255.0f);
+    ++frame_pixels;
+    const float max_channel = std::max(red, std::max(green, blue));
+    if (luma >= kOverexposedLuminance && max_channel >= 254.0f) {
+      ++metrics.overexposed_pixels;
+    }
+  }
+  metrics.source_mean_luminance =
+      metrics.source_visible_pixels > 0u
+          ? static_cast<float>(source_sum / static_cast<double>(metrics.source_visible_pixels))
+          : 0.0f;
+  metrics.air_scatter_mean_luminance =
+      metrics.air_scatter_pixels > 0u
+          ? static_cast<float>(air_sum / static_cast<double>(metrics.air_scatter_pixels))
+          : 0.0f;
+  metrics.surface_direct_mean_luminance =
+      direct_pixels > 0u ? static_cast<float>(direct_sum / static_cast<double>(direct_pixels))
+                         : 0.0f;
+  metrics.frame_mean_luminance =
+      frame_pixels > 0u ? static_cast<float>(frame_luma_sum / static_cast<double>(frame_pixels))
+                        : 0.0f;
+  const float direct_delta =
+      direct_pixels > 1u ? static_cast<float>(direct_delta_sum / static_cast<double>(direct_pixels - 1u))
+                         : 0.0f;
+  metrics.falloff_continuity_score =
+      metrics.surface_direct_mean_luminance > 0.000001f
+          ? std::clamp(1.0f - direct_delta / (metrics.surface_direct_mean_luminance + 0.0001f),
+                       0.0f, 1.0f)
+          : 1.0f;
+  metrics.source_to_air_ratio =
+      metrics.air_scatter_mean_luminance > 0.000001f
+          ? metrics.source_mean_luminance / metrics.air_scatter_mean_luminance
+          : 999.0f;
+  if (metrics.source_mean_luminance < kMinSourceMean || metrics.source_visible_pixels == 0u) {
+    metrics.light_source_unreadable_count = 1u;
+  }
+  if (metrics.air_scatter_pixels < kMinAirPixels ||
+      metrics.air_scatter_mean_luminance < kMinAirMean) {
+    metrics.volumetric_light_missing_count = 1u;
+  }
+  if (metrics.falloff_continuity_score < kMinFalloff) {
+    metrics.light_falloff_discontinuity_count = 1u;
+  }
+  if (metrics.source_to_air_ratio < kMinRatio || metrics.source_to_air_ratio > kMaxRatio) {
+    metrics.cave_light_exposure_underflow_count = 1u;
+  }
+  const std::uint64_t pixel_count =
+      static_cast<std::uint64_t>(std::max(frame.framebuffer.width(), 0)) *
+      static_cast<std::uint64_t>(std::max(frame.framebuffer.height(), 0));
+  const std::uint64_t max_overexposed_pixels =
+      std::max<std::uint64_t>(64u, static_cast<std::uint64_t>(
+                                       static_cast<double>(pixel_count) *
+                                       static_cast<double>(kMaxOverexposedFraction)));
+  if (metrics.overexposed_pixels > max_overexposed_pixels) {
+    metrics.cave_light_exposure_overflow_count = 1u;
+  }
+  if (metrics.frame_mean_luminance < kMinFrameMean ||
+      metrics.frame_mean_luminance > kMaxFrameMean) {
+    metrics.cave_light_exposure_overbright_count = 1u;
+  }
+  return metrics;
+}
+
+void writeLightingHeatmap(const aster::SoftwarePreviewResult &frame,
+                          const std::filesystem::path &heatmap_path) {
+  const int width = frame.lighting.width;
+  const int height = frame.lighting.height;
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+  float direct_max = 0.001f;
+  float volume_max = 0.001f;
+  float source_max = 0.001f;
+  for (const aster::SoftwareLightingProbePixel &pixel : frame.lighting.pixels) {
+    direct_max = std::max(direct_max, pixel.direct_light_luminance);
+    volume_max = std::max(volume_max, pixel.volumetric_light_luminance);
+    source_max = std::max(source_max, pixel.source_readability_luminance);
+  }
+  std::vector<std::uint8_t> heatmap(static_cast<std::size_t>(width) *
+                                    static_cast<std::size_t>(height) * 4u);
+  for (std::size_t i = 0; i < frame.lighting.pixels.size(); ++i) {
+    const aster::SoftwareLightingProbePixel &pixel = frame.lighting.pixels[i];
+    const std::size_t base = i * 4u;
+    heatmap[base + 0u] = static_cast<std::uint8_t>(
+        std::clamp(std::lround(std::clamp(pixel.direct_light_luminance / direct_max, 0.0f, 1.0f) *
+                               255.0f),
+                   0l, 255l));
+    heatmap[base + 1u] = static_cast<std::uint8_t>(
+        std::clamp(std::lround(std::clamp(pixel.volumetric_light_luminance / volume_max, 0.0f,
+                                          1.0f) *
+                               255.0f),
+                   0l, 255l));
+    heatmap[base + 2u] = static_cast<std::uint8_t>(
+        std::clamp(std::lround(std::clamp(pixel.source_readability_luminance / source_max, 0.0f,
+                                          1.0f) *
+                               255.0f),
+                   0l, 255l));
+    heatmap[base + 3u] = 255u;
+  }
+  aster::writeRgbaPng(heatmap_path, width, height, heatmap);
+}
+
+LightingFrameMetrics renderLightingFrame(aster::LumenRun &game, const std::string &label,
+                                         const float progress, const int width, const int height,
+                                         const aster::RenderStyleProfile &render_style,
+                                         const std::filesystem::path &output_dir) {
+  game.relocatePlayer(game.caveFrameReportPosition(progress), game.caveFrameReportCameraYaw(progress));
+  game.updateRenderInterpolation(1.0f);
+  aster::OrbitCamera camera;
+  camera.target = game.caveFrameReportLookTarget(progress, 1.25f);
+  camera.pitch = aster::radians(5.0f);
+  camera.yaw = game.caveFrameReportCameraYaw(progress);
+  camera.radius = game.resolveCameraRadius(camera.target, camera.yaw, camera.pitch, 2.55f);
+  camera.vertical_fov = aster::radians(54.0f);
+  aster::RendererSettings settings = makeVisionRendererSettings(render_style);
+  const RenderEnvironmentBaseline baseline = baselineFromSettings(settings);
+  const aster::CaveLightingState cave_light = game.caveLightingStateAt(camera.target);
+  restoreRenderEnvironment(settings, baseline);
+  aster::applyRenderStyleProfile(settings, render_style);
+  applyCaveRenderEnvironment(settings, baseline, cave_light);
+  for (const aster::CaveWallLightSample &light : cave_light.wall_lights) {
+    settings.light_rig.push_back({light.position, light.color, light.intensity, light.source_radius});
+  }
+  const aster::SoftwarePreviewResult frame =
+      aster::renderSoftwarePreviewWithProbe(game.scene(), camera,
+                                            {.width = width,
+                                             .height = height,
+                                             .samples_per_axis = 1,
+                                             .frame_seconds = static_cast<double>(progress),
+                                             .settings = settings});
+  const std::filesystem::path png_path = output_dir / (label + ".png");
+  const std::filesystem::path heatmap_path = output_dir / (label + ".lighting.png");
+  aster::writeFrameBufferPng(frame.framebuffer, png_path, width, height);
+  writeLightingHeatmap(frame, heatmap_path);
+  return analyzeLightingFrame(label, progress, png_path, heatmap_path, frame);
+}
+
+void writeLightingJson(const LightingPlaytestMetrics &metrics) {
+  const std::filesystem::path json_path = metrics.output_dir / (metrics.route + ".lighting.json");
+  std::ofstream file(json_path, std::ios::binary);
+  if (!file) {
+    throw std::runtime_error("could not write Lumen cave lighting metrics: " + json_path.string());
+  }
+  file << std::fixed << std::setprecision(6);
+  file << "{\n";
+  file << "  \"route\": \"" << jsonEscape(metrics.route) << "\",\n";
+  file << "  \"accepted\": " << (metrics.accepted ? "true" : "false") << ",\n";
+  file << "  \"source_visible_pixels\": " << metrics.source_visible_pixels << ",\n";
+  file << "  \"air_scatter_pixels\": " << metrics.air_scatter_pixels << ",\n";
+  file << "  \"light_source_unreadable_count\": " << metrics.light_source_unreadable_count << ",\n";
+  file << "  \"volumetric_light_missing_count\": " << metrics.volumetric_light_missing_count
+       << ",\n";
+  file << "  \"light_falloff_discontinuity_count\": "
+       << metrics.light_falloff_discontinuity_count << ",\n";
+  file << "  \"cave_light_exposure_underflow_count\": "
+       << metrics.cave_light_exposure_underflow_count << ",\n";
+  file << "  \"cave_light_exposure_overflow_count\": "
+       << metrics.cave_light_exposure_overflow_count << ",\n";
+  file << "  \"cave_light_exposure_overbright_count\": "
+       << metrics.cave_light_exposure_overbright_count << ",\n";
+  file << "  \"overexposed_pixels\": " << metrics.overexposed_pixels << ",\n";
+  file << "  \"min_frame_mean_luminance\": " << metrics.min_frame_mean_luminance << ",\n";
+  file << "  \"max_frame_mean_luminance\": " << metrics.max_frame_mean_luminance << ",\n";
+  file << "  \"min_source_mean_luminance\": " << metrics.min_source_mean_luminance << ",\n";
+  file << "  \"min_air_scatter_mean_luminance\": " << metrics.min_air_scatter_mean_luminance
+       << ",\n";
+  file << "  \"min_falloff_continuity_score\": " << metrics.min_falloff_continuity_score
+       << ",\n";
+  file << "  \"max_temporal_lighting_delta\": " << metrics.max_temporal_lighting_delta << ",\n";
+  file << "  \"frames\": [\n";
+  for (std::size_t i = 0; i < metrics.frames.size(); ++i) {
+    const LightingFrameMetrics &frame = metrics.frames[i];
+    file << "    {\"label\": \"" << jsonEscape(frame.label) << "\", \"progress\": "
+         << frame.progress << ", \"source_visible_pixels\": " << frame.source_visible_pixels
+         << ", \"air_scatter_pixels\": " << frame.air_scatter_pixels
+         << ", \"light_source_unreadable_count\": " << frame.light_source_unreadable_count
+         << ", \"volumetric_light_missing_count\": " << frame.volumetric_light_missing_count
+         << ", \"light_falloff_discontinuity_count\": "
+         << frame.light_falloff_discontinuity_count
+         << ", \"cave_light_exposure_underflow_count\": "
+         << frame.cave_light_exposure_underflow_count
+         << ", \"cave_light_exposure_overflow_count\": "
+         << frame.cave_light_exposure_overflow_count
+         << ", \"cave_light_exposure_overbright_count\": "
+         << frame.cave_light_exposure_overbright_count
+         << ", \"overexposed_pixels\": " << frame.overexposed_pixels
+         << ", \"frame_mean_luminance\": " << frame.frame_mean_luminance
+         << ", \"source_mean_luminance\": " << frame.source_mean_luminance
+         << ", \"air_scatter_mean_luminance\": " << frame.air_scatter_mean_luminance
+         << ", \"surface_direct_mean_luminance\": " << frame.surface_direct_mean_luminance
+         << ", \"source_to_air_ratio\": " << frame.source_to_air_ratio
+         << ", \"falloff_continuity_score\": " << frame.falloff_continuity_score
+         << ", \"temporal_lighting_delta\": " << frame.temporal_lighting_delta
+         << ", \"png_path\": \"" << jsonEscape(frame.png_path.string())
+         << "\", \"heatmap_path\": \"" << jsonEscape(frame.heatmap_path.string()) << "\"}";
+    file << (i + 1u < metrics.frames.size() ? ",\n" : "\n");
+  }
+  file << "  ]\n";
+  file << "}\n";
+}
+
+LightingPlaytestMetrics runLumenCaveLightingPlaytest(
+    aster::LumenRun &game, const std::string &route, const std::filesystem::path &output_dir,
+    const int width, const int height, const aster::RenderStyleProfile &render_style) {
+  if (route != "cave-regression") {
+    throw std::runtime_error("unknown Lumen Run lighting route '" + route +
+                             "'; expected cave-regression");
+  }
+  std::filesystem::create_directories(output_dir);
+  game.setPlayerAvatarVisible(false);
+  LightingPlaytestMetrics metrics;
+  metrics.route = route;
+  metrics.output_dir = output_dir;
+  const std::vector<std::pair<std::string, float>> probes = {{"cave_entrance", 3.0f},
+                                                             {"web_area", 9.0f},
+                                                             {"chamber", 18.0f},
+                                                             {"deep_connector", 30.0f},
+                                                             {"backtrack", 12.0f}};
+  for (const auto &[label, progress] : probes) {
+    LightingFrameMetrics frame =
+        renderLightingFrame(game, label, progress, width, height, render_style, output_dir);
+    metrics.source_visible_pixels += frame.source_visible_pixels;
+    metrics.air_scatter_pixels += frame.air_scatter_pixels;
+    metrics.light_source_unreadable_count += frame.light_source_unreadable_count;
+    metrics.volumetric_light_missing_count += frame.volumetric_light_missing_count;
+    metrics.light_falloff_discontinuity_count += frame.light_falloff_discontinuity_count;
+    metrics.cave_light_exposure_underflow_count += frame.cave_light_exposure_underflow_count;
+    metrics.cave_light_exposure_overflow_count += frame.cave_light_exposure_overflow_count;
+    metrics.cave_light_exposure_overbright_count += frame.cave_light_exposure_overbright_count;
+    metrics.overexposed_pixels += frame.overexposed_pixels;
+    metrics.min_source_mean_luminance =
+        std::min(metrics.min_source_mean_luminance, frame.source_mean_luminance);
+    metrics.min_air_scatter_mean_luminance =
+        std::min(metrics.min_air_scatter_mean_luminance, frame.air_scatter_mean_luminance);
+    metrics.min_frame_mean_luminance =
+        std::min(metrics.min_frame_mean_luminance, frame.frame_mean_luminance);
+    metrics.max_frame_mean_luminance =
+        std::max(metrics.max_frame_mean_luminance, frame.frame_mean_luminance);
+    metrics.min_falloff_continuity_score =
+        std::min(metrics.min_falloff_continuity_score, frame.falloff_continuity_score);
+    metrics.max_temporal_lighting_delta =
+        std::max(metrics.max_temporal_lighting_delta, frame.temporal_lighting_delta);
+    metrics.frames.push_back(std::move(frame));
+  }
+  metrics.accepted = metrics.light_source_unreadable_count == 0u &&
+                     metrics.volumetric_light_missing_count == 0u &&
+                     metrics.light_falloff_discontinuity_count == 0u &&
+                     metrics.cave_light_exposure_underflow_count == 0u &&
+                     metrics.cave_light_exposure_overflow_count == 0u &&
+                     metrics.cave_light_exposure_overbright_count == 0u;
+  writeLightingJson(metrics);
+  return metrics;
+}
+
 aster::InventorySlotModel
 inventorySlot(std::string label, std::string detail, std::string quantity, const aster::Vec3 tint,
               const bool selected = false, std::string item_id = {},
@@ -732,6 +1486,23 @@ int main(int argc, char **argv) {
     const bool capture_hud = hasArgument(argc, argv, "--capture-hud");
     const bool smoke_test = hasArgument(argc, argv, "--smoke-test");
     const bool validate_cave = hasArgument(argc, argv, "--validate-cave");
+    const bool playtest_vision = hasArgument(argc, argv, "--playtest-vision");
+    const std::string vision_route = argumentString(argc, argv, "--vision-route", "cave-regression");
+    std::filesystem::path vision_out = argumentPath(argc, argv, "--vision-out");
+    if (vision_out.empty()) {
+      vision_out = std::filesystem::path("build") / "tmp" / "lumen_run_cave_vision";
+    }
+    const int vision_width = std::max(64, argumentInt(argc, argv, "--vision-width", 640));
+    const int vision_height = std::max(64, argumentInt(argc, argv, "--vision-height", 360));
+    const bool playtest_lighting = hasArgument(argc, argv, "--playtest-lighting");
+    const std::string lighting_route =
+        argumentString(argc, argv, "--lighting-route", "cave-regression");
+    std::filesystem::path lighting_out = argumentPath(argc, argv, "--lighting-out");
+    if (lighting_out.empty()) {
+      lighting_out = std::filesystem::path("build") / "tmp" / "lumen_run_cave_lighting";
+    }
+    const int lighting_width = std::max(64, argumentInt(argc, argv, "--lighting-width", 640));
+    const int lighting_height = std::max(64, argumentInt(argc, argv, "--lighting-height", 360));
     const bool debug_cave_overlay = hasArgument(argc, argv, "--debug-cave-overlay");
     const bool profile_enabled =
         hasArgument(argc, argv, "--profile") || !profile_capture_path.empty();
@@ -823,6 +1594,59 @@ int main(int argc, char **argv) {
       std::cout << "Lumen Run cave validation passed before render extraction: "
                 << (authoring.cave.id.empty() ? "fallback generated cave" : authoring.cave.id)
                 << '\n';
+      return 0;
+    }
+    if (playtest_vision) {
+      aster::LumenRun vision_game(authoring);
+      if (!vision_game.caveWorldGateAccepted()) {
+        throw std::runtime_error("Lumen Run cave world gate rejected vision playtest: " +
+                                 vision_game.caveWorldGateReport().diagnostic);
+      }
+      const VisionPlaytestMetrics metrics =
+          runLumenCaveVisionPlaytest(vision_game, vision_route, vision_out, vision_width,
+                                     vision_height, render_style);
+      std::cout << "Lumen Run cave vision route '" << metrics.route
+                << "' wrote artifacts to " << metrics.output_dir << '\n';
+      std::cout << "  visible_void_rays=" << metrics.visible_void_rays
+                << " zfight_candidate_pixels=" << metrics.zfight_candidate_pixels
+                << " max_support_render_delta_m=" << metrics.max_support_render_delta_m
+                << " blocked_frames=" << metrics.blocked_frames
+                << " respawn_count=" << metrics.respawn_count
+                << " upper_terrain_snap_count=" << metrics.upper_terrain_snap_count << '\n';
+      if (!metrics.accepted) {
+        throw std::runtime_error("Lumen Run cave vision playtest failed; inspect " +
+                                 (metrics.output_dir / (metrics.route + ".json")).string());
+      }
+      return 0;
+    }
+    if (playtest_lighting) {
+      aster::LumenRun lighting_game(authoring);
+      if (!lighting_game.caveWorldGateAccepted()) {
+        throw std::runtime_error("Lumen Run cave world gate rejected lighting playtest: " +
+                                 lighting_game.caveWorldGateReport().diagnostic);
+      }
+      const LightingPlaytestMetrics metrics = runLumenCaveLightingPlaytest(
+          lighting_game, lighting_route, lighting_out, lighting_width, lighting_height, render_style);
+      std::cout << "Lumen Run cave lighting route '" << metrics.route
+                << "' wrote artifacts to " << metrics.output_dir << '\n';
+      std::cout << "  source_visible_pixels=" << metrics.source_visible_pixels
+                << " air_scatter_pixels=" << metrics.air_scatter_pixels
+                << " light_source_unreadable_count=" << metrics.light_source_unreadable_count
+                << " volumetric_light_missing_count=" << metrics.volumetric_light_missing_count
+                << " light_falloff_discontinuity_count="
+                << metrics.light_falloff_discontinuity_count
+                << " cave_light_exposure_underflow_count="
+                << metrics.cave_light_exposure_underflow_count
+                << " cave_light_exposure_overflow_count="
+                << metrics.cave_light_exposure_overflow_count
+                << " cave_light_exposure_overbright_count="
+                << metrics.cave_light_exposure_overbright_count
+                << " max_frame_mean_luminance=" << metrics.max_frame_mean_luminance
+                << " overexposed_pixels=" << metrics.overexposed_pixels << '\n';
+      if (!metrics.accepted) {
+        throw std::runtime_error("Lumen Run cave lighting playtest failed; inspect " +
+                                 (metrics.output_dir / (metrics.route + ".lighting.json")).string());
+      }
       return 0;
     }
 
@@ -1537,7 +2361,7 @@ int main(int argc, char **argv) {
           window.requestClose();
         }
       } else if (!screenshot_path.empty() && !captured && rendered_frames >= screenshot_frame) {
-        aster::writeFramebufferPpm(screenshot_path, width, height);
+        writeActiveFramebufferCapture(screenshot_path, width, height);
         captured = true;
         window.requestClose();
       }

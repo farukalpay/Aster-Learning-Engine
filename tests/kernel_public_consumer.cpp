@@ -6,12 +6,37 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <string>
+
+namespace {
+
+bool fileHasPngMagic(const std::filesystem::path &path) {
+  std::ifstream input(path, std::ios::binary);
+  unsigned char magic[8]{};
+  input.read(reinterpret_cast<char *>(magic), sizeof(magic));
+  const unsigned char expected[8] = {0x89u, 0x50u, 0x4eu, 0x47u,
+                                     0x0du, 0x0au, 0x1au, 0x0au};
+  for (std::size_t i = 0u; i < sizeof(magic); ++i) {
+    if (magic[i] != expected[i]) {
+      return false;
+    }
+  }
+  return input.gcount() == static_cast<std::streamsize>(sizeof(magic));
+}
+
+std::string toString(const AsterStringView view) {
+  return view.data == nullptr ? std::string() : std::string(view.data, view.size);
+}
+
+} // namespace
 
 int main() {
   const AsterAbiVersion version = aster::kernel::abiVersion();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 6u);
-  assert(version.minor == 1u);
+  assert(version.minor == 3u);
 
   const auto normalized = aster::kernel::math::normalize({3.0f, 0.0f, 4.0f});
   assert(normalized);
@@ -181,6 +206,85 @@ int main() {
   assert(forensics.value().perceptual_continuity_budget.reaction_package_hash == 0xA01u);
   assert(forensics.value().world_extraction_provenance ==
          ASTER_WORLD_EXTRACTION_WORLD_TRANSITION);
+
+  const std::filesystem::path vision_dir =
+      std::filesystem::temp_directory_path() / "aster_kernel_public_consumer_vision";
+  const std::string vision_dir_string = vision_dir.string();
+  const std::string vision_label = "public-consumer";
+  const AsterFrameVisionProbeDesc vision_desc{
+      sizeof(AsterFrameVisionProbeDesc),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      {vision_dir_string.data(), vision_dir_string.size()},
+      {vision_label.data(), vision_label.size()},
+      32u,
+      24u,
+      ASTER_FRAME_VISION_PROBE_ARTIFACT_DEFAULT,
+      0.000001f,
+      1.0f,
+      0u,
+      0u,
+      0u,
+      0.08f};
+  auto vision_result =
+      renderer.value().frameVisionProbe(scene.value(), camera, settings, vision_desc);
+  assert(vision_result);
+  assert(vision_result.value().accepted == 1u);
+  const std::filesystem::path vision_png = toString(vision_result.value().png_path);
+  const std::filesystem::path vision_json = toString(vision_result.value().json_path);
+  assert(std::filesystem::exists(vision_png));
+  assert(std::filesystem::exists(vision_json));
+  assert(fileHasPngMagic(vision_png));
+  std::filesystem::remove(vision_png);
+  std::filesystem::remove(vision_json);
+  std::filesystem::remove(vision_dir);
+
+  settings.flags |= ASTER_KERNEL_RENDER_SETTING_VOLUMETRIC_FOG;
+  settings.fog_strength = 0.18f;
+  const std::filesystem::path lighting_dir =
+      std::filesystem::temp_directory_path() / "aster_kernel_public_consumer_lighting";
+  const std::string lighting_dir_string = lighting_dir.string();
+  const std::string lighting_label = "public-consumer-lighting";
+  const AsterFrameLightingProbeDesc lighting_desc{
+      sizeof(AsterFrameLightingProbeDesc),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      {lighting_dir_string.data(), lighting_dir_string.size()},
+      {lighting_label.data(), lighting_label.size()},
+      32u,
+      24u,
+      ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_DEFAULT,
+      0.0f,
+      0.00001f,
+      1u,
+      0.0f,
+      0.0f,
+      0.0f,
+      0.0f,
+      0.020f,
+      0.000001f,
+      0.050f,
+      246.0f,
+      0.0f,
+      1.0f};
+  auto lighting_result =
+      renderer.value().frameLightingProbe(scene.value(), camera, settings, lighting_desc);
+  assert(lighting_result);
+  assert(lighting_result.value().accepted == 1u);
+  assert(lighting_result.value().air_scatter_pixels > 0u);
+  assert(lighting_result.value().cave_light_exposure_overflow_count == 0u);
+  assert(lighting_result.value().cave_light_exposure_overbright_count == 0u);
+  const std::filesystem::path lighting_png = toString(lighting_result.value().png_path);
+  const std::filesystem::path lighting_json = toString(lighting_result.value().json_path);
+  const std::filesystem::path lighting_heatmap =
+      toString(lighting_result.value().heatmap_png_path);
+  assert(std::filesystem::exists(lighting_png));
+  assert(std::filesystem::exists(lighting_json));
+  assert(std::filesystem::exists(lighting_heatmap));
+  assert(fileHasPngMagic(lighting_png));
+  assert(fileHasPngMagic(lighting_heatmap));
+  std::filesystem::remove(lighting_png);
+  std::filesystem::remove(lighting_json);
+  std::filesystem::remove(lighting_heatmap);
+  std::filesystem::remove(lighting_dir);
 
   const char *source = "float4 fs_main() { return float4(1.0); }\n";
   const AsterShaderModuleSource module{{"material", 8u}, {source, std::strlen(source)}};

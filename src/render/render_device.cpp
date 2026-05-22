@@ -166,6 +166,21 @@ float evaluateFogFactor(const aster::AtmosphereSettings &atmosphere,
   return saturate(curve * std::clamp(atmosphere.fog_strength, 0.0f, 1.0f));
 }
 
+float luminanceOf(const aster::Vec3 color) {
+  return color.x * 0.2126f + color.y * 0.7152f + color.z * 0.0722f;
+}
+
+aster::Vec3 compressLocalRadiance(const aster::Vec3 radiance, const float soft_limit) {
+  const float limit = std::max(soft_limit, 0.0001f);
+  const float luma = std::max(luminanceOf(radiance), 0.0f);
+  if (luma <= limit) {
+    return radiance;
+  }
+  const float overflow = (luma - limit) / limit;
+  const float compressed_luma = limit * (1.0f + (1.0f - std::exp(-overflow)) * 0.45f);
+  return radiance * (compressed_luma / std::max(luma, 0.0001f));
+}
+
 struct SurfaceBasis {
   aster::Vec3 normal{0.0f, 1.0f, 0.0f};
   aster::Vec3 tangent{1.0f, 0.0f, 0.0f};
@@ -2444,13 +2459,45 @@ void buildSoftwareVolumetricFog(const aster::OrbitCamera &camera,
                              (settings.atmosphere.fog_end - settings.atmosphere.fog_start) *
                                  (0.18f + fy * 0.82f + vignette * 0.24f);
       const float fog = evaluateFogFactor(settings.atmosphere, distance);
+      aster::Vec3 local_scatter{};
+      float source_gain = 0.0f;
+      if (settings.atmosphere.local_light_scattering > 0.0f && !settings.light_rig.empty()) {
+        const float view_x = (fx - 0.5f) * 2.0f;
+        const float view_y = (0.5f - fy) * 1.35f;
+        const aster::Vec3 sample_position =
+            camera.target + aster::Vec3{view_x * distance * 0.30f, view_y * distance * 0.22f,
+                                         distance * 0.18f};
+        for (const aster::Light &light : settings.light_rig) {
+          if (light.intensity <= 0.0f) {
+            continue;
+          }
+          const aster::Vec3 to_light = light.position - sample_position;
+          const float distance_sq = std::max(aster::dot(to_light, to_light), 0.0001f);
+          const float radius = std::max(light.source_radius, 0.08f);
+          const float softened = std::max(distance_sq, radius * radius);
+          const float core =
+              1.0f - smoothstep(radius * radius * 0.35f, radius * radius * 10.0f, distance_sq);
+          const float scatter =
+              settings.atmosphere.local_light_scattering *
+              std::clamp(settings.atmosphere.fog_strength, 0.0f, 1.0f) *
+              (0.035f + core * settings.atmosphere.source_glow_strength * 0.16f);
+          const aster::Vec3 medium_color =
+              mixVec(light.color, {1.0f, 0.78f, 0.58f}, 0.38f);
+          local_scatter = local_scatter + medium_color * (light.intensity / softened) * scatter;
+          source_gain = std::max(source_gain, core * luminanceOf(light.color) * light.intensity);
+        }
+        local_scatter =
+            compressLocalRadiance(local_scatter,
+                                  0.12f + settings.atmosphere.source_glow_strength * 0.018f);
+      }
+      const aster::Vec3 fog_color = settings.atmosphere.fog_color + local_scatter * 0.46f;
       const std::size_t pixel = static_cast<std::size_t>(y) * resources.fog_width + x;
-      resources.fog_factors[pixel] = fog;
+      resources.fog_factors[pixel] = std::clamp(fog + source_gain * 0.0011f, 0.0f, 1.0f);
       const std::size_t base = pixel * 4u;
-      resources.fog_rgba8[base + 0u] = debugByte(settings.atmosphere.fog_color.x * fog);
-      resources.fog_rgba8[base + 1u] = debugByte(settings.atmosphere.fog_color.y * fog);
-      resources.fog_rgba8[base + 2u] = debugByte(settings.atmosphere.fog_color.z * fog);
-      resources.fog_rgba8[base + 3u] = debugByte(fog);
+      resources.fog_rgba8[base + 0u] = debugByte(fog_color.x * resources.fog_factors[pixel]);
+      resources.fog_rgba8[base + 1u] = debugByte(fog_color.y * resources.fog_factors[pixel]);
+      resources.fog_rgba8[base + 2u] = debugByte(fog_color.z * resources.fog_factors[pixel]);
+      resources.fog_rgba8[base + 3u] = debugByte(resources.fog_factors[pixel]);
     }
   }
   resources.fog_ready = true;

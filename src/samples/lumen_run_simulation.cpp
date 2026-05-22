@@ -68,6 +68,38 @@ void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const b
     body.velocity.z *= velocity_scale;
     physics_.wakeBody(player_body_);
   }
+  {
+    TraversableManifoldSupportSample best_support{};
+    const Vec3 support_position =
+        physics_.body(player_body_).position - Vec3{0.0f, playerSupportExtent(), 0.0f};
+    for (const CaveFloorSupportSurface &floor : cave_floor_supports_) {
+      if (floor.manifold == nullptr) {
+        continue;
+      }
+      const TraversableManifoldSupportSample support = sampleTraversableManifoldSupport(
+          *floor.manifold,
+          {.position = support_position,
+           .actor_radius = tuning_.player_radius,
+           .max_above = 1.0f,
+           .max_below = 3.8f});
+      if (!support.inside_envelope) {
+        continue;
+      }
+      if (!best_support.inside_envelope ||
+          support.lateral_clearance > best_support.lateral_clearance ||
+          (support.valid && !best_support.valid)) {
+        best_support = support;
+      }
+    }
+    const Vec3 desired_horizontal{character_input.desired_velocity.x, 0.0f,
+                                  character_input.desired_velocity.z};
+    if (best_support.inside_envelope && length(desired_horizontal) > 0.001f) {
+      const Vec3 redirected =
+          projectVelocityOnTraversableManifold(best_support, character_input.desired_velocity);
+      character_input.desired_velocity.x = redirected.x;
+      character_input.desired_velocity.z = redirected.z;
+    }
+  }
   const bool was_climbing = player_climbing_;
   player_climbing_ = false;
   player_climb_blend_ = 0.0f;
@@ -130,12 +162,38 @@ void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const b
     }
   }
 
-  const TerrainSurfaceQuerySampler surface_sampler = [this](const Vec3 support_position) {
+  const auto inside_cave_support_envelope = [this](const Vec3 position) {
+    for (const CaveFloorSupportSurface &floor : cave_floor_supports_) {
+      const CaveInteriorSample sample = sampleCaveInteriorVolume(floor.tunnel, position);
+      if (sample.tunnel_t >= floor.tunnel.collision_start_t - 0.04f &&
+          sample.lateral <= sample.half_width * 1.34f && sample.vertical >= -1.20f &&
+          sample.vertical <= sample.height * 2.20f) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const Vec3 player_support_position =
+      physics_.body(player_body_).position - Vec3{0.0f, playerSupportExtent(), 0.0f};
+  const SurfaceSupportQuery player_support_query{{player_support_position.x,
+                                                  player_support_position.z},
+                                                 player_support_position.y,
+                                                 0.22f,
+                                                 1.35f};
+  const bool cave_support_locked =
+      inside_cave_support_envelope(physics_.body(player_body_).position) &&
+      sampleCaveFloorSupport(player_support_query).valid;
+  const TerrainSurfaceQuerySampler surface_sampler = [this, cave_support_locked](
+                                                         const Vec3 support_position) {
     if (isSwimmableWater(support_position)) {
       return TerrainSurfaceSample{};
     }
-    return sampleWorldSupport(
-        {{support_position.x, support_position.z}, support_position.y, 0.22f, 1.35f});
+    const SurfaceSupportQuery query{
+        {support_position.x, support_position.z}, support_position.y, 0.22f, 1.35f};
+    if (cave_support_locked) {
+      return sampleCaveFloorSupport(query);
+    }
+    return sampleWorldSupport(query);
   };
   const CharacterMoveResult character_state =
       moveCharacterOnSurface(physics_, player_body_, surface_sampler, character_input,
@@ -179,20 +237,30 @@ void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const b
   }
   if (!player_swimming_ && !player_climbing_ && physics_.valid(player_body_)) {
     PhysicsBody &body = physics_.body(player_body_);
-    CaveTraversalConstraint cave_constraint{};
-    for (const AuthoredCaveSection &section : cave_sections_) {
-      const CaveTraversalConstraint candidate =
-          constrainCaveTraversalPosition(section.tunnel, body.position, tuning_.player_radius);
-      if (candidate.active &&
-          (!cave_constraint.active ||
-           length(candidate.correction) > length(cave_constraint.correction))) {
-        cave_constraint = candidate;
+    TraversableManifoldSupportSample cave_wall_support{};
+    const Vec3 support_position = body.position - Vec3{0.0f, playerSupportExtent(), 0.0f};
+    for (const CaveFloorSupportSurface &floor : cave_floor_supports_) {
+      if (floor.manifold == nullptr) {
+        continue;
+      }
+      const TraversableManifoldSupportSample support = sampleTraversableManifoldSupport(
+          *floor.manifold,
+          {.position = support_position,
+           .actor_radius = tuning_.player_radius,
+           .max_above = 1.6f,
+           .max_below = 4.2f});
+      if (!support.inside_envelope || support.lateral_penetration <= 0.0001f) {
+        continue;
+      }
+      if (!cave_wall_support.inside_envelope ||
+          support.lateral_penetration > cave_wall_support.lateral_penetration) {
+        cave_wall_support = support;
       }
     }
-    if (cave_constraint.active && length(cave_constraint.correction) > 0.0001f) {
-      const Vec3 correction_direction = normalize(cave_constraint.correction);
+    if (cave_wall_support.inside_envelope && length(cave_wall_support.depenetration) > 0.0001f) {
+      const Vec3 correction_direction = normalize(cave_wall_support.depenetration);
       const float outward_speed = dot(body.velocity, correction_direction);
-      body.position = cave_constraint.corrected_position;
+      body.position = body.position + cave_wall_support.depenetration;
       if (outward_speed < 0.0f) {
         body.velocity = body.velocity - correction_direction * outward_speed;
       }
@@ -327,44 +395,48 @@ TerrainSurfaceSample LumenRun::sampleCaveFloorSupport(const SurfaceSupportQuery 
   }
 
   const Vec3 reference{query.world_position.x, query.reference_y, query.world_position.y};
-  std::size_t best_index = cave_floor_supports_.size();
-  CaveInteriorSample best_sample{};
-  for (std::size_t i = 0; i < cave_floor_supports_.size(); ++i) {
-    const CaveInteriorSample candidate =
-        sampleCaveInteriorVolume(cave_floor_supports_[i].tunnel, reference);
-    if (best_index == cave_floor_supports_.size() || candidate.interior > best_sample.interior) {
-      best_index = i;
-      best_sample = candidate;
+  TerrainSurfaceSample best_floor{};
+  float best_clearance = -std::numeric_limits<float>::infinity();
+  for (const CaveFloorSupportSurface &floor : cave_floor_supports_) {
+    SurfaceSupportQuery cave_query = query;
+    cave_query.max_above = std::max(cave_query.max_above, 4.20f);
+    cave_query.max_below = std::max(cave_query.max_below, 4.20f);
+    TerrainSurfaceSample section_floor{};
+    float section_clearance = -std::numeric_limits<float>::infinity();
+    if (floor.manifold != nullptr) {
+      const TraversableManifoldSupportSample support = sampleTraversableManifoldSupport(
+          *floor.manifold,
+          {.position = reference,
+           .actor_radius = tuning_.player_radius,
+           .max_above = cave_query.max_above,
+           .max_below = cave_query.max_below});
+      if (support.valid && support.walkable) {
+        section_floor = {true, support.height, support.up};
+        section_clearance = support.lateral_clearance;
+      }
+    }
+    if (!section_floor.valid && floor.floor_mesh != nullptr) {
+      section_floor = sampleMeshSupport(*floor.floor_mesh, {}, cave_query, floor.min_normal_y);
+      section_clearance = 0.0f;
+    }
+    if (floor.portal_floor_mesh != nullptr) {
+      const TerrainSurfaceSample portal =
+          sampleMeshSupport(*floor.portal_floor_mesh, {}, cave_query, floor.min_normal_y);
+      if (!section_floor.valid || (portal.valid && portal.height > section_floor.height)) {
+        section_floor = portal;
+      }
+    }
+    if (!section_floor.valid) {
+      continue;
+    }
+    if (!best_floor.valid || section_clearance > best_clearance + 0.001f ||
+        (std::abs(section_clearance - best_clearance) <= 0.001f &&
+         section_floor.height > best_floor.height)) {
+      best_floor = section_floor;
+      best_clearance = section_clearance;
     }
   }
-  if (best_index >= cave_floor_supports_.size()) {
-    return {};
-  }
-
-  const bool inside_cave_plan =
-      best_sample.tunnel_t >= cave_floor_supports_[best_index].tunnel.collision_start_t - 0.04f &&
-      best_sample.lateral <= best_sample.half_width * 1.28f && best_sample.vertical >= -0.80f &&
-      best_sample.vertical <= best_sample.height * 2.15f;
-  if (!inside_cave_plan) {
-    return {};
-  }
-
-  SurfaceSupportQuery cave_query = query;
-  cave_query.max_above = std::max(cave_query.max_above, 0.42f);
-  cave_query.max_below = std::max(cave_query.max_below, 4.20f);
-  const CaveFloorSupportSurface &floor = cave_floor_supports_[best_index];
-  TerrainSurfaceSample best =
-      floor.floor_mesh != nullptr
-          ? sampleMeshSupport(*floor.floor_mesh, {}, cave_query, floor.min_normal_y)
-          : TerrainSurfaceSample{};
-  if (floor.portal_floor_mesh != nullptr) {
-    const TerrainSurfaceSample portal =
-        sampleMeshSupport(*floor.portal_floor_mesh, {}, cave_query, floor.min_normal_y);
-    if (!best.valid || (portal.valid && portal.height > best.height)) {
-      best = portal;
-    }
-  }
-  return best;
+  return best_floor;
 }
 
 TerrainSurfaceSample LumenRun::sampleWorldSupport(const SurfaceSupportQuery &query) const {
@@ -1008,24 +1080,56 @@ void LumenRun::enforceWorldBounds() {
     return;
   }
 
+  const auto apply_recovered_position = [&](const Vec3 position) {
+    player_position_ = position;
+    player_velocity_ = {};
+    player_render_position_ = player_position_;
+    player_render_position_valid_ = false;
+    player_avatar_pose_valid_ = false;
+    player_swimming_ = false;
+    player_swim_blend_ = 0.0f;
+    player_climbing_ = false;
+    player_climb_blend_ = 0.0f;
+    clearAvatarPointTarget();
+    invulnerability_ = std::max(invulnerability_, 0.35f);
+    if (physics_.valid(player_body_)) {
+      physics_.setPosition(player_body_, player_position_);
+      physics_.setVelocity(player_body_, {});
+    }
+  };
+
+  if (!invalid_position) {
+    TraversableManifoldSupportSample best_support{};
+    const Vec3 support_position = player_position_ - Vec3{0.0f, playerSupportExtent(), 0.0f};
+    for (const CaveFloorSupportSurface &floor : cave_floor_supports_) {
+      if (floor.manifold == nullptr) {
+        continue;
+      }
+      const TraversableManifoldSupportSample support = sampleTraversableManifoldSupport(
+          *floor.manifold,
+          {.position = support_position,
+           .actor_radius = tuning_.player_radius,
+           .max_above = 10.0f,
+           .max_below = 18.0f});
+      if (!support.valid || !support.walkable) {
+        continue;
+      }
+      if (!best_support.valid || support.lateral_clearance > best_support.lateral_clearance ||
+          (std::abs(support.lateral_clearance - best_support.lateral_clearance) <= 0.001f &&
+           support.height > best_support.height)) {
+        best_support = support;
+      }
+    }
+    if (best_support.valid) {
+      apply_recovered_position(best_support.floor_position + best_support.up * playerSupportExtent());
+      return;
+    }
+  }
+
   const TerrainSurfaceSample start_ground =
       sampleWorldSupport({{0.0f, 0.0f}, playerSupportExtent(), 0.30f, 2.0f});
-  player_position_ = {
-      0.0f, (start_ground.valid ? start_ground.height : 0.0f) + playerSupportExtent(), 0.0f};
-  player_velocity_ = {};
-  player_render_position_ = player_position_;
-  player_render_position_valid_ = false;
-  player_avatar_pose_valid_ = false;
-  player_swimming_ = false;
-  player_swim_blend_ = 0.0f;
-  player_climbing_ = false;
-  player_climb_blend_ = 0.0f;
-  clearAvatarPointTarget();
-  invulnerability_ = std::max(invulnerability_, 0.35f);
-  if (physics_.valid(player_body_)) {
-    physics_.setPosition(player_body_, player_position_);
-    physics_.setVelocity(player_body_, {});
-  }
+  apply_recovered_position(
+      {0.0f, (start_ground.valid ? start_ground.height : 0.0f) + playerSupportExtent(), 0.0f});
 }
 
 bool LumenRun::isSwimmableWater(const Vec3 support_position) const {

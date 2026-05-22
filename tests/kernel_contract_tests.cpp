@@ -4,6 +4,7 @@
 #include "aster/kernel/api.hpp"
 #include "aster/math/mat4.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <set>
 #include <sstream>
 #include <string>
@@ -115,6 +117,10 @@ static_assert(std::is_standard_layout_v<AsterRhiValidationEvent>);
 static_assert(std::is_standard_layout_v<AsterFrameTimestampSample>);
 static_assert(std::is_standard_layout_v<AsterBackendFeatureProof>);
 static_assert(std::is_standard_layout_v<AsterCaptureDesc>);
+static_assert(std::is_standard_layout_v<AsterFrameVisionProbeDesc>);
+static_assert(std::is_standard_layout_v<AsterFrameVisionProbeResult>);
+static_assert(std::is_standard_layout_v<AsterFrameLightingProbeDesc>);
+static_assert(std::is_standard_layout_v<AsterFrameLightingProbeResult>);
 static_assert(std::is_standard_layout_v<AsterVec2>);
 static_assert(std::is_standard_layout_v<AsterVec3>);
 static_assert(std::is_standard_layout_v<AsterVec4>);
@@ -203,6 +209,16 @@ std::string toString(const AsterStringView view) {
   return view.data == nullptr ? std::string() : std::string(view.data, view.size);
 }
 
+bool fileHasPngMagic(const std::filesystem::path &path) {
+  std::ifstream input(path, std::ios::binary);
+  unsigned char magic[8]{};
+  input.read(reinterpret_cast<char *>(magic), sizeof(magic));
+  const unsigned char expected[8] = {0x89u, 0x50u, 0x4eu, 0x47u,
+                                     0x0du, 0x0au, 0x1au, 0x0au};
+  return input.gcount() == static_cast<std::streamsize>(sizeof(magic)) &&
+         std::equal(std::begin(magic), std::end(magic), std::begin(expected));
+}
+
 AsterMat4 abiMat4(const aster::Mat4 &matrix) {
   AsterMat4 out{};
   std::memcpy(out.m, matrix.m.data(), sizeof(out.m));
@@ -280,7 +296,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 6u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 1u);
+  assert(version.minor == 3u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -686,6 +702,60 @@ void testRendererAbi5Lifecycle() {
                                        64u,
                                        48u,
                                        0u};
+  const std::filesystem::path early_vision_dir =
+      std::filesystem::temp_directory_path() / "aster_kernel_frame_vision_probe_early";
+  const std::string early_vision_dir_string = early_vision_dir.string();
+  const std::string early_vision_label = "before-render";
+  const AsterFrameVisionProbeDesc early_vision_desc{
+      sizeof(AsterFrameVisionProbeDesc),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      {early_vision_dir_string.data(), early_vision_dir_string.size()},
+      {early_vision_label.data(), early_vision_label.size()},
+      64u,
+      48u,
+      ASTER_FRAME_VISION_PROBE_ARTIFACT_DEFAULT,
+      0.000001f,
+      1.0f,
+      0u,
+      0u,
+      0u,
+      0.08f};
+  AsterFrameVisionProbeResult early_vision_result{sizeof(AsterFrameVisionProbeResult),
+                                                  ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_vision_probe(renderer, scene, &camera, &settings,
+                                                  &early_vision_desc, &early_vision_result)
+             .code == ASTER_STATUS_VALIDATION_ERROR);
+  const std::filesystem::path early_lighting_dir =
+      std::filesystem::temp_directory_path() / "aster_kernel_frame_lighting_probe_early";
+  const std::string early_lighting_dir_string = early_lighting_dir.string();
+  const std::string early_lighting_label = "before-render-lighting";
+  const AsterFrameLightingProbeDesc early_lighting_desc{
+      sizeof(AsterFrameLightingProbeDesc),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      {early_lighting_dir_string.data(), early_lighting_dir_string.size()},
+      {early_lighting_label.data(), early_lighting_label.size()},
+      64u,
+      48u,
+      ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_DEFAULT,
+      0.0f,
+      0.0f,
+      0u,
+      0.0f,
+      0.0f,
+      0.0f,
+      0.0f,
+      0.020f,
+      0.0025f,
+      0.050f,
+      246.0f,
+      0.0f,
+      1.0f};
+  AsterFrameLightingProbeResult early_lighting_result{
+      sizeof(AsterFrameLightingProbeResult), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_lighting_probe(renderer, scene, &camera, &settings,
+                                                    &early_lighting_desc,
+                                                    &early_lighting_result)
+             .code == ASTER_STATUS_VALIDATION_ERROR);
   AsterRenderTargetHandle target = nullptr;
   const AsterRenderTargetDesc target_desc{sizeof(AsterRenderTargetDesc),
                                           ASTER_KERNEL_STRUCT_VERSION_1,
@@ -943,7 +1013,7 @@ void testRendererAbi5Lifecycle() {
   assert(timeline_info.submitted_value >= 1u);
 
   const std::filesystem::path capture_path =
-      std::filesystem::temp_directory_path() / "aster_kernel_renderer_abi5.ppm";
+      std::filesystem::temp_directory_path() / "aster_kernel_renderer_abi6.png";
   const std::string capture_string = capture_path.string();
   const AsterCaptureDesc capture{sizeof(AsterCaptureDesc),
                                  ASTER_KERNEL_STRUCT_VERSION_1,
@@ -953,7 +1023,95 @@ void testRendererAbi5Lifecycle() {
   assert(aster_kernel_renderer_capture_render_target(renderer, target, &capture).code ==
          ASTER_STATUS_OK);
   assert(std::filesystem::exists(capture_path));
+  assert(fileHasPngMagic(capture_path));
   std::filesystem::remove(capture_path);
+
+  const std::filesystem::path vision_dir =
+      std::filesystem::temp_directory_path() / "aster_kernel_frame_vision_probe";
+  const std::string vision_dir_string = vision_dir.string();
+  const std::string vision_label = "kernel-box";
+  const AsterFrameVisionProbeDesc vision_desc{
+      sizeof(AsterFrameVisionProbeDesc),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      {vision_dir_string.data(), vision_dir_string.size()},
+      {vision_label.data(), vision_label.size()},
+      64u,
+      48u,
+      ASTER_FRAME_VISION_PROBE_ARTIFACT_DEFAULT,
+      0.000001f,
+      1.0f,
+      0u,
+      0u,
+      0u,
+      0.08f};
+  AsterFrameVisionProbeResult vision_result{sizeof(AsterFrameVisionProbeResult),
+                                            ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_vision_probe(renderer, scene, &camera, &settings,
+                                                  &vision_desc, &vision_result)
+             .code == ASTER_STATUS_OK);
+  assert(vision_result.accepted == 1u);
+  const std::filesystem::path vision_png = toString(vision_result.png_path);
+  const std::filesystem::path vision_json = toString(vision_result.json_path);
+  assert(std::filesystem::exists(vision_png));
+  assert(std::filesystem::exists(vision_json));
+  assert(fileHasPngMagic(vision_png));
+  std::filesystem::remove(vision_png);
+  std::filesystem::remove(vision_json);
+  std::filesystem::remove(vision_dir);
+
+  const std::filesystem::path lighting_dir =
+      std::filesystem::temp_directory_path() / "aster_kernel_frame_lighting_probe";
+  const std::string lighting_dir_string = lighting_dir.string();
+  const std::string lighting_label = "kernel-box-lighting";
+  AsterRendererSettings lighting_settings = presentation_settings;
+  lighting_settings.framebuffer_width = 64u;
+  lighting_settings.framebuffer_height = 48u;
+  lighting_settings.fog_strength = 0.24f;
+  lighting_settings.flags |= ASTER_KERNEL_RENDER_SETTING_VOLUMETRIC_FOG;
+  const AsterFrameLightingProbeDesc lighting_desc{
+      sizeof(AsterFrameLightingProbeDesc),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      {lighting_dir_string.data(), lighting_dir_string.size()},
+      {lighting_label.data(), lighting_label.size()},
+      64u,
+      48u,
+      ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_DEFAULT,
+      0.0f,
+      0.00001f,
+      1u,
+      0.0f,
+      0.0f,
+      0.0f,
+      0.0f,
+      0.020f,
+      0.000001f,
+      0.050f,
+      246.0f,
+      0.0f,
+      1.0f};
+  AsterFrameLightingProbeResult lighting_result{
+      sizeof(AsterFrameLightingProbeResult), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_lighting_probe(renderer, scene, &physical_camera,
+                                                    &lighting_settings, &lighting_desc,
+                                                    &lighting_result)
+             .code == ASTER_STATUS_OK);
+  assert(lighting_result.accepted == 1u);
+  assert(lighting_result.pixel_count == 64u * 48u);
+  assert(lighting_result.air_scatter_pixels > 0u);
+  assert(lighting_result.cave_light_exposure_overflow_count == 0u);
+  assert(lighting_result.cave_light_exposure_overbright_count == 0u);
+  const std::filesystem::path lighting_png = toString(lighting_result.png_path);
+  const std::filesystem::path lighting_json = toString(lighting_result.json_path);
+  const std::filesystem::path lighting_heatmap = toString(lighting_result.heatmap_png_path);
+  assert(std::filesystem::exists(lighting_png));
+  assert(std::filesystem::exists(lighting_json));
+  assert(std::filesystem::exists(lighting_heatmap));
+  assert(fileHasPngMagic(lighting_png));
+  assert(fileHasPngMagic(lighting_heatmap));
+  std::filesystem::remove(lighting_png);
+  std::filesystem::remove(lighting_json);
+  std::filesystem::remove(lighting_heatmap);
+  std::filesystem::remove(lighting_dir);
 
   AsterPresentDesc present_desc{sizeof(AsterPresentDesc), ASTER_KERNEL_STRUCT_VERSION_1, 1u, 1u};
   AsterPresentResult present_result{sizeof(AsterPresentResult), ASTER_KERNEL_STRUCT_VERSION_1};
@@ -1834,6 +1992,8 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_renderer_presentation_status",
       "aster_kernel_renderer_capture",
       "aster_kernel_renderer_capture_render_target",
+      "aster_kernel_renderer_frame_vision_probe",
+      "aster_kernel_renderer_frame_lighting_probe",
       "aster_kernel_renderer_last_stats",
       "aster_kernel_renderer_validation_event_count",
       "aster_kernel_renderer_validation_event",
@@ -1980,6 +2140,8 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_renderer_presentation_status;
   (void)&aster_kernel_renderer_capture;
   (void)&aster_kernel_renderer_capture_render_target;
+  (void)&aster_kernel_renderer_frame_vision_probe;
+  (void)&aster_kernel_renderer_frame_lighting_probe;
   (void)&aster_kernel_renderer_last_stats;
   (void)&aster_kernel_renderer_validation_event_count;
   (void)&aster_kernel_renderer_validation_event;

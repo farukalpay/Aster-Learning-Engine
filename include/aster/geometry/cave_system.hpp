@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "aster/geometry/traversable_manifold.hpp"
 #include "aster/math/vec.hpp"
 #include "aster/render/mesh.hpp"
 
@@ -118,6 +119,7 @@ struct CaveComplex {
   CpuMesh portal_floor_mesh{};
   CpuMesh floor_mesh{};
   CpuMesh collision_mesh{};
+  TraversableManifold traversable_manifold{};
   std::vector<CpuMesh> tunnel_chunks;
   std::vector<CaveOreNodePlacement> ore_nodes;
   std::vector<CaveFeaturePlacement> features;
@@ -210,7 +212,7 @@ struct CaveWallFixtureProfile {
   float normal_up_bias = -0.10f;
   float lens_offset = 0.075f;
   float light_offset = 0.18f;
-  Vec3 light_color{1.0f, 0.16f, 0.08f};
+  Vec3 light_color{1.0f, 0.78f, 0.56f};
 };
 
 struct CaveWallFixturePlacement {
@@ -218,7 +220,7 @@ struct CaveWallFixturePlacement {
   Vec3 mount_position{};
   Vec3 lens_position{};
   Vec3 light_position{};
-  Vec3 light_color{1.0f, 0.16f, 0.08f};
+  Vec3 light_color{1.0f, 0.78f, 0.56f};
   Vec3 normal{0.0f, 0.0f, 1.0f};
   Vec3 tangent{0.0f, 0.0f, -1.0f};
   Vec3 up{0.0f, 1.0f, 0.0f};

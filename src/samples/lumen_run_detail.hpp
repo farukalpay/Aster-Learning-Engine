@@ -97,9 +97,9 @@ constexpr aster::Vec3 kCaveEntrancePlanar{31.0f, 0.0f, -59.0f};
 constexpr aster::Vec3 kCaveInwardPlanar{-0.16f, 0.0f, -1.0f};
 constexpr float kCaveApproachPathWidth = 0.74f;
 constexpr std::size_t kMiningFractureShardVisualPoolSize = 28u;
-constexpr aster::Vec3 kCaveIndustrialRedLight{1.0f, 0.16f, 0.08f};
-constexpr float kAuthoredCaveFixtureIntensity = 30.0f;
-constexpr float kAuthoredCaveFixtureSourceRadius = 2.15f;
+constexpr aster::Vec3 kCaveIndustrialRedLight{1.0f, 0.78f, 0.56f};
+constexpr float kAuthoredCaveFixtureIntensity = 18.0f;
+constexpr float kAuthoredCaveFixtureSourceRadius = 1.24f;
 constexpr float kOreInteractionDistance = 2.35f;
 constexpr float kCaveWebInteractionDistance = 3.10f;
 constexpr float kCaveWebSlowScale = 0.18f;
@@ -230,9 +230,9 @@ aster::Vec3 saturatedColor(const aster::Vec3 color) {
 void applyIndustrialLensColor(aster::Material &lens_material, const aster::Vec3 color) {
   const aster::Vec3 saturated = saturatedColor(color);
   lens_material.base_color =
-      aster::LinearRgb{mixColor(saturated * 0.46f, {0.030f, 0.036f, 0.038f}, 0.16f)};
+      aster::LinearRgb{mixColor(saturated * 0.72f, {0.045f, 0.036f, 0.030f}, 0.10f)};
   lens_material.emission_color = aster::EmissionColor{saturated};
-  lens_material.emission_strength = std::max(lens_material.emission_strength, 0.64f);
+  lens_material.emission_strength = std::max(lens_material.emission_strength, 1.34f);
 }
 
 std::string placedResourceId(const std::uint64_t serial) {

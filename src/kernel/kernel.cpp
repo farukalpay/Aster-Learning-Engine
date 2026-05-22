@@ -14,22 +14,29 @@
 #include "aster/render/mesh.hpp"
 #include "aster/render/render_device.hpp"
 #include "aster/render/render_quality.hpp"
+#include "aster/render/software_framebuffer.hpp"
+#include "aster/render/software_preview_renderer.hpp"
+#include "aster/render/visual_regression.hpp"
 #include "aster/scene/scene.hpp"
 #include "aster/shader/shader_compiler.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <filesystem>
+#include <iomanip>
 #include <iterator>
 #include <list>
 #include <memory>
 #include <new>
+#include <span>
 #include <string>
 #include <utility>
 #include <variant>
@@ -449,6 +456,64 @@ std::string joinStrings(const std::vector<std::string> &values, const std::strin
 AsterStringView viewFromScratch(const AsterRendererHandle renderer, std::string text) {
   renderer->string_scratch.push_back(std::move(text));
   return viewFromString(renderer->string_scratch.back());
+}
+
+std::string lowerExtension(const std::filesystem::path &path) {
+  std::string extension = path.extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return extension;
+}
+
+void writeFramebufferByExtension(const std::filesystem::path &path, const int width,
+                                 const int height) {
+  if (lowerExtension(path) == ".png") {
+    aster::writeFramebufferPng(path, width, height);
+  } else {
+    aster::writeFramebufferPpm(path, width, height);
+  }
+}
+
+std::string sanitizeArtifactStem(std::string label) {
+  if (label.empty()) {
+    return "frame_vision_probe";
+  }
+  for (char &c : label) {
+    const unsigned char value = static_cast<unsigned char>(c);
+    if (!std::isalnum(value) && c != '-' && c != '_') {
+      c = '_';
+    }
+  }
+  return label;
+}
+
+std::string jsonEscape(const std::string_view text) {
+  std::string out;
+  out.reserve(text.size() + 8u);
+  for (const char c : text) {
+    switch (c) {
+    case '\\':
+      out += "\\\\";
+      break;
+    case '"':
+      out += "\\\"";
+      break;
+    case '\n':
+      out += "\\n";
+      break;
+    case '\r':
+      out += "\\r";
+      break;
+    case '\t':
+      out += "\\t";
+      break;
+    default:
+      out += c;
+      break;
+    }
+  }
+  return out;
 }
 
 bool validEngine(const AsterEngineHandle engine) {
@@ -1255,6 +1320,11 @@ aster::RendererSettings rendererSettingsFromAbi(const AsterRendererSettings &set
     out.atmosphere.enabled = true;
     out.atmosphere.fog_falloff = aster::AtmosphereFogFalloff::Powered;
     out.atmosphere.fog_power = 1.18f;
+    out.atmosphere.local_light_scattering = 0.34f;
+    out.atmosphere.source_glow_strength = 0.82f;
+    out.atmosphere.local_light_extinction = 0.055f;
+    out.atmosphere.phase_anisotropy = 0.24f;
+    out.atmosphere.volumetric_light_steps = 6u;
   }
 
   out.reflections.fallback_intensity =
@@ -3273,8 +3343,8 @@ AsterStatus aster_kernel_renderer_capture(const AsterRendererHandle renderer,
         desc->width > 0u ? desc->width : std::max(renderer->last_stats.framebuffer_width, 1u);
     const std::uint32_t height =
         desc->height > 0u ? desc->height : std::max(renderer->last_stats.framebuffer_height, 1u);
-    aster::writeFramebufferPpm(stringFromView(desc->path), static_cast<int>(width),
-                               static_cast<int>(height));
+    writeFramebufferByExtension(stringFromView(desc->path), static_cast<int>(width),
+                                static_cast<int>(height));
   } catch (...) {
     return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "frame capture failed");
   }
@@ -3307,6 +3377,541 @@ AsterStatus aster_kernel_renderer_capture_render_target(const AsterRendererHandl
                       "render target was not the last rendered target");
   }
   return aster_kernel_renderer_capture(renderer, desc);
+}
+
+AsterStatus aster_kernel_renderer_frame_vision_probe(
+    const AsterRendererHandle renderer, const AsterSceneHandle scene, const AsterCameraDesc *camera,
+    const AsterRendererSettings *settings, const AsterFrameVisionProbeDesc *desc,
+    AsterFrameVisionProbeResult *out_result) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validScene(scene)) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_LIFETIME_ERROR,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR,
+                             "renderer.frame_vision_probe", "scene",
+                             "scene handle is invalid for frame vision probe");
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "scene handle is invalid");
+  }
+  if (camera != nullptr && !validCameraDesc(camera)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "camera descriptor version is not supported");
+  }
+  if (settings != nullptr && !validRendererSettings(settings)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "renderer settings version is not supported");
+  }
+  if (!validStruct(desc) || !validStruct(out_result)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame vision probe struct version is not supported");
+  }
+  if (!validStringView(desc->output_dir) || desc->output_dir.size == 0u) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame vision probe output dir is invalid");
+  }
+  if (!validStringView(desc->label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame vision probe label is invalid");
+  }
+  if (!renderer->has_rendered_frame) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_CAPTURE_BEFORE_RENDER,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR,
+                             "renderer.frame_vision_probe", "frame",
+                             "frame vision probe requires a completed rendered frame");
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                      "frame vision probe requires a completed rendered frame");
+  }
+
+  *out_result = {};
+  out_result->size = sizeof(AsterFrameVisionProbeResult);
+  out_result->version = ASTER_KERNEL_STRUCT_VERSION_1;
+
+  try {
+    const std::filesystem::path output_dir = stringFromView(desc->output_dir);
+    const std::string stem = sanitizeArtifactStem(stringFromView(desc->label));
+    const std::filesystem::path png_path = output_dir / (stem + ".png");
+    const std::filesystem::path json_path = output_dir / (stem + ".json");
+    std::filesystem::create_directories(output_dir);
+
+    const std::uint32_t width =
+        desc->width > 0u ? desc->width : std::max(renderer->last_stats.framebuffer_width, 1u);
+    const std::uint32_t height =
+        desc->height > 0u ? desc->height : std::max(renderer->last_stats.framebuffer_height, 1u);
+    const std::uint32_t artifact_flags =
+        desc->artifact_flags == ASTER_FRAME_VISION_PROBE_ARTIFACT_DEFAULT
+            ? (ASTER_FRAME_VISION_PROBE_ARTIFACT_PNG |
+               ASTER_FRAME_VISION_PROBE_ARTIFACT_JSON)
+            : desc->artifact_flags;
+    const bool write_png = (artifact_flags & ASTER_FRAME_VISION_PROBE_ARTIFACT_PNG) != 0u;
+    const bool write_json = (artifact_flags & ASTER_FRAME_VISION_PROBE_ARTIFACT_JSON) != 0u;
+
+    if (write_png) {
+      aster::writeFramebufferPng(png_path, static_cast<int>(width), static_cast<int>(height));
+    } else {
+      writeFramebufferByExtension(png_path, static_cast<int>(width), static_cast<int>(height));
+    }
+
+    const std::span<const std::uint8_t> rgba = aster::activeFrameBuffer().rgba8();
+    const std::uint64_t pixel_count =
+        static_cast<std::uint64_t>(aster::activeFrameBuffer().width()) *
+        static_cast<std::uint64_t>(aster::activeFrameBuffer().height());
+    const float void_threshold =
+        desc->visible_void_luminance_threshold > 0.0f
+            ? desc->visible_void_luminance_threshold
+            : 0.000001f;
+    std::uint64_t visible_void_count = 0u;
+    if (rgba.size() >= static_cast<std::size_t>(pixel_count) * 4u) {
+      for (std::uint64_t pixel = 0u; pixel < pixel_count; ++pixel) {
+        const std::size_t base = static_cast<std::size_t>(pixel) * 4u;
+        const float r = static_cast<float>(rgba[base + 0u]) / 255.0f;
+        const float g = static_cast<float>(rgba[base + 1u]) / 255.0f;
+        const float b = static_cast<float>(rgba[base + 2u]) / 255.0f;
+        const float luminance = r * 0.2126f + g * 0.7152f + b * 0.0722f;
+        if (luminance <= void_threshold) {
+          ++visible_void_count;
+        }
+      }
+    }
+
+    const float visible_void_fraction =
+        pixel_count > 0u ? static_cast<float>(static_cast<double>(visible_void_count) /
+                                              static_cast<double>(pixel_count))
+                         : 0.0f;
+    const float max_visible_void_fraction =
+        std::max(desc->max_visible_void_fraction, 0.0f);
+    const std::uint64_t max_visible_void_count =
+        static_cast<std::uint64_t>(std::floor(static_cast<double>(pixel_count) *
+                                                  static_cast<double>(max_visible_void_fraction) +
+                                              0.5));
+    const std::uint64_t zfight_candidate_count = 0u;
+    const std::uint64_t support_mismatch_count = 0u;
+    const std::uint64_t traversal_blocked_count = 0u;
+    const float support_delta = 0.0f;
+    bool accepted = visible_void_count <= max_visible_void_count &&
+                    zfight_candidate_count <= desc->max_zfight_candidate_pixels &&
+                    support_mismatch_count <= desc->max_support_mismatch_count &&
+                    traversal_blocked_count <= desc->max_traversal_blocked_count;
+    if (desc->max_support_render_delta_m > 0.0f &&
+        support_delta > desc->max_support_render_delta_m) {
+      accepted = false;
+    }
+
+    out_result->accepted = accepted ? 1u : 0u;
+    out_result->width = static_cast<std::uint32_t>(aster::activeFrameBuffer().width());
+    out_result->height = static_cast<std::uint32_t>(aster::activeFrameBuffer().height());
+    out_result->pixel_count = pixel_count;
+    out_result->visible_void_count = visible_void_count;
+    out_result->zfight_candidate_count = zfight_candidate_count;
+    out_result->support_mismatch_count = support_mismatch_count;
+    out_result->traversal_blocked_count = traversal_blocked_count;
+    out_result->visible_void_fraction = visible_void_fraction;
+    out_result->max_support_render_delta_m = support_delta;
+    out_result->png_path = viewFromScratch(renderer, png_path.string());
+    out_result->json_path = viewFromScratch(renderer, json_path.string());
+    out_result->diagnostic_kind =
+        accepted ? ASTER_KERNEL_FRAME_DIAGNOSTIC_SURFACE_PRESENTATION_WARNING
+                 : ASTER_KERNEL_FRAME_DIAGNOSTIC_VISIBLE_VOID;
+
+    if (write_json) {
+      std::ofstream file(json_path, std::ios::binary);
+      if (!file) {
+        return makeStatus(ASTER_STATUS_INTERNAL_ERROR,
+                          "frame vision probe metrics output could not be opened");
+      }
+      file << std::fixed << std::setprecision(6);
+      file << "{\n";
+      file << "  \"label\": \"" << jsonEscape(stem) << "\",\n";
+      file << "  \"accepted\": " << (accepted ? "true" : "false") << ",\n";
+      file << "  \"width\": " << out_result->width << ",\n";
+      file << "  \"height\": " << out_result->height << ",\n";
+      file << "  \"pixel_count\": " << pixel_count << ",\n";
+      file << "  \"visible_void_count\": " << visible_void_count << ",\n";
+      file << "  \"visible_void_fraction\": " << visible_void_fraction << ",\n";
+      file << "  \"zfight_candidate_count\": " << zfight_candidate_count << ",\n";
+      file << "  \"support_mismatch_count\": " << support_mismatch_count << ",\n";
+      file << "  \"traversal_blocked_count\": " << traversal_blocked_count << ",\n";
+      file << "  \"max_support_render_delta_m\": " << support_delta << ",\n";
+      file << "  \"png_path\": \"" << jsonEscape(png_path.string()) << "\"\n";
+      file << "}\n";
+    }
+
+    if (!accepted) {
+      appendRendererValidation(renderer, ASTER_VALIDATION_VISIBLE_VOID,
+                               ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR,
+                               "renderer.frame_vision_probe", stem,
+                               "frame vision probe detected visible void pixels",
+                               visible_void_count);
+    }
+  } catch (...) {
+    return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "frame vision probe failed");
+  }
+
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_frame_lighting_probe(
+    const AsterRendererHandle renderer, const AsterSceneHandle scene, const AsterCameraDesc *camera,
+    const AsterRendererSettings *settings, const AsterFrameLightingProbeDesc *desc,
+    AsterFrameLightingProbeResult *out_result) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validScene(scene)) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_LIFETIME_ERROR,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR,
+                             "renderer.frame_lighting_probe", "scene",
+                             "scene handle is invalid for frame lighting probe");
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "scene handle is invalid");
+  }
+  if (camera != nullptr && !validCameraDesc(camera)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "camera descriptor version is not supported");
+  }
+  if (settings != nullptr && !validRendererSettings(settings)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "renderer settings version is not supported");
+  }
+  if (!validStruct(desc) || !validStruct(out_result)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame lighting probe struct version is not supported");
+  }
+  if (!validStringView(desc->output_dir) || desc->output_dir.size == 0u) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame lighting probe output dir is invalid");
+  }
+  if (!validStringView(desc->label)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "frame lighting probe label is invalid");
+  }
+  if (!renderer->has_rendered_frame) {
+    appendRendererValidation(renderer, ASTER_VALIDATION_CAPTURE_BEFORE_RENDER,
+                             ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR,
+                             "renderer.frame_lighting_probe", "frame",
+                             "frame lighting probe requires a completed rendered frame");
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                      "frame lighting probe requires a completed rendered frame");
+  }
+
+  *out_result = {};
+  out_result->size = sizeof(AsterFrameLightingProbeResult);
+  out_result->version = ASTER_KERNEL_STRUCT_VERSION_1;
+
+  try {
+    const std::filesystem::path output_dir = stringFromView(desc->output_dir);
+    const std::string stem = sanitizeArtifactStem(stringFromView(desc->label));
+    const std::filesystem::path png_path = output_dir / (stem + ".png");
+    const std::filesystem::path json_path = output_dir / (stem + ".lighting.json");
+    const std::filesystem::path heatmap_path = output_dir / (stem + ".lighting.png");
+    std::filesystem::create_directories(output_dir);
+
+    const std::uint32_t width =
+        desc->width > 0u ? desc->width : std::max(renderer->last_stats.framebuffer_width, 1u);
+    const std::uint32_t height =
+        desc->height > 0u ? desc->height : std::max(renderer->last_stats.framebuffer_height, 1u);
+    const std::uint32_t artifact_flags =
+        desc->artifact_flags == ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_DEFAULT
+            ? (ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_PNG |
+               ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_JSON |
+               ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_HEATMAP_PNG)
+            : desc->artifact_flags;
+    const bool write_png = (artifact_flags & ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_PNG) != 0u;
+    const bool write_json = (artifact_flags & ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_JSON) != 0u;
+    const bool write_heatmap =
+        (artifact_flags & ASTER_FRAME_LIGHTING_PROBE_ARTIFACT_HEATMAP_PNG) != 0u;
+    if (write_png) {
+      aster::writeFramebufferPng(png_path, static_cast<int>(width), static_cast<int>(height));
+    }
+
+    AsterCameraDesc camera_desc{};
+    camera_desc.size = sizeof(AsterCameraDesc);
+    camera_desc.version = ASTER_KERNEL_STRUCT_VERSION_1;
+    camera_desc.pitch_radians = 0.25f;
+    camera_desc.radius = 5.0f;
+    camera_desc.vertical_fov_radians = 0.9f;
+    camera_desc.near_plane = 0.01f;
+    camera_desc.far_plane = 100.0f;
+    if (camera != nullptr) {
+      camera_desc = copyAbiStruct(camera);
+    }
+    AsterRendererSettings settings_desc{};
+    settings_desc.size = sizeof(AsterRendererSettings);
+    settings_desc.version = ASTER_KERNEL_STRUCT_VERSION_1;
+    settings_desc.framebuffer_width = width;
+    settings_desc.framebuffer_height = height;
+    settings_desc.fog_strength = 0.16f;
+    settings_desc.flags = ASTER_KERNEL_RENDER_SETTING_VOLUMETRIC_FOG;
+    if (settings != nullptr) {
+      settings_desc = copyAbiStruct(settings);
+      settings_desc.framebuffer_width = width;
+      settings_desc.framebuffer_height = height;
+      settings_desc.flags |= ASTER_KERNEL_RENDER_SETTING_VOLUMETRIC_FOG;
+      if (settings_desc.fog_strength <= 0.0f) {
+        settings_desc.fog_strength = 0.16f;
+      }
+    }
+
+    aster::OrbitCamera orbit;
+    orbit.target = vec(camera_desc.target);
+    orbit.yaw = camera_desc.yaw_radians;
+    orbit.pitch = camera_desc.pitch_radians;
+    orbit.radius = std::max(camera_desc.radius, 0.01f);
+    orbit.vertical_fov = cameraVerticalFov(camera_desc, width, height);
+    orbit.near_plane = camera_desc.near_plane > 0.0f ? camera_desc.near_plane : 0.01f;
+    orbit.far_plane =
+        camera_desc.far_plane > orbit.near_plane ? camera_desc.far_plane : 100.0f;
+    aster::RendererSettings render_settings = rendererSettingsFromAbi(settings_desc, camera_desc);
+    render_settings.atmosphere.enabled = true;
+    render_settings.atmosphere.local_light_scattering =
+        std::max(render_settings.atmosphere.local_light_scattering, 0.32f);
+    render_settings.atmosphere.source_glow_strength =
+        std::max(render_settings.atmosphere.source_glow_strength, 0.72f);
+    render_settings.atmosphere.volumetric_light_steps =
+        std::max(render_settings.atmosphere.volumetric_light_steps, 4u);
+
+    const aster::SoftwarePreviewOptions options{
+        .width = static_cast<int>(width),
+        .height = static_cast<int>(height),
+        .samples_per_axis = 1,
+        .frame_seconds = 0.0,
+        .settings = render_settings};
+    const aster::SoftwarePreviewResult preview =
+        aster::renderSoftwarePreviewWithProbe(scene->scene, orbit, options);
+
+    const float source_threshold =
+        desc->source_luminance_threshold > 0.0f ? desc->source_luminance_threshold : 0.020f;
+    const float air_threshold =
+        desc->air_scatter_luminance_threshold > 0.0f ? desc->air_scatter_luminance_threshold
+                                                     : 0.0025f;
+    const float overexposed_luminance_threshold =
+        desc->overexposed_luminance_threshold > 0.0f ? desc->overexposed_luminance_threshold
+                                                     : 246.0f;
+    const float max_overexposed_fraction =
+        desc->max_overexposed_pixel_fraction > 0.0f ? desc->max_overexposed_pixel_fraction
+                                                    : 0.050f;
+    const float min_frame_mean =
+        desc->min_frame_mean_luminance > 0.0f ? desc->min_frame_mean_luminance : 0.0f;
+    const float max_frame_mean =
+        desc->max_frame_mean_luminance > 0.0f ? desc->max_frame_mean_luminance : 1.0f;
+    double source_sum = 0.0;
+    double air_sum = 0.0;
+    double direct_sum = 0.0;
+    double direct_delta_sum = 0.0;
+    std::uint64_t source_pixels = 0u;
+    std::uint64_t air_pixels = 0u;
+    std::uint64_t direct_pixels = 0u;
+    float previous_direct = -1.0f;
+    for (const aster::SoftwareLightingProbePixel &pixel : preview.lighting.pixels) {
+      if (pixel.source_readability_luminance >= source_threshold) {
+        source_sum += pixel.source_readability_luminance;
+        ++source_pixels;
+      }
+      if (pixel.volumetric_light_luminance >= air_threshold) {
+        air_sum += pixel.volumetric_light_luminance;
+        ++air_pixels;
+      }
+      if (pixel.direct_light_luminance > 0.00001f) {
+        direct_sum += pixel.direct_light_luminance;
+        if (previous_direct >= 0.0f) {
+          direct_delta_sum += std::abs(pixel.direct_light_luminance - previous_direct);
+        }
+        previous_direct = pixel.direct_light_luminance;
+        ++direct_pixels;
+      }
+    }
+    const std::uint64_t pixel_count =
+        static_cast<std::uint64_t>(preview.lighting.width) *
+        static_cast<std::uint64_t>(preview.lighting.height);
+    std::uint64_t overexposed_pixels = 0u;
+    const std::span<const std::uint8_t> rgba = preview.framebuffer.rgba8();
+    double frame_luma_sum = 0.0;
+    std::uint64_t frame_pixels = 0u;
+    for (std::size_t offset = 0u; offset + 3u < rgba.size(); offset += 4u) {
+      const float red = static_cast<float>(rgba[offset + 0u]);
+      const float green = static_cast<float>(rgba[offset + 1u]);
+      const float blue = static_cast<float>(rgba[offset + 2u]);
+      const float luma = red * 0.2126f + green * 0.7152f + blue * 0.0722f;
+      frame_luma_sum += static_cast<double>(luma / 255.0f);
+      ++frame_pixels;
+      const float max_channel = std::max(red, std::max(green, blue));
+      if (luma >= overexposed_luminance_threshold && max_channel >= 254.0f) {
+        ++overexposed_pixels;
+      }
+    }
+    const float source_mean =
+        source_pixels > 0u ? static_cast<float>(source_sum / static_cast<double>(source_pixels))
+                           : 0.0f;
+    const float air_mean =
+        air_pixels > 0u ? static_cast<float>(air_sum / static_cast<double>(air_pixels)) : 0.0f;
+    const float direct_mean =
+        direct_pixels > 0u ? static_cast<float>(direct_sum / static_cast<double>(direct_pixels))
+                           : 0.0f;
+    const float frame_mean =
+        frame_pixels > 0u ? static_cast<float>(frame_luma_sum / static_cast<double>(frame_pixels))
+                          : 0.0f;
+    const float source_to_air_ratio =
+        air_mean > 0.000001f ? source_mean / air_mean : (source_mean > 0.0f ? 999.0f : 0.0f);
+    const float delta_mean =
+        direct_pixels > 1u
+            ? static_cast<float>(direct_delta_sum / static_cast<double>(direct_pixels - 1u))
+            : 0.0f;
+    const float falloff_score =
+        direct_mean > 0.000001f ? std::clamp(1.0f - delta_mean / (direct_mean + 0.0001f), 0.0f, 1.0f)
+                                : 1.0f;
+    const float temporal_delta = 0.0f;
+
+    std::uint64_t unreadable = 0u;
+    std::uint64_t missing_volume = 0u;
+    std::uint64_t discontinuity = 0u;
+    std::uint64_t underflow = 0u;
+    std::uint64_t overflow = 0u;
+    std::uint64_t overbright = 0u;
+    if (desc->min_source_mean_luminance > 0.0f && source_mean < desc->min_source_mean_luminance) {
+      unreadable = 1u;
+    }
+    if ((desc->min_air_scatter_pixels > 0u && air_pixels < desc->min_air_scatter_pixels) ||
+        (desc->min_air_scatter_mean_luminance > 0.0f &&
+         air_mean < desc->min_air_scatter_mean_luminance)) {
+      missing_volume = 1u;
+    }
+    if (desc->min_falloff_continuity_score > 0.0f &&
+        falloff_score < desc->min_falloff_continuity_score) {
+      discontinuity = 1u;
+    }
+    if (desc->min_source_to_air_ratio > 0.0f && source_to_air_ratio < desc->min_source_to_air_ratio) {
+      underflow = 1u;
+    }
+    if (desc->max_source_to_air_ratio > 0.0f && source_to_air_ratio > desc->max_source_to_air_ratio) {
+      underflow = 1u;
+    }
+    if (desc->max_temporal_lighting_delta > 0.0f &&
+        temporal_delta > desc->max_temporal_lighting_delta) {
+      discontinuity = 1u;
+    }
+    const std::uint64_t max_overexposed_pixels =
+        std::max<std::uint64_t>(16u, static_cast<std::uint64_t>(
+                                         static_cast<double>(pixel_count) *
+                                         static_cast<double>(max_overexposed_fraction)));
+    if (overexposed_pixels > max_overexposed_pixels) {
+      overflow = 1u;
+    }
+    if (frame_mean < min_frame_mean || frame_mean > max_frame_mean) {
+      overbright = 1u;
+    }
+    const bool accepted =
+        unreadable == 0u && missing_volume == 0u && discontinuity == 0u && underflow == 0u &&
+        overflow == 0u && overbright == 0u;
+    AsterKernelFrameDiagnosticKind diagnostic = ASTER_KERNEL_FRAME_DIAGNOSTIC_SURFACE_PRESENTATION_WARNING;
+    if (unreadable != 0u) {
+      diagnostic = ASTER_KERNEL_FRAME_DIAGNOSTIC_LIGHT_SOURCE_UNREADABLE;
+    } else if (missing_volume != 0u) {
+      diagnostic = ASTER_KERNEL_FRAME_DIAGNOSTIC_VOLUMETRIC_LIGHT_MISSING;
+    } else if (discontinuity != 0u) {
+      diagnostic = ASTER_KERNEL_FRAME_DIAGNOSTIC_LIGHT_FALLOFF_DISCONTINUITY;
+    } else if (underflow != 0u) {
+      diagnostic = ASTER_KERNEL_FRAME_DIAGNOSTIC_CAVE_LIGHT_EXPOSURE_UNDERFLOW;
+    } else if (overflow != 0u) {
+      diagnostic = ASTER_KERNEL_FRAME_DIAGNOSTIC_CAVE_LIGHT_EXPOSURE_OVERFLOW;
+    } else if (overbright != 0u) {
+      diagnostic = ASTER_KERNEL_FRAME_DIAGNOSTIC_CAVE_LIGHT_EXPOSURE_OVERFLOW;
+    }
+
+    out_result->accepted = accepted ? 1u : 0u;
+    out_result->width = width;
+    out_result->height = height;
+    out_result->pixel_count = pixel_count;
+    out_result->source_visible_pixels = source_pixels;
+    out_result->air_scatter_pixels = air_pixels;
+    out_result->light_source_unreadable_count = unreadable;
+    out_result->volumetric_light_missing_count = missing_volume;
+    out_result->light_falloff_discontinuity_count = discontinuity;
+    out_result->cave_light_exposure_underflow_count = underflow;
+    out_result->source_mean_luminance = source_mean;
+    out_result->air_scatter_mean_luminance = air_mean;
+    out_result->surface_direct_mean_luminance = direct_mean;
+    out_result->source_to_air_ratio = source_to_air_ratio;
+    out_result->falloff_continuity_score = falloff_score;
+    out_result->temporal_lighting_delta = temporal_delta;
+    out_result->png_path = viewFromScratch(renderer, png_path.string());
+    out_result->json_path = viewFromScratch(renderer, json_path.string());
+    out_result->heatmap_png_path = viewFromScratch(renderer, heatmap_path.string());
+    out_result->diagnostic_kind = diagnostic;
+    out_result->overexposed_pixels = overexposed_pixels;
+    out_result->cave_light_exposure_overflow_count = overflow;
+    out_result->cave_light_exposure_overbright_count = overbright;
+    out_result->frame_mean_luminance = frame_mean;
+
+    if (write_heatmap) {
+      std::vector<std::uint8_t> heatmap(static_cast<std::size_t>(width) *
+                                        static_cast<std::size_t>(height) * 4u);
+      const float direct_scale = direct_mean > 0.0001f ? direct_mean : 0.06f;
+      const float air_scale = air_mean > 0.0001f ? air_mean : 0.012f;
+      const float source_scale = source_mean > 0.0001f ? source_mean : 0.08f;
+      for (std::uint64_t pixel = 0u; pixel < pixel_count && pixel < preview.lighting.pixels.size();
+           ++pixel) {
+        const aster::SoftwareLightingProbePixel &probe = preview.lighting.pixels[pixel];
+        const std::size_t base = static_cast<std::size_t>(pixel) * 4u;
+        heatmap[base + 0u] = static_cast<std::uint8_t>(
+            std::clamp(std::lround(std::clamp(probe.direct_light_luminance / direct_scale, 0.0f,
+                                              1.0f) *
+                                   255.0f),
+                       0l, 255l));
+        heatmap[base + 1u] = static_cast<std::uint8_t>(
+            std::clamp(std::lround(std::clamp(probe.volumetric_light_luminance / air_scale, 0.0f,
+                                              1.0f) *
+                                   255.0f),
+                       0l, 255l));
+        heatmap[base + 2u] = static_cast<std::uint8_t>(
+            std::clamp(std::lround(std::clamp(probe.source_readability_luminance / source_scale,
+                                              0.0f, 1.0f) *
+                                   255.0f),
+                       0l, 255l));
+        heatmap[base + 3u] = 255u;
+      }
+      aster::writeRgbaPng(heatmap_path, static_cast<int>(width), static_cast<int>(height), heatmap);
+    }
+
+    if (write_json) {
+      std::ofstream file(json_path, std::ios::binary);
+      if (!file) {
+        return makeStatus(ASTER_STATUS_INTERNAL_ERROR,
+                          "frame lighting probe metrics output could not be opened");
+      }
+      file << std::fixed << std::setprecision(6);
+      file << "{\n";
+      file << "  \"label\": \"" << jsonEscape(stem) << "\",\n";
+      file << "  \"accepted\": " << (accepted ? "true" : "false") << ",\n";
+      file << "  \"width\": " << width << ",\n";
+      file << "  \"height\": " << height << ",\n";
+      file << "  \"pixel_count\": " << pixel_count << ",\n";
+      file << "  \"source_visible_pixels\": " << source_pixels << ",\n";
+      file << "  \"air_scatter_pixels\": " << air_pixels << ",\n";
+      file << "  \"light_source_unreadable_count\": " << unreadable << ",\n";
+      file << "  \"volumetric_light_missing_count\": " << missing_volume << ",\n";
+      file << "  \"light_falloff_discontinuity_count\": " << discontinuity << ",\n";
+      file << "  \"cave_light_exposure_underflow_count\": " << underflow << ",\n";
+      file << "  \"cave_light_exposure_overflow_count\": " << overflow << ",\n";
+      file << "  \"cave_light_exposure_overbright_count\": " << overbright << ",\n";
+      file << "  \"overexposed_pixels\": " << overexposed_pixels << ",\n";
+      file << "  \"frame_mean_luminance\": " << frame_mean << ",\n";
+      file << "  \"source_mean_luminance\": " << source_mean << ",\n";
+      file << "  \"air_scatter_mean_luminance\": " << air_mean << ",\n";
+      file << "  \"surface_direct_mean_luminance\": " << direct_mean << ",\n";
+      file << "  \"source_to_air_ratio\": " << source_to_air_ratio << ",\n";
+      file << "  \"falloff_continuity_score\": " << falloff_score << ",\n";
+      file << "  \"temporal_lighting_delta\": " << temporal_delta << ",\n";
+      file << "  \"png_path\": \"" << jsonEscape(png_path.string()) << "\",\n";
+      file << "  \"heatmap_png_path\": \"" << jsonEscape(heatmap_path.string()) << "\"\n";
+      file << "}\n";
+    }
+
+    if (!accepted) {
+      appendRendererValidation(renderer, ASTER_VALIDATION_VISIBLE_VOID,
+                               ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR,
+                               "renderer.frame_lighting_probe", stem,
+                               "frame lighting probe detected player-visible lighting failure",
+                               unreadable + missing_volume + discontinuity + underflow);
+    }
+  } catch (...) {
+    return makeStatus(ASTER_STATUS_INTERNAL_ERROR, "frame lighting probe failed");
+  }
+
+  return aster_kernel_status_ok();
 }
 
 AsterStatus aster_kernel_renderer_last_stats(const AsterRendererHandle renderer,

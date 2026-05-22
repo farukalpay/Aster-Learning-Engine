@@ -381,6 +381,7 @@ private:
 
   struct CaveFloorSupportSurface {
     CaveTunnelProfile tunnel{};
+    std::shared_ptr<const TraversableManifold> manifold{};
     std::shared_ptr<const CpuMesh> floor_mesh{};
     std::shared_ptr<const CpuMesh> portal_floor_mesh{};
     float min_normal_y = 0.30f;

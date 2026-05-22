@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace aster {
@@ -35,6 +37,7 @@ struct Hit {
   Vec3 tangent{1.0f, 0.0f, 0.0f};
   Vec2 uv{};
   Material material{};
+  std::uint64_t object_label_hash = 0u;
 };
 
 struct TraceTriangle {
@@ -133,6 +136,15 @@ Vec3 applyRenderStylePost(Vec3 color, const RenderStyleProfile &style) {
   return color;
 }
 
+std::uint64_t stableLabelHash(const std::string_view text) {
+  std::uint64_t hash = 1469598103934665603ull;
+  for (const char c : text) {
+    hash ^= static_cast<unsigned char>(c);
+    hash *= 1099511628211ull;
+  }
+  return hash;
+}
+
 float hash31(Vec3 p) {
   p = {fractValue(p.x * 0.1031f), fractValue(p.y * 0.11369f), fractValue(p.z * 0.13787f)};
   const float d = p.x * (p.y + 19.19f) + p.y * (p.z + 19.19f) + p.z * (p.x + 19.19f);
@@ -195,6 +207,17 @@ float projectedFbm(const Vec3 world_position, const Vec3 normal, const float sca
 
 float luminanceOf(const Vec3 color) {
   return color.x * 0.2126f + color.y * 0.7152f + color.z * 0.0722f;
+}
+
+Vec3 compressLocalRadiance(const Vec3 radiance, const float soft_limit) {
+  const float limit = std::max(soft_limit, 0.0001f);
+  const float luma = std::max(luminanceOf(radiance), 0.0f);
+  if (luma <= limit) {
+    return radiance;
+  }
+  const float overflow = (luma - limit) / limit;
+  const float compressed_luma = limit * (1.0f + (1.0f - std::exp(-overflow)) * 0.55f);
+  return radiance * (compressed_luma / std::max(luma, 0.0001f));
 }
 
 Vec3 applyAtmosphereGrade(Vec3 color, const AtmosphereSettings &atmosphere) {
@@ -580,6 +603,7 @@ bool intersectPreparedMesh(const Ray &ray, const PreparedObject &prepared, Hit &
     hit.tangent = length(tangent) > 0.0001f ? normalize(tangent) : Vec3{1.0f, 0.0f, 0.0f};
     hit.uv = triangle.uva * w + triangle.uvb * u + triangle.uvc * v;
     hit.material = prepared.object.material;
+    hit.object_label_hash = stableLabelHash(prepared.object.name);
     found = true;
   }
   return found;
@@ -1379,6 +1403,159 @@ float directionalShadowVisibility(const Hit &hit, const std::vector<PreparedObje
   return 1.0f - penumbra;
 }
 
+float pointLightVisibility(const Vec3 position, const Light &light,
+                           const std::vector<PreparedObject> &scene) {
+  const Vec3 to_light = light.position - position;
+  const float distance = length(to_light);
+  if (distance <= 0.035f) {
+    return 1.0f;
+  }
+  const Vec3 direction = to_light / distance;
+  const Ray visibility_ray{position + direction * 0.035f, direction};
+  return traceShadowRay(visibility_ray, scene, std::max(distance - 0.08f, 0.02f)) ? 0.18f : 1.0f;
+}
+
+Vec3 pointLightRadianceAt(const Vec3 position, const Light &light,
+                          const std::vector<PreparedObject> &scene,
+                          const bool include_visibility) {
+  if (light.intensity <= 0.0f) {
+    return {};
+  }
+  const Vec3 light_vector = light.position - position;
+  const float distance_sq = std::max(dot(light_vector, light_vector), 0.0001f);
+  const float softened_distance =
+      std::max(distance_sq, light.source_radius * light.source_radius + 0.0001f);
+  const float visibility = include_visibility ? pointLightVisibility(position, light, scene) : 1.0f;
+  return light.color * (light.intensity / softened_distance) * visibility;
+}
+
+struct VolumetricLightSample {
+  Vec3 radiance{};
+  float occlusion = 1.0f;
+  float transmittance = 1.0f;
+  std::uint64_t source_label_hash = 0u;
+};
+
+VolumetricLightSample integrateLocalVolumetricLight(const Ray &ray, const float max_distance,
+                                                    const RendererSettings &settings,
+                                                    const std::vector<PreparedObject> &scene) {
+  (void)scene;
+  VolumetricLightSample out;
+  if (!settings.atmosphere.enabled || settings.atmosphere.fog_strength <= 0.0f ||
+      settings.light_rig.empty()) {
+    return out;
+  }
+  const float integration_distance =
+      std::clamp(max_distance > 0.0f ? max_distance : settings.atmosphere.fog_end,
+                 0.25f, std::max(settings.atmosphere.fog_end, 0.25f));
+  const std::uint32_t steps =
+      std::clamp(settings.atmosphere.volumetric_light_steps, 2u, 12u);
+  const float step_length = integration_distance / static_cast<float>(steps);
+  const float density =
+      std::clamp(settings.atmosphere.fog_strength * settings.atmosphere.local_light_scattering,
+                 0.0f, 0.85f);
+  if (density <= 0.00001f || step_length <= 0.00001f) {
+    out.transmittance = 1.0f;
+    return out;
+  }
+
+  const Vec3 light_reference = ray.origin + ray.direction * (integration_distance * 0.48f);
+  const std::vector<Light> active_lights =
+      selectRenderLights(settings.light_rig, light_reference, settings.light_policy);
+  float accumulated_visibility = 0.0f;
+  float visibility_weight = 0.0f;
+  float transmittance = 1.0f;
+  float strongest_source = 0.0f;
+  for (std::uint32_t step = 0u; step < steps; ++step) {
+    const float t = (static_cast<float>(step) + 0.5f) * step_length;
+    const Vec3 sample_position = ray.origin + ray.direction * t;
+    Vec3 scatter{};
+    float step_visibility = 0.0f;
+    float step_weight = 0.0f;
+    for (const Light &light : active_lights) {
+      if (light.intensity <= 0.0f) {
+        continue;
+      }
+      const Vec3 to_light = light.position - sample_position;
+      const float distance_sq = std::max(dot(to_light, to_light), 0.0001f);
+      const float light_distance = std::sqrt(distance_sq);
+      const Vec3 light_dir = to_light / std::max(light_distance, 0.0001f);
+      const float radius = std::max(light.source_radius, 0.08f);
+      const float softened = std::max(distance_sq, radius * radius);
+      const float visibility = 1.0f;
+      const float cos_theta = dot(-ray.direction, light_dir);
+      const float g = std::clamp(settings.atmosphere.phase_anisotropy, -0.65f, 0.65f);
+      const float phase = (1.0f - g * g) /
+                          std::max(1.0f + g * g - 2.0f * g * cos_theta, 0.08f);
+      const float source_core =
+          1.0f - smoothstep(radius * radius * 0.18f, radius * radius * 3.8f, distance_sq);
+      const float phase_weight = std::clamp(phase * 0.055f, 0.008f, 0.090f);
+      const Vec3 medium_color = mixVec(light.color, Vec3{1.0f, 0.78f, 0.58f}, 0.38f);
+      const Vec3 radiance =
+          medium_color * (light.intensity / softened) * visibility *
+          (0.014f + phase_weight +
+           source_core * settings.atmosphere.source_glow_strength * 0.10f);
+      scatter = scatter + radiance;
+      const float weight = std::max(luminanceOf(radiance), 0.0f);
+      step_visibility += visibility * weight;
+      step_weight += weight;
+      if (weight > strongest_source) {
+        strongest_source = weight;
+        out.source_label_hash = stableLabelHash("software-light-source");
+      }
+    }
+    const float extinction =
+        std::clamp(settings.atmosphere.local_light_extinction, 0.0f, 4.0f) * density;
+    const float attenuation = std::exp(-extinction * t);
+    out.radiance = out.radiance + scatter * (density * step_length * 0.22f * attenuation);
+    transmittance *= std::exp(-extinction * step_length);
+    if (step_weight > 0.0f) {
+      accumulated_visibility += step_visibility;
+      visibility_weight += step_weight;
+    }
+  }
+  out.transmittance = std::clamp(transmittance, 0.0f, 1.0f);
+  out.occlusion = visibility_weight > 0.0f
+                      ? std::clamp(accumulated_visibility / visibility_weight, 0.0f, 1.0f)
+                      : 1.0f;
+  out.radiance =
+      compressLocalRadiance(out.radiance,
+                            0.24f + settings.atmosphere.source_glow_strength * 0.028f);
+  return out;
+}
+
+SoftwareLightingProbePixel lightingProbeForRay(const Ray &ray, const Hit &hit,
+                                               const RendererSettings &settings,
+                                               const std::vector<PreparedObject> &scene) {
+  SoftwareLightingProbePixel out;
+  const float max_distance = hit.valid ? hit.distance : std::max(settings.atmosphere.fog_end, 8.0f);
+  const VolumetricLightSample volumetric =
+      integrateLocalVolumetricLight(ray, max_distance, settings, scene);
+  out.volumetric_light_luminance = luminanceOf(volumetric.radiance);
+  out.occlusion = volumetric.occlusion;
+  out.transmittance = volumetric.transmittance;
+  out.source_label_hash = volumetric.source_label_hash;
+  if (!hit.valid) {
+    return out;
+  }
+  Vec3 direct{};
+  for (const Light &light : selectRenderLights(settings.light_rig, hit.position, settings.light_policy)) {
+    direct = direct + pointLightRadianceAt(hit.position, light, scene, true);
+  }
+  out.direct_light_luminance = luminanceOf(direct);
+  const Vec3 emissive =
+      hit.material.emission_color.value * hit.material.emission_strength *
+      std::max(settings.style.emissive_gain, 0.0f);
+  out.emissive_luminance = luminanceOf(emissive);
+  if (out.emissive_luminance > 0.001f) {
+    out.source_readability_luminance = out.emissive_luminance;
+    out.source_label_hash = hit.object_label_hash;
+  } else {
+    out.source_readability_luminance = out.direct_light_luminance + out.volumetric_light_luminance;
+  }
+  return out;
+}
+
 Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings,
            const std::vector<PreparedObject> &scene,
            const std::vector<ReflectionProbe> &probes) {
@@ -1589,7 +1766,13 @@ Vec3 shade(const Hit &hit, const Ray &ray, const RendererSettings &settings,
   }
   if (settings.atmosphere.enabled) {
     const float fog = evaluateFogFactor(settings.atmosphere, length(ray.origin - hit.position));
-    color = mixVec(color, settings.atmosphere.fog_color, fog);
+    const VolumetricLightSample volumetric =
+        integrateLocalVolumetricLight(ray, hit.distance, settings, scene);
+    const Vec3 display_volume =
+        compressLocalRadiance(volumetric.radiance,
+                              0.16f + settings.atmosphere.source_glow_strength * 0.022f);
+    const Vec3 light_aware_fog = settings.atmosphere.fog_color + display_volume * 0.36f;
+    color = mixVec(color + display_volume * 0.34f, light_aware_fog, fog);
   }
   color = aces_tonemap(color * settings.exposure);
   color = applyAtmosphereGrade(color, settings.atmosphere);
@@ -1635,8 +1818,9 @@ Vec3 skyColor(const Ray &ray, const RendererSettings &settings,
 
 } // namespace
 
-SoftwareFrameBuffer renderSoftwarePreview(const Scene &scene, const OrbitCamera &camera,
-                                          const SoftwarePreviewOptions &options) {
+SoftwarePreviewResult renderSoftwarePreviewWithProbe(const Scene &scene,
+                                                     const OrbitCamera &camera,
+                                                     const SoftwarePreviewOptions &options) {
   if (options.width <= 0 || options.height <= 0) {
     throw std::invalid_argument("Software preview dimensions must be positive.");
   }
@@ -1648,10 +1832,23 @@ SoftwareFrameBuffer renderSoftwarePreview(const Scene &scene, const OrbitCamera 
   const std::vector<ReflectionProbe> &reflection_probes = scene.reflectionProbes();
   std::vector<std::uint8_t> rgba(static_cast<std::size_t>(options.width) *
                                  static_cast<std::size_t>(options.height) * 4u);
+  SoftwarePreviewProbeBuffer probe;
+  probe.width = options.width;
+  probe.height = options.height;
+  probe.pixels.resize(static_cast<std::size_t>(options.width) *
+                      static_cast<std::size_t>(options.height));
+  SoftwareLightingProbeBuffer lighting;
+  lighting.width = options.width;
+  lighting.height = options.height;
+  lighting.pixels.resize(static_cast<std::size_t>(options.width) *
+                         static_cast<std::size_t>(options.height));
 
   for (int y = 0; y < options.height; ++y) {
     for (int x = 0; x < options.width; ++x) {
       Vec3 accumulated{};
+      SoftwarePreviewProbePixel probe_pixel;
+      probe_pixel.distance = std::numeric_limits<float>::max();
+      SoftwareLightingProbePixel lighting_pixel;
       for (int sy = 0; sy < samples_per_axis; ++sy) {
         for (int sx = 0; sx < samples_per_axis; ++sx) {
           const float sample_x =
@@ -1664,6 +1861,19 @@ SoftwareFrameBuffer renderSoftwarePreview(const Scene &scene, const OrbitCamera 
                                              static_cast<float>(options.height)}});
           const Ray ray{camera_ray.origin.value, camera_ray.direction.value};
           const Hit hit = trace(ray, prepared_scene);
+          if (hit.valid && (probe_pixel.hit == 0u || hit.distance < probe_pixel.distance)) {
+            probe_pixel.hit = 1u;
+            probe_pixel.distance = hit.distance;
+            probe_pixel.world_position = hit.position;
+            probe_pixel.normal = hit.normal;
+            probe_pixel.render_role = hit.material.render_role;
+            probe_pixel.depth_layer = hit.material.depth_policy.layer;
+            probe_pixel.object_label_hash = hit.object_label_hash;
+            lighting_pixel = lightingProbeForRay(ray, hit, options.settings, prepared_scene);
+          }
+          if (!hit.valid && probe_pixel.hit == 0u) {
+            lighting_pixel = lightingProbeForRay(ray, hit, options.settings, prepared_scene);
+          }
           accumulated = accumulated +
                         (hit.valid ? shade(hit, ray, options.settings, prepared_scene,
                                            reflection_probes)
@@ -1679,12 +1889,26 @@ SoftwareFrameBuffer renderSoftwarePreview(const Scene &scene, const OrbitCamera 
       rgba[base + 1u] = toByte(color.y);
       rgba[base + 2u] = toByte(color.z);
       rgba[base + 3u] = 255u;
+      if (probe_pixel.hit == 0u) {
+        probe_pixel.distance = 0.0f;
+      }
+      probe.pixels[static_cast<std::size_t>(y) * static_cast<std::size_t>(options.width) +
+                   static_cast<std::size_t>(x)] = probe_pixel;
+      lighting.pixels[static_cast<std::size_t>(y) * static_cast<std::size_t>(options.width) +
+                      static_cast<std::size_t>(x)] = lighting_pixel;
     }
   }
 
-  SoftwareFrameBuffer framebuffer;
-  framebuffer.replaceRgba8(options.width, options.height, rgba);
-  return framebuffer;
+  SoftwarePreviewResult result;
+  result.framebuffer.replaceRgba8(options.width, options.height, rgba);
+  result.probe = std::move(probe);
+  result.lighting = std::move(lighting);
+  return result;
+}
+
+SoftwareFrameBuffer renderSoftwarePreview(const Scene &scene, const OrbitCamera &camera,
+                                          const SoftwarePreviewOptions &options) {
+  return renderSoftwarePreviewWithProbe(scene, camera, options).framebuffer;
 }
 
 } // namespace aster
