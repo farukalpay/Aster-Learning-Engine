@@ -5,6 +5,8 @@
 
 #include "aster/core/config.hpp"
 #include "aster/core/belief_extraction.hpp"
+#include "aster/graphics_core7/graphics_core7.hpp"
+#include "aster/graphics_core7/visual_delta_classifier.hpp"
 #include "aster/platform/window.hpp"
 #include "aster/render/frame_capture.hpp"
 #include "aster/render/render_device.hpp"
@@ -883,6 +885,60 @@ void testBackendCapabilityTableContracts() {
   }
 }
 
+std::string jsonEscapedString(const std::string_view text) {
+  std::string out = "\"";
+  for (const char c : text) {
+    if (c == '"' || c == '\\') {
+      out.push_back('\\');
+    }
+    if (c == '\n') {
+      out += "\\n";
+    } else {
+      out.push_back(c);
+    }
+  }
+  out.push_back('"');
+  return out;
+}
+
+bool graphicsCore7SignalIsProven(const aster::FrameForensics &forensics,
+                                 const aster::graphics_core7::Signal signal) {
+  return std::any_of(forensics.graphics_core7_signals.begin(),
+                     forensics.graphics_core7_signals.end(),
+                     [signal](const aster::graphics_core7::SignalEvidence &evidence) {
+                       return evidence.signal == signal &&
+                              evidence.status == aster::graphics_core7::SignalStatus::Proven;
+                     });
+}
+
+void writeGoldenDeltaClassification(
+    const std::filesystem::path &root, const std::string &label,
+    const aster::graphics_core7::VisualDeltaClassification &classification,
+    const LabRenderResult &result) {
+  std::ostringstream json;
+  json << "{\n"
+       << "  \"label\": " << jsonEscapedString(label) << ",\n"
+       << "  \"root_cause\": "
+       << jsonEscapedString(aster::graphics_core7::visualDeltaRootCauseName(
+              classification.root_cause))
+       << ",\n"
+       << "  \"failed_budget\": " << (classification.failed_budget ? "true" : "false")
+       << ",\n"
+       << "  \"mean_abs_error\": " << classification.mean_abs_error << ",\n"
+       << "  \"max_abs_error\": " << classification.max_abs_error << ",\n"
+       << "  \"differing_pixel_ratio\": " << classification.differing_pixel_ratio << ",\n"
+       << "  \"gc7_verdict\": "
+       << jsonEscapedString(aster::graphics_core7::verdictStatusName(
+              result.forensics.graphics_core7_verdict.status))
+       << ",\n"
+       << "  \"backend_certification_valid\": "
+       << (result.forensics.certification.valid ? "true" : "false") << ",\n"
+       << "  \"message\": " << jsonEscapedString(classification.message) << ",\n"
+       << "  \"evidence_hash\": " << classification.evidence_hash << "\n"
+       << "}\n";
+  writeTextFile(root / (label + "_gc7_visual_delta_classification.json"), json.str());
+}
+
 void testGoldenLabScenes() {
   std::filesystem::create_directories(artifactRoot());
   for (const LabSceneCase &lab : kLabScenes) {
@@ -904,9 +960,29 @@ void testGoldenLabScenes() {
       const ImageDiffMetrics metrics = diffImages(reference, result.image);
       writeDiffArtifacts(artifactRoot(), std::string(lab.name) + "_software_golden_mismatch",
                          reference, result.image, metrics);
+      const aster::graphics_core7::VisualDeltaClassification classification =
+          aster::graphics_core7::classifyVisualDelta(
+              {.mean_abs_error = metrics.mean_abs_error,
+               .differing_pixel_ratio = metrics.differing_pixel_ratio,
+               .max_abs_error = metrics.max_abs_error,
+               .same_backend_reference =
+                   result.backend.kind == aster::RenderBackendKind::SoftwareReference,
+               .backend_certified = result.forensics.certification.valid,
+               .graphics_core7_accepted = result.forensics.graphics_core7_verdict.accepted,
+               .material_frequency_proven = graphicsCore7SignalIsProven(
+                   result.forensics, aster::graphics_core7::Signal::MaterialFrequencyAudit),
+               .temporal_stability_proven = graphicsCore7SignalIsProven(
+                   result.forensics, aster::graphics_core7::Signal::TemporalStabilityAudit)});
+      writeGoldenDeltaClassification(
+          artifactRoot(), std::string(lab.name) + "_software_golden_mismatch",
+          classification, result);
       std::cerr << "Software golden mismatch for " << lab.name
                 << " mean_abs_error=" << metrics.mean_abs_error
-                << " max_abs_error=" << static_cast<int>(metrics.max_abs_error) << '\n';
+                << " max_abs_error=" << static_cast<int>(metrics.max_abs_error)
+                << " gc7_root_cause="
+                << aster::graphics_core7::visualDeltaRootCauseName(
+                       classification.root_cause)
+                << '\n';
       assert(false);
     }
   }
@@ -957,12 +1033,38 @@ bool hasMissingProof(const aster::FrameForensics &forensics) {
                      });
 }
 
+const aster::graphics_core7::SignalEvidence *graphicsCore7Signal(
+    const aster::FrameForensics &forensics, const aster::graphics_core7::Signal signal) {
+  const auto it = std::find_if(forensics.graphics_core7_signals.begin(),
+                               forensics.graphics_core7_signals.end(),
+                               [signal](const aster::graphics_core7::SignalEvidence &evidence) {
+                                 return evidence.signal == signal;
+                               });
+  return it == forensics.graphics_core7_signals.end() ? nullptr : &*it;
+}
+
+void assertGraphicsCore7SignalProven(const aster::FrameForensics &forensics,
+                                     const aster::graphics_core7::Signal signal) {
+  const aster::graphics_core7::SignalEvidence *evidence =
+      graphicsCore7Signal(forensics, signal);
+  assert(evidence != nullptr);
+  assert(evidence->required);
+  assert(evidence->status == aster::graphics_core7::SignalStatus::Proven);
+  assert(evidence->evidence_hash != 0u);
+}
+
 void writeCertificationArtifact(const std::filesystem::path &root, const std::string &label,
                                 const LabRenderResult &result) {
   std::ostringstream json;
   json << "{\n"
        << "  \"label\": " << jsonString(label) << ",\n"
        << "  \"backend\": " << jsonString(aster::renderBackendKindName(result.backend.kind))
+       << ",\n"
+       << "  \"graphics_core7_verdict\": "
+       << jsonString(aster::graphics_core7::verdictStatusName(
+              result.forensics.graphics_core7_verdict.status))
+       << ",\n"
+       << "  \"graphics_core7_score\": " << result.forensics.graphics_core7_verdict.score
        << ",\n"
        << "  \"certification_valid\": "
        << (result.forensics.certification.valid ? "true" : "false") << ",\n"
@@ -1014,6 +1116,18 @@ void writeCertificationArtifact(const std::filesystem::path &root, const std::st
          << ", \"status\": " << jsonString(aster::backendFeatureProofStatusName(proof.status))
          << ", \"label\": " << jsonString(proof.label) << "}";
     json << (i + 1u == result.forensics.backend_feature_proofs.size() ? "\n" : ",\n");
+  }
+  json << "  ],\n"
+       << "  \"graphics_core7_signals\": [\n";
+  for (std::size_t i = 0u; i < result.forensics.graphics_core7_signals.size(); ++i) {
+    const aster::graphics_core7::SignalEvidence &signal =
+        result.forensics.graphics_core7_signals[i];
+    json << "    {\"signal\": " << jsonString(aster::graphics_core7::signalName(signal.signal))
+         << ", \"status\": "
+         << jsonString(aster::graphics_core7::signalStatusName(signal.status))
+         << ", \"required\": " << (signal.required ? "true" : "false")
+         << ", \"score\": " << signal.score << "}";
+    json << (i + 1u == result.forensics.graphics_core7_signals.size() ? "\n" : ",\n");
   }
   json << "  ]\n"
        << "}\n";
@@ -1194,6 +1308,67 @@ void testBackendFeatureCertificationRejectsLyingNull() {
                               proof.status == aster::BackendFeatureProofStatus::Unsupported;
                      }));
   writeCertificationArtifact(artifactRoot(), "cave_conformance_certification_lie", result);
+}
+
+void testGraphicsCore7StrictRejectsMissingNativeProof() {
+  aster::RendererSettings settings = makeCaveConformanceSettings();
+  settings.graphics_core7.flags = aster::graphics_core7::Strict;
+  settings.graphics_core7.minimum_score = 0.80f;
+  const LabRenderResult result = renderCaveConformanceFrameForBackend(
+      false, true, artifactRoot() / "cave_conformance_gc7_strict_null.ppm", &settings);
+  assert(result.backend.kind == aster::RenderBackendKind::Null);
+  assert(result.forensics.graphics_core7_verdict.status ==
+         aster::graphics_core7::VerdictStatus::Rejected);
+  assert(!result.forensics.graphics_core7_verdict.accepted);
+  assert(!result.forensics.certification.valid);
+  assert(result.forensics.graphics_core7_verdict.missing_signal_mask != 0u ||
+         result.forensics.graphics_core7_verdict.unsupported_signal_mask != 0u);
+  const aster::graphics_core7::SignalEvidence *shadow = graphicsCore7Signal(
+      result.forensics, aster::graphics_core7::Signal::ShadowContinuityField);
+  const aster::graphics_core7::SignalEvidence *probe = graphicsCore7Signal(
+      result.forensics, aster::graphics_core7::Signal::ReflectionProbeResidency);
+  const aster::graphics_core7::SignalEvidence *temporal = graphicsCore7Signal(
+      result.forensics, aster::graphics_core7::Signal::TemporalStabilityAudit);
+  assert(shadow != nullptr && shadow->status != aster::graphics_core7::SignalStatus::Proven);
+  assert(probe != nullptr && probe->status != aster::graphics_core7::SignalStatus::Proven);
+  assert(temporal != nullptr);
+  assert(std::any_of(result.forensics.events.begin(), result.forensics.events.end(),
+                     [](const aster::FrameDiagnosticEvent &event) {
+                       return event.label == "graphics_core7.player_readable_frame_rejected";
+                     }));
+  writeCertificationArtifact(artifactRoot(), "cave_conformance_gc7_strict_null", result);
+}
+
+void testGraphicsCore7AdvertisedNativeProofSignals() {
+  aster::RendererSettings settings = makeCaveConformanceSettings();
+  settings.graphics_core7.flags = aster::graphics_core7::Strict;
+  settings.graphics_core7.minimum_score = 0.74f;
+  const LabRenderResult native = renderCaveConformanceFrameForBackend(
+      false, false, artifactRoot() / "cave_conformance_gc7_native_candidate.ppm", &settings);
+  if (native.backend.kind == aster::RenderBackendKind::Null ||
+      native.backend.kind == aster::RenderBackendKind::SoftwareReference) {
+    return;
+  }
+  writeCertificationArtifact(artifactRoot(), "cave_conformance_gc7_native", native);
+  if ((native.backend.graph_resource_mask &
+       aster::renderGraphResourceBit(aster::RenderGraphResource::ShadowAtlas)) != 0u) {
+    assertGraphicsCore7SignalProven(native.forensics,
+                                    aster::graphics_core7::Signal::ShadowContinuityField);
+  }
+  if ((native.backend.graph_resource_mask &
+       aster::renderGraphResourceBit(aster::RenderGraphResource::ReflectionProbes)) != 0u) {
+    assertGraphicsCore7SignalProven(native.forensics,
+                                    aster::graphics_core7::Signal::ReflectionProbeResidency);
+  }
+  if ((native.backend.graph_resource_mask &
+       aster::renderGraphResourceBit(aster::RenderGraphResource::VolumetricFog)) != 0u) {
+    assertGraphicsCore7SignalProven(native.forensics,
+                                    aster::graphics_core7::Signal::LightTransportEvidence);
+  }
+  if (native.backend.supports_gpu_timestamps) {
+    assertGraphicsCore7SignalProven(native.forensics,
+                                    aster::graphics_core7::Signal::TemporalStabilityAudit);
+  }
 }
 
 void testMathContractCertificationRejectsProjectionDrift() {
@@ -1576,6 +1751,10 @@ constexpr TestCase kTestCases[] = {
      testCapabilityMismatchRequiresResourceMask},
     {"backend_feature_certification_rejects_lying_null",
      testBackendFeatureCertificationRejectsLyingNull},
+    {"graphics_core7_strict_rejects_missing_native_proof",
+     testGraphicsCore7StrictRejectsMissingNativeProof},
+    {"graphics_core7_advertised_native_proof_signals",
+     testGraphicsCore7AdvertisedNativeProofSignals},
     {"math_contract_certification_rejects_projection_drift",
      testMathContractCertificationRejectsProjectionDrift},
     {"native_cave_conformance_when_available", testNativeCaveConformanceWhenAvailable},

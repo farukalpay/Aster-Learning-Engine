@@ -5,6 +5,8 @@
 
 #include "aster/asset/mesh_pipeline.hpp"
 #include "aster/core/profiler.hpp"
+#include "aster/graphics_core7/verdict_evaluation.hpp"
+#include "aster/graphics_core7/frame_gate.hpp"
 #include "aster/math/color.hpp"
 #include "aster/material/procedural_surface.hpp"
 #include "aster/render/material_compiler.hpp"
@@ -4495,6 +4497,74 @@ void certifyBackendFrame(const aster::FixedRenderGraph &graph,
       forensics.certification.math_contract_error_count == 0u;
 }
 
+void applyGraphicsCore7PreflightGate(const aster::FixedRenderGraph &graph,
+                                     const aster::RenderBackendCapabilities &capabilities,
+                                     const aster::RendererSettings &settings,
+                                     const aster::FrameStats &stats,
+                                     aster::FrameForensics &forensics) {
+  aster::graphics_core7::FrameGateReport gate =
+      aster::graphics_core7::preflightFrameTruth(graph, capabilities, settings, stats, forensics);
+  const aster::graphics_core7::PlayerReadableFrameVerdict verdict = gate.verdict;
+  aster::graphics_core7::applyFrameGateReport(forensics, std::move(gate));
+  if (verdict.status == aster::graphics_core7::VerdictStatus::Rejected) {
+    forensics.events.push_back(
+        {.kind = aster::FrameDiagnosticKind::CapabilityMismatch,
+         .severity = aster::FrameDiagnosticSeverity::Error,
+         .pass = "graphics-core7",
+         .label = "graphics_core7.preflight_rejected",
+         .message = verdict.diagnostic,
+         .value = verdict.evidence_hash});
+  }
+}
+
+void applyGraphicsCore7FrameTruth(const aster::RenderBackendCapabilities &capabilities,
+                                  const aster::RendererSettings &settings,
+                                  const aster::FrameStats &stats,
+                                  aster::FrameForensics &forensics) {
+  aster::graphics_core7::EvaluationResult evaluation =
+      aster::graphics_core7::evaluateFrameTruth(forensics, capabilities, settings, stats);
+  aster::graphics_core7::applyEvaluation(forensics, std::move(evaluation));
+  const aster::graphics_core7::PlayerReadableFrameVerdict verdict =
+      forensics.graphics_core7_verdict;
+  if (verdict.status == aster::graphics_core7::VerdictStatus::Rejected) {
+    const bool has_backend_gap = std::any_of(
+        forensics.belief_falseness_report.findings.begin(),
+        forensics.belief_falseness_report.findings.end(),
+        [](const aster::BeliefExtractionFinding &finding) {
+          return finding.kind == aster::BeliefFindingKind::BackendVisualTruthGap;
+        });
+    forensics.belief_falseness_report.accepted = false;
+    forensics.belief_falseness_report.minimum_score =
+        std::max(forensics.belief_falseness_report.minimum_score, verdict.minimum_score);
+    forensics.belief_falseness_report.score =
+        forensics.belief_falseness_report.score == 0.0f
+            ? verdict.score
+            : std::min(forensics.belief_falseness_report.score, verdict.score);
+    if (!has_backend_gap) {
+      forensics.belief_falseness_report.findings.push_back(
+          {.kind = aster::BeliefFindingKind::BackendVisualTruthGap,
+           .severity = aster::BeliefFindingSeverity::Error,
+           .subject = "renderer.frame",
+           .score = verdict.score,
+           .threshold = verdict.minimum_score,
+           .evidence_hash = verdict.evidence_hash,
+           .source = "graphics-core7",
+           .message = verdict.diagnostic});
+    }
+    forensics.events.push_back(
+        {.kind = aster::FrameDiagnosticKind::CapabilityMismatch,
+         .severity = aster::FrameDiagnosticSeverity::Error,
+         .pass = "graphics-core7",
+         .label = "graphics_core7.player_readable_frame_rejected",
+         .message = verdict.diagnostic,
+         .value = verdict.evidence_hash});
+    forensics.certification.valid = false;
+    forensics.certification.missing_proof_count =
+        std::max(forensics.certification.missing_proof_count,
+                 std::max<std::size_t>(verdict.rejected_signal_count, 1u));
+  }
+}
+
 void appendMaterialBindingTraces(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
                                  const aster::MaterialResourceLibrary *library,
                                  const aster::RenderBackendCapabilities &capabilities,
@@ -6313,6 +6383,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
   stats.backend_kind_value =
       static_cast<std::uint32_t>(backendCapabilities().kind);
+  applyGraphicsCore7PreflightGate(render_graph_, active_capabilities, settings, stats,
+                                  last_forensics_);
 
   SoftwareFrameBuffer &framebuffer = activeFrameBuffer();
   if (native_backend_ != nullptr) {
@@ -6384,6 +6456,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
 	      appendMathDiagnosticsToFrame(last_forensics_.events);
 	      finalizeObjectRenderFates(last_forensics_);
 	    }
+    applyGraphicsCore7FrameTruth(native_backend_->capabilities(), settings, native_stats,
+                                 last_forensics_);
     if (graph_forensics || detailed_forensics || capture_forensics) {
       rebuildFrameEvidenceProducts(render_graph_, native_backend_->capabilities(), last_forensics_);
     }
@@ -6519,6 +6593,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
 	    appendMathDiagnosticsToFrame(last_forensics_.events);
 	    finalizeObjectRenderFates(last_forensics_);
 	  }
+  applyGraphicsCore7FrameTruth(softwareCapabilities(), settings, stats, last_forensics_);
   if (graph_forensics || detailed_forensics || capture_forensics) {
     rebuildFrameEvidenceProducts(render_graph_, softwareCapabilities(), last_forensics_);
   }

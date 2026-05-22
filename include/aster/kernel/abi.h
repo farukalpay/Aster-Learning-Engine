@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 6u
-#define ASTER_KERNEL_ABI_MINOR 5u
+#define ASTER_KERNEL_ABI_MINOR 6u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -254,6 +254,52 @@ typedef enum AsterKernelBackendFeatureProofStatus {
   ASTER_KERNEL_BACKEND_FEATURE_MISSING_PROOF = 3,
   ASTER_KERNEL_BACKEND_FEATURE_UNSUPPORTED = 4
 } AsterKernelBackendFeatureProofStatus;
+
+typedef enum AsterGraphicsCore7SignalKind {
+  ASTER_GRAPHICS_CORE7_SURFACE_TRUTH_BUFFER = 0,
+  ASTER_GRAPHICS_CORE7_LIGHT_TRANSPORT_EVIDENCE = 1,
+  ASTER_GRAPHICS_CORE7_SHADOW_CONTINUITY_FIELD = 2,
+  ASTER_GRAPHICS_CORE7_REFLECTION_PROBE_RESIDENCY = 3,
+  ASTER_GRAPHICS_CORE7_MATERIAL_FREQUENCY_AUDIT = 4,
+  ASTER_GRAPHICS_CORE7_TEMPORAL_STABILITY_AUDIT = 5,
+  ASTER_GRAPHICS_CORE7_BACKEND_VISUAL_DELTA = 6,
+  ASTER_GRAPHICS_CORE7_PLAYER_READABLE_FRAME_VERDICT = 7
+} AsterGraphicsCore7SignalKind;
+
+typedef enum AsterGraphicsCore7SignalStatus {
+  ASTER_GRAPHICS_CORE7_SIGNAL_NOT_REQUIRED = 0,
+  ASTER_GRAPHICS_CORE7_SIGNAL_PROVEN = 1,
+  ASTER_GRAPHICS_CORE7_SIGNAL_DEGRADED = 2,
+  ASTER_GRAPHICS_CORE7_SIGNAL_MISSING_PROOF = 3,
+  ASTER_GRAPHICS_CORE7_SIGNAL_UNSUPPORTED = 4
+} AsterGraphicsCore7SignalStatus;
+
+typedef enum AsterGraphicsCore7VerdictStatus {
+  ASTER_GRAPHICS_CORE7_VERDICT_ACCEPTED = 0,
+  ASTER_GRAPHICS_CORE7_VERDICT_DEGRADED = 1,
+  ASTER_GRAPHICS_CORE7_VERDICT_REJECTED = 2
+} AsterGraphicsCore7VerdictStatus;
+
+enum {
+  ASTER_GRAPHICS_CORE7_FLAG_STRICT = 1u << 0u,
+  ASTER_GRAPHICS_CORE7_FLAG_REQUIRE_NATIVE_BACKEND = 1u << 1u,
+  ASTER_GRAPHICS_CORE7_SIGNAL_SURFACE_TRUTH_BUFFER_BIT =
+      1u << ASTER_GRAPHICS_CORE7_SURFACE_TRUTH_BUFFER,
+  ASTER_GRAPHICS_CORE7_SIGNAL_LIGHT_TRANSPORT_EVIDENCE_BIT =
+      1u << ASTER_GRAPHICS_CORE7_LIGHT_TRANSPORT_EVIDENCE,
+  ASTER_GRAPHICS_CORE7_SIGNAL_SHADOW_CONTINUITY_FIELD_BIT =
+      1u << ASTER_GRAPHICS_CORE7_SHADOW_CONTINUITY_FIELD,
+  ASTER_GRAPHICS_CORE7_SIGNAL_REFLECTION_PROBE_RESIDENCY_BIT =
+      1u << ASTER_GRAPHICS_CORE7_REFLECTION_PROBE_RESIDENCY,
+  ASTER_GRAPHICS_CORE7_SIGNAL_MATERIAL_FREQUENCY_AUDIT_BIT =
+      1u << ASTER_GRAPHICS_CORE7_MATERIAL_FREQUENCY_AUDIT,
+  ASTER_GRAPHICS_CORE7_SIGNAL_TEMPORAL_STABILITY_AUDIT_BIT =
+      1u << ASTER_GRAPHICS_CORE7_TEMPORAL_STABILITY_AUDIT,
+  ASTER_GRAPHICS_CORE7_SIGNAL_BACKEND_VISUAL_DELTA_BIT =
+      1u << ASTER_GRAPHICS_CORE7_BACKEND_VISUAL_DELTA,
+  ASTER_GRAPHICS_CORE7_SIGNAL_PLAYER_READABLE_FRAME_VERDICT_BIT =
+      1u << ASTER_GRAPHICS_CORE7_PLAYER_READABLE_FRAME_VERDICT
+};
 
 typedef enum AsterKernelRhiValidationKind {
   ASTER_KERNEL_RHI_VALIDATION_READ_BEFORE_WRITE = 0,
@@ -1442,6 +1488,9 @@ typedef struct AsterRendererSettings {
   size_t perceptual_truth_expected_count;
   uint64_t perceptual_truth_policy_hash;
   AsterPerceptualCausalityGraphInfo perceptual_causality_graph;
+  uint32_t graphics_core7_flags;
+  uint32_t graphics_core7_required_signal_mask;
+  float graphics_core7_minimum_score;
 } AsterRendererSettings;
 
 typedef struct AsterSystemEntityHandle {
@@ -1817,6 +1866,41 @@ typedef struct AsterFrameForensicsCounts {
   size_t event_count;
 } AsterFrameForensicsCounts;
 
+typedef struct AsterGraphicsCore7VerdictInfo {
+  size_t size;
+  uint32_t version;
+  AsterGraphicsCore7VerdictStatus status;
+  uint32_t accepted;
+  uint32_t strict;
+  float score;
+  float minimum_score;
+  uint32_t required_signal_mask;
+  uint32_t proven_signal_mask;
+  uint32_t degraded_signal_mask;
+  uint32_t missing_signal_mask;
+  uint32_t unsupported_signal_mask;
+  size_t signal_count;
+  size_t rejected_signal_count;
+  uint64_t evidence_hash;
+  AsterStringView diagnostic;
+} AsterGraphicsCore7VerdictInfo;
+
+typedef struct AsterGraphicsCore7SignalInfo {
+  size_t size;
+  uint32_t version;
+  AsterGraphicsCore7SignalKind kind;
+  AsterGraphicsCore7SignalStatus status;
+  AsterKernelRenderGraphPass pass;
+  AsterKernelRenderGraphResource resource;
+  uint32_t required;
+  float score;
+  float threshold;
+  AsterStringView label;
+  AsterStringView evidence;
+  AsterStringView message;
+  uint64_t evidence_hash;
+} AsterGraphicsCore7SignalInfo;
+
 typedef struct AsterFrameForensicsDetailCounts {
   size_t size;
   uint32_t version;
@@ -1854,6 +1938,8 @@ typedef struct AsterFrameForensicsDetailCounts {
   size_t perceptual_truth_missing_count;
   uint64_t perceptual_truth_policy_hash;
   AsterPerceptualCausalityGraphInfo perceptual_causality_graph;
+  size_t graphics_core7_signal_count;
+  AsterGraphicsCore7VerdictInfo graphics_core7_verdict;
 } AsterFrameForensicsDetailCounts;
 
 typedef struct AsterFramePassStats {
@@ -2328,6 +2414,10 @@ aster_kernel_renderer_timestamp_sample(AsterRendererHandle renderer, size_t inde
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_backend_feature_proof(AsterRendererHandle renderer, size_t index,
                                             AsterBackendFeatureProof *out_proof);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_graphics_core7_verdict(
+    AsterRendererHandle renderer, AsterGraphicsCore7VerdictInfo *out_verdict);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_graphics_core7_signal(
+    AsterRendererHandle renderer, size_t index, AsterGraphicsCore7SignalInfo *out_signal);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_get_last_frame_schedule(
     AsterRendererHandle renderer, AsterFrameScheduleHandle *out_schedule);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_destroy(AsterRendererHandle renderer);

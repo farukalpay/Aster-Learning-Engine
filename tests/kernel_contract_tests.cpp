@@ -127,6 +127,8 @@ static_assert(std::is_standard_layout_v<AsterObjectRenderFate>);
 static_assert(std::is_standard_layout_v<AsterRhiValidationEvent>);
 static_assert(std::is_standard_layout_v<AsterFrameTimestampSample>);
 static_assert(std::is_standard_layout_v<AsterBackendFeatureProof>);
+static_assert(std::is_standard_layout_v<AsterGraphicsCore7VerdictInfo>);
+static_assert(std::is_standard_layout_v<AsterGraphicsCore7SignalInfo>);
 static_assert(std::is_standard_layout_v<AsterCaptureDesc>);
 static_assert(std::is_standard_layout_v<AsterFrameVisionProbeDesc>);
 static_assert(std::is_standard_layout_v<AsterFrameVisionProbeResult>);
@@ -191,6 +193,12 @@ static_assert(offsetof(AsterRendererSettings, perceptual_world_schedule) >
               offsetof(AsterRendererSettings, perceptual_continuity_budget));
 static_assert(offsetof(AsterRendererSettings, perceptual_truth_mode) >
               offsetof(AsterRendererSettings, perceptual_world_truth));
+static_assert(offsetof(AsterRendererSettings, graphics_core7_flags) >
+              offsetof(AsterRendererSettings, perceptual_causality_graph));
+static_assert(offsetof(AsterFrameForensicsDetailCounts, graphics_core7_signal_count) >
+              offsetof(AsterFrameForensicsDetailCounts, perceptual_causality_graph));
+static_assert(ASTER_GRAPHICS_CORE7_SIGNAL_SHADOW_CONTINUITY_FIELD_BIT ==
+              (1u << ASTER_GRAPHICS_CORE7_SHADOW_CONTINUITY_FIELD));
 static_assert(offsetof(AsterWorldPerceptualPrimitiveInfo, cell_anchors) >
               offsetof(AsterWorldPerceptualPrimitiveInfo, decision_channel_mask));
 
@@ -335,7 +343,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 6u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 5u);
+  assert(version.minor == 6u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -1123,6 +1131,22 @@ void testRendererAbi5Lifecycle() {
   assert(detail_counts.perceptual_truth_observed_count == 1u);
   assert(detail_counts.perceptual_truth_missing_count == 1u);
   assert(detail_counts.perceptual_truth_policy_hash != 0u);
+  assert(detail_counts.graphics_core7_signal_count >= 1u);
+  assert(detail_counts.graphics_core7_verdict.evidence_hash != 0u);
+  assert(detail_counts.graphics_core7_verdict.signal_count ==
+         detail_counts.graphics_core7_signal_count);
+
+  AsterGraphicsCore7VerdictInfo gc7_verdict{sizeof(AsterGraphicsCore7VerdictInfo),
+                                            ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_graphics_core7_verdict(renderer, &gc7_verdict).code ==
+         ASTER_STATUS_OK);
+  assert(gc7_verdict.evidence_hash == detail_counts.graphics_core7_verdict.evidence_hash);
+  assert(gc7_verdict.signal_count == detail_counts.graphics_core7_signal_count);
+  AsterGraphicsCore7SignalInfo gc7_signal{sizeof(AsterGraphicsCore7SignalInfo),
+                                          ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_graphics_core7_signal(renderer, 0u, &gc7_signal).code ==
+         ASTER_STATUS_OK);
+  assert(gc7_signal.evidence_hash != 0u);
   assert(detail_counts.perceptual_causality_graph.graph_hash ==
          presentation_settings.perceptual_causality_graph.graph_hash);
   assert(detail_counts.perceptual_causality_graph.decision_channel_mask ==
@@ -2652,6 +2676,8 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_renderer_rhi_validation_event",
       "aster_kernel_renderer_timestamp_sample",
       "aster_kernel_renderer_backend_feature_proof",
+      "aster_kernel_renderer_frame_graphics_core7_verdict",
+      "aster_kernel_renderer_frame_graphics_core7_signal",
       "aster_kernel_renderer_object_render_fate",
       "aster_kernel_renderer_get_last_frame_schedule",
       "aster_kernel_renderer_destroy",
@@ -2811,6 +2837,8 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_renderer_rhi_validation_event;
   (void)&aster_kernel_renderer_timestamp_sample;
   (void)&aster_kernel_renderer_backend_feature_proof;
+  (void)&aster_kernel_renderer_frame_graphics_core7_verdict;
+  (void)&aster_kernel_renderer_frame_graphics_core7_signal;
   (void)&aster_kernel_renderer_object_render_fate;
   (void)&aster_kernel_renderer_get_last_frame_schedule;
   (void)&aster_kernel_renderer_destroy;

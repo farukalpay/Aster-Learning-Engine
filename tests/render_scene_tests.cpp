@@ -6,6 +6,7 @@
 #include "aster/aster.hpp"
 #include "aster/asset/pipe_runtime_asset.hpp"
 #include "aster/framegraph/transient_resource_allocator.hpp"
+#include "aster/graphics_core7/graphics_core7.hpp"
 #include "aster/render/visual_regression.hpp"
 #include "aster/rhi/graphics_pipeline.hpp"
 #include "aster/rhi/resource_barrier.hpp"
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
+#include <iostream>
 #include <span>
 #include <string>
 #include <unordered_set>
@@ -1824,6 +1826,202 @@ void testSoftwareReferenceFrameResourceCaptures() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
 
+void testGraphicsCore7StrictRejectsMissingNativeTruth() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", true);
+
+  aster::RenderObject object;
+  object.name = "gc7 strict null probe";
+  object.primitive = aster::MeshPrimitive::Box;
+  object.transform.position = {0.0f, 0.5f, 0.0f};
+  object.material = aster::makeMaterial({.base_color = {0.42f, 0.46f, 0.58f},
+                                         .roughness = 0.72f});
+
+  aster::Scene scene;
+  scene.objects().push_back(object);
+  scene.reflectionProbes().push_back({.name = "gc7 missing probe",
+                                      .position = {0.0f, 1.0f, 0.0f},
+                                      .influence_radius = 4.0f});
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.5f, 0.0f};
+  camera.yaw = aster::radians(32.0f);
+  camera.pitch = aster::radians(14.0f);
+  camera.radius = 3.2f;
+
+  aster::RendererSettings settings;
+  settings.shadows.enabled = true;
+  settings.shadows.cascaded_directional = true;
+  settings.shadows.directional_cascades = 2u;
+  settings.atmosphere.enabled = true;
+  settings.atmosphere.fog_strength = 0.35f;
+  settings.reflections.enabled = true;
+  settings.reflections.static_local_probes = true;
+  settings.graphics_core7.flags = aster::graphics_core7::Strict;
+  settings.graphics_core7.minimum_score = 0.80f;
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.prepareScene(scene);
+  (void)renderer.render(scene, camera, settings, 64, 40, 0.0);
+
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  assert(forensics.graphics_core7_verdict.status ==
+         aster::graphics_core7::VerdictStatus::Rejected);
+  assert(!forensics.graphics_core7_verdict.accepted);
+  assert(forensics.graphics_core7_verdict.strict);
+  assert(forensics.graphics_core7_verdict.rejected_signal_count > 0u);
+  assert(!forensics.certification.valid);
+  assert(forensics.certification.missing_proof_count > 0u);
+  assert(std::any_of(forensics.graphics_core7_signals.begin(),
+                     forensics.graphics_core7_signals.end(),
+                     [](const aster::graphics_core7::SignalEvidence &signal) {
+                       return signal.signal ==
+                                  aster::graphics_core7::Signal::ShadowContinuityField &&
+                              signal.required &&
+                              signal.status != aster::graphics_core7::SignalStatus::Proven;
+                     }));
+  assert(std::any_of(forensics.events.begin(), forensics.events.end(),
+                     [](const aster::FrameDiagnosticEvent &event) {
+                       return event.label ==
+                                  "graphics_core7.player_readable_frame_rejected" &&
+                              event.kind == aster::FrameDiagnosticKind::CapabilityMismatch;
+                     }));
+  assert(std::any_of(forensics.events.begin(), forensics.events.end(),
+                     [](const aster::FrameDiagnosticEvent &event) {
+                       return event.label == "graphics_core7.preflight_rejected" &&
+                              event.kind == aster::FrameDiagnosticKind::CapabilityMismatch;
+                     }));
+  assert(std::any_of(forensics.belief_falseness_report.findings.begin(),
+                     forensics.belief_falseness_report.findings.end(),
+                     [](const aster::BeliefExtractionFinding &finding) {
+                       return finding.kind ==
+                                  aster::BeliefFindingKind::BackendVisualTruthGap &&
+                              finding.source == "graphics-core7";
+                     }));
+
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+}
+
+void testGraphicsCore7SoftwareReferenceTruthAccepted() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+
+  aster::RenderObject floor;
+  floor.name = "gc7 receiver floor";
+  floor.primitive = aster::MeshPrimitive::Plane;
+  floor.transform.scale = {1.6f, 1.0f, 1.6f};
+  floor.material = aster::makeSupportSurfaceMaterial(
+      aster::makeMaterial({.base_color = {0.30f, 0.31f, 0.29f}, .roughness = 0.86f}));
+
+  aster::RenderObject object;
+  object.name = "gc7 software proof object";
+  object.primitive = aster::MeshPrimitive::Box;
+  object.transform.position = {0.0f, 0.52f, 0.0f};
+  object.material = aster::makeMaterial({.base_color = {0.58f, 0.40f, 0.24f},
+                                         .roughness = 0.55f,
+                                         .metallic = 0.12f});
+
+  aster::Scene scene;
+  scene.objects().push_back(floor);
+  scene.objects().push_back(object);
+  scene.reflectionProbes().push_back({.name = "gc7 software local probe",
+                                      .position = {0.0f, 0.9f, 0.0f},
+                                      .influence_radius = 4.0f,
+                                      .sky_irradiance = {0.26f, 0.32f, 0.42f},
+                                      .ground_irradiance = {0.15f, 0.10f, 0.07f},
+                                      .intensity = 1.1f});
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.5f, 0.0f};
+  camera.yaw = aster::radians(36.0f);
+  camera.pitch = aster::radians(16.0f);
+  camera.radius = 4.0f;
+
+  aster::RendererSettings settings;
+  settings.sun_light.enabled = true;
+  settings.sun_light.direction_to_light = {-0.42f, 0.82f, 0.26f};
+  settings.sun_light.intensity = 1.35f;
+  settings.shadows.enabled = true;
+  settings.shadows.cascaded_directional = true;
+  settings.shadows.directional_cascades = 2u;
+  settings.shadows.atlas_size = 64u;
+  settings.shadows.max_distance = 12.0f;
+  settings.occlusion.enabled = true;
+  settings.occlusion.radius = 1.15f;
+  settings.occlusion.thickness = 0.18f;
+  settings.occlusion.strength = 0.40f;
+  settings.occlusion.sample_count = 12u;
+  settings.occlusion.contact_hardening = 0.34f;
+  settings.grounding.enabled = true;
+  settings.grounding.contact_shadows = true;
+  settings.surface_scale.physical_texel_density = 512.0f;
+  settings.surface_scale.height_normal_coupling = 0.84f;
+  settings.surface_scale.roughness_height_coupling = 0.58f;
+  settings.atmosphere.enabled = true;
+  settings.atmosphere.fog_color = {0.10f, 0.13f, 0.16f};
+  settings.atmosphere.fog_start = 1.5f;
+  settings.atmosphere.fog_end = 8.0f;
+  settings.atmosphere.fog_strength = 0.38f;
+  settings.reflections.enabled = true;
+  settings.reflections.static_local_probes = true;
+  settings.reflections.probe_resolution = 16u;
+  settings.reflections.max_active_probes = 1u;
+  settings.clustered_lighting.enabled = true;
+  settings.clustered_lighting.cluster_count_x = 4u;
+  settings.clustered_lighting.cluster_count_y = 3u;
+  settings.clustered_lighting.cluster_count_z = 4u;
+  settings.graphics_core7.flags = aster::graphics_core7::Strict;
+  settings.graphics_core7.minimum_score = 0.74f;
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.prepareScene(scene);
+  (void)renderer.render(scene, camera, settings, 80, 56, 0.0);
+
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  if (forensics.graphics_core7_verdict.status !=
+      aster::graphics_core7::VerdictStatus::Accepted) {
+    std::cerr << "GC7 software verdict: "
+              << aster::graphics_core7::verdictStatusName(
+                     forensics.graphics_core7_verdict.status)
+              << " score=" << forensics.graphics_core7_verdict.score
+              << " diagnostic=" << forensics.graphics_core7_verdict.diagnostic << '\n';
+    for (const aster::graphics_core7::SignalEvidence &signal :
+         forensics.graphics_core7_signals) {
+      std::cerr << "  " << aster::graphics_core7::signalName(signal.signal)
+                << " required=" << signal.required
+                << " status=" << aster::graphics_core7::signalStatusName(signal.status)
+                << " score=" << signal.score << " evidence=" << signal.evidence
+                << " message=" << signal.message << '\n';
+    }
+  }
+  assert(forensics.graphics_core7_verdict.status ==
+         aster::graphics_core7::VerdictStatus::Accepted);
+  assert(forensics.graphics_core7_verdict.accepted);
+  assert(forensics.graphics_core7_verdict.strict);
+  assert(forensics.graphics_core7_verdict.evidence_hash != 0u);
+  assert(forensics.certification.valid);
+  assert(forensics.graphics_core7_signals.size() >= 8u);
+  assert(std::any_of(forensics.graphics_core7_signals.begin(),
+                     forensics.graphics_core7_signals.end(),
+                     [](const aster::graphics_core7::SignalEvidence &signal) {
+                       return signal.signal ==
+                                  aster::graphics_core7::Signal::MaterialFrequencyAudit &&
+                              signal.status == aster::graphics_core7::SignalStatus::Proven &&
+                              signal.score >= 1.0f;
+                     }));
+  assert(std::any_of(forensics.graphics_core7_signals.begin(),
+                     forensics.graphics_core7_signals.end(),
+                     [](const aster::graphics_core7::SignalEvidence &signal) {
+                       return signal.signal ==
+                                  aster::graphics_core7::Signal::TemporalStabilityAudit &&
+                              signal.status == aster::graphics_core7::SignalStatus::Proven;
+                     }));
+
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
 void testVisualRegressionArtifacts() {
   const int width = 24;
   const int height = 16;
@@ -3396,6 +3594,10 @@ constexpr TestCase kTestCases[] = {
     {"frame_debugger_evidence_timeline_and_regression_lab",
      testFrameDebuggerEvidenceTimelineAndRegressionLab},
     {"software_reference_frame_resource_captures", testSoftwareReferenceFrameResourceCaptures},
+    {"graphics_core7_strict_rejects_missing_native_truth",
+     testGraphicsCore7StrictRejectsMissingNativeTruth},
+    {"graphics_core7_software_reference_truth_accepted",
+     testGraphicsCore7SoftwareReferenceTruthAccepted},
     {"visual_regression_artifacts", testVisualRegressionArtifacts},
     {"retro_style_neutral_preview", testRetroStyleNeutralSoftwarePreviewMatchesDefault},
     {"retro_style_preview_effects", testRetroStyleSoftwarePreviewEffects},

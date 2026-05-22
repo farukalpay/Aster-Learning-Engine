@@ -1,6 +1,6 @@
 # Belief ABI
 
-Status: stable in kernel ABI 6.5.0.
+Status: stable in kernel ABI 6.6.0.
 
 Belief ABI exposes Aster's player-believable world proof as typed C data. It
 stabilizes the internal Belief Extraction V1 report, the frame falseness report,
@@ -23,6 +23,11 @@ The stable belief surface is append-only:
   perceptual causes before render extraction.
 - `AsterWorldPerceptualPrimitiveInfo` describes one extracted primitive truth
   record for world and renderer inspection.
+- `AsterGraphicsCore7VerdictInfo` describes the renderer truth verdict for the
+  last frame.
+- `AsterGraphicsCore7SignalInfo` describes one GC7 signal: surface truth, light
+  transport, shadow continuity, reflection residency, material frequency,
+  temporal stability, backend delta, or the final player-readable verdict.
 
 All structs carry `size` and `version`. Callers initialize them with
 `sizeof(type)` and `ASTER_KERNEL_STRUCT_VERSION_1`. Future fields must be added
@@ -79,6 +84,15 @@ AsterStatus aster_kernel_renderer_frame_perceptual_primitive(
     AsterRendererHandle renderer,
     uint32_t index,
     AsterWorldPerceptualPrimitiveInfo *out_primitive);
+
+AsterStatus aster_kernel_renderer_frame_graphics_core7_verdict(
+    AsterRendererHandle renderer,
+    AsterGraphicsCore7VerdictInfo *out_verdict);
+
+AsterStatus aster_kernel_renderer_frame_graphics_core7_signal(
+    AsterRendererHandle renderer,
+    size_t index,
+    AsterGraphicsCore7SignalInfo *out_signal);
 ```
 
 The report accessors return `ASTER_STATUS_OK` for an object with no recorded
@@ -104,6 +118,15 @@ when `index >= finding_count`.
 - `belief_falseness_findings`
 - `perceptual_world_truth`
 - `perceptual_causality_graph`
+- `graphics_core7_flags`
+- `graphics_core7_required_signal_mask`
+- `graphics_core7_minimum_score`
+
+Old-size renderer callers omit the GraphicsCore7 fields and keep compatibility
+behavior. New callers can enable `ASTER_GRAPHICS_CORE7_FLAG_STRICT`, add
+`ASTER_GRAPHICS_CORE7_FLAG_REQUIRE_NATIVE_BACKEND` when software/reference proof
+is not acceptable, require a specific signal bit mask, and raise or lower the
+minimum verdict score.
 
 The finding spans use `AsterSpan::size` as element count and `stride` as the byte
 distance between `AsterBeliefFindingInfo` entries. If a report declares findings,
@@ -124,9 +147,10 @@ that receives a belief report still emits diagnostic events with
 for stable consumers; diagnostics remain the compatibility route and frame
 debugger proof trail.
 
-`ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP` maps to capability mismatch
-diagnostics. It means the backend proof is incomplete for visual truth
-equivalence. It does not claim D3D12 swapchain, HDR, MSAA, GPU timestamp, fog,
+`ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP` now uses the GraphicsCore7
+per-signal verdict as its renderer source when a strict frame is rejected. The
+stable finding still means backend proof is incomplete for visual truth
+equivalence; it does not claim D3D12 swapchain, HDR, MSAA, GPU timestamp, fog,
 probe, or shadow parity has been implemented.
 
 Perceptual primitive findings are stable categories:
@@ -142,8 +166,8 @@ drift, and backend frames that do not prove native primitive consumption.
 
 ## Compatibility
 
-- ABI version is `6.5.0`.
-- Existing ABI 6.3 callers remain source-compatible because new inputs are tail
+- ABI version is `6.6.0`.
+- Existing ABI 6.3 and 6.5 callers remain source-compatible because new inputs are tail
   fields behind `size` checks.
 - Existing `AsterFrameDiagnosticEvent` reporting remains available.
 - The scheduler bridge is report-only. It mirrors frame/runtime evidence and

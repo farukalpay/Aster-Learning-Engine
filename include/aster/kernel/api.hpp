@@ -1558,6 +1558,28 @@ public:
     return Result<AsterBackendFeatureProof>(std::move(proof));
   }
 
+  [[nodiscard]] Result<AsterGraphicsCore7VerdictInfo> graphicsCore7Verdict() const noexcept {
+    AsterGraphicsCore7VerdictInfo verdict{sizeof(AsterGraphicsCore7VerdictInfo),
+                                          ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_frame_graphics_core7_verdict(handle_, &verdict));
+    if (!status) {
+      return Result<AsterGraphicsCore7VerdictInfo>(status);
+    }
+    return Result<AsterGraphicsCore7VerdictInfo>(std::move(verdict));
+  }
+
+  [[nodiscard]] Result<AsterGraphicsCore7SignalInfo> graphicsCore7Signal(
+      const size_t index) const noexcept {
+    AsterGraphicsCore7SignalInfo signal{sizeof(AsterGraphicsCore7SignalInfo),
+                                        ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_renderer_frame_graphics_core7_signal(handle_, index, &signal));
+    if (!status) {
+      return Result<AsterGraphicsCore7SignalInfo>(status);
+    }
+    return Result<AsterGraphicsCore7SignalInfo>(std::move(signal));
+  }
+
   [[nodiscard]] AsterRendererHandle get() const noexcept {
     return handle_;
   }

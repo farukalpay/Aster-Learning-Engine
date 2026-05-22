@@ -174,6 +174,26 @@ set(ASTER_FRAMEGRAPH_SOURCES
   "${PROJECT_SOURCE_DIR}/src/framegraph/transient_resource_allocator.cpp"
 )
 
+set(ASTER_GRAPHICS_CORE7_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/backend_visual_delta.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/clustered_light_gpu_tables.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/descriptor_arena.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/frame_gate.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/gpu_visibility_compaction.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/graphics_core7.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/pipeline_cache_warmup.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/reflection_probe_atlas.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/rhi_device_contract.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/shader_reflection_db.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/shadow_atlas_native.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/temporal_resolve.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/transient_heap_allocator.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/upload_ring.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/verdict_evaluation.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/visual_delta_classifier.cpp"
+  "${PROJECT_SOURCE_DIR}/src/graphics_core7/volumetric_fog_native.cpp"
+)
+
 set(ASTER_ASSET_SOURCES
   "${PROJECT_SOURCE_DIR}/src/asset/asset_database.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_factory.cpp"
@@ -502,6 +522,7 @@ endfunction()
 aster_add_engine_object_library(aster_core_objects ${ASTER_CORE_SOURCES})
 aster_add_engine_object_library(aster_rhi_objects ${ASTER_RHI_SOURCES})
 aster_add_engine_object_library(aster_framegraph_objects ${ASTER_FRAMEGRAPH_SOURCES})
+aster_add_engine_object_library(aster_graphics_core7_objects ${ASTER_GRAPHICS_CORE7_SOURCES})
 aster_add_engine_object_library(aster_asset_objects ${ASTER_ASSET_SOURCES})
 aster_add_engine_object_library(aster_material_objects ${ASTER_MATERIAL_SOURCES})
 aster_add_engine_object_library(aster_texture_objects ${ASTER_TEXTURE_SOURCES})
@@ -865,6 +886,8 @@ if(ASTER_BUILD_TESTS)
       frame_debugger_procedural_asset_graph_trace
       frame_debugger_evidence_timeline_and_regression_lab
       software_reference_frame_resource_captures
+      graphics_core7_strict_rejects_missing_native_truth
+      graphics_core7_software_reference_truth_accepted
       visual_regression_artifacts
       retro_style_neutral_preview
       retro_style_preview_effects
@@ -907,6 +930,8 @@ if(ASTER_BUILD_TESTS)
       cave_conformance_software_golden
       resource_capability_mismatch_requires_resource_mask
       backend_feature_certification_rejects_lying_null
+      graphics_core7_strict_rejects_missing_native_proof
+      graphics_core7_advertised_native_proof_signals
       math_contract_certification_rejects_projection_drift
       native_cave_conformance_when_available
       d3d12_swapchain_presentation_when_available

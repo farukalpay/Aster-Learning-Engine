@@ -36,11 +36,12 @@ Start here: [docs/START_HERE.md](docs/START_HERE.md)
   mesh validation and dependency metadata.
 - World guarantee: generated cave regions must pass nav, resource, encounter,
   and perceptual gates before publish.
-- Visual guarantee: each frame is judged by the world transition and the surface
-  and light behavior it produces, then backed by backend capabilities, pass cost
-  maps, resource transitions, descriptor/pipeline traces, material bindings,
-  capture metadata, validation events, feature proofs, and timestamp samples
-  when the backend can prove them.
+- Visual guarantee: each frame is judged by the world transition and by
+  player-readable surface, light, shadow, reflection, material-frequency,
+  temporal-stability, and backend-delta evidence. GraphicsCore7 preflights the
+  graph/backend contract before encode and turns the populated frame evidence
+  into a `PlayerReadableFrameVerdict`; strict frames are not conformant when
+  required native proof is missing, even if debug rendering still happens.
 
 ## 30-Second Regression Lab
 
@@ -72,7 +73,9 @@ Engine contract batch visuals live in
 Aster has a small source-level facade for first contact. Use it when you want to
 draw, not inspect. The render graph, frame forensics, resource transitions, and
 material compiler are still there, but they stay below this API until you ask
-for them.
+for them. Renderer truth is exposed through frame forensics and GraphicsCore7
+rather than by making First Draw carry render-target formats, shadow-atlas
+policy, timestamp queries, reflection-probe residency, or backend proof knobs.
 
 ```cpp
 #include "aster/aster.hpp"
@@ -116,7 +119,7 @@ Run built-in lab scenes when you want the inspected renderer path:
 
 ## What Is Included
 
-- A C-compatible ABI 6 engine kernel with `AsterWorld`, opaque handles, C++
+- A C-compatible ABI 6.6 engine kernel with `AsterWorld`, opaque handles, C++
   RAII wrappers, strict validation events, explicit texture/material/render
   target lifecycle, world/frame forensics, frame schedule reports, and an
   install-tree `external_app_minimal/` proof.
@@ -128,7 +131,8 @@ Run built-in lab scenes when you want the inspected renderer path:
   lump archive lookup, actor combat states, world mechanisms, automap/HUD/wipe
   presentation, and lockstep command packets.
 - A shared renderer core with `RenderDevice`, `RenderScene`, `FixedRenderGraph`,
-  frame stats, frame forensics, capture, and backend capability tables.
+  frame stats, frame forensics, capture, backend capability tables, and the
+  GraphicsCore7 renderer truth spine for strict player-readable frame verdicts.
 - A deterministic software reference renderer used for fallback presentation,
   Linux presentation, capture, preview rendering, and exact golden baselines.
 - A macOS Metal renderer with native scene rendering, readback/capture,

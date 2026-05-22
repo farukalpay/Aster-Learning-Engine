@@ -27,6 +27,7 @@ material, render graph, capture, and diagnostic contracts.
 | HDR render targets | Software reference advertises RGBA16F scene-color contract | Unsupported until a native HDR color target is wired | Unsupported until a native HDR color target is wired | Software output |
 | Blend modes advertised | Opaque, alpha blend | Opaque, alpha blend | Opaque, alpha blend | Opaque, alpha blend via software |
 | GPU timestamps | No native queries; pass cost map still reports CPU build time, target size, estimated bandwidth, descriptor pressure, and pipeline cache pressure | No native queries yet; same pass cost map is emitted, GPU time stays unavailable until Metal timestamp sampling lands | No native queries yet; same pass cost map is emitted, GPU time stays unavailable until D3D12 timestamp sampling lands | No native queries; software cost map only |
+| GraphicsCore7 role | Reference-mode player-readable truth can be accepted without claiming native GPU timestamps or presentation | Native visual-truth producer for advertised shadow/fog/probe/surface resources; timestamp signal remains unsupported until native queries land | Native offscreen/readback diagnostic producer for advertised surface resources; shadow/fog/probe/timestamp gaps reject strict GC7 truth until native proof lands | Presents software reference truth |
 | Golden conformance | Exact baseline | Tolerance diff vs software | Tolerance diff vs software on Windows | Exact software baseline |
 
 The frame-debugger truth layer is available through `FrameForensics`: pass cost
@@ -46,10 +47,16 @@ their own native pass data exists. Object visibility, object-to-cluster
 membership traces, and last-frame perceptual primitive traces are recorded for
 frame-debugger queries.
 
-Backend feature support is certification-gated. `BackendFeatureProof` records
-state whether graph resources, capture, texture sampling, instancing, GPU
-timestamps, HDR, MSAA, and presentation were proven, not exercised, unsupported,
-or missing proof in the current frame. Presentation support requires a real
+Backend feature support is certification-gated. GraphicsCore7 first preflights
+the compiled graph against the backend resource mask, material/shader evidence,
+light clusters, shadow/probe ownership, and native-backend requirements before
+encode. `BackendFeatureProof` then records state whether graph resources,
+capture, texture sampling, instancing, GPU timestamps, HDR, MSAA, and
+presentation were proven, not exercised, unsupported, or missing proof in the
+current frame. GraphicsCore7 folds those proofs with surface captures, light
+tables, shadow continuity, reflection residency, material-frequency evidence,
+temporal evidence, and backend visual delta into a `PlayerReadableFrameVerdict`.
+Presentation support requires a real
 window/swapchain surface: software framebuffer, CAMetalLayer, or a bound D3D12
 swapchain. D3D12 offscreen readback is useful capture evidence, but it does not
 count as presentation proof. A bound D3D12 swapchain is marked not exercised
@@ -58,8 +65,9 @@ conformance tests write per-pass certification artifacts next to image/diff
 artifacts under the temporary conformance artifact directory. If a backend
 advertises surface occlusion, shadow, fog, or reflection-probe graph resources in
 the cave proof scene, it must produce native pass evidence, resource transitions,
-debug captures, and final sampling proof. Unsupported GPU timestamps, MSAA, and
-native HDR stay unsupported until native proof data exists.
+debug captures, final sampling proof, and the matching GraphicsCore7 signal.
+Unsupported GPU timestamps, MSAA, and native HDR stay unsupported until native
+proof data exists.
 
 Resource capability reporting is intentionally strict: if a render graph pass
 declares an output that is not in a backend's `graph_resource_mask`,

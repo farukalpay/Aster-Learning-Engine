@@ -1006,6 +1006,48 @@ AsterStringView viewFromScratch(const AsterRendererHandle renderer, std::string 
   return viewFromString(renderer->string_scratch.back());
 }
 
+AsterKernelRenderGraphPass renderGraphPass(aster::RenderGraphPass pass);
+AsterKernelRenderGraphResource renderGraphResource(aster::RenderGraphResource resource);
+AsterGraphicsCore7SignalKind graphicsCore7SignalKind(aster::graphics_core7::Signal signal);
+AsterGraphicsCore7SignalStatus graphicsCore7SignalStatus(
+    aster::graphics_core7::SignalStatus status);
+AsterGraphicsCore7VerdictStatus graphicsCore7VerdictStatus(
+    aster::graphics_core7::VerdictStatus status);
+
+void fillGraphicsCore7VerdictInfo(
+    const aster::graphics_core7::PlayerReadableFrameVerdict &verdict,
+    const AsterStringView diagnostic, AsterGraphicsCore7VerdictInfo *out_verdict) {
+  out_verdict->status = graphicsCore7VerdictStatus(verdict.status);
+  out_verdict->accepted = verdict.accepted ? 1u : 0u;
+  out_verdict->strict = verdict.strict ? 1u : 0u;
+  out_verdict->score = verdict.score;
+  out_verdict->minimum_score = verdict.minimum_score;
+  out_verdict->required_signal_mask = verdict.required_signal_mask;
+  out_verdict->proven_signal_mask = verdict.proven_signal_mask;
+  out_verdict->degraded_signal_mask = verdict.degraded_signal_mask;
+  out_verdict->missing_signal_mask = verdict.missing_signal_mask;
+  out_verdict->unsupported_signal_mask = verdict.unsupported_signal_mask;
+  out_verdict->signal_count = verdict.signal_count;
+  out_verdict->rejected_signal_count = verdict.rejected_signal_count;
+  out_verdict->evidence_hash = verdict.evidence_hash;
+  out_verdict->diagnostic = diagnostic;
+}
+
+void fillGraphicsCore7SignalInfo(const aster::graphics_core7::SignalEvidence &signal,
+                                 AsterGraphicsCore7SignalInfo *out_signal) {
+  out_signal->kind = graphicsCore7SignalKind(signal.signal);
+  out_signal->status = graphicsCore7SignalStatus(signal.status);
+  out_signal->pass = renderGraphPass(signal.pass);
+  out_signal->resource = renderGraphResource(signal.resource);
+  out_signal->required = signal.required ? 1u : 0u;
+  out_signal->score = signal.score;
+  out_signal->threshold = signal.threshold;
+  out_signal->label = viewFromString(signal.label);
+  out_signal->evidence = viewFromString(signal.evidence);
+  out_signal->message = viewFromString(signal.message);
+  out_signal->evidence_hash = signal.evidence_hash;
+}
+
 std::string lowerExtension(const std::filesystem::path &path) {
   std::string extension = path.extension().string();
   std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char c) {
@@ -2640,6 +2682,21 @@ aster::RendererSettings rendererSettingsFromAbi(const AsterRendererSettings &set
                         sizeof(settings.perceptual_truth_policy_hash))) {
     out.perceptual_truth_policy_hash = settings.perceptual_truth_policy_hash;
   }
+  if (abiStructHasField(settings_size, offsetof(AsterRendererSettings, graphics_core7_flags),
+                        sizeof(settings.graphics_core7_flags))) {
+    out.graphics_core7.flags = settings.graphics_core7_flags;
+  }
+  if (abiStructHasField(settings_size,
+                        offsetof(AsterRendererSettings, graphics_core7_required_signal_mask),
+                        sizeof(settings.graphics_core7_required_signal_mask))) {
+    out.graphics_core7.required_signal_mask = settings.graphics_core7_required_signal_mask;
+  }
+  if (abiStructHasField(settings_size,
+                        offsetof(AsterRendererSettings, graphics_core7_minimum_score),
+                        sizeof(settings.graphics_core7_minimum_score))) {
+    out.graphics_core7.minimum_score =
+        positiveOr(settings.graphics_core7_minimum_score, out.graphics_core7.minimum_score);
+  }
 
   out.sun_light.enabled = true;
   out.sun_light.intensity = std::max(out.sun_light.intensity, 1.0f);
@@ -2858,6 +2915,59 @@ backendFeatureProofStatus(const aster::BackendFeatureProofStatus status) {
   case aster::BackendFeatureProofStatus::NotAdvertised:
   default:
     return ASTER_KERNEL_BACKEND_FEATURE_NOT_ADVERTISED;
+  }
+}
+
+AsterGraphicsCore7SignalKind graphicsCore7SignalKind(
+    const aster::graphics_core7::Signal signal) {
+  switch (signal) {
+  case aster::graphics_core7::Signal::LightTransportEvidence:
+    return ASTER_GRAPHICS_CORE7_LIGHT_TRANSPORT_EVIDENCE;
+  case aster::graphics_core7::Signal::ShadowContinuityField:
+    return ASTER_GRAPHICS_CORE7_SHADOW_CONTINUITY_FIELD;
+  case aster::graphics_core7::Signal::ReflectionProbeResidency:
+    return ASTER_GRAPHICS_CORE7_REFLECTION_PROBE_RESIDENCY;
+  case aster::graphics_core7::Signal::MaterialFrequencyAudit:
+    return ASTER_GRAPHICS_CORE7_MATERIAL_FREQUENCY_AUDIT;
+  case aster::graphics_core7::Signal::TemporalStabilityAudit:
+    return ASTER_GRAPHICS_CORE7_TEMPORAL_STABILITY_AUDIT;
+  case aster::graphics_core7::Signal::BackendVisualDelta:
+    return ASTER_GRAPHICS_CORE7_BACKEND_VISUAL_DELTA;
+  case aster::graphics_core7::Signal::PlayerReadableFrameVerdict:
+    return ASTER_GRAPHICS_CORE7_PLAYER_READABLE_FRAME_VERDICT;
+  case aster::graphics_core7::Signal::SurfaceTruthBuffer:
+  default:
+    return ASTER_GRAPHICS_CORE7_SURFACE_TRUTH_BUFFER;
+  }
+}
+
+AsterGraphicsCore7SignalStatus graphicsCore7SignalStatus(
+    const aster::graphics_core7::SignalStatus status) {
+  switch (status) {
+  case aster::graphics_core7::SignalStatus::Proven:
+    return ASTER_GRAPHICS_CORE7_SIGNAL_PROVEN;
+  case aster::graphics_core7::SignalStatus::Degraded:
+    return ASTER_GRAPHICS_CORE7_SIGNAL_DEGRADED;
+  case aster::graphics_core7::SignalStatus::MissingProof:
+    return ASTER_GRAPHICS_CORE7_SIGNAL_MISSING_PROOF;
+  case aster::graphics_core7::SignalStatus::Unsupported:
+    return ASTER_GRAPHICS_CORE7_SIGNAL_UNSUPPORTED;
+  case aster::graphics_core7::SignalStatus::NotRequired:
+  default:
+    return ASTER_GRAPHICS_CORE7_SIGNAL_NOT_REQUIRED;
+  }
+}
+
+AsterGraphicsCore7VerdictStatus graphicsCore7VerdictStatus(
+    const aster::graphics_core7::VerdictStatus status) {
+  switch (status) {
+  case aster::graphics_core7::VerdictStatus::Degraded:
+    return ASTER_GRAPHICS_CORE7_VERDICT_DEGRADED;
+  case aster::graphics_core7::VerdictStatus::Rejected:
+    return ASTER_GRAPHICS_CORE7_VERDICT_REJECTED;
+  case aster::graphics_core7::VerdictStatus::Accepted:
+  default:
+    return ASTER_GRAPHICS_CORE7_VERDICT_ACCEPTED;
   }
 }
 
@@ -5739,6 +5849,24 @@ AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
         viewFromScratch(renderer, forensics.perceptual_causality_graph.diagnostic),
         &out_counts->perceptual_causality_graph);
   }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 graphics_core7_signal_count),
+                        sizeof(out_counts->graphics_core7_signal_count))) {
+    out_counts->graphics_core7_signal_count = forensics.graphics_core7_signals.size();
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 graphics_core7_verdict),
+                        sizeof(out_counts->graphics_core7_verdict))) {
+    out_counts->graphics_core7_verdict = {};
+    out_counts->graphics_core7_verdict.size = sizeof(AsterGraphicsCore7VerdictInfo);
+    out_counts->graphics_core7_verdict.version = ASTER_KERNEL_STRUCT_VERSION_1;
+    fillGraphicsCore7VerdictInfo(
+        forensics.graphics_core7_verdict,
+        viewFromScratch(renderer, forensics.graphics_core7_verdict.diagnostic),
+        &out_counts->graphics_core7_verdict);
+  }
   return aster_kernel_status_ok();
 }
 
@@ -6110,6 +6238,42 @@ AsterStatus aster_kernel_renderer_backend_feature_proof(
   out_proof->advertised = proof.advertised;
   out_proof->native = proof.native;
   out_proof->evidence_hash = proof.evidence_hash;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_frame_graphics_core7_verdict(
+    const AsterRendererHandle renderer, AsterGraphicsCore7VerdictInfo *out_verdict) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_verdict)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "GraphicsCore7 verdict struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  renderer->string_scratch.clear();
+  fillGraphicsCore7VerdictInfo(
+      forensics.graphics_core7_verdict,
+      viewFromScratch(renderer, forensics.graphics_core7_verdict.diagnostic), out_verdict);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_frame_graphics_core7_signal(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterGraphicsCore7SignalInfo *out_signal) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_signal)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "GraphicsCore7 signal struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.graphics_core7_signals.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "GraphicsCore7 signal index is out of range");
+  }
+  fillGraphicsCore7SignalInfo(forensics.graphics_core7_signals[index], out_signal);
   return aster_kernel_status_ok();
 }
 

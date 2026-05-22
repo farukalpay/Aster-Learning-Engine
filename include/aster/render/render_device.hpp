@@ -8,6 +8,7 @@
 #include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/world_perception_ledger.hpp"
 #include "aster/core/world_perceptual_primitive.hpp"
+#include "aster/graphics_core7/graphics_core7.hpp"
 #include "aster/math/vec.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/material_compiler.hpp"
@@ -383,6 +384,7 @@ struct RendererSettings {
   RenderPerceptualTruthMode perceptual_truth_mode = RenderPerceptualTruthMode::Compatibility;
   std::size_t perceptual_truth_expected_count = 0u;
   std::uint64_t perceptual_truth_policy_hash = 0u;
+  graphics_core7::Settings graphics_core7{};
 };
 
 struct FrameStats {
@@ -923,6 +925,8 @@ struct FrameForensics {
   std::vector<rhi::ResourceLifetimeValidationEvent> rhi_validation_events;
   std::vector<BackendFeatureProof> backend_feature_proofs;
   std::vector<rhi::TimestampQueryResult> timestamp_samples;
+  graphics_core7::PlayerReadableFrameVerdict graphics_core7_verdict;
+  std::vector<graphics_core7::SignalEvidence> graphics_core7_signals;
   BackendCertificationReport certification{};
   RenderMathContractReport math_contract{};
   ClusteredLightFrameData clustered_lights;

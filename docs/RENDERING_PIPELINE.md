@@ -16,10 +16,18 @@ Aster builds a frame from engine data, not sample-specific code:
    lifetimes, alias groups, expanded RHI barriers, descriptor requirements,
    queue ownership transfers, culled passes, and render-pass compatibility
    metadata used by pipeline cache keys.
-6. Backends consume the same plan and publish `FrameStats` plus
+6. GraphicsCore7 preflights the compiled graph, backend resource mask, material
+   and shader evidence, light/cluster requirements, shadow/probe ownership, and
+   native-backend requirement before encode. A strict preflight rejection marks
+   the frame non-conformant even if debug rendering continues.
+7. Backends consume the same plan and publish `FrameStats` plus
    `FrameForensics`.
-7. The certification layer validates the compiled RHI contract and records
+8. The certification layer validates the compiled RHI contract and records
    backend feature proofs before the frame is considered conformant.
+9. GraphicsCore7 evaluates the populated frame evidence and records a
+   `PlayerReadableFrameVerdict`. Strict GC7 frames reject conformance when a
+   required visual-truth signal is missing, unsupported, or degraded; debug
+   rendering may still continue for inspection.
 
 The frame debugger is contract-first: every frame records pass cost maps,
 resource transition traces, queue submit traces, descriptor layout hashes,
@@ -40,7 +48,14 @@ software reference path now produces checksummed RGBA captures for final color,
 surface attributes, surface occlusion, shadow atlas, volumetric fog, and
 reflection probes. Native backends that advertise those proof resources must
 populate matching capture and sampling evidence; otherwise certification records
-missing proof.
+missing proof. GraphicsCore7 consumes the same raw products as named signals:
+`SurfaceTruthBuffer`, `LightTransportEvidence`, `ShadowContinuityField`,
+`ReflectionProbeResidency`, `MaterialFrequencyAudit`, `TemporalStabilityAudit`,
+`BackendVisualDelta`, and `PlayerReadableFrameVerdict`.
+Golden conformance failures also get a GC7 visual-delta classification artifact
+so same-backend image drift is labeled as backend proof drift, material/tonemap
+drift, silhouette drift, temporal instability, stale baseline, or unknown drift
+instead of being treated as an untyped refresh chore.
 This evidence layer is not a substitute for execution. A render-graph pass is
 only considered supported when the backend owns the resource lifetime, barriers,
 descriptor binding, pass output, readback or sample when required, and final
@@ -51,10 +66,11 @@ source node, source mesh, material slot, texture-role fate, mesh import
 diagnostics, and any backend degradation that changed how the material reached
 the frame.
 
-Clustered forward lighting v1 is a shared CPU-reference contract. It builds
-deterministic cluster lists from the camera and `LightRig` so software, Metal,
-and D3D12 can report the same visible-light budget before native GPU buffer
-consumption is wired.
+Clustered forward lighting v1 starts from a shared CPU-reference contract. It
+builds deterministic cluster lists from the camera and `LightRig`; GraphicsCore7
+marks native light-transport proof only when the backend advertises storage
+buffer support and the `LightClusters` graph resource is part of the backend
+resource mask.
 
 Camera and CPU projection code use the semantic spatial pipeline:
 `WorldPoint -> ClipPoint -> NdcPoint -> ScreenPoint`, with `Viewport` carrying
@@ -70,6 +86,8 @@ Backend roles today:
 - D3D12: native offscreen raster/readback path under conformance; Windows
   presentation still uses the production software path. D3D12 shadow atlas,
   volumetric fog, reflection probe resources, GPU timestamps, native HDR, MSAA,
-  and swapchain back-pressure are not complete renderer proof points yet.
+  and swapchain back-pressure are not complete renderer proof points yet. In
+  strict GraphicsCore7 mode, those gaps become rejected player-readable truth
+  rather than merely low-level feature notes.
 
 Use `docs/RENDERER_BACKEND_MATRIX.md` for current feature support.
