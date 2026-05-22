@@ -49,6 +49,9 @@ struct RuntimeRenderObject {
   float portal_depth = 0.0f;
   std::uint64_t dynamic_mesh_generation = 0;
   std::uint64_t perceptual_primitive_hash = 0;
+  std::uint64_t perceptual_sound_surface_class_hash = 0;
+  std::uint64_t perceptual_neural_irradiance_hash = 0;
+  RuntimeVec3 perceptual_neural_irradiance{};
   float perceptual_material_memory = 0.0f;
   float perceptual_interaction_residue = 0.0f;
   float perceptual_contact_field = 0.0f;
@@ -60,6 +63,8 @@ struct RuntimeRenderObject {
   float perceptual_semantic_lod = 0.0f;
   float perceptual_decision_impact = 0.0f;
   float perceptual_player_readable_cause = 0.0f;
+  float perceptual_ai_cover_value = 0.0f;
+  float perceptual_neural_irradiance_confidence = 0.0f;
 };
 
 struct RuntimeCamera {
@@ -158,7 +163,11 @@ static_assert(offsetof(RuntimeRenderObject, position) == 44u);
 static_assert(offsetof(RuntimeRenderObject, bounds_center) == 68u);
 static_assert(offsetof(RuntimeRenderObject, dynamic_mesh_generation) == 104u);
 static_assert(offsetof(RuntimeRenderObject, perceptual_primitive_hash) == 112u);
-static_assert(sizeof(RuntimeRenderObject) == 168u);
+static_assert(offsetof(RuntimeRenderObject, perceptual_sound_surface_class_hash) == 120u);
+static_assert(offsetof(RuntimeRenderObject, perceptual_neural_irradiance_hash) == 128u);
+static_assert(offsetof(RuntimeRenderObject, perceptual_neural_irradiance) == 136u);
+static_assert(offsetof(RuntimeRenderObject, perceptual_material_memory) == 148u);
+static_assert(sizeof(RuntimeRenderObject) == 200u);
 
 static_assert(sizeof(std::size_t) == 8u,
               "The Rust render planner ABI currently uses usize and is validated for 64-bit "
@@ -303,6 +312,49 @@ FrameRenderPass passFromValue(const std::uint32_t value) {
   return value == 1u ? FrameRenderPass::Transparent : FrameRenderPass::Opaque;
 }
 
+struct WorldPerceptualPrimitiveProjection {
+  std::uint64_t primitive_hash = 0u;
+  std::uint64_t sound_surface_class_hash = 0u;
+  std::uint64_t neural_irradiance_hash = 0u;
+  Vec3 neural_irradiance{};
+  float material_memory = 0.0f;
+  float interaction_residue = 0.0f;
+  float contact_field = 0.0f;
+  float light_history = 0.0f;
+  float acoustic_occlusion = 0.0f;
+  float ecology_pressure = 0.0f;
+  float threat_gradient = 0.0f;
+  float traversal_pressure = 0.0f;
+  float semantic_lod = 0.0f;
+  float decision_impact = 0.0f;
+  float player_readable_cause = 0.0f;
+  float ai_cover_value = 0.0f;
+  float neural_irradiance_confidence = 0.0f;
+};
+
+WorldPerceptualPrimitiveProjection
+projectWorldPerceptualPrimitive(const WorldPerceptualPrimitive &primitive) {
+  const WorldPerceptualSignals &signals = primitive.signals;
+  return {.primitive_hash = primitive.truth_hash,
+          .sound_surface_class_hash = primitive.sound_surface_class_hash,
+          .neural_irradiance_hash = primitive.neural_irradiance_hash,
+          .neural_irradiance = primitive.neural_irradiance,
+          .material_memory = std::clamp(signals.material_memory, 0.0f, 1.0f),
+          .interaction_residue = std::clamp(signals.interaction_residue, 0.0f, 1.0f),
+          .contact_field = std::clamp(signals.contact_field, 0.0f, 1.0f),
+          .light_history = std::clamp(signals.light_history, 0.0f, 1.0f),
+          .acoustic_occlusion = std::clamp(signals.acoustic_occlusion, 0.0f, 1.0f),
+          .ecology_pressure = std::clamp(signals.ecology_pressure, 0.0f, 1.0f),
+          .threat_gradient = std::clamp(signals.threat_gradient, 0.0f, 1.0f),
+          .traversal_pressure = std::clamp(signals.traversal_pressure, 0.0f, 1.0f),
+          .semantic_lod = std::clamp(signals.semantic_lod, 0.0f, 1.0f),
+          .decision_impact = std::clamp(signals.decision_impact, 0.0f, 1.0f),
+          .player_readable_cause = std::clamp(signals.player_readable_cause, 0.0f, 1.0f),
+          .ai_cover_value = std::clamp(primitive.ai_cover_value, 0.0f, 1.0f),
+          .neural_irradiance_confidence =
+              std::clamp(primitive.neural_irradiance_confidence, 0.0f, 1.0f)};
+}
+
 } // namespace
 
 RenderMeshId renderMeshIdForObject(const RenderObject &object) {
@@ -415,6 +467,8 @@ void RenderScene::rebuild(const Scene &scene) {
     const RenderMaterialKey material = renderMaterialKeyForObject(object);
     const MaterialRenderQueue queue = classifyMaterialRenderQueue(object.material);
     const RenderDepthPolicy depth_policy = object.material.depth_policy;
+    const WorldPerceptualPrimitiveProjection perceptual =
+        projectWorldPerceptualPrimitive(object.perceptual_primitive);
     const RenderObjectPacket packet{
         .entity = {static_cast<std::uint64_t>(index) + 1u},
         .object_index = index,
@@ -435,23 +489,24 @@ void RenderScene::rebuild(const Scene &scene) {
         .portal_depth = object.visibility_hint.portal_depth,
         .dynamic_mesh_generation = object.dynamic_mesh.valid() ? object.dynamic_mesh.generation
                                                                : 0u,
-        .perceptual_primitive_hash = object.perceptual_primitive.truth_hash,
-        .perceptual_material_memory = object.perceptual_primitive.signals.material_memory,
-        .perceptual_interaction_residue =
-            object.perceptual_primitive.signals.interaction_residue,
-        .perceptual_contact_field = object.perceptual_primitive.signals.contact_field,
-        .perceptual_light_history = object.perceptual_primitive.signals.light_history,
-        .perceptual_acoustic_occlusion =
-            object.perceptual_primitive.signals.acoustic_occlusion,
-        .perceptual_ecology_pressure =
-            object.perceptual_primitive.signals.ecology_pressure,
-        .perceptual_threat_gradient = object.perceptual_primitive.signals.threat_gradient,
-        .perceptual_traversal_pressure =
-            object.perceptual_primitive.signals.traversal_pressure,
-        .perceptual_semantic_lod = object.perceptual_primitive.signals.semantic_lod,
-        .perceptual_decision_impact = object.perceptual_primitive.signals.decision_impact,
-        .perceptual_player_readable_cause =
-            object.perceptual_primitive.signals.player_readable_cause};
+        .perceptual_primitive_hash = perceptual.primitive_hash,
+        .perceptual_sound_surface_class_hash = perceptual.sound_surface_class_hash,
+        .perceptual_neural_irradiance_hash = perceptual.neural_irradiance_hash,
+        .perceptual_neural_irradiance = perceptual.neural_irradiance,
+        .perceptual_material_memory = perceptual.material_memory,
+        .perceptual_interaction_residue = perceptual.interaction_residue,
+        .perceptual_contact_field = perceptual.contact_field,
+        .perceptual_light_history = perceptual.light_history,
+        .perceptual_acoustic_occlusion = perceptual.acoustic_occlusion,
+        .perceptual_ecology_pressure = perceptual.ecology_pressure,
+        .perceptual_threat_gradient = perceptual.threat_gradient,
+        .perceptual_traversal_pressure = perceptual.traversal_pressure,
+        .perceptual_semantic_lod = perceptual.semantic_lod,
+        .perceptual_decision_impact = perceptual.decision_impact,
+        .perceptual_player_readable_cause = perceptual.player_readable_cause,
+        .perceptual_ai_cover_value = perceptual.ai_cover_value,
+        .perceptual_neural_irradiance_confidence =
+            perceptual.neural_irradiance_confidence};
     appendKey(ir_hash, packet.entity.value);
     appendKey(ir_hash, packet.object_index);
     appendKey(ir_hash, packet.mesh.value);
@@ -470,6 +525,11 @@ void RenderScene::rebuild(const Scene &scene) {
     appendKey(ir_hash, packet.opacity);
     appendKey(ir_hash, packet.dynamic_mesh_generation);
     appendKey(ir_hash, packet.perceptual_primitive_hash);
+    appendKey(ir_hash, packet.perceptual_sound_surface_class_hash);
+    appendKey(ir_hash, packet.perceptual_neural_irradiance_hash);
+    appendKey(ir_hash, packet.perceptual_neural_irradiance.x);
+    appendKey(ir_hash, packet.perceptual_neural_irradiance.y);
+    appendKey(ir_hash, packet.perceptual_neural_irradiance.z);
     appendKey(ir_hash, packet.perceptual_material_memory);
     appendKey(ir_hash, packet.perceptual_interaction_residue);
     appendKey(ir_hash, packet.perceptual_contact_field);
@@ -481,6 +541,8 @@ void RenderScene::rebuild(const Scene &scene) {
     appendKey(ir_hash, packet.perceptual_semantic_lod);
     appendKey(ir_hash, packet.perceptual_decision_impact);
     appendKey(ir_hash, packet.perceptual_player_readable_cause);
+    appendKey(ir_hash, packet.perceptual_ai_cover_value);
+    appendKey(ir_hash, packet.perceptual_neural_irradiance_confidence);
     ir_.objects.push_back(packet);
   }
   ir_.content_hash = ir_hash;
@@ -526,6 +588,12 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
                                    object.dynamic_mesh_generation,
                                .perceptual_primitive_hash =
                                    object.perceptual_primitive_hash,
+                               .perceptual_sound_surface_class_hash =
+                                   object.perceptual_sound_surface_class_hash,
+                               .perceptual_neural_irradiance_hash =
+                                   object.perceptual_neural_irradiance_hash,
+                               .perceptual_neural_irradiance =
+                                   runtimeVec(object.perceptual_neural_irradiance),
                                .perceptual_material_memory =
                                    object.perceptual_material_memory,
                                .perceptual_interaction_residue =
@@ -547,7 +615,11 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
                                .perceptual_decision_impact =
                                    object.perceptual_decision_impact,
                                .perceptual_player_readable_cause =
-                                   object.perceptual_player_readable_cause});
+                                   object.perceptual_player_readable_cause,
+                               .perceptual_ai_cover_value =
+                                   object.perceptual_ai_cover_value,
+                               .perceptual_neural_irradiance_confidence =
+                                   object.perceptual_neural_irradiance_confidence});
   }
 
   RuntimePlanOptions options;

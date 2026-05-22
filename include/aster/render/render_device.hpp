@@ -649,6 +649,8 @@ struct WorldPerceptualPrimitiveTrace {
   std::uint64_t template_hash = 0u;
   std::uint64_t cell_hash = 0u;
   std::uint64_t player_readable_cause_hash = 0u;
+  std::uint64_t sound_surface_class_hash = 0u;
+  std::uint64_t neural_irradiance_hash = 0u;
   float cell_residency = 0.0f;
   float exposure_age_seconds = 0.0f;
   float material_half_life_seconds = 0.0f;
@@ -657,7 +659,10 @@ struct WorldPerceptualPrimitiveTrace {
   Vec3 contact_normal_history{0.0f, 1.0f, 0.0f};
   float acoustic_occlusion_trust = 0.0f;
   float visual_occlusion_trust = 0.0f;
+  float ai_cover_value = 0.0f;
   float traversal_affordance = 0.0f;
+  Vec3 neural_irradiance{};
+  float neural_irradiance_confidence = 0.0f;
   float material_memory = 0.0f;
   float interaction_residue = 0.0f;
   float contact_field = 0.0f;
@@ -878,6 +883,9 @@ struct FrameForensics {
   float perceptual_scheduler_frame_cost_ms = 0.0f;
   bool perceptual_scheduler_accepted = false;
   WorldPerceptualPrimitiveSummary perceptual_primitive_summary;
+  std::uint64_t neural_irradiance_hash = 0u;
+  Vec3 neural_irradiance_diffuse{};
+  float neural_irradiance_confidence = 0.0f;
   std::uint64_t world_truth_audit_hash = 0u;
   BeliefExtractionReport belief_falseness_report;
   std::vector<WorldPerceptionObjectTrace> perception_object_traces;

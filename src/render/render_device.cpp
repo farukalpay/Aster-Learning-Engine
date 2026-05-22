@@ -4781,12 +4781,15 @@ std::uint64_t worldTruthAuditHash(const aster::FrameForensics &forensics) {
   hash = appendEvidenceValue(hash, forensics.perceptual_scheduler_hash);
   hash = appendEvidenceValue(hash, forensics.belief_falseness_report.belief_contract_hash);
   hash = appendEvidenceValue(hash, forensics.perceptual_primitive_summary.truth_hash);
+  hash = appendEvidenceValue(hash, forensics.neural_irradiance_hash);
   hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(
                                       forensics.perceptual_primitive_traces.size()));
   for (const aster::WorldPerceptualPrimitiveTrace &trace :
        forensics.perceptual_primitive_traces) {
     hash = appendEvidenceText(hash, trace.object_name);
     hash = appendEvidenceValue(hash, trace.primitive_hash);
+    hash = appendEvidenceValue(hash, trace.sound_surface_class_hash);
+    hash = appendEvidenceValue(hash, trace.neural_irradiance_hash);
     hash = appendEvidenceValue(
         hash, static_cast<std::uint64_t>(std::lround(trace.decision_impact * 1000000.0f)));
   }
@@ -4799,6 +4802,12 @@ void appendWorldPerceptualPrimitiveTraces(const aster::Scene &scene,
   std::vector<aster::WorldPerceptualPrimitive> primitives;
   primitives.reserve(scene.objects().size());
   forensics.perceptual_primitive_traces.reserve(scene.objects().size());
+  forensics.neural_irradiance_hash = 0u;
+  forensics.neural_irradiance_diffuse = {};
+  forensics.neural_irradiance_confidence = 0.0f;
+  std::size_t neural_sample_count = 0u;
+  std::uint64_t neural_hash =
+      appendEvidenceText(1469598103934665603ull, "aster.neural-irradiance-frame.v1");
   for (std::size_t object_index = 0u; object_index < scene.objects().size(); ++object_index) {
     const aster::RenderObject &object = scene.objects()[object_index];
     const aster::WorldPerceptualPrimitive &primitive = object.perceptual_primitive;
@@ -4806,6 +4815,16 @@ void appendWorldPerceptualPrimitiveTraces(const aster::Scene &scene,
       continue;
     }
     primitives.push_back(primitive);
+    if (primitive.neural_irradiance_hash != 0u) {
+      neural_hash = appendEvidenceValue(neural_hash, primitive.neural_irradiance_hash);
+      neural_hash = appendEvidenceValue(
+          neural_hash, static_cast<std::uint64_t>(
+                           std::lround(primitive.neural_irradiance_confidence * 1000000.0f)));
+      forensics.neural_irradiance_diffuse =
+          forensics.neural_irradiance_diffuse + primitive.neural_irradiance;
+      forensics.neural_irradiance_confidence += primitive.neural_irradiance_confidence;
+      ++neural_sample_count;
+    }
     forensics.perceptual_primitive_traces.push_back(
         {.primitive_id = primitive.primitive_id,
          .object_name = objectDiagnosticLabel(object, object_index),
@@ -4815,6 +4834,8 @@ void appendWorldPerceptualPrimitiveTraces(const aster::Scene &scene,
          .template_hash = primitive.template_hash,
          .cell_hash = primitive.cell_hash,
          .player_readable_cause_hash = primitive.player_readable_cause_hash,
+         .sound_surface_class_hash = primitive.sound_surface_class_hash,
+         .neural_irradiance_hash = primitive.neural_irradiance_hash,
          .cell_residency = primitive.cell_residency,
          .exposure_age_seconds = primitive.exposure_age_seconds,
          .material_half_life_seconds = primitive.material_half_life_seconds,
@@ -4823,7 +4844,10 @@ void appendWorldPerceptualPrimitiveTraces(const aster::Scene &scene,
          .contact_normal_history = primitive.contact_normal_history,
          .acoustic_occlusion_trust = primitive.acoustic_occlusion_trust,
          .visual_occlusion_trust = primitive.visual_occlusion_trust,
+         .ai_cover_value = primitive.ai_cover_value,
          .traversal_affordance = primitive.traversal_affordance,
+         .neural_irradiance = primitive.neural_irradiance,
+         .neural_irradiance_confidence = primitive.neural_irradiance_confidence,
          .material_memory = primitive.signals.material_memory,
          .interaction_residue = primitive.signals.interaction_residue,
          .contact_field = primitive.signals.contact_field,
@@ -4840,6 +4864,13 @@ void appendWorldPerceptualPrimitiveTraces(const aster::Scene &scene,
          .contact_zone_count = primitive.active_contact_zone_count,
          .residue_channel_count = primitive.active_residue_channel_count,
          .accepted = primitive.accepted});
+  }
+  if (neural_sample_count > 0u) {
+    const float inv_count = 1.0f / static_cast<float>(neural_sample_count);
+    forensics.neural_irradiance_diffuse = forensics.neural_irradiance_diffuse * inv_count;
+    forensics.neural_irradiance_confidence *= inv_count;
+    forensics.neural_irradiance_hash =
+        appendEvidenceValue(neural_hash, static_cast<std::uint64_t>(neural_sample_count));
   }
   forensics.perceptual_primitive_summary = aster::summarizeWorldPerceptualPrimitives(primitives);
   forensics.world_truth_audit_hash = worldTruthAuditHash(forensics);
@@ -5160,7 +5191,8 @@ void rebuildFrameDebuggerTimeline(aster::FrameForensics &forensics) {
          .label = trace.accepted ? "world-perceptual-primitive" : "perceptual-debt",
          .evidence = "truth=" + std::to_string(trace.primitive_hash) +
                      " decision=" + std::to_string(trace.decision_impact) +
-                     " contact=" + std::to_string(trace.contact_field)});
+                     " contact=" + std::to_string(trace.contact_field) +
+                     " neural=" + std::to_string(trace.neural_irradiance_hash)});
   }
 
   for (const aster::ObjectRenderFateTrace &fate : forensics.object_fates) {

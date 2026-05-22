@@ -38,6 +38,9 @@ pub struct AsterRuntimeRenderObject {
     pub portal_depth: f32,
     pub dynamic_mesh_generation: u64,
     pub perceptual_primitive_hash: u64,
+    pub perceptual_sound_surface_class_hash: u64,
+    pub perceptual_neural_irradiance_hash: u64,
+    pub perceptual_neural_irradiance: AsterRuntimeVec3,
     pub perceptual_material_memory: f32,
     pub perceptual_interaction_residue: f32,
     pub perceptual_contact_field: f32,
@@ -49,6 +52,8 @@ pub struct AsterRuntimeRenderObject {
     pub perceptual_semantic_lod: f32,
     pub perceptual_decision_impact: f32,
     pub perceptual_player_readable_cause: f32,
+    pub perceptual_ai_cover_value: f32,
+    pub perceptual_neural_irradiance_confidence: f32,
 }
 
 #[repr(C)]
@@ -938,6 +943,9 @@ mod tests {
             portal_depth: 0.0,
             dynamic_mesh_generation: 0,
             perceptual_primitive_hash: 0,
+            perceptual_sound_surface_class_hash: 0,
+            perceptual_neural_irradiance_hash: 0,
+            perceptual_neural_irradiance: AsterRuntimeVec3::default(),
             perceptual_material_memory: 0.0,
             perceptual_interaction_residue: 0.0,
             perceptual_contact_field: 0.0,
@@ -949,6 +957,8 @@ mod tests {
             perceptual_semantic_lod: 0.0,
             perceptual_decision_impact: 0.0,
             perceptual_player_readable_cause: 0.0,
+            perceptual_ai_cover_value: 0.0,
+            perceptual_neural_irradiance_confidence: 0.0,
         }
     }
 
@@ -982,7 +992,7 @@ mod tests {
     fn abi_layout_matches_cxx_runtime_contract() {
         assert_eq!(std::mem::size_of::<AsterRuntimeVec3>(), 12);
         assert_eq!(std::mem::align_of::<AsterRuntimeVec3>(), 4);
-        assert_eq!(std::mem::size_of::<AsterRuntimeRenderObject>(), 168);
+        assert_eq!(std::mem::size_of::<AsterRuntimeRenderObject>(), 200);
         assert_eq!(std::mem::align_of::<AsterRuntimeRenderObject>(), 8);
         assert_eq!(std::mem::size_of::<AsterRuntimeCamera>(), 64);
         assert_eq!(std::mem::size_of::<AsterRuntimeLineOfSightFade>(), 48);

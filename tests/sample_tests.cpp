@@ -767,6 +767,110 @@ void testLumenDeepCaveCaptureLightingContract() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
 
+void testLumenHeldTorchLightsDeepCaveAndReplaysDeterministically() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+
+  struct LightingMetrics {
+    double average_direct = 0.0;
+    double max_source_readability = 0.0;
+  };
+
+  const float progress = 24.0f;
+  const auto prepare_run = [&](aster::LumenRun &run, const bool with_torch) {
+    if (with_torch) {
+      assert(run.takeChestItem("torch"));
+      run.selectHotbarSlot(0);
+      run.update(1.0f / 60.0f, {}, false, false);
+      assert(run.equippedLight().has_value());
+    }
+    const aster::Vec3 player_position = run.caveFrameReportPosition(progress);
+    run.relocatePlayer(player_position, aster::radians(180.0f));
+    for (int i = 0; i < 8; ++i) {
+      run.update(1.0f / 60.0f, {}, false, false);
+    }
+  };
+
+  const auto render_metrics = [&](const aster::LumenRun &run) {
+    const aster::Vec3 look_target = run.caveFrameReportLookTarget(progress, 1.10f);
+    const aster::CaveLightingState cave_light = run.caveLightingStateAt(look_target);
+    aster::RendererSettings settings;
+    settings.pipeline.clear_color = {0.001f, 0.001f, 0.001f};
+    settings.exposure = 0.86f;
+    settings.ambient_strength = 0.010f;
+    settings.ambient_floor = 0.0f;
+    settings.indirect_albedo_floor = 0.0f;
+    settings.sky_ambient_color = {0.0025f, 0.0025f, 0.0030f};
+    settings.ground_ambient_color = {0.0025f, 0.0020f, 0.0018f};
+    settings.sun_light.enabled = true;
+    settings.sun_light.intensity = 0.0f;
+    settings.atmosphere.enabled = false;
+    for (const aster::CaveWallLightSample &light : cave_light.wall_lights) {
+      settings.light_rig.push_back({light.position, light.color, light.intensity,
+                                    light.source_radius});
+    }
+    if (const std::optional<aster::DynamicPointLight> light = run.equippedLight();
+        light.has_value() && light->active) {
+      const float gain = run.heldTorchLightGain(cave_light);
+      settings.light_rig.push_back(
+          {light->position, light->color, light->intensity * gain, light->source_radius});
+    }
+
+    aster::OrbitCamera camera;
+    camera.target = look_target;
+    camera.pitch = aster::radians(6.0f);
+    camera.yaw = aster::radians(180.0f);
+    camera.radius = run.resolveCameraRadius(camera.target, camera.yaw, camera.pitch, 2.55f);
+    camera.vertical_fov = aster::radians(54.0f);
+
+    const aster::SoftwarePreviewResult result =
+        aster::renderSoftwarePreviewWithProbe(run.scene(), camera,
+                                              {.width = 96,
+                                               .height = 64,
+                                               .samples_per_axis = 1,
+                                               .frame_seconds = 0.0,
+                                               .settings = settings});
+    LightingMetrics metrics;
+    std::size_t lit_pixels = 0u;
+    for (const aster::SoftwareLightingProbePixel &pixel : result.lighting.pixels) {
+      metrics.average_direct += pixel.direct_light_luminance;
+      metrics.max_source_readability =
+          std::max(metrics.max_source_readability,
+                   static_cast<double>(pixel.source_readability_luminance));
+      if (pixel.direct_light_luminance > 0.0001f) {
+        ++lit_pixels;
+      }
+    }
+    metrics.average_direct /=
+        static_cast<double>(std::max<std::size_t>(result.lighting.pixels.size(), 1u));
+    assert(lit_pixels > 0u);
+    return metrics;
+  };
+
+  aster::LumenRun no_torch({.shard_count = 3, .sentinel_count = 0});
+  aster::LumenRun torch_a({.shard_count = 3, .sentinel_count = 0});
+  aster::LumenRun torch_b({.shard_count = 3, .sentinel_count = 0});
+  prepare_run(no_torch, false);
+  prepare_run(torch_a, true);
+  prepare_run(torch_b, true);
+  const LightingMetrics baseline = render_metrics(no_torch);
+  const LightingMetrics held = render_metrics(torch_a);
+  (void)render_metrics(torch_b);
+  assert(held.average_direct > baseline.average_direct * 1.08 + 0.0001);
+  assert(held.max_source_readability > baseline.max_source_readability + 0.0001);
+  assert(torch_a.worldForensics().perceptual_primitive_summary.truth_hash ==
+         torch_b.worldForensics().perceptual_primitive_summary.truth_hash);
+  assert(std::any_of(torch_a.worldForensics().perceptual_primitives.begin(),
+                     torch_a.worldForensics().perceptual_primitives.end(),
+                     [](const aster::WorldPerceptualPrimitive &primitive) {
+                       return primitive.primitive_id.find("lumen.torch.exposure.surface.") == 0u &&
+                              primitive.accepted && primitive.signals.light_history > 0.0f &&
+                              primitive.neural_irradiance_hash != 0u;
+                     }));
+
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
 void testLumenCaveTraversalAndLightingContracts() {
   aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
   aster::Vec3 cave_web_center{};
@@ -1112,6 +1216,7 @@ int main() {
   testLumenPrismRelayProximityInteraction();
   testLumenCaveVisualContracts();
   testLumenDeepCaveCaptureLightingContract();
+  testLumenHeldTorchLightsDeepCaveAndReplaysDeterministically();
   testLumenCaveTraversalAndLightingContracts();
   testLumenPondWallLightIsMountedOutsideWater();
   testLumenClassicGauntletVisibleAndAutomapped();

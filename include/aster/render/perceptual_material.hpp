@@ -20,7 +20,8 @@ applyWorldPerceptualMaterialMemory(const RenderObject &object, const Material &b
   Material material = base_material;
   const float wet_history =
       std::clamp(signals.material_memory * 0.20f + signals.interaction_residue * 0.16f +
-                     signals.light_history * 0.06f,
+                     signals.light_history * 0.06f +
+                     primitive.neural_irradiance_confidence * 0.06f,
                  0.0f, 0.42f);
   const float dirt_history =
       std::clamp(signals.interaction_residue * 0.28f + signals.contact_field * 0.24f +
@@ -42,6 +43,17 @@ applyWorldPerceptualMaterialMemory(const RenderObject &object, const Material &b
       std::clamp(std::lerp(material.roughness, 0.92f, dirt_history * 0.35f), 0.045f, 1.0f);
   material.detail_strength =
       std::clamp(material.detail_strength + signals.player_readable_cause * 0.08f, 0.0f, 2.0f);
+  const float neural_warmth =
+      std::clamp(primitive.neural_irradiance_confidence * signals.light_history, 0.0f, 1.0f);
+  material.base_color.value.x =
+      std::clamp(material.base_color.value.x + primitive.neural_irradiance.x * 0.08f * neural_warmth,
+                 0.0f, 1.0f);
+  material.base_color.value.y =
+      std::clamp(material.base_color.value.y + primitive.neural_irradiance.y * 0.045f * neural_warmth,
+                 0.0f, 1.0f);
+  material.base_color.value.z =
+      std::clamp(material.base_color.value.z + primitive.neural_irradiance.z * 0.025f * neural_warmth,
+                 0.0f, 1.0f);
   return material;
 }
 

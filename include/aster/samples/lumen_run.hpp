@@ -255,6 +255,7 @@ public:
   [[nodiscard]] std::optional<DynamicPointLight> prismRelayLight() const;
   [[nodiscard]] CaveLightingState caveLightingState() const;
   [[nodiscard]] CaveLightingState caveLightingStateAt(Vec3 position) const;
+  [[nodiscard]] float heldTorchLightGain(const CaveLightingState &light) const;
   [[nodiscard]] bool classicGauntletActive() const;
   [[nodiscard]] const AutomapModel &classicGauntletAutomap() const;
   [[nodiscard]] ClassicHudSignalModel classicHudSignals() const;
@@ -474,7 +475,7 @@ private:
   buildPerceptualScheduleReport(float frame_cost_ms) const;
   [[nodiscard]] BeliefExtractionReport buildBeliefExtractionReport() const;
   [[nodiscard]] std::vector<WorldPerceptualPrimitive>
-  buildWorldPerceptualPrimitives() const;
+  buildWorldPerceptualPrimitives();
   void refreshWorldPerceptualPrimitives();
   void applyWorldPerceptualPrimitivesToScene();
   void advancePerceptualRuntime(float dt, Vec2 move_axis, Vec3 previous_player_position);
@@ -539,6 +540,7 @@ private:
   LumenStatus status_{};
   WorldState world_state_{};
   PerceptualWorldRuntime perceptual_runtime_{};
+  WorldPerceptualField torch_exposure_field_{};
   LumenWorldForensics world_forensics_{};
   std::uint64_t next_world_epoch_ = 1u;
   Scene scene_{};

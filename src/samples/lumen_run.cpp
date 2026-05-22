@@ -3,6 +3,8 @@
 
 #include "lumen_run_detail.hpp"
 
+#include "aster/core/neural_irradiance_volume.hpp"
+
 namespace aster {
 namespace {
 
@@ -48,6 +50,51 @@ constexpr std::uint32_t kContinuityResourceState = 1u << 10u;
     seed = lumenHash(seed, static_cast<std::uint64_t>(static_cast<unsigned char>(c)));
   }
   return seed;
+}
+
+[[nodiscard]] bool isCavePerceptualSurface(const std::string_view name) {
+  return name == "Authored cave interior" || name == "Authored deep cave interior" ||
+         name == "Walkable cave entrance threshold" ||
+         name.find("cave wall light") != std::string_view::npos ||
+         name.find("cave lamp") != std::string_view::npos ||
+         name.find("Rust-stained cave wall") != std::string_view::npos ||
+         name.find("Wet drip trail") != std::string_view::npos ||
+         name.find("Thin wet drip trail") != std::string_view::npos;
+}
+
+[[nodiscard]] Vec3 renderObjectPerceptualCenter(const RenderObject &object) {
+  if (object.custom_mesh == nullptr || object.custom_mesh->vertices.empty()) {
+    return object.transform.position;
+  }
+  Vec3 min_corner = transformPoint(object.transform, object.custom_mesh->vertices.front().position);
+  Vec3 max_corner = min_corner;
+  for (const Vertex &vertex : object.custom_mesh->vertices) {
+    const Vec3 p = transformPoint(object.transform, vertex.position);
+    min_corner.x = std::min(min_corner.x, p.x);
+    min_corner.y = std::min(min_corner.y, p.y);
+    min_corner.z = std::min(min_corner.z, p.z);
+    max_corner.x = std::max(max_corner.x, p.x);
+    max_corner.y = std::max(max_corner.y, p.y);
+    max_corner.z = std::max(max_corner.z, p.z);
+  }
+  return (min_corner + max_corner) * 0.5f;
+}
+
+[[nodiscard]] Vec3 renderObjectPerceptualNormal(const RenderObject &object, const Vec3 center,
+                                                const Vec3 fallback) {
+  if (object.custom_mesh == nullptr || object.custom_mesh->vertices.empty()) {
+    return normalizeOr(rotate(object.transform.rotation, {0.0f, 1.0f, 0.0f}), fallback);
+  }
+  Vec3 normal{};
+  std::size_t sampled = 0u;
+  for (const Vertex &vertex : object.custom_mesh->vertices) {
+    normal = normal + rotate(object.transform.rotation, vertex.normal);
+    if (++sampled >= 32u) {
+      break;
+    }
+  }
+  const Vec3 outward = normalizeOr(center - Vec3{31.0f, 0.0f, -59.0f}, fallback);
+  return normalizeOr(normal, normalizeOr(outward, fallback));
 }
 
 [[nodiscard]] std::uint32_t lumenContinuityChannelMask(const std::string_view channel) {
@@ -456,6 +503,7 @@ void LumenRun::resetWorldProof() {
                              .label = "lumen.run.world"});
   perceptual_runtime_.setOptions(perceptualRuntimeOptions(0u));
   perceptual_runtime_.reset();
+  torch_exposure_field_.reset();
   world_forensics_ = {};
   next_world_epoch_ = 1u;
   world_forensics_.world_hash = world_state_.worldHash();
@@ -870,9 +918,9 @@ BeliefExtractionReport LumenRun::buildBeliefExtractionReport() const {
   return extractBeliefContract(desc);
 }
 
-std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives() const {
+std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives() {
   std::vector<WorldPerceptualPrimitive> primitives;
-  primitives.reserve(1u + coal_ores_.size() + placed_rocks_.size());
+  primitives.reserve(1u + coal_ores_.size() + placed_rocks_.size() + scene_.objects().size());
   primitives.push_back(makeWorldPerceptualPrimitiveFromRuntime(
       "lumen.runtime.mine_ore_torch", "Lumen Run Mine Ore + Torch",
       world_forensics_.perceptual_state, world_forensics_.perceptual_schedule,
@@ -885,6 +933,111 @@ std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives()
       ledger.streaming_semantic_lod_hash != 0u ? std::max(0.62f, state.render_budget.lod_bias)
                                                : state.render_budget.lod_bias;
   const float acoustic_occlusion = std::clamp(1.0f - state.render_budget.audio, 0.0f, 1.0f);
+  const CaveLightingState player_cave_light = caveLightingStateAt(player_position_);
+  const std::optional<DynamicPointLight> held_light = equippedLight();
+  const float held_torch_gain = heldTorchLightGain(player_cave_light);
+  const float held_torch_flux =
+      held_light.has_value() && held_light->active
+          ? std::clamp((held_light->intensity * held_torch_gain) / 7.5f, 0.0f, 1.0f)
+          : 0.0f;
+  const bool should_track_torch_exposure =
+      held_torch_flux > 0.001f || !torch_exposure_field_.states().empty();
+  const NeuralIrradianceVolumeDesc neural_volume =
+      makeDefaultNeuralIrradianceVolume(lumenHashString("lumen.neural.cave", ledger.ledger_hash));
+
+  if (should_track_torch_exposure) {
+    for (std::size_t object_index = 0u; object_index < scene_.objects().size(); ++object_index) {
+      const RenderObject &object = scene_.objects()[object_index];
+      if (!isCavePerceptualSurface(object.name)) {
+        continue;
+      }
+      const Vec3 center = renderObjectPerceptualCenter(object);
+      const Vec3 to_surface = center - player_position_;
+      const float distance = length(to_surface);
+      const float falloff = 1.0f / (1.0f + distance * distance * 0.18f);
+      const float cave_weight = std::clamp(player_cave_light.interior * 0.72f + 0.28f, 0.0f, 1.0f);
+      const float torch_exposure = held_torch_flux * falloff * cave_weight;
+      const float fixture_intensity = std::clamp(player_cave_light.wall_light * 0.72f, 0.0f, 1.0f);
+      const Vec3 normal =
+          renderObjectPerceptualNormal(object, center, normalizeOr(player_position_ - center,
+                                                                   {0.0f, 1.0f, 0.0f}));
+      const float wetness = std::clamp(schedule.material_age * 0.28f +
+                                           state.material_memory * 0.20f +
+                                           player_cave_light.depth * 0.08f,
+                                       0.0f, 1.0f);
+      const NeuralIrradianceSample neural_sample =
+          evaluateNeuralIrradianceVolume(neural_volume,
+                                         {.cell_position = center,
+                                          .normal = normal,
+                                          .torch_intensity = torch_exposure,
+                                          .fixture_intensity = fixture_intensity,
+                                          .exposure_age_seconds = state.exposure_seconds,
+                                          .wetness = wetness,
+                                          .material_memory = state.material_memory,
+                                          .occlusion_trust = state.occlusion_trust,
+                                          .semantic_lod = semantic_lod});
+      const float neural_luma = std::clamp(neural_sample.diffuse_irradiance.x * 0.42f +
+                                               neural_sample.diffuse_irradiance.y * 0.38f +
+                                               neural_sample.diffuse_irradiance.z * 0.20f,
+                                           0.0f, 1.0f);
+      const std::uint64_t object_seed =
+          lumenHashString(object.name, lumenHash(static_cast<std::uint64_t>(object_index),
+                                                 ledger.ledger_hash));
+      WorldPerceptualFieldObservation observation;
+      observation.key = {.world_owner_hash = ledger.region_id,
+                         .template_hash = lumenHashString("lumen.cave.surface", object_seed),
+                         .cell_hash = lumenHash(center, object_seed)};
+      observation.primitive_id =
+          "lumen.torch.exposure.surface." + std::to_string(object_index);
+      observation.object_name = object.name;
+      observation.player_readable_cause_hash =
+          lumenHashString("held-torch-warm-cave-surface", object_seed);
+      observation.sound_surface_class_hash =
+          lumenHashString("cave-stone-torch-exposure", object_seed);
+      observation.neural_irradiance_hash = neural_sample.sample_hash;
+      observation.cell_center = center;
+      observation.contact_normal = normal;
+      observation.delta_seconds = 1.0f / 60.0f;
+      observation.material_half_life_seconds = 18.0f;
+      observation.cell_residency = ledger.streaming_semantic_lod_hash != 0u ? 1.0f : 0.70f;
+      observation.streaming_cost =
+          std::clamp(1.0f - schedule.streaming_budget + (1.0f - falloff) * 0.06f, 0.0f, 1.0f);
+      observation.material_stability =
+          std::clamp(0.84f - wetness * 0.10f + schedule.belief_stability * 0.08f, 0.0f, 1.0f);
+      observation.acoustic_occlusion_trust = std::max(0.42f, state.render_budget.audio);
+      observation.visual_occlusion_trust = std::max(0.45f, state.occlusion_trust);
+      observation.ai_cover_value = std::max(schedule.threat_signal, state.occlusion_trust * 0.42f);
+      observation.traversal_affordance = std::max(0.30f, state.traversal_pressure);
+      observation.semantic_lod = std::max(0.58f, semantic_lod);
+      observation.neural_irradiance = neural_sample.diffuse_irradiance;
+      observation.neural_irradiance_confidence = neural_sample.confidence;
+      observation.target_signals = {.belief_state = std::max(0.70f, schedule.belief_stability),
+                                    .perceptual_debt = state.continuity_debt,
+                                    .material_memory = std::max(state.material_memory,
+                                                                wetness * 0.72f +
+                                                                    torch_exposure * 0.20f),
+                                    .interaction_residue =
+                                        std::max(state.interaction_residue, torch_exposure * 0.55f),
+                                    .contact_field = std::max(0.62f, state.occlusion_trust),
+                                    .light_history =
+                                        std::max({state.lighting_believability, torch_exposure,
+                                                  neural_luma}),
+                                    .acoustic_occlusion = acoustic_occlusion,
+                                    .ecology_pressure =
+                                        std::max(state.ecology_signal, schedule.material_age),
+                                    .threat_gradient = schedule.threat_signal,
+                                    .traversal_pressure =
+                                        std::max(state.traversal_pressure, player_cave_light.depth * 0.35f),
+                                    .semantic_lod = observation.semantic_lod,
+                                    .decision_impact =
+                                        std::max(schedule.decision_impact_score,
+                                                 torch_exposure * 0.48f),
+                                    .player_readable_cause =
+                                        std::max(state.player_readable_cause,
+                                                 torch_exposure > 0.01f ? 0.82f : 0.52f)};
+      primitives.push_back(torch_exposure_field_.advance(observation));
+    }
+  }
 
   for (std::size_t index = 0u; index < coal_ores_.size(); ++index) {
     const CoalOreNode &ore = coal_ores_[index];
@@ -903,6 +1056,7 @@ std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives()
         world_forensics_.coal_mining_reaction.readability_audit_hash != 0u
             ? world_forensics_.coal_mining_reaction.readability_audit_hash
             : ledger.gameplay_affordance_hash;
+    desc.sound_surface_class_hash = lumenHashString("cave-ore-fracture", object_seed);
     desc.delta_seconds = 1.0f / 60.0f;
     desc.wetness_half_life_seconds = 18.0f;
     desc.exposure_age_seconds = state.exposure_seconds;
@@ -911,6 +1065,7 @@ std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives()
     desc.material_stability = std::clamp(0.86f - damage * 0.25f +
                                              schedule.belief_stability * 0.12f,
                                          0.0f, 1.0f);
+    desc.ai_cover_value = std::max(schedule.threat_signal, state.occlusion_trust * 0.48f);
     desc.signals = {.belief_state = schedule.belief_stability,
                     .perceptual_debt = state.continuity_debt,
                     .material_memory = std::max(state.material_memory, 0.46f + damage * 0.42f),
@@ -953,7 +1108,7 @@ std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives()
                                   .normal = ore.normal,
                                   .contact_field = desc.signals.contact_field,
                                   .occlusion_trust = state.occlusion_trust,
-                                  .ai_cover_value = schedule.threat_signal,
+                                  .ai_cover_value = desc.ai_cover_value,
                                   .traversal_affordance = state.traversal_pressure});
     desc.residue_channels.push_back(
         {.id = "lumen.ore.residue",
@@ -978,12 +1133,14 @@ std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives()
     desc.world_owner_hash = ledger.region_id;
     desc.player_readable_cause_hash =
         lumenHashString("studio-stone-placement", object_seed);
+    desc.sound_surface_class_hash = lumenHashString("placed-cave-stone", object_seed);
     desc.delta_seconds = 1.0f / 60.0f;
     desc.wetness_half_life_seconds = 24.0f;
     desc.exposure_age_seconds = state.exposure_seconds;
     desc.cell_residency = ledger.streaming_semantic_lod_hash != 0u ? 1.0f : 0.68f;
     desc.streaming_cost = std::clamp(1.0f - schedule.streaming_budget + 0.08f, 0.0f, 1.0f);
     desc.material_stability = std::max(0.74f, 1.0f - schedule.interaction_debt * 0.20f);
+    desc.ai_cover_value = std::max(schedule.threat_signal, state.occlusion_trust * 0.36f);
     desc.signals = {.belief_state = std::max(0.72f, schedule.belief_stability),
                     .perceptual_debt = state.continuity_debt,
                     .material_memory = std::max(0.58f, state.material_memory),
@@ -1016,7 +1173,7 @@ std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives()
                                   .normal = rock.normal,
                                   .contact_field = desc.signals.contact_field,
                                   .occlusion_trust = desc.signals.contact_field,
-                                  .ai_cover_value = desc.signals.threat_gradient,
+                                  .ai_cover_value = desc.ai_cover_value,
                                   .traversal_affordance = desc.signals.traversal_pressure});
     desc.residue_channels.push_back({.id = "studio.stone.residue",
                                      .channel_hash =
@@ -1057,6 +1214,16 @@ void LumenRun::applyWorldPerceptualPrimitivesToScene() {
     if (const WorldPerceptualPrimitive *primitive =
             find_primitive("lumen.studio.stone." + std::to_string(index))) {
       scene_.objects()[rock.object_index].perceptual_primitive = *primitive;
+    }
+  }
+  for (std::size_t object_index = 0u; object_index < scene_.objects().size(); ++object_index) {
+    RenderObject &object = scene_.objects()[object_index];
+    if (!isCavePerceptualSurface(object.name)) {
+      continue;
+    }
+    if (const WorldPerceptualPrimitive *primitive = find_primitive(
+            "lumen.torch.exposure.surface." + std::to_string(object_index))) {
+      object.perceptual_primitive = *primitive;
     }
   }
 }
@@ -2467,6 +2634,14 @@ std::optional<DynamicPointLight> LumenRun::prismRelayLight() const {
 
 CaveLightingState LumenRun::caveLightingState() const {
   return caveLightingStateAt(player_position_);
+}
+
+float LumenRun::heldTorchLightGain(const CaveLightingState &light) const {
+  const float interior = clamp(light.interior, 0.0f, 1.0f);
+  const float fixture = clamp(light.wall_light, 0.0f, 1.0f);
+  const float base_gain = 0.85f + 0.33f * interior;
+  const float fixture_damping = std::lerp(1.0f, 0.82f, fixture);
+  return base_gain * fixture_damping;
 }
 
 bool LumenRun::classicGauntletActive() const {

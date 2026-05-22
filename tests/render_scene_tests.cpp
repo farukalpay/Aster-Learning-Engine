@@ -842,6 +842,8 @@ void testFrameDebuggerPerceptionLedgerTrace() {
        .template_hash = 0xA57E7701u,
        .cell_hash = 0xA57E7702u,
        .player_readable_cause_hash = 0xA57E88u,
+       .sound_surface_class_hash = 0xA57E8801u,
+       .neural_irradiance_hash = 0xA57E8802u,
        .delta_seconds = 1.0f / 60.0f,
        .wetness_half_life_seconds = 10.0f,
        .exposure_age_seconds = 2.0f,
@@ -849,6 +851,9 @@ void testFrameDebuggerPerceptionLedgerTrace() {
        .cell_residency = 1.0f,
        .streaming_cost = 0.20f,
        .material_stability = 0.86f,
+       .ai_cover_value = 0.44f,
+       .neural_irradiance = {0.58f, 0.34f, 0.16f},
+       .neural_irradiance_confidence = 0.72f,
        .player_observable = true,
        .signals = {.belief_state = 0.82f,
                    .perceptual_debt = 0.12f,
@@ -997,6 +1002,12 @@ void testFrameDebuggerPerceptionLedgerTrace() {
   assert(forensics.perceptual_primitive_traces.size() == 1u);
   assert(forensics.perceptual_primitive_traces[0].primitive_hash ==
          object.perceptual_primitive.truth_hash);
+  assert(forensics.perceptual_primitive_traces[0].sound_surface_class_hash == 0xA57E8801u);
+  assert(forensics.perceptual_primitive_traces[0].neural_irradiance_hash == 0xA57E8802u);
+  assert(forensics.perceptual_primitive_traces[0].ai_cover_value > 0.0f);
+  assert(forensics.neural_irradiance_hash != 0u);
+  assert(forensics.neural_irradiance_diffuse.x > 0.0f);
+  assert(forensics.neural_irradiance_confidence > 0.0f);
   assert(forensics.world_truth_audit_hash != 0u);
   assert(forensics.belief_falseness_report.belief_contract_hash ==
          belief_report.belief_contract_hash);

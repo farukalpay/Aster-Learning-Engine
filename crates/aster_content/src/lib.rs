@@ -4905,6 +4905,52 @@ fn cave_world_gate_report(
     } else {
         reasons.join("; ")
     };
+    let torch_socket_count = root
+        .get("required_assets")
+        .and_then(Value::as_array)
+        .map(|assets| {
+            assets
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|asset| asset.contains("torch_socket"))
+                .count()
+        })
+        .unwrap_or(0)
+        + fixture_count;
+    let neural_light_field_hash = hash_hex_text(&format!(
+        "{id}:neural-light-field:{fixture_count}:{torch_socket_count}:{ledger_lighting_exposure_hash}:{runtime_state_hash}:{scheduler_hash}:{probe_trace_hash}"
+    ));
+    let neural_light_field = serde_json::json!({
+        "schema_version": 1,
+        "kind": "neural_light_field_report",
+        "model": "aster.deterministic_mlp_feature_grid.v1",
+        "accepted": verdict && fixture_count > 0 && ledger_lighting_exposure_hash.len() >= 16,
+        "model_hash": neural_light_field_hash,
+        "fixture_count": fixture_count,
+        "torch_socket_count": torch_socket_count,
+        "input_channels": [
+            "cell_position",
+            "normal",
+            "torch_intensity",
+            "fixture_intensity",
+            "exposure_age",
+            "wetness",
+            "material_memory",
+            "occlusion_trust",
+            "semantic_lod"
+        ],
+        "outputs": [
+            "diffuse_irradiance_rgb",
+            "confidence"
+        ],
+        "linked_world_gate_hash": probe_trace_hash,
+        "linked_ledger_hash": ledger_hash,
+        "linked_runtime_state_hash": runtime_state_hash,
+        "linked_scheduler_hash": scheduler_hash,
+        "backend_native_support": "future-gated",
+        "cpu_inference": true,
+        "deterministic_single_step": true,
+    });
     let mut diagnostics = Vec::new();
     if !verdict {
         diagnostics.push(cook_error(format!(
@@ -4924,6 +4970,7 @@ fn cave_world_gate_report(
         "extraction_hash": extraction_hash,
         "belief_contract_hash": belief_contract_hash,
         "verdict": if verdict { "accepted" } else { "quarantined" },
+        "neural_light_field": neural_light_field.clone(),
         "navigation": {
             "valid": nav_valid,
             "checked_steps": checked_steps,
@@ -5378,6 +5425,30 @@ pub fn cook_asset(
                         kind: "json".to_string(),
                         path: relative_path_string(&report_path, output_root),
                         hash: hash_file_hex(&report_path)?,
+                    },
+                    false,
+                );
+                let neural_report = serde_json::json!({
+                    "schema_version": 1,
+                    "kind": "cave_neural_light_field_artifact",
+                    "id": id,
+                    "source_path": source_rel,
+                    "region_id": report["region_id"].clone(),
+                    "world_gate_report": report["probe_trace_hash"].clone(),
+                    "neural_light_field": report["neural_light_field"].clone(),
+                });
+                let neural_report_path = output_root.join("reports").join(format!(
+                    "{}.neural-light-field.report.json",
+                    safe_stem(id, source)
+                ));
+                write_json(&neural_report_path, &neural_report)?;
+                push_output(
+                    &mut record,
+                    AssetCookedOutput {
+                        role: "neural-light-field-report".to_string(),
+                        kind: "json".to_string(),
+                        path: relative_path_string(&neural_report_path, output_root),
+                        hash: hash_file_hex(&neural_report_path)?,
                     },
                     false,
                 );
@@ -10587,8 +10658,60 @@ edge perception.template export.runtime perceptual_template
         let report: Value =
             serde_json::from_slice(&fs::read(output.join(&report_output.path)).expect("report"))
                 .expect("world gate json");
+        let neural_output = record
+            .outputs
+            .iter()
+            .find(|output| output.role == "neural-light-field-report")
+            .expect("neural light field report");
+        let neural_report: Value = serde_json::from_slice(
+            &fs::read(output.join(&neural_output.path)).expect("neural report"),
+        )
+        .expect("neural light field json");
         assert_eq!(report["kind"], "cave_world_gate_report");
         assert_eq!(report["verdict"], "accepted");
+        assert_eq!(
+            report["neural_light_field"]["kind"],
+            "neural_light_field_report"
+        );
+        assert_eq!(report["neural_light_field"]["accepted"], true);
+        assert_eq!(
+            report["neural_light_field"]["model"],
+            "aster.deterministic_mlp_feature_grid.v1"
+        );
+        assert!(
+            report["neural_light_field"]["model_hash"]
+                .as_str()
+                .expect("neural model hash")
+                .len()
+                >= 16
+        );
+        assert!(
+            report["neural_light_field"]["fixture_count"]
+                .as_u64()
+                .expect("fixture count")
+                > 0
+        );
+        assert!(
+            report["neural_light_field"]["torch_socket_count"]
+                .as_u64()
+                .expect("torch sockets")
+                >= report["neural_light_field"]["fixture_count"]
+                    .as_u64()
+                    .expect("fixture count")
+        );
+        assert_eq!(
+            report["neural_light_field"]["linked_world_gate_hash"],
+            report["probe_trace_hash"]
+        );
+        assert_eq!(neural_report["kind"], "cave_neural_light_field_artifact");
+        assert_eq!(
+            neural_report["neural_light_field"]["model_hash"],
+            report["neural_light_field"]["model_hash"]
+        );
+        assert_eq!(
+            neural_report["neural_light_field"]["linked_ledger_hash"],
+            report["perception_ledger"]["ledger_hash"]
+        );
         assert_eq!(report["navigation"]["valid"], true);
         assert_eq!(report["perceptual_budget"]["accepted"], true);
         assert_eq!(report["perception_ledger"]["accepted"], true);

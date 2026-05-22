@@ -57,6 +57,9 @@ fn self_check() {
         portal_depth: 0.0,
         dynamic_mesh_generation: 0,
         perceptual_primitive_hash: 0,
+        perceptual_sound_surface_class_hash: 0,
+        perceptual_neural_irradiance_hash: 0,
+        perceptual_neural_irradiance: AsterRuntimeVec3::default(),
         perceptual_material_memory: 0.0,
         perceptual_interaction_residue: 0.0,
         perceptual_contact_field: 0.0,
@@ -68,6 +71,8 @@ fn self_check() {
         perceptual_semantic_lod: 0.0,
         perceptual_decision_impact: 0.0,
         perceptual_player_readable_cause: 0.0,
+        perceptual_ai_cover_value: 0.0,
+        perceptual_neural_irradiance_confidence: 0.0,
     };
     let camera = AsterRuntimeCamera {
         position: AsterRuntimeVec3::default(),

@@ -2225,7 +2225,7 @@ int main(int argc, char **argv) {
       }
       if (const std::optional<aster::DynamicPointLight> light = game.equippedLight();
           light.has_value() && light->active) {
-        const float cave_torch_gain = std::lerp(1.0f, 0.0f, cave_light.interior);
+        const float cave_torch_gain = game.heldTorchLightGain(cave_light);
         if (cave_torch_gain > 0.001f) {
           settings.light_rig.push_back({light->position, light->color,
                                         light->intensity * cave_torch_gain, light->source_radius});

@@ -75,6 +75,8 @@ struct WorldPerceptualPrimitiveDesc {
   std::uint64_t template_hash = 0u;
   std::uint64_t cell_hash = 0u;
   std::uint64_t player_readable_cause_hash = 0u;
+  std::uint64_t sound_surface_class_hash = 0u;
+  std::uint64_t neural_irradiance_hash = 0u;
   float delta_seconds = 1.0f / 60.0f;
   float wetness_half_life_seconds = 12.0f;
   float material_half_life_seconds = 12.0f;
@@ -86,8 +88,11 @@ struct WorldPerceptualPrimitiveDesc {
   Vec3 contact_normal_history{0.0f, 1.0f, 0.0f};
   float acoustic_occlusion_trust = 0.0f;
   float visual_occlusion_trust = 0.0f;
+  float ai_cover_value = 0.0f;
   float traversal_affordance = 0.0f;
   float semantic_lod = 0.0f;
+  Vec3 neural_irradiance{};
+  float neural_irradiance_confidence = 0.0f;
   bool player_observable = true;
   WorldPerceptualSignals signals;
   std::vector<WorldPerceptualCellAnchor> cell_anchors;
@@ -104,6 +109,8 @@ struct WorldPerceptualPrimitive {
   std::uint64_t template_hash = 0u;
   std::uint64_t cell_hash = 0u;
   std::uint64_t player_readable_cause_hash = 0u;
+  std::uint64_t sound_surface_class_hash = 0u;
+  std::uint64_t neural_irradiance_hash = 0u;
   WorldPerceptualSignals signals;
   float cell_residency = 0.0f;
   float world_ownership = 0.0f;
@@ -115,8 +122,11 @@ struct WorldPerceptualPrimitive {
   Vec3 contact_normal_history{0.0f, 1.0f, 0.0f};
   float acoustic_occlusion_trust = 0.0f;
   float visual_occlusion_trust = 0.0f;
+  float ai_cover_value = 0.0f;
   float traversal_affordance = 0.0f;
   float semantic_lod = 0.0f;
+  Vec3 neural_irradiance{};
+  float neural_irradiance_confidence = 0.0f;
   std::size_t active_cell_anchor_count = 0u;
   std::size_t active_surface_patch_count = 0u;
   std::size_t active_contact_zone_count = 0u;
@@ -174,6 +184,8 @@ struct WorldPerceptualFieldObservation {
   std::string primitive_id;
   std::string object_name;
   std::uint64_t player_readable_cause_hash = 0u;
+  std::uint64_t sound_surface_class_hash = 0u;
+  std::uint64_t neural_irradiance_hash = 0u;
   Vec3 cell_center{};
   Vec3 contact_normal{0.0f, 1.0f, 0.0f};
   float delta_seconds = 1.0f / 60.0f;
@@ -183,8 +195,11 @@ struct WorldPerceptualFieldObservation {
   float material_stability = 1.0f;
   float acoustic_occlusion_trust = 0.0f;
   float visual_occlusion_trust = 0.0f;
+  float ai_cover_value = 0.0f;
   float traversal_affordance = 0.0f;
   float semantic_lod = 0.0f;
+  Vec3 neural_irradiance{};
+  float neural_irradiance_confidence = 0.0f;
   bool player_observable = true;
   WorldPerceptualSignals target_signals;
 };

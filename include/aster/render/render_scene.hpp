@@ -65,6 +65,9 @@ struct RenderObjectPacket {
   float portal_depth = 0.0f;
   std::uint64_t dynamic_mesh_generation = 0u;
   std::uint64_t perceptual_primitive_hash = 0u;
+  std::uint64_t perceptual_sound_surface_class_hash = 0u;
+  std::uint64_t perceptual_neural_irradiance_hash = 0u;
+  Vec3 perceptual_neural_irradiance{};
   float perceptual_material_memory = 0.0f;
   float perceptual_interaction_residue = 0.0f;
   float perceptual_contact_field = 0.0f;
@@ -76,6 +79,8 @@ struct RenderObjectPacket {
   float perceptual_semantic_lod = 0.0f;
   float perceptual_decision_impact = 0.0f;
   float perceptual_player_readable_cause = 0.0f;
+  float perceptual_ai_cover_value = 0.0f;
+  float perceptual_neural_irradiance_confidence = 0.0f;
 };
 
 struct CanonicalDrawSignature {

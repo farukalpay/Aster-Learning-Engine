@@ -6,6 +6,7 @@
 #include "aster/core/belief_extraction.hpp"
 #include "aster/core/job_graph.hpp"
 #include "aster/core/module_registry.hpp"
+#include "aster/core/neural_irradiance_volume.hpp"
 #include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/session_journal.hpp"
 #include "aster/core/signal.hpp"
@@ -857,6 +858,34 @@ void testWorldPerceptualPrimitiveContracts() {
   assert(field_second.signals.material_memory < field_first_a.signals.material_memory);
 }
 
+void testNeuralIrradianceVolumeContracts() {
+  const aster::NeuralIrradianceVolumeDesc volume =
+      aster::makeDefaultNeuralIrradianceVolume(0xA57E2602u);
+  const aster::NeuralIrradianceQuery query{.cell_position = {0.24f, -0.18f, 0.52f},
+                                           .normal = {0.0f, 0.86f, 0.24f},
+                                           .torch_intensity = 0.20f,
+                                           .fixture_intensity = 0.40f,
+                                           .exposure_age_seconds = 6.0f,
+                                           .wetness = 0.30f,
+                                           .material_memory = 0.58f,
+                                           .occlusion_trust = 0.76f,
+                                           .semantic_lod = 0.82f};
+  const aster::NeuralIrradianceSample first =
+      aster::evaluateNeuralIrradianceVolume(volume, query);
+  const aster::NeuralIrradianceSample replay =
+      aster::evaluateNeuralIrradianceVolume(volume, query);
+  assert(first.sample_hash == replay.sample_hash);
+  expectNear(first.diffuse_irradiance.x, replay.diffuse_irradiance.x, 0.000001f);
+  assert(first.confidence > 0.0f);
+
+  aster::NeuralIrradianceQuery torch_changed = query;
+  torch_changed.torch_intensity = 0.82f;
+  const aster::NeuralIrradianceSample changed =
+      aster::evaluateNeuralIrradianceVolume(volume, torch_changed);
+  assert(changed.sample_hash != first.sample_hash);
+  assert(changed.diffuse_irradiance.x > first.diffuse_irradiance.x);
+}
+
 bool hasBeliefFinding(const aster::BeliefExtractionReport &report,
                       const aster::BeliefFindingKind kind) {
   return std::any_of(report.findings.begin(), report.findings.end(),
@@ -1079,6 +1108,7 @@ int main() {
   testWorldPerceptionLedgerContracts();
   testPerceptualWorldRuntimeContracts();
   testWorldPerceptualPrimitiveContracts();
+  testNeuralIrradianceVolumeContracts();
   testBeliefExtractionContracts();
   testSourceBoundaryContracts();
   testConfigLayerStackAndSessionJournal();

@@ -102,6 +102,8 @@ void mixSignals(std::uint64_t &hash, const WorldPerceptualSignals &signals) {
   hash = mix(hash, primitive.template_hash);
   hash = mix(hash, primitive.cell_hash);
   hash = mix(hash, primitive.player_readable_cause_hash);
+  hash = mix(hash, primitive.sound_surface_class_hash);
+  hash = mix(hash, primitive.neural_irradiance_hash);
   hash = mix(hash, primitive.cell_residency);
   hash = mix(hash, primitive.world_ownership);
   hash = mix(hash, primitive.wetness_half_life_seconds);
@@ -112,8 +114,11 @@ void mixSignals(std::uint64_t &hash, const WorldPerceptualSignals &signals) {
   hash = mix(hash, primitive.contact_normal_history);
   hash = mix(hash, primitive.acoustic_occlusion_trust);
   hash = mix(hash, primitive.visual_occlusion_trust);
+  hash = mix(hash, primitive.ai_cover_value);
   hash = mix(hash, primitive.traversal_affordance);
   hash = mix(hash, primitive.semantic_lod);
+  hash = mix(hash, primitive.neural_irradiance);
+  hash = mix(hash, primitive.neural_irradiance_confidence);
   hash = mix(hash, desc.player_observable);
   mixSignals(hash, primitive.signals);
   for (const WorldPerceptualCellAnchor &anchor : primitive.cell_anchors) {
@@ -222,6 +227,8 @@ WorldPerceptualPrimitive evaluateWorldPerceptualPrimitive(
   primitive.template_hash = desc.template_hash;
   primitive.cell_hash = desc.cell_hash;
   primitive.player_readable_cause_hash = desc.player_readable_cause_hash;
+  primitive.sound_surface_class_hash = desc.sound_surface_class_hash;
+  primitive.neural_irradiance_hash = desc.neural_irradiance_hash;
   primitive.cell_residency = finite01(desc.cell_residency);
   primitive.world_ownership = finite01(desc.world_ownership);
   primitive.wetness_half_life_seconds = std::max(desc.wetness_half_life_seconds, 0.001f);
@@ -232,8 +239,13 @@ WorldPerceptualPrimitive evaluateWorldPerceptualPrimitive(
   primitive.contact_normal_history = normalizeOr(desc.contact_normal_history, {0.0f, 1.0f, 0.0f});
   primitive.acoustic_occlusion_trust = finite01(desc.acoustic_occlusion_trust);
   primitive.visual_occlusion_trust = finite01(desc.visual_occlusion_trust);
+  primitive.ai_cover_value = finite01(desc.ai_cover_value);
   primitive.traversal_affordance = finite01(desc.traversal_affordance);
   primitive.semantic_lod = finite01(desc.semantic_lod);
+  primitive.neural_irradiance = {finite01(desc.neural_irradiance.x),
+                                 finite01(desc.neural_irradiance.y),
+                                 finite01(desc.neural_irradiance.z)};
+  primitive.neural_irradiance_confidence = finite01(desc.neural_irradiance_confidence);
   primitive.signals = normalized(desc.signals);
   primitive.cell_anchors = desc.cell_anchors;
   primitive.surface_patches = desc.surface_patches;
@@ -263,6 +275,7 @@ WorldPerceptualPrimitive evaluateWorldPerceptualPrimitive(
     zone.occlusion_trust = finite01(zone.occlusion_trust);
     zone.ai_cover_value = finite01(zone.ai_cover_value);
     zone.traversal_affordance = finite01(zone.traversal_affordance);
+    primitive.ai_cover_value = std::max(primitive.ai_cover_value, zone.ai_cover_value);
     primitive.active_contact_zone_count +=
         active(zone.contact_field) || active(zone.occlusion_trust) || zone.zone_hash != 0u ? 1u
                                                                                           : 0u;
@@ -290,8 +303,13 @@ WorldPerceptualPrimitive evaluateWorldPerceptualPrimitive(
   const bool has_identity = primitive.world_owner_hash != 0u && primitive.template_hash != 0u &&
                             primitive.cell_hash != 0u &&
                             primitive.player_readable_cause_hash != 0u;
+  if (primitive.sound_surface_class_hash == 0u && has_identity) {
+    primitive.sound_surface_class_hash =
+        mixString(mix(kWorldPrimitiveSeed, primitive.cell_hash), primitive.object_name);
+  }
   primitive.accepted = desc.player_observable && primitive.world_ownership > 0.0f &&
                        primitive.cell_residency > 0.0f && has_identity &&
+                       primitive.sound_surface_class_hash != 0u &&
                        evidence_score >= 0.30f &&
                        active_subrecord_score > 0.0f;
   primitive.diagnostic =
@@ -374,6 +392,9 @@ WorldPerceptualPrimitive makeWorldPerceptualPrimitiveFromRuntime(
   desc.player_readable_cause_hash = ledger.gameplay_affordance_hash != 0u
                                         ? ledger.gameplay_affordance_hash
                                         : schedule.perceptual_priority_hash;
+  desc.sound_surface_class_hash = ledger.audio_visual_cue_budget_hash != 0u
+                                      ? ledger.audio_visual_cue_budget_hash
+                                      : ledger.ledger_hash;
   desc.delta_seconds = 1.0f / 60.0f;
   desc.exposure_age_seconds = state.exposure_seconds;
   desc.cell_residency = ledger.streaming_semantic_lod_hash != 0u ? 1.0f : 0.55f;
@@ -382,6 +403,7 @@ WorldPerceptualPrimitive makeWorldPerceptualPrimitiveFromRuntime(
   desc.contact_normal_history = {0.0f, 1.0f, 0.0f};
   desc.acoustic_occlusion_trust = state.render_budget.audio;
   desc.visual_occlusion_trust = state.occlusion_trust;
+  desc.ai_cover_value = std::max(schedule.threat_signal, state.occlusion_trust * 0.50f);
   desc.traversal_affordance = state.traversal_pressure;
   desc.semantic_lod = state.render_budget.lod_bias;
   desc.signals = {.belief_state = schedule.belief_stability,
@@ -412,7 +434,7 @@ WorldPerceptualPrimitive makeWorldPerceptualPrimitiveFromRuntime(
                                 .zone_hash = ledger.contact_history_hash,
                                 .contact_field = desc.signals.contact_field,
                                 .occlusion_trust = state.occlusion_trust,
-                                .ai_cover_value = schedule.threat_signal,
+                                .ai_cover_value = desc.ai_cover_value,
                                 .traversal_affordance = state.traversal_pressure});
   desc.residue_channels.push_back({.id = "runtime.residue",
                                    .channel_hash = schedule.memory_residue_hash,
@@ -448,6 +470,8 @@ WorldPerceptualField::advance(const WorldPerceptualFieldObservation &observation
   desc.template_hash = observation.key.template_hash;
   desc.cell_hash = observation.key.cell_hash;
   desc.player_readable_cause_hash = observation.player_readable_cause_hash;
+  desc.sound_surface_class_hash = observation.sound_surface_class_hash;
+  desc.neural_irradiance_hash = observation.neural_irradiance_hash;
   desc.delta_seconds = delta_seconds;
   desc.wetness_half_life_seconds = material_half_life;
   desc.material_half_life_seconds = material_half_life;
@@ -458,8 +482,11 @@ WorldPerceptualField::advance(const WorldPerceptualFieldObservation &observation
   desc.contact_normal_history = observation.contact_normal;
   desc.acoustic_occlusion_trust = observation.acoustic_occlusion_trust;
   desc.visual_occlusion_trust = observation.visual_occlusion_trust;
+  desc.ai_cover_value = observation.ai_cover_value;
   desc.traversal_affordance = observation.traversal_affordance;
   desc.semantic_lod = observation.semantic_lod;
+  desc.neural_irradiance = observation.neural_irradiance;
+  desc.neural_irradiance_confidence = observation.neural_irradiance_confidence;
   desc.player_observable = observation.player_observable;
   desc.signals =
       decayWorldPerceptualSignals(previous, observation.target_signals, delta_seconds,
@@ -482,7 +509,9 @@ WorldPerceptualField::advance(const WorldPerceptualFieldObservation &observation
                                 .normal = observation.contact_normal,
                                 .contact_field = desc.signals.contact_field,
                                 .occlusion_trust = observation.visual_occlusion_trust,
-                                .ai_cover_value = desc.signals.threat_gradient,
+                                .ai_cover_value =
+                                    std::max(observation.ai_cover_value,
+                                             desc.signals.threat_gradient),
                                 .traversal_affordance = observation.traversal_affordance});
   desc.residue_channels.push_back({.id = "field.residue",
                                    .channel_hash = observation.player_readable_cause_hash,
