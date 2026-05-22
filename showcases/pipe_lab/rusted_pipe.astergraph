@@ -106,6 +106,7 @@ node preview.masks baked_mask_preview role=quality target=industrial_pipe.png ch
 node collision.proxy collision_proxy role=collision shape=pipe-runtime-bounds triangles=48
 node lod.chain lod_generator role=lod policy=lod0-lod1-lod2 levels=3
 node prefab.variant prefab_variant role=prefab variant=runtime-pipe-section
+node perception.template world_perceptual_template role=perceptual profile=corroded-metal surface_response=rusted-pipe history_response=corrosion-contact-residue material_half_life_seconds=36 wetness_half_life_seconds=18 semantic_lod=0.84 streaming_cost=0.34 patch_channels=rust,wetness,material_stability contact_channels=weld_contact,visual_occlusion,traversal_affordance residue_channels=rust_residue,acoustic_occlusion,player_readable_cause
 node export.runtime cook_export role=package target=assetgraphbin
 node diagnostic.quality diagnostic role=quality profile=production
 edge mesh.pipe modifier.bevel modifier_stack
@@ -159,4 +160,5 @@ edge mesh.pipe collision.proxy collision_source
 edge mesh.pipe lod.chain lod_source
 edge lod.chain export.runtime runtime_lods
 edge collision.proxy export.runtime runtime_collision
+edge perception.template export.runtime perceptual_template
 edge diagnostic.quality export.runtime cook_report

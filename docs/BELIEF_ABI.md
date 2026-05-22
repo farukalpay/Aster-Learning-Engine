@@ -18,6 +18,8 @@ The stable belief surface is append-only:
 - `AsterPerceptualWorldScheduleInfo` describes the runtime scheduler evidence
   that influenced memory residue, threat signal, material age, interaction debt,
   perceptual priority, streaming budget, belief stability, and frame cost.
+- `AsterWorldPerceptualPrimitiveInfo` describes one extracted primitive truth
+  record for world and renderer inspection.
 
 All structs carry `size` and `version`. Callers initialize them with
 `sizeof(type)` and `ASTER_KERNEL_STRUCT_VERSION_1`. Future fields must be added
@@ -42,6 +44,11 @@ AsterStatus aster_kernel_world_belief_finding(
     AsterWorldHandle world,
     uint32_t index,
     AsterBeliefFindingInfo *out_finding);
+
+AsterStatus aster_kernel_world_perceptual_primitive(
+    AsterWorldHandle world,
+    uint32_t index,
+    AsterWorldPerceptualPrimitiveInfo *out_primitive);
 ```
 
 Renderer reports are recorded through the tail fields on `AsterRendererSettings`
@@ -60,6 +67,11 @@ AsterStatus aster_kernel_renderer_frame_falseness_finding(
 AsterStatus aster_kernel_renderer_frame_perceptual_world_schedule(
     AsterRendererHandle renderer,
     AsterPerceptualWorldScheduleInfo *out_schedule);
+
+AsterStatus aster_kernel_renderer_frame_perceptual_primitive(
+    AsterRendererHandle renderer,
+    uint32_t index,
+    AsterWorldPerceptualPrimitiveInfo *out_primitive);
 ```
 
 The report accessors return `ASTER_STATUS_OK` for an object with no recorded
@@ -74,6 +86,8 @@ when `index >= finding_count`.
 - `perceptual_world_schedule`
 - `belief_report`
 - `belief_findings`
+- `perceptual_world_truth`
+- `perceptual_primitives`
 
 `AsterRendererSettings` appends:
 
@@ -85,6 +99,11 @@ The finding spans use `AsterSpan::size` as element count and `stride` as the byt
 distance between `AsterBeliefFindingInfo` entries. If a report declares findings,
 the matching span must be present and have a stride at least
 `sizeof(AsterBeliefFindingInfo)`.
+
+The primitive span uses `AsterWorldPerceptualPrimitiveInfo` entries. When a new
+caller supplies a non-zero `perceptual_world_truth.primitive_count`, the matching
+primitive span must resolve to the same count. Old-size callers can omit the span
+and continue to submit summary-only evidence.
 
 ## Diagnostics Fallback
 
@@ -99,6 +118,17 @@ debugger proof trail.
 diagnostics. It means the backend proof is incomplete for visual truth
 equivalence. It does not claim D3D12 swapchain, HDR, MSAA, GPU timestamp, fog,
 probe, or shadow parity has been implemented.
+
+Perceptual primitive findings are stable categories:
+
+- `ASTER_BELIEF_FINDING_MISSING_PERCEPTUAL_PRIMITIVE`
+- `ASTER_BELIEF_FINDING_UNRESOLVED_PERCEPTUAL_BINDING`
+- `ASTER_BELIEF_FINDING_PERCEPTUAL_EXTRACTION_DESYNCHRONIZATION`
+- `ASTER_BELIEF_FINDING_BACKEND_PERCEPTUAL_TRUTH_GAP`
+
+The matching validation/falseness categories are also exposed for strict
+renderable rejection, unresolved authoring bindings, primitive/extraction hash
+drift, and backend frames that do not prove native primitive consumption.
 
 ## Compatibility
 

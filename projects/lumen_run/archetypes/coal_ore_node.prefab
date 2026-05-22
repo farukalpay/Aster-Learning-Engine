@@ -9,6 +9,7 @@
       "components": {
         "transform": {},
         "mesh_renderer": { "mesh": "mesh.coal_ore", "material": "material.cave_rock" },
+        "perceptual_binding": { "template": "asset_graph.material_lab.wet_rock", "cell_anchor": "archetype.coal_ore_node.root", "residency_role": "mineable-resource", "local_cause": "coal-vein-affordance", "traversal_role": "resource-target", "visual_occlusion_role": "embedded-rock", "acoustic_role": "stone-impact", "material_half_life_override": 22.0, "streaming_cost_override": 0.26 },
         "collider": { "shape": "sphere", "radius": 0.28, "layer": "world.mineable" },
         "interactable": {
           "tags": ["resource.coal", "interaction.mineable"],

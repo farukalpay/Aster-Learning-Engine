@@ -99,13 +99,21 @@ void mixSignals(std::uint64_t &hash, const WorldPerceptualSignals &signals) {
   hash = mixString(hash, primitive.primitive_id);
   hash = mixString(hash, primitive.object_name);
   hash = mix(hash, primitive.world_owner_hash);
+  hash = mix(hash, primitive.template_hash);
+  hash = mix(hash, primitive.cell_hash);
   hash = mix(hash, primitive.player_readable_cause_hash);
   hash = mix(hash, primitive.cell_residency);
   hash = mix(hash, primitive.world_ownership);
   hash = mix(hash, primitive.wetness_half_life_seconds);
+  hash = mix(hash, primitive.material_half_life_seconds);
   hash = mix(hash, primitive.exposure_age_seconds);
   hash = mix(hash, primitive.streaming_cost);
   hash = mix(hash, primitive.material_stability);
+  hash = mix(hash, primitive.contact_normal_history);
+  hash = mix(hash, primitive.acoustic_occlusion_trust);
+  hash = mix(hash, primitive.visual_occlusion_trust);
+  hash = mix(hash, primitive.traversal_affordance);
+  hash = mix(hash, primitive.semantic_lod);
   hash = mix(hash, desc.player_observable);
   mixSignals(hash, primitive.signals);
   for (const WorldPerceptualCellAnchor &anchor : primitive.cell_anchors) {
@@ -211,13 +219,21 @@ WorldPerceptualPrimitive evaluateWorldPerceptualPrimitive(
   primitive.primitive_id = desc.primitive_id;
   primitive.object_name = desc.object_name;
   primitive.world_owner_hash = desc.world_owner_hash;
+  primitive.template_hash = desc.template_hash;
+  primitive.cell_hash = desc.cell_hash;
   primitive.player_readable_cause_hash = desc.player_readable_cause_hash;
   primitive.cell_residency = finite01(desc.cell_residency);
   primitive.world_ownership = finite01(desc.world_ownership);
   primitive.wetness_half_life_seconds = std::max(desc.wetness_half_life_seconds, 0.001f);
+  primitive.material_half_life_seconds = std::max(desc.material_half_life_seconds, 0.001f);
   primitive.exposure_age_seconds = std::max(desc.exposure_age_seconds, 0.0f);
   primitive.streaming_cost = finite01(desc.streaming_cost);
   primitive.material_stability = finite01(desc.material_stability);
+  primitive.contact_normal_history = normalizeOr(desc.contact_normal_history, {0.0f, 1.0f, 0.0f});
+  primitive.acoustic_occlusion_trust = finite01(desc.acoustic_occlusion_trust);
+  primitive.visual_occlusion_trust = finite01(desc.visual_occlusion_trust);
+  primitive.traversal_affordance = finite01(desc.traversal_affordance);
+  primitive.semantic_lod = finite01(desc.semantic_lod);
   primitive.signals = normalized(desc.signals);
   primitive.cell_anchors = desc.cell_anchors;
   primitive.surface_patches = desc.surface_patches;
@@ -271,8 +287,12 @@ WorldPerceptualPrimitive evaluateWorldPerceptualPrimitive(
                                   primitive.active_residue_channel_count) /
                4.0f);
   const float evidence_score = averageSignals(primitive.signals);
+  const bool has_identity = primitive.world_owner_hash != 0u && primitive.template_hash != 0u &&
+                            primitive.cell_hash != 0u &&
+                            primitive.player_readable_cause_hash != 0u;
   primitive.accepted = desc.player_observable && primitive.world_ownership > 0.0f &&
-                       primitive.cell_residency > 0.0f && evidence_score >= 0.30f &&
+                       primitive.cell_residency > 0.0f && has_identity &&
+                       evidence_score >= 0.30f &&
                        active_subrecord_score > 0.0f;
   primitive.diagnostic =
       primitive.accepted ? "world perceptual primitive accepted"
@@ -348,6 +368,9 @@ WorldPerceptualPrimitive makeWorldPerceptualPrimitiveFromRuntime(
   desc.primitive_id = std::move(primitive_id);
   desc.object_name = std::move(object_name);
   desc.world_owner_hash = ledger.region_id;
+  desc.template_hash = ledger.ledger_hash;
+  desc.cell_hash = ledger.streaming_semantic_lod_hash != 0u ? ledger.streaming_semantic_lod_hash
+                                                             : ledger.ledger_hash;
   desc.player_readable_cause_hash = ledger.gameplay_affordance_hash != 0u
                                         ? ledger.gameplay_affordance_hash
                                         : schedule.perceptual_priority_hash;
@@ -356,6 +379,11 @@ WorldPerceptualPrimitive makeWorldPerceptualPrimitiveFromRuntime(
   desc.cell_residency = ledger.streaming_semantic_lod_hash != 0u ? 1.0f : 0.55f;
   desc.streaming_cost = 1.0f - schedule.streaming_budget;
   desc.material_stability = 1.0f - schedule.interaction_debt * 0.35f;
+  desc.contact_normal_history = {0.0f, 1.0f, 0.0f};
+  desc.acoustic_occlusion_trust = state.render_budget.audio;
+  desc.visual_occlusion_trust = state.occlusion_trust;
+  desc.traversal_affordance = state.traversal_pressure;
+  desc.semantic_lod = state.render_budget.lod_bias;
   desc.signals = {.belief_state = schedule.belief_stability,
                   .perceptual_debt = state.continuity_debt,
                   .material_memory = state.material_memory,
@@ -394,6 +422,89 @@ WorldPerceptualPrimitive makeWorldPerceptualPrimitiveFromRuntime(
                                    .threat = schedule.threat_signal,
                                    .decision_impact = schedule.decision_impact_score});
   return evaluateWorldPerceptualPrimitive(desc);
+}
+
+void WorldPerceptualField::reset() {
+  states_.clear();
+}
+
+WorldPerceptualPrimitive
+WorldPerceptualField::advance(const WorldPerceptualFieldObservation &observation) {
+  const auto found = std::find_if(
+      states_.begin(), states_.end(), [&observation](const WorldPerceptualFieldState &state) {
+        return state.key == observation.key;
+      });
+  const float delta_seconds = std::clamp(observation.delta_seconds, 0.0f, 1.0f);
+  const float material_half_life = std::max(observation.material_half_life_seconds, 0.001f);
+  const WorldPerceptualSignals previous =
+      found == states_.end() ? observation.target_signals : found->primitive.signals;
+  const float exposure_age =
+      (found == states_.end() ? 0.0f : found->exposure_age_seconds) + delta_seconds;
+
+  WorldPerceptualPrimitiveDesc desc;
+  desc.primitive_id = observation.primitive_id;
+  desc.object_name = observation.object_name;
+  desc.world_owner_hash = observation.key.world_owner_hash;
+  desc.template_hash = observation.key.template_hash;
+  desc.cell_hash = observation.key.cell_hash;
+  desc.player_readable_cause_hash = observation.player_readable_cause_hash;
+  desc.delta_seconds = delta_seconds;
+  desc.wetness_half_life_seconds = material_half_life;
+  desc.material_half_life_seconds = material_half_life;
+  desc.exposure_age_seconds = exposure_age;
+  desc.cell_residency = observation.cell_residency;
+  desc.streaming_cost = observation.streaming_cost;
+  desc.material_stability = observation.material_stability;
+  desc.contact_normal_history = observation.contact_normal;
+  desc.acoustic_occlusion_trust = observation.acoustic_occlusion_trust;
+  desc.visual_occlusion_trust = observation.visual_occlusion_trust;
+  desc.traversal_affordance = observation.traversal_affordance;
+  desc.semantic_lod = observation.semantic_lod;
+  desc.player_observable = observation.player_observable;
+  desc.signals =
+      decayWorldPerceptualSignals(previous, observation.target_signals, delta_seconds,
+                                  material_half_life);
+  desc.cell_anchors.push_back({.id = "field.cell",
+                               .cell_hash = observation.key.cell_hash,
+                               .center = observation.cell_center,
+                               .residency = observation.cell_residency,
+                               .streaming_cost = observation.streaming_cost});
+  desc.surface_patches.push_back({.id = "field.surface",
+                                  .patch_hash = observation.key.template_hash,
+                                  .normal = observation.contact_normal,
+                                  .wetness_flow = desc.signals.material_memory,
+                                  .exposure_age = finite01(exposure_age / material_half_life),
+                                  .thermal_history = desc.signals.light_history,
+                                  .chemical_history = desc.signals.ecology_pressure,
+                                  .material_stability = observation.material_stability});
+  desc.contact_zones.push_back({.id = "field.contact",
+                                .zone_hash = observation.key.cell_hash,
+                                .normal = observation.contact_normal,
+                                .contact_field = desc.signals.contact_field,
+                                .occlusion_trust = observation.visual_occlusion_trust,
+                                .ai_cover_value = desc.signals.threat_gradient,
+                                .traversal_affordance = observation.traversal_affordance});
+  desc.residue_channels.push_back({.id = "field.residue",
+                                   .channel_hash = observation.player_readable_cause_hash,
+                                   .residue = desc.signals.interaction_residue,
+                                   .acoustic_occlusion = 1.0f - observation.acoustic_occlusion_trust,
+                                   .ecology_signal = desc.signals.ecology_pressure,
+                                   .threat = desc.signals.threat_gradient,
+                                   .decision_impact = desc.signals.decision_impact});
+  WorldPerceptualPrimitive primitive = evaluateWorldPerceptualPrimitive(desc);
+  if (found == states_.end()) {
+    states_.push_back({.key = observation.key,
+                       .exposure_age_seconds = exposure_age,
+                       .primitive = primitive});
+  } else {
+    found->exposure_age_seconds = exposure_age;
+    found->primitive = primitive;
+  }
+  return primitive;
+}
+
+const std::vector<WorldPerceptualFieldState> &WorldPerceptualField::states() const noexcept {
+  return states_;
 }
 
 } // namespace aster

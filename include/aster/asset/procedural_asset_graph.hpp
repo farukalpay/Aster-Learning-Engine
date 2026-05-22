@@ -38,6 +38,20 @@ struct ProceduralAssetGraphMeshDescriptor {
   std::string lod_policy;
 };
 
+struct ProceduralAssetGraphPerceptualTemplate {
+  std::string id;
+  std::string valid_primitive_profile;
+  std::string surface_response;
+  std::string history_response;
+  float material_half_life_seconds = 0.0f;
+  float wetness_half_life_seconds = 0.0f;
+  float semantic_lod = 0.0f;
+  float streaming_cost = 0.0f;
+  std::vector<std::string> required_patch_channels;
+  std::vector<std::string> required_contact_channels;
+  std::vector<std::string> required_residue_channels;
+};
+
 struct ProceduralAssetGraphQualityIssue {
   std::string severity;
   std::string category;
@@ -96,6 +110,7 @@ struct ProceduralAssetGraphPackage {
   std::uint64_t pipeline_key = 0u;
   MaterialAsset material;
   ProceduralAssetGraphMeshDescriptor mesh;
+  ProceduralAssetGraphPerceptualTemplate perceptual_template;
   std::vector<ProceduralAssetGraphNode> nodes;
   std::vector<ProceduralAssetGraphEdge> edges;
   ProceduralAssetGraphProductionSession production_session;

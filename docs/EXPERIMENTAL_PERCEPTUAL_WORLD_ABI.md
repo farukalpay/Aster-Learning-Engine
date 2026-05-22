@@ -1,27 +1,38 @@
-# Experimental Perceptual World ABI Shadow
+# Perceptual World ABI
 
-This batch keeps the stable kernel ABI append-only. The accepted C surface exposes
-only `AsterPerceptualWorldTruthSummary`: primitive count, active subrecord counts,
-the deterministic truth hash, averaged V1 signals, and an accepted bit. Detailed
-`WorldPerceptualPrimitive` records remain internal runtime and SDK data for V1.
+This surface is stable and append-only. The compact
+`AsterPerceptualWorldTruthSummary` remains available for older consumers:
+primitive count, active subrecord counts, deterministic truth hash, averaged V1
+signals, and an accepted bit.
 
-The shadow proposal for a future ABI version is a read-only inspection surface:
+Detailed `WorldPerceptualPrimitive` truth is now promoted as immutable read-only
+ABI evidence. Mutation remains owned by runtime world state, authoring, and asset
+compiler layers; C scene descriptors do not author primitive truth.
+
+The detailed inspection surface is:
 
 - `AsterWorldPerceptualPrimitiveInfo` with primitive id, owner hash, cause hash,
-  residency, semantic LOD, material memory, residue, contact, light, acoustic,
-  ecology, threat, traversal, decision impact, and truth hash.
+  template hash, cell hash, residency, exposure age, semantic LOD, material
+  half-life, wetness/history decay, residue, contact-normal history, light,
+  acoustic and visual occlusion trust, traversal affordance, streaming cost,
+  decision impact, player-readable cause, and truth hash.
 - Four span-backed subrecord views for `CellAnchor`, `SurfacePatch`,
   `ContactZone`, and `ResidueChannel`.
-- A renderer query that returns primitive traces for the last frame without
-  changing replay semantics or resource ownership.
-- A world query that returns the same primitive truth model used by Studio
-  overlays, FrameForensics, AI visibility, streaming, and render extraction.
+- `aster_kernel_world_perceptual_primitive`, which returns the primitive records
+  stored with the last accepted world evidence.
+- `aster_kernel_renderer_frame_perceptual_primitive`, which returns the
+  primitive traces consumed by the last rendered frame.
 
-Acceptance requirements before promotion:
+Strict renderables must provide accepted primitive truth before frame planning.
+The frozen `AsterSceneObjectDesc` path remains a compatibility exception: frames
+from direct C scene input can render, but they are reported as non-truth-equivalent
+instead of silently satisfying strict perceptual proof.
 
-- Old-size structs must continue to pass with zeroed perceptual summary fields.
-- New-size structs must round-trip the compact summary without exposing mutable
-  runtime storage.
-- Deterministic replay must prove parity for simulation, render extraction, AI,
-  audio cue budget, streaming budget, belief extraction, and FrameForensics audit
-  hashes before detailed primitive inspection becomes stable ABI.
+Acceptance requirements for future tail fields:
+
+- Old-size structs must continue to pass with zeroed perceptual summary and no
+  primitive spans.
+- New-size structs must round-trip the compact summary and detailed primitive
+  records without exposing mutable runtime storage.
+- Deterministic replay must keep primitive truth hashes aligned with simulation,
+  render extraction, belief extraction, and FrameForensics audit hashes.

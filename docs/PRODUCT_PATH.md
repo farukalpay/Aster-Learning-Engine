@@ -99,9 +99,11 @@ native proof remain unsupported.
 
 The current renderer is still a contract-first spine. Frame forensics, resource
 provenance, and RHI reports are valuable only when attached to backend work that
-applies real GPU pressure. D3D12 presentation, native HDR/MSAA, GPU timestamp
-queries, GPU consumption of clustered-light buffers, and D3D12 shadow/fog/probe
-parity remain product gaps until the backend proves them.
+applies real GPU pressure. D3D12 now has a swapchain path whose proof is promoted
+only after explicit present evidence, and it consumes cluster-selected lights and
+perceptual material memory through native uniforms. Native HDR/MSAA, GPU
+timestamp queries, full per-tile clustered-light indirection, and D3D12
+shadow/fog/probe parity remain product gaps until the backend proves them.
 
 The debugger is a required product surface, not a bonus overlay. Each frame must
 explain visibility, material binding, light clusters, shadow, fog, probe, pass
@@ -117,11 +119,11 @@ backend difference, pass timing, asset hash, and shader variant evidence.
 
 Priority order:
 
-1. D3D12 swapchain presentation with real presentation proof; offscreen
-   readback remains capture evidence only.
+1. D3D12 shadow atlas, volumetric fog, and reflection probe parity.
 2. GPU timestamp queries in Metal and D3D12 for real frame timings.
 3. Native HDR and MSAA proof paths.
-4. D3D12 shadow atlas, volumetric fog, and reflection probe parity.
+4. Full GPU clustered-light indirection beyond the current native uniform
+   consumption path.
 5. Backend conformance gates for every advertised feature.
 
 ## Asset Compilers

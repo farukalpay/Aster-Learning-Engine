@@ -810,6 +810,51 @@ void testWorldPerceptualPrimitiveContracts() {
   assert(summary.primitive_count == 1u);
   assert(summary.truth_hash != 0u);
   assert(summary.material_memory == primitive.signals.material_memory);
+
+  aster::WorldPerceptualField field_a;
+  aster::WorldPerceptualField field_b;
+  aster::WorldPerceptualFieldObservation field_observation;
+  field_observation.key = {.world_owner_hash = 0xA57E7101u,
+                           .template_hash = 0xA57E7102u,
+                           .cell_hash = 0xA57E7103u};
+  field_observation.primitive_id = "field.ore";
+  field_observation.object_name = "Field ore";
+  field_observation.player_readable_cause_hash = 0xA57E7104u;
+  field_observation.delta_seconds = 1.0f;
+  field_observation.material_half_life_seconds = 2.0f;
+  field_observation.cell_residency = 1.0f;
+  field_observation.streaming_cost = 0.25f;
+  field_observation.material_stability = 0.88f;
+  field_observation.acoustic_occlusion_trust = 0.74f;
+  field_observation.visual_occlusion_trust = 0.82f;
+  field_observation.traversal_affordance = 0.62f;
+  field_observation.semantic_lod = 0.77f;
+  field_observation.target_signals = {.belief_state = 0.86f,
+                                      .perceptual_debt = 0.10f,
+                                      .material_memory = 0.72f,
+                                      .interaction_residue = 0.58f,
+                                      .contact_field = 0.76f,
+                                      .light_history = 0.68f,
+                                      .acoustic_occlusion = 0.22f,
+                                      .ecology_pressure = 0.44f,
+                                      .threat_gradient = 0.38f,
+                                      .traversal_pressure = 0.62f,
+                                      .semantic_lod = 0.77f,
+                                      .decision_impact = 0.66f,
+                                      .player_readable_cause = 0.84f};
+  const aster::WorldPerceptualPrimitive field_first_a = field_a.advance(field_observation);
+  const aster::WorldPerceptualPrimitive field_first_b = field_b.advance(field_observation);
+  assert(field_first_a.accepted);
+  assert(field_first_a.truth_hash == field_first_b.truth_hash);
+  assert(field_first_a.template_hash == field_observation.key.template_hash);
+  assert(field_a.states().size() == 1u);
+
+  field_observation.target_signals.material_memory = 0.20f;
+  field_observation.target_signals.interaction_residue = 0.18f;
+  const aster::WorldPerceptualPrimitive field_second = field_a.advance(field_observation);
+  assert(field_second.exposure_age_seconds > field_first_a.exposure_age_seconds);
+  assert(field_second.truth_hash != field_first_a.truth_hash);
+  assert(field_second.signals.material_memory < field_first_a.signals.material_memory);
 }
 
 bool hasBeliefFinding(const aster::BeliefExtractionReport &report,

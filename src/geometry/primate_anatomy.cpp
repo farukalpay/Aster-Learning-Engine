@@ -121,7 +121,29 @@ void appendMesh(CpuMesh &target, const CpuMesh &source) {
   mergeMesh(target, source);
 }
 
+void dropDegenerateTriangles(CpuMesh &mesh) {
+  if (mesh.indices.empty()) {
+    return;
+  }
+  std::vector<std::uint32_t> filtered;
+  filtered.reserve(mesh.indices.size());
+  for (std::size_t i = 0u; i + 2u < mesh.indices.size(); i += 3u) {
+    const std::uint32_t a = mesh.indices[i + 0u];
+    const std::uint32_t b = mesh.indices[i + 1u];
+    const std::uint32_t c = mesh.indices[i + 2u];
+    if (a >= mesh.vertices.size() || b >= mesh.vertices.size() || c >= mesh.vertices.size() ||
+        a == b || b == c || c == a ||
+        degenerateTriangle(mesh.vertices[a].position, mesh.vertices[b].position,
+                           mesh.vertices[c].position)) {
+      continue;
+    }
+    filtered.insert(filtered.end(), {a, b, c});
+  }
+  mesh.indices = std::move(filtered);
+}
+
 void finishPart(AnatomicalModelPart &part) {
+  dropDegenerateTriangles(part.mesh);
   rebuildAngleWeightedNormals(part.mesh);
 }
 

@@ -40,7 +40,9 @@ node collision.proxy collision_proxy role=collision shape=convex-hull
 node lod.single lod_generator role=lod policy=single-lod
 node probe.preview probe_helper role=lighting environment=cave-dark
 node prefab.variant prefab_variant role=prefab variant=material-lab
+node perception.template world_perceptual_template role=perceptual profile=stratified-rock surface_response=wet-rock history_response=wetness-contact-memory material_half_life_seconds=18 wetness_half_life_seconds=9 semantic_lod=0.74 streaming_cost=0.24 patch_channels=wetness,exposure,material_stability contact_channels=contact_normal,visual_occlusion,traversal_affordance residue_channels=interaction_residue,acoustic_occlusion,player_readable_cause
 node export.runtime cook_export role=package target=assetgraphbin
 node diagnostic.quality diagnostic role=quality profile=production
 edge mat.noise material.assign base_color
 edge mat.wet material.assign wetness
+edge perception.template export.runtime perceptual_template

@@ -295,6 +295,14 @@ std::string_view beliefFindingKindName(const BeliefFindingKind kind) noexcept {
     return "acoustic_falseness";
   case BeliefFindingKind::WorldStateDesynchronization:
     return "world_state_desynchronization";
+  case BeliefFindingKind::MissingPerceptualPrimitive:
+    return "missing_perceptual_primitive";
+  case BeliefFindingKind::UnresolvedPerceptualBinding:
+    return "unresolved_perceptual_binding";
+  case BeliefFindingKind::PerceptualExtractionDesynchronization:
+    return "perceptual_extraction_desynchronization";
+  case BeliefFindingKind::BackendPerceptualTruthGap:
+    return "backend_perceptual_truth_gap";
   }
   return "material_family_collapse";
 }
@@ -331,6 +339,10 @@ BeliefExtractionReport extractBeliefContract(const BeliefExtractionDesc &desc) {
   constexpr float kSurfaceMemoryThreshold = 0.60f;
   constexpr float kAcousticTruthThreshold = 0.58f;
   constexpr float kWorldSyncThreshold = 0.70f;
+  constexpr float kPrimitiveCoverageThreshold = 1.0f;
+  constexpr float kBindingThreshold = 1.0f;
+  constexpr float kExtractionSyncThreshold = 1.0f;
+  constexpr float kBackendPrimitiveThreshold = 0.74f;
 
   const float material_family = materialFamilyUniqueness(desc);
   const float grounding = contextualGroundingScore(desc);
@@ -348,6 +360,28 @@ BeliefExtractionReport extractBeliefContract(const BeliefExtractionDesc &desc) {
   const float surface_memory = surfaceMemoryScore(desc);
   const float acoustic_truth = acousticTruthScore(desc);
   const float world_sync = worldStateSyncScore(desc);
+  const bool has_primitive_summary = desc.perceptual_primitive_summary.primitive_count > 0u;
+  const float primitive_coverage =
+      has_primitive_summary && desc.visible_object_count > 0u
+          ? clamp01(static_cast<float>(desc.perceptual_primitive_summary.primitive_count) /
+                    static_cast<float>(desc.visible_object_count))
+          : 1.0f;
+  const bool has_subrecords =
+      desc.perceptual_primitive_summary.active_cell_anchor_count >=
+          desc.perceptual_primitive_summary.primitive_count &&
+      desc.perceptual_primitive_summary.active_surface_patch_count >=
+          desc.perceptual_primitive_summary.primitive_count &&
+      desc.perceptual_primitive_summary.active_contact_zone_count >=
+          desc.perceptual_primitive_summary.primitive_count &&
+      desc.perceptual_primitive_summary.active_residue_channel_count >=
+          desc.perceptual_primitive_summary.primitive_count;
+  const float binding_score = has_primitive_summary ? signal(has_subrecords) : 1.0f;
+  const float extraction_sync =
+      has_primitive_summary ? signal(desc.perceptual_primitive_summary.truth_hash != 0u) : 1.0f;
+  const float backend_primitive_truth =
+      has_primitive_summary && desc.backend_visual_truth_required
+          ? backend_truth
+          : 1.0f;
 
   addFinding(report.findings, desc, BeliefFindingKind::MaterialFamilyCollapse,
              material_family, kMaterialFamilyThreshold, "material-family",
@@ -398,8 +432,20 @@ BeliefExtractionReport extractBeliefContract(const BeliefExtractionDesc &desc) {
   addFinding(report.findings, desc, BeliefFindingKind::WorldStateDesynchronization,
              world_sync, kWorldSyncThreshold, "world-truth-audit",
              "world, belief, render extraction, or perceptual primitive hashes are desynchronized");
+  addFinding(report.findings, desc, BeliefFindingKind::MissingPerceptualPrimitive,
+             primitive_coverage, kPrimitiveCoverageThreshold, "world-perceptual-primitive",
+             "strict renderables are missing required perceptual primitive truth");
+  addFinding(report.findings, desc, BeliefFindingKind::UnresolvedPerceptualBinding,
+             binding_score, kBindingThreshold, "perceptual-authoring-binding",
+             "perceptual template or placement binding did not resolve into all primitive subrecords");
+  addFinding(report.findings, desc, BeliefFindingKind::PerceptualExtractionDesynchronization,
+             extraction_sync, kExtractionSyncThreshold, "render-extraction",
+             "perceptual primitive truth is not synchronized with extraction evidence");
+  addFinding(report.findings, desc, BeliefFindingKind::BackendPerceptualTruthGap,
+             backend_primitive_truth, kBackendPrimitiveThreshold, "backend-perceptual-truth",
+             "backend did not prove equivalent consumption of perceptual primitive payloads");
 
-  const std::array<float, 16> scores{material_family,
+  const std::array<float, 20> scores{material_family,
                                      grounding,
                                      contact,
                                      volumetric,
@@ -414,7 +460,11 @@ BeliefExtractionReport extractBeliefContract(const BeliefExtractionDesc &desc) {
                                      ai_attention,
                                      surface_memory,
                                      acoustic_truth,
-                                     world_sync};
+                                     world_sync,
+                                     primitive_coverage,
+                                     binding_score,
+                                     extraction_sync,
+                                     backend_primitive_truth};
   float total = 0.0f;
   for (const float score : scores) {
     total += score;

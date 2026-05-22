@@ -112,6 +112,18 @@ struct MeshRendererComponent {
   bool visible = true;
 };
 
+struct PerceptualPlacementBindingComponent {
+  AssetId template_ref;
+  std::string cell_anchor;
+  std::string residency_role;
+  std::string local_cause;
+  std::string traversal_role;
+  std::string visual_occlusion_role;
+  std::string acoustic_role;
+  float material_half_life_override = 0.0f;
+  float streaming_cost_override = 0.0f;
+};
+
 enum class ColliderShape {
   Box,
   Sphere,
@@ -212,6 +224,7 @@ struct CaveDebugComponent {
 struct ComponentSet {
   std::optional<TransformComponent> transform;
   std::optional<MeshRendererComponent> mesh_renderer;
+  std::optional<PerceptualPlacementBindingComponent> perceptual_binding;
   std::optional<ColliderComponent> collider;
   std::optional<LightComponent> light;
   std::optional<InteractableComponent> interactable;

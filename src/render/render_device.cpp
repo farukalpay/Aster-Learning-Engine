@@ -8,6 +8,7 @@
 #include "aster/math/color.hpp"
 #include "aster/material/procedural_surface.hpp"
 #include "aster/render/material_compiler.hpp"
+#include "aster/render/perceptual_material.hpp"
 #include "aster/render/render_conformance.hpp"
 #include "aster/render/render_graph_executor.hpp"
 #include "aster/render/software_framebuffer.hpp"
@@ -2620,41 +2621,6 @@ bool shouldCullTriangle(const ProjectedVertex &a, const ProjectedVertex &b,
          (cull_mode == aster::FaceCullMode::Front && front_facing);
 }
 
-aster::Material applyWorldPerceptualMaterialMemory(
-    const aster::RenderObject &object, const aster::Material &base_material) {
-  const aster::WorldPerceptualPrimitive &primitive = object.perceptual_primitive;
-  if (primitive.truth_hash == 0u) {
-    return base_material;
-  }
-  const aster::WorldPerceptualSignals &signals = primitive.signals;
-  aster::Material material = base_material;
-  const float wet_history =
-      std::clamp(signals.material_memory * 0.20f + signals.interaction_residue * 0.16f +
-                     signals.light_history * 0.06f,
-                 0.0f, 0.42f);
-  const float dirt_history =
-      std::clamp(signals.interaction_residue * 0.28f + signals.contact_field * 0.24f +
-                     signals.ecology_pressure * 0.12f,
-                 0.0f, 0.50f);
-  const float age_history =
-      std::clamp(signals.light_history * 0.18f + signals.material_memory * 0.16f +
-                     (1.0f - primitive.material_stability) * 0.20f,
-                 0.0f, 0.44f);
-  material.procedural.wetness = std::max(material.procedural.wetness, wet_history);
-  material.procedural.cavity_grime =
-      std::clamp(material.procedural.cavity_grime + dirt_history, 0.0f, 1.0f);
-  material.procedural.height_shading =
-      std::clamp(material.procedural.height_shading + signals.contact_field * 0.16f, 0.0f, 1.5f);
-  material.edge_wear = std::clamp(material.edge_wear + age_history * 0.35f, 0.0f, 1.0f);
-  material.ambient_occlusion =
-      std::clamp(material.ambient_occlusion * (1.0f - dirt_history * 0.18f), 0.0f, 1.0f);
-  material.roughness =
-      std::clamp(std::lerp(material.roughness, 0.92f, dirt_history * 0.35f), 0.045f, 1.0f);
-  material.detail_strength =
-      std::clamp(material.detail_strength + signals.player_readable_cause * 0.08f, 0.0f, 2.0f);
-  return material;
-}
-
 void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mesh,
               const aster::RenderObject &object, const aster::OrbitCamera &camera,
               const aster::RendererSettings &settings, const double frame_seconds,
@@ -2668,7 +2634,7 @@ void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mes
       material_library == nullptr
           ? nullptr
           : material_library->findForMaterialIds(object.material_asset_id, object.material.asset_id);
-  const aster::Material material = applyWorldPerceptualMaterialMemory(
+  const aster::Material material = aster::applyWorldPerceptualMaterialMemory(
       object, runtime_material == nullptr ? object.material : runtime_material->fallback_material);
   const aster::RuntimeTextureSet *runtime_textures =
       runtime_material == nullptr ? nullptr : &runtime_material->texture_set;
@@ -3430,6 +3396,33 @@ bool finiteQuat(const aster::Quat value) {
 
 std::string objectDiagnosticLabel(const aster::RenderObject &object, const std::size_t index) {
   return object.name.empty() ? ("object:" + std::to_string(index)) : object.name;
+}
+
+bool appendWorldPerceptualTruthDiagnostics(
+    const aster::Scene &scene, std::vector<aster::FrameDiagnosticEvent> &events) {
+  bool rejected = false;
+  for (std::size_t i = 0u; i < scene.objects().size(); ++i) {
+    const aster::RenderObject &object = scene.objects()[i];
+    const bool has_truth =
+        object.perceptual_primitive.truth_hash != 0u && object.perceptual_primitive.accepted;
+    if (has_truth) {
+      continue;
+    }
+    const bool strict =
+        object.perceptual_truth_mode == aster::RenderPerceptualTruthMode::Strict;
+    rejected = rejected || strict;
+    events.push_back({.kind = aster::FrameDiagnosticKind::PerceptualTruthGap,
+                      .severity = strict ? aster::FrameDiagnosticSeverity::Error
+                                         : aster::FrameDiagnosticSeverity::Warning,
+                      .pass = "world-perceptual-primitive",
+                      .label = objectDiagnosticLabel(object, i),
+                      .message =
+                          strict
+                              ? "Strict renderable rejected because perceptual truth is missing."
+                              : "Compatibility renderable has no perceptual primitive truth.",
+                      .value = i});
+  }
+  return rejected;
 }
 
 void appendRenderMathContractDiagnostics(const aster::Scene &scene,
@@ -4814,10 +4807,23 @@ void appendWorldPerceptualPrimitiveTraces(const aster::Scene &scene,
     }
     primitives.push_back(primitive);
     forensics.perceptual_primitive_traces.push_back(
-        {.object_name = objectDiagnosticLabel(object, object_index),
+        {.primitive_id = primitive.primitive_id,
+         .object_name = objectDiagnosticLabel(object, object_index),
          .object_index = object_index,
          .primitive_hash = primitive.truth_hash,
+         .world_owner_hash = primitive.world_owner_hash,
+         .template_hash = primitive.template_hash,
+         .cell_hash = primitive.cell_hash,
+         .player_readable_cause_hash = primitive.player_readable_cause_hash,
          .cell_residency = primitive.cell_residency,
+         .exposure_age_seconds = primitive.exposure_age_seconds,
+         .material_half_life_seconds = primitive.material_half_life_seconds,
+         .streaming_cost = primitive.streaming_cost,
+         .material_stability = primitive.material_stability,
+         .contact_normal_history = primitive.contact_normal_history,
+         .acoustic_occlusion_trust = primitive.acoustic_occlusion_trust,
+         .visual_occlusion_trust = primitive.visual_occlusion_trust,
+         .traversal_affordance = primitive.traversal_affordance,
          .material_memory = primitive.signals.material_memory,
          .interaction_residue = primitive.signals.interaction_residue,
          .contact_field = primitive.signals.contact_field,
@@ -5973,6 +5979,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   if (framebuffer_width <= 0 || framebuffer_height <= 0) {
     return stats;
   }
+  if (appendWorldPerceptualTruthDiagnostics(scene, last_forensics_.events)) {
+    return stats;
+  }
 
   syncDynamicMeshes(scene, false);
   render_world_.rebuild(scene);
@@ -6020,17 +6029,6 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                                  active_capabilities, last_forensics_);
     appendSurfacePresentationTraces(scene, settings, last_forensics_);
     appendWorldPerceptualPrimitiveTraces(scene, last_forensics_);
-    if (last_forensics_.perceptual_primitive_summary.truth_hash != 0u &&
-        active_capabilities.kind != RenderBackendKind::SoftwareReference) {
-      last_forensics_.events.push_back(
-          {.kind = FrameDiagnosticKind::CapabilityMismatch,
-           .severity = FrameDiagnosticSeverity::Warning,
-           .pass = "world-perceptual-primitive",
-           .label = "backend-truth-gap",
-           .message =
-               "Native backend must prove equivalent perceptual primitive bindings before truth parity is accepted.",
-           .value = last_forensics_.perceptual_primitive_summary.truth_hash});
-    }
     last_forensics_.events.insert(last_forensics_.events.end(),
                                   std::make_move_iterator(material_summary.events.begin()),
                                   std::make_move_iterator(material_summary.events.end()));
@@ -6521,6 +6519,12 @@ void RenderDevice::stampLastFrameBeliefReport(const BeliefExtractionReport &repo
     case BeliefFindingKind::AcousticFalseness:
     case BeliefFindingKind::WorldStateDesynchronization:
       event_kind = FrameDiagnosticKind::SurfacePresentationWarning;
+      break;
+    case BeliefFindingKind::MissingPerceptualPrimitive:
+    case BeliefFindingKind::UnresolvedPerceptualBinding:
+    case BeliefFindingKind::PerceptualExtractionDesynchronization:
+    case BeliefFindingKind::BackendPerceptualTruthGap:
+      event_kind = FrameDiagnosticKind::PerceptualTruthGap;
       break;
     case BeliefFindingKind::BackendVisualTruthGap:
       event_kind = FrameDiagnosticKind::CapabilityMismatch;

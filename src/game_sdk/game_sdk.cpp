@@ -1183,6 +1183,28 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
   return out;
 }
 
+[[nodiscard]] PerceptualPlacementBindingComponent parsePerceptualPlacementBindingComponent(
+    const Json &component, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
+  PerceptualPlacementBindingComponent out;
+  out.template_ref =
+      readString(component, "template", diagnostics, source, path, true).value_or("");
+  out.cell_anchor =
+      readString(component, "cell_anchor", diagnostics, source, path, true).value_or("");
+  out.residency_role = readStringOr(component, "residency_role", diagnostics, source, path, {});
+  out.local_cause =
+      readString(component, "local_cause", diagnostics, source, path, true).value_or("");
+  out.traversal_role = readStringOr(component, "traversal_role", diagnostics, source, path, {});
+  out.visual_occlusion_role =
+      readStringOr(component, "visual_occlusion_role", diagnostics, source, path, {});
+  out.acoustic_role = readStringOr(component, "acoustic_role", diagnostics, source, path, {});
+  out.material_half_life_override =
+      readFloatOr(component, "material_half_life_override", diagnostics, source, path, 0.0f);
+  out.streaming_cost_override =
+      readFloatOr(component, "streaming_cost_override", diagnostics, source, path, 0.0f);
+  return out;
+}
+
 [[nodiscard]] ColliderComponent parseColliderComponent(const Json &component,
                                                        std::vector<Diagnostic> &diagnostics,
                                                        const std::filesystem::path &source,
@@ -1351,9 +1373,9 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
   }
 
   const std::set<std::string> known_components = {
-      "transform",   "mesh_renderer", "collider",      "light",       "interactable",
-      "inventory",   "camera",        "cave_scene",    "fixture",     "ore_node",
-      "torch_socket", "spawn_point",  "mining",        "cave_debug"};
+      "transform",    "mesh_renderer", "perceptual_binding", "collider",    "light",
+      "interactable", "inventory",     "camera",             "cave_scene",  "fixture",
+      "ore_node",     "torch_socket",  "spawn_point",        "mining",      "cave_debug"};
   for (const auto &[key, value] : components.object) {
     if (!known_components.contains(key)) {
       addDiagnostic(diagnostics, source, childPath(path, key), "unknown component type");
@@ -1367,6 +1389,9 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
     } else if (key == "mesh_renderer") {
       out.mesh_renderer =
           parseMeshRendererComponent(value, diagnostics, source, childPath(path, key));
+    } else if (key == "perceptual_binding") {
+      out.perceptual_binding =
+          parsePerceptualPlacementBindingComponent(value, diagnostics, source, childPath(path, key));
     } else if (key == "collider") {
       out.collider = parseColliderComponent(value, diagnostics, source, childPath(path, key));
     } else if (key == "light") {
@@ -1394,6 +1419,11 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
     } else if (key == "cave_debug") {
       out.cave_debug = parseCaveDebugComponent(value, diagnostics, source, childPath(path, key));
     }
+  }
+
+  if (out.mesh_renderer.has_value() && !out.perceptual_binding.has_value()) {
+    addDiagnostic(diagnostics, source, path,
+                  "mesh_renderer requires perceptual_binding for strict world truth");
   }
 
   return out;

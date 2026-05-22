@@ -196,6 +196,9 @@ WorldTickResult WorldState::tick(WorldTickDesc desc) {
                  .detail = hexHash(desc.asset_lineage_hash),
                  .world_hash = world_hash_});
   }
+  if (desc.perceptual_truth_hash != 0u) {
+    notePerceptualTruth(desc.perceptual_truth_hash);
+  }
   if (desc.extraction_hash != 0u) {
     mixWorld("render.extraction", desc.extraction_hash);
     appendEvent({.kind = WorldTraceEventKind::RenderableExtraction,
@@ -222,7 +225,11 @@ WorldTickResult WorldState::tick(WorldTickDesc desc) {
 }
 
 void WorldState::noteRenderableExtraction(const std::uint64_t extraction_hash,
-                                          const std::uint64_t frame_submission_hash) {
+                                          const std::uint64_t frame_submission_hash,
+                                          const std::uint64_t perceptual_truth_hash) {
+  if (perceptual_truth_hash != 0u) {
+    notePerceptualTruth(perceptual_truth_hash);
+  }
   if (extraction_hash != 0u) {
     mixWorld("render.extraction", extraction_hash);
     appendEvent({.kind = WorldTraceEventKind::RenderableExtraction,
@@ -239,6 +246,18 @@ void WorldState::noteRenderableExtraction(const std::uint64_t extraction_hash,
                  .detail = hexHash(frame_submission_hash),
                  .world_hash = world_hash_});
   }
+}
+
+void WorldState::notePerceptualTruth(const std::uint64_t perceptual_truth_hash) {
+  if (perceptual_truth_hash == 0u) {
+    return;
+  }
+  mixWorld("perceptual.truth", perceptual_truth_hash);
+  appendEvent({.kind = WorldTraceEventKind::RenderableExtraction,
+               .tick = current_tick_,
+               .label = "world-perceptual-truth",
+               .detail = hexHash(perceptual_truth_hash),
+               .world_hash = world_hash_});
 }
 
 void WorldState::noteRegionGate(const std::uint64_t region_id, const bool accepted,

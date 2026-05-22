@@ -40,7 +40,9 @@ node collision.proxy collision_proxy role=collision shape=box
 node lod.single lod_generator role=lod policy=single-lod
 node probe.preview probe_helper role=lighting environment=reflection-probe
 node prefab.variant prefab_variant role=prefab variant=material-lab
+node perception.template world_perceptual_template role=perceptual profile=corroded-metal surface_response=weathered-rust history_response=oxidation-contact-memory material_half_life_seconds=30 wetness_half_life_seconds=16 semantic_lod=0.80 streaming_cost=0.28 patch_channels=oxidation,edge_wear,material_stability contact_channels=contact_normal,visual_occlusion,traversal_affordance residue_channels=rust_residue,acoustic_occlusion,player_readable_cause
 node export.runtime cook_export role=package target=assetgraphbin
 node diagnostic.quality diagnostic role=quality profile=production
 edge mat.rust material.assign oxidation
 edge mat.edge material.assign edge_wear
+edge perception.template export.runtime perceptual_template

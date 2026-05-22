@@ -68,6 +68,7 @@ node collision.proxy collision_proxy role=collision shape=anatomical-bounds
 node lod.single lod_generator role=lod policy=inspection-single-lod
 node probe.preview probe_helper role=lighting environment=anatomy-neutral
 node prefab.variant prefab_variant role=prefab variant=primate-lab
+node perception.template world_perceptual_template role=perceptual profile=biological-integument surface_response=skin-fur history_response=contact-wear-memory material_half_life_seconds=20 wetness_half_life_seconds=10 semantic_lod=0.88 streaming_cost=0.42 patch_channels=integument,fur_direction,material_stability contact_channels=contact_normal,visual_occlusion,traversal_affordance residue_channels=skin_contact,acoustic_occlusion,player_readable_cause
 node export.runtime cook_export role=package target=assetgraphbin
 node diagnostic.quality diagnostic role=quality profile=production
 edge anatomy.cranium material.assign anatomy_surface
@@ -89,3 +90,4 @@ edge texture.enamel material.assign enamel_texture
 edge texture.muscle material.assign muscle_texture
 edge texture.fur material.assign fur_texture
 edge anatomy.measure diagnostic.quality measurements
+edge perception.template export.runtime perceptual_template

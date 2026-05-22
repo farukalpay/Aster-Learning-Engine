@@ -641,10 +641,23 @@ struct ObjectRenderFateTrace {
 };
 
 struct WorldPerceptualPrimitiveTrace {
+  std::string primitive_id;
   std::string object_name;
   std::size_t object_index = 0u;
   std::uint64_t primitive_hash = 0u;
+  std::uint64_t world_owner_hash = 0u;
+  std::uint64_t template_hash = 0u;
+  std::uint64_t cell_hash = 0u;
+  std::uint64_t player_readable_cause_hash = 0u;
   float cell_residency = 0.0f;
+  float exposure_age_seconds = 0.0f;
+  float material_half_life_seconds = 0.0f;
+  float streaming_cost = 0.0f;
+  float material_stability = 1.0f;
+  Vec3 contact_normal_history{0.0f, 1.0f, 0.0f};
+  float acoustic_occlusion_trust = 0.0f;
+  float visual_occlusion_trust = 0.0f;
+  float traversal_affordance = 0.0f;
   float material_memory = 0.0f;
   float interaction_residue = 0.0f;
   float contact_field = 0.0f;
@@ -783,6 +796,7 @@ enum class FrameDiagnosticKind : std::uint32_t {
   TextureRoleDegraded,
   MeshAttributeDegraded,
   SurfacePresentationWarning,
+  PerceptualTruthGap,
 };
 
 struct FrameDiagnosticEvent {

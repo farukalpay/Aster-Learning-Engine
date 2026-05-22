@@ -6,6 +6,7 @@
 #ifdef _WIN32
 
 #include "aster/core/profiler.hpp"
+#include "aster/render/perceptual_material.hpp"
 #include "aster/render/render_graph_executor.hpp"
 #include "aster/render/software_framebuffer.hpp"
 #include "aster/scene/scene.hpp"
@@ -1679,39 +1680,41 @@ private:
     const aster::Mat4 mvp =
         camera.projectionMatrix(aspect_ratio).value * camera.viewMatrix().value * model;
     const aster::Mat4 normal_matrix = normalMatrix4OrIdentity(model);
+    const aster::Material material = aster::applyWorldPerceptualMaterialMemory(
+        object, runtime_material == nullptr ? object.material : runtime_material->fallback_material);
     D3D12ObjectUniforms uniforms;
     std::memcpy(uniforms.model, model.m.data(), sizeof(uniforms.model));
     std::memcpy(uniforms.model_view_projection, mvp.m.data(),
                 sizeof(uniforms.model_view_projection));
     std::memcpy(uniforms.normal_matrix, normal_matrix.m.data(), sizeof(uniforms.normal_matrix));
-    uniforms.base_color_opacity[0] = object.material.base_color.x;
-    uniforms.base_color_opacity[1] = object.material.base_color.y;
-    uniforms.base_color_opacity[2] = object.material.base_color.z;
+    uniforms.base_color_opacity[0] = material.base_color.x;
+    uniforms.base_color_opacity[1] = material.base_color.y;
+    uniforms.base_color_opacity[2] = material.base_color.z;
     uniforms.base_color_opacity[3] = opacity;
-    uniforms.emission_strength[0] = object.material.emission_color.x;
-    uniforms.emission_strength[1] = object.material.emission_color.y;
-    uniforms.emission_strength[2] = object.material.emission_color.z;
-    uniforms.emission_strength[3] = object.material.emission_strength;
-    uniforms.material_params[0] = object.material.roughness;
-    uniforms.material_params[1] = object.material.metallic;
-    uniforms.material_params[2] = object.material.detail_strength;
-    uniforms.material_params[3] = object.material.detail_scale;
+    uniforms.emission_strength[0] = material.emission_color.x;
+    uniforms.emission_strength[1] = material.emission_color.y;
+    uniforms.emission_strength[2] = material.emission_color.z;
+    uniforms.emission_strength[3] = material.emission_strength;
+    uniforms.material_params[0] = material.roughness;
+    uniforms.material_params[1] = material.metallic;
+    uniforms.material_params[2] = material.detail_strength;
+    uniforms.material_params[3] = material.detail_scale;
     const aster::MaterialSurfaceProfile surface_profile =
-        aster::resolveMaterialSurfaceProfile(object.material);
+        aster::resolveMaterialSurfaceProfile(material);
     uniforms.pattern_params[0] =
         static_cast<float>(aster::materialSurfaceProfileId(surface_profile));
-    uniforms.pattern_params[1] = object.material.pattern_scale.x;
-    uniforms.pattern_params[2] = object.material.pattern_scale.y;
-    uniforms.pattern_params[3] = object.material.pattern_depth;
-    uniforms.pattern_params2[0] = object.material.pattern_contrast;
-    uniforms.pattern_params2[1] = object.material.pattern_mortar;
-    uniforms.pattern_params2[2] = object.material.ambient_occlusion;
-    uniforms.pattern_params2[3] = object.material.double_sided ? 1.0f : 0.0f;
-    uniforms.procedural_params[0] = object.material.procedural.macro_variation;
-    uniforms.procedural_params[1] = object.material.procedural.micro_normal_strength;
-    uniforms.procedural_params[2] = object.material.procedural.roughness_variation;
-    uniforms.procedural_params[3] = object.material.procedural.wetness;
-    uniforms.procedural_params2[0] = object.material.procedural.height_shading;
+    uniforms.pattern_params[1] = material.pattern_scale.x;
+    uniforms.pattern_params[2] = material.pattern_scale.y;
+    uniforms.pattern_params[3] = material.pattern_depth;
+    uniforms.pattern_params2[0] = material.pattern_contrast;
+    uniforms.pattern_params2[1] = material.pattern_mortar;
+    uniforms.pattern_params2[2] = material.ambient_occlusion;
+    uniforms.pattern_params2[3] = material.double_sided ? 1.0f : 0.0f;
+    uniforms.procedural_params[0] = material.procedural.macro_variation;
+    uniforms.procedural_params[1] = material.procedural.micro_normal_strength;
+    uniforms.procedural_params[2] = material.procedural.roughness_variation;
+    uniforms.procedural_params[3] = material.procedural.wetness;
+    uniforms.procedural_params2[0] = material.procedural.height_shading;
     uniforms.material_flags[0] =
         surface_profile == aster::MaterialSurfaceProfile::ContactShadow ? 1.0f : 0.0f;
     uniforms.material_flags[1] = isTerrainLayerProfile(surface_profile) ? 1.0f : 0.0f;

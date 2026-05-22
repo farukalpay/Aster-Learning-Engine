@@ -915,6 +915,21 @@ pub struct AssetGraphMeshDescriptor {
     pub lod_policy: String,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct AssetGraphPerceptualTemplate {
+    pub id: String,
+    pub valid_primitive_profile: String,
+    pub surface_response: String,
+    pub history_response: String,
+    pub material_half_life_seconds: f32,
+    pub wetness_half_life_seconds: f32,
+    pub semantic_lod: f32,
+    pub streaming_cost: f32,
+    pub required_patch_channels: Vec<String>,
+    pub required_contact_channels: Vec<String>,
+    pub required_residue_channels: Vec<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AssetGraphQualityIssue {
     pub severity: String,
@@ -992,6 +1007,7 @@ pub struct AssetGraphBin {
     pub runtime_model: String,
     pub material: AssetGraphMaterialPackage,
     pub mesh: AssetGraphMeshDescriptor,
+    pub perceptual_template: AssetGraphPerceptualTemplate,
     pub nodes: Vec<ProceduralGraphNode>,
     pub edges: Vec<ProceduralGraphEdge>,
     pub preview: BTreeMap<String, String>,
@@ -1809,6 +1825,7 @@ struct ParsedAssetGraphSource {
     params: BTreeMap<String, f32>,
     features: BTreeMap<String, bool>,
     preview: BTreeMap<String, String>,
+    perceptual_template: Option<AssetGraphPerceptualTemplate>,
     nodes: Vec<ProceduralGraphNode>,
     edges: Vec<ProceduralGraphEdge>,
     diagnostics: Vec<AssetCookDiagnostic>,
@@ -1840,6 +1857,7 @@ impl ParsedAssetGraphSource {
             params: BTreeMap::new(),
             features: BTreeMap::new(),
             preview: BTreeMap::new(),
+            perceptual_template: None,
             nodes: Vec::new(),
             edges: Vec::new(),
             diagnostics: Vec::new(),
@@ -1993,6 +2011,7 @@ fn graph_node_capability_status(kind: &str) -> &'static str {
         | "factory_recipe"
         | "factory_stage"
         | "surface_contract"
+        | "world_perceptual_template"
         | "physics_proxy"
         | "lod_recipe"
         | "quality_signal"
@@ -2039,6 +2058,81 @@ fn parse_graph_param_tokens(tokens: &[String]) -> BTreeMap<String, String> {
     params
 }
 
+fn graph_param_f32(params: &BTreeMap<String, String>, key: &str, fallback: f32) -> f32 {
+    params
+        .get(key)
+        .and_then(|value| value.parse::<f32>().ok())
+        .unwrap_or(fallback)
+}
+
+fn graph_param_list(
+    params: &BTreeMap<String, String>,
+    key: &str,
+    fallback: &[&str],
+) -> Vec<String> {
+    params
+        .get(key)
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .filter(|values| !values.is_empty())
+        .unwrap_or_else(|| fallback.iter().map(|entry| (*entry).to_string()).collect())
+}
+
+fn perceptual_template_from_params(
+    node_id: &str,
+    params: &BTreeMap<String, String>,
+    surface_profile: &str,
+) -> AssetGraphPerceptualTemplate {
+    AssetGraphPerceptualTemplate {
+        id: params
+            .get("id")
+            .cloned()
+            .unwrap_or_else(|| node_id.to_string()),
+        valid_primitive_profile: params
+            .get("valid_primitive_profile")
+            .or_else(|| params.get("profile"))
+            .cloned()
+            .unwrap_or_else(|| surface_profile.to_string()),
+        surface_response: params
+            .get("surface_response")
+            .cloned()
+            .unwrap_or_else(|| surface_profile.to_string()),
+        history_response: params
+            .get("history_response")
+            .cloned()
+            .unwrap_or_else(|| "material-memory".to_string()),
+        material_half_life_seconds: graph_param_f32(params, "material_half_life_seconds", 12.0),
+        wetness_half_life_seconds: graph_param_f32(params, "wetness_half_life_seconds", 12.0),
+        semantic_lod: graph_param_f32(params, "semantic_lod", 0.72),
+        streaming_cost: graph_param_f32(params, "streaming_cost", 0.25),
+        required_patch_channels: graph_param_list(
+            params,
+            "patch_channels",
+            &["wetness", "exposure", "material_stability"],
+        ),
+        required_contact_channels: graph_param_list(
+            params,
+            "contact_channels",
+            &["contact_normal", "visual_occlusion", "traversal_affordance"],
+        ),
+        required_residue_channels: graph_param_list(
+            params,
+            "residue_channels",
+            &[
+                "interaction_residue",
+                "acoustic_occlusion",
+                "player_readable_cause",
+            ],
+        ),
+    }
+}
+
 fn push_graph_node(parsed: &mut ParsedAssetGraphSource, tokens: &[String]) -> Result<()> {
     if tokens.len() < 3 {
         return Err(ContentError::new(
@@ -2081,6 +2175,12 @@ fn push_graph_node(parsed: &mut ParsedAssetGraphSource, tokens: &[String]) -> Re
         if let Some(policy) = params.get("policy") {
             parsed.lod_policy = policy.clone();
         }
+    } else if kind == "world_perceptual_template" {
+        parsed.perceptual_template = Some(perceptual_template_from_params(
+            &tokens[1],
+            &params,
+            &parsed.surface_profile,
+        ));
     }
     parsed.nodes.push(ProceduralGraphNode {
         id: tokens[1].clone(),
@@ -2267,6 +2367,12 @@ fn parse_asset_graph_source(
     ] {
         parsed.params.entry(name.to_string()).or_insert(fallback);
     }
+    if parsed.perceptual_template.is_none() {
+        return Err(ContentError::new(format!(
+            "asset graph '{}' exports without required world_perceptual_template node",
+            parsed.id
+        )));
+    }
     Ok(parsed)
 }
 
@@ -2291,6 +2397,7 @@ fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
             "height_baker" => set(12),
             "collision_proxy" => set(13),
             "lod_generator" => set(14),
+            "world_perceptual_template" => set(56),
             "factory_recipe" => set(57),
             "factory_stage" => set(58),
             "surface_contract" => set(59),
@@ -2893,6 +3000,7 @@ fn build_asset_graph_bin(
         parsed.surface_profile.as_str(),
         parsed.params.clone(),
         parsed.features.clone(),
+        parsed.perceptual_template.clone(),
         parsed.nodes.clone(),
         parsed.edges.clone(),
     );
@@ -2930,6 +3038,7 @@ fn build_asset_graph_bin(
         )),
     };
     let quality = asset_graph_quality_report(&parsed, &parsed.diagnostics);
+    let perceptual_template = parsed.perceptual_template.clone().unwrap_or_default();
     let production_session = AssetGraphProductionSession {
         session_id: format!("asset-production:{}", parsed.id),
         graph_hash: derived_hashes.source_hash.clone(),
@@ -2995,6 +3104,7 @@ fn build_asset_graph_bin(
             collision_proxy: parsed.collision_proxy.clone(),
             lod_policy: parsed.lod_policy.clone(),
         },
+        perceptual_template,
         nodes: parsed.nodes,
         edges: parsed.edges,
         preview: parsed.preview,
@@ -3227,7 +3337,9 @@ fn world_ready_report_for(record: &AssetDatabaseRecord) -> WorldReadyAssetReport
         diagnostics.push("error: no cooked runtime outputs for streaming residency".to_string());
     }
     if record.source_hash.is_empty() {
-        diagnostics.push("warning: missing source hash weakens topology and material uniqueness".to_string());
+        diagnostics.push(
+            "warning: missing source hash weakens topology and material uniqueness".to_string(),
+        );
     }
     match record.kind.as_str() {
         "material" => {
@@ -3235,7 +3347,9 @@ fn world_ready_report_for(record: &AssetDatabaseRecord) -> WorldReadyAssetReport
                 diagnostics.push("warning: material hash missing for PBR correctness".to_string());
             }
             if record.derived_hashes.shader_variant_key.is_empty() {
-                diagnostics.push("warning: shader variant key missing for perceptual stability".to_string());
+                diagnostics.push(
+                    "warning: shader variant key missing for perceptual stability".to_string(),
+                );
             }
         }
         "scene" => {
@@ -3243,17 +3357,22 @@ fn world_ready_report_for(record: &AssetDatabaseRecord) -> WorldReadyAssetReport
                 diagnostics.push("warning: vertex input contract missing for topology".to_string());
             }
             if record.derived_hashes.frame_plan_fingerprint.is_empty() {
-                diagnostics.push("warning: frame plan fingerprint missing for streaming residency".to_string());
+                diagnostics.push(
+                    "warning: frame plan fingerprint missing for streaming residency".to_string(),
+                );
             }
         }
         "asset_graph" => {
             if record.derived_hashes.material_hash.is_empty() {
-                diagnostics.push("warning: graph material hash missing for material uniqueness".to_string());
+                diagnostics.push(
+                    "warning: graph material hash missing for material uniqueness".to_string(),
+                );
             }
         }
         "texture" => {
             if record.import_preset.texture_role_policy.is_empty() {
-                diagnostics.push("warning: texture role policy missing for PBR correctness".to_string());
+                diagnostics
+                    .push("warning: texture role policy missing for PBR correctness".to_string());
             }
         }
         _ => diagnostics.push(format!(
@@ -3373,7 +3492,9 @@ fn refresh_record_truth(record: &mut AssetDatabaseRecord) {
         asset_guid: record.guid.clone(),
         kind: record.kind.clone(),
         source_path: record.source_path.clone(),
-        production_ready: !record_has_errors(record) && !record.outputs.is_empty() && world_ready.accepted,
+        production_ready: !record_has_errors(record)
+            && !record.outputs.is_empty()
+            && world_ready.accepted,
         dependency_count: record.dependencies.len(),
         output_count: record.outputs.len(),
         diagnostic_count: record.diagnostics.len(),
@@ -4397,27 +4518,25 @@ fn cave_world_gate_report(
     let runtime_state_hash = hash_hex_text(&format!(
         "{id}:perceptual-runtime:{runtime_id}:{exposure_horizon_seconds:.3}:{runtime_continuity_score:.3}:{runtime_continuity_debt:.3}:{runtime_semantic_budget_hash}"
     ));
-    let scheduler_memory_residue: f64 = (if ledger_observed
-        & perception_ledger_channel_bit("contact_history")
-        != 0
-    {
-        0.16_f64
-    } else {
-        0.0_f64
-    } + if ledger_observed & perception_ledger_channel_bit("wear_continuity") != 0 {
-        0.16_f64
-    } else {
-        0.0_f64
-    } + if continuity_observed & perceptual_continuity_channel_bit("event_residue") != 0 {
-        0.22_f64
-    } else {
-        0.0_f64
-    } + if continuity_observed & perceptual_continuity_channel_bit("sensory_feedback") != 0 {
-        0.14_f64
-    } else {
-        0.0_f64
-    } + runtime_interaction_residue * 0.32)
-        .clamp(0.0_f64, 1.0_f64);
+    let scheduler_memory_residue: f64 =
+        (if ledger_observed & perception_ledger_channel_bit("contact_history") != 0 {
+            0.16_f64
+        } else {
+            0.0_f64
+        } + if ledger_observed & perception_ledger_channel_bit("wear_continuity") != 0 {
+            0.16_f64
+        } else {
+            0.0_f64
+        } + if continuity_observed & perceptual_continuity_channel_bit("event_residue") != 0 {
+            0.22_f64
+        } else {
+            0.0_f64
+        } + if continuity_observed & perceptual_continuity_channel_bit("sensory_feedback") != 0 {
+            0.14_f64
+        } else {
+            0.0_f64
+        } + runtime_interaction_residue * 0.32)
+            .clamp(0.0_f64, 1.0_f64);
     let scheduler_threat_signal: f64 = (encounter_budget * 0.30
         + if ledger_observed & perception_ledger_channel_bit("occlusion_role") != 0 {
             0.20_f64
@@ -4432,23 +4551,21 @@ fn cave_world_gate_report(
         + runtime_occlusion_trust * 0.14
         + salience_score * 0.16)
         .clamp(0.0_f64, 1.0_f64);
-    let scheduler_material_age: f64 = (if ledger_observed
-        & perception_ledger_channel_bit("material_memory")
-        != 0
-    {
-        0.22_f64
-    } else {
-        0.0_f64
-    } + if ledger_observed & perception_ledger_channel_bit("wear_continuity") != 0 {
-        0.26_f64
-    } else {
-        0.0_f64
-    } + if continuity_observed & perceptual_continuity_channel_bit("resource_state") != 0 {
-        0.14_f64
-    } else {
-        0.0_f64
-    } + runtime_material_memory * 0.26
-        + (resource_capacity as f64 * 0.012).min(0.12))
+    let scheduler_material_age: f64 =
+        (if ledger_observed & perception_ledger_channel_bit("material_memory") != 0 {
+            0.22_f64
+        } else {
+            0.0_f64
+        } + if ledger_observed & perception_ledger_channel_bit("wear_continuity") != 0 {
+            0.26_f64
+        } else {
+            0.0_f64
+        } + if continuity_observed & perceptual_continuity_channel_bit("resource_state") != 0 {
+            0.14_f64
+        } else {
+            0.0_f64
+        } + runtime_material_memory * 0.26
+            + (resource_capacity as f64 * 0.012).min(0.12))
         .clamp(0.0_f64, 1.0_f64);
     let scheduler_interaction_debt: f64 = ((1.0 - runtime_player_readable_cause) * 0.22
         + (1.0 - runtime_continuity_score) * 0.18
@@ -4456,24 +4573,22 @@ fn cave_world_gate_report(
         + scheduler_threat_signal * 0.18
         + if reaction_packages_valid { 0.0 } else { 0.16 }
         + if nav_valid { 0.0 } else { 0.06 })
-        .clamp(0.0_f64, 1.0_f64);
+    .clamp(0.0_f64, 1.0_f64);
     let scheduler_perceptual_priority: f64 = (scheduler_threat_signal * 0.30
         + scheduler_interaction_debt * 0.24
         + scheduler_memory_residue * 0.18
         + salience_score * 0.16
         + (1.0 - runtime_continuity_debt) * 0.12)
         .clamp(0.0_f64, 1.0_f64);
-    let scheduler_streaming_budget: f64 = (if ledger_observed
-        & perception_ledger_channel_bit("streaming_semantic_lod")
-        != 0
-    {
-        0.32_f64
-    } else {
-        0.0_f64
-    } + scheduler_perceptual_priority * 0.30
-        + if nav_valid { 0.16 } else { 0.0 }
-        + runtime_traversal_pressure * 0.22)
-        .clamp(0.0_f64, 1.0_f64);
+    let scheduler_streaming_budget: f64 =
+        (if ledger_observed & perception_ledger_channel_bit("streaming_semantic_lod") != 0 {
+            0.32_f64
+        } else {
+            0.0_f64
+        } + scheduler_perceptual_priority * 0.30
+            + if nav_valid { 0.16 } else { 0.0 }
+            + runtime_traversal_pressure * 0.22)
+            .clamp(0.0_f64, 1.0_f64);
     let scheduler_belief_stability: f64 = (ledger_score * 0.20
         + runtime_continuity_score * 0.24
         + runtime_occlusion_trust * 0.14
@@ -5080,21 +5195,20 @@ pub fn cook_asset(
                     );
                 }
                 Err(error) => {
-                    let source_scene =
-                        serde_json::from_slice::<Value>(&source_bytes).ok().is_some_and(|value| {
-                            value
-                                .get("entities")
-                                .and_then(Value::as_array)
-                                .is_some()
+                    let source_scene = serde_json::from_slice::<Value>(&source_bytes)
+                        .ok()
+                        .is_some_and(|value| {
+                            value.get("entities").and_then(Value::as_array).is_some()
                         });
                     if source_scene {
                         record.diagnostics.push(cook_warning(format!(
                             "source-level scene '{}' emitted authoring report; runtime cache compiler skipped: {}",
                             id, error
                         )));
-                        let report_path = output_root
-                            .join("reports")
-                            .join(format!("{}.source-scene.report.json", safe_stem(id, source)));
+                        let report_path = output_root.join("reports").join(format!(
+                            "{}.source-scene.report.json",
+                            safe_stem(id, source)
+                        ));
                         let report = serde_json::json!({
                             "schema_version": 2,
                             "kind": "source_scene",
@@ -5370,6 +5484,7 @@ pub fn cook_asset_graph_asset(
         "runtime_model": graph_bin.runtime_model.clone(),
         "material": graph_bin.material.clone(),
         "mesh": graph_bin.mesh.clone(),
+        "perceptual_template": graph_bin.perceptual_template.clone(),
         "nodes": graph_bin.nodes.clone(),
         "edges": graph_bin.edges.clone(),
         "preview": graph_bin.preview.clone(),
@@ -10319,10 +10434,12 @@ node collision.proxy collision_proxy role=collision shape=convex-hull
 node lod.single lod_generator role=lod policy=single-lod
 node probe.preview probe_helper role=lighting environment=cave-dark
 node prefab.variant prefab_variant role=prefab variant=material-lab
+node perception.template world_perceptual_template role=perceptual profile=stratified-rock surface_response=wet-rock history_response=wetness-contact-memory material_half_life_seconds=18 wetness_half_life_seconds=9 semantic_lod=0.74 streaming_cost=0.24 patch_channels=wetness,exposure,material_stability contact_channels=contact_normal,visual_occlusion,traversal_affordance residue_channels=interaction_residue,acoustic_occlusion,player_readable_cause
 node export.runtime cook_export role=package target=assetgraphbin
 node diagnostic.quality diagnostic role=quality profile=production
 edge mat.noise material.assign base_color
 edge mat.wet material.assign wetness
+edge perception.template export.runtime perceptual_template
 "#,
         )
         .expect("astergraph");
@@ -10789,6 +10906,7 @@ node normal.weld_displacement weld_bead_displacement role=normal
 node normal.pipe normal_height role=material
 node collision.proxy collision_proxy role=collision shape=pipe-runtime-bounds
 node lod.chain lod_generator role=lod policy=lod0-lod1-lod2
+node perception.template world_perceptual_template role=perceptual profile=corroded-metal surface_response=rusted-pipe history_response=corrosion-contact-residue material_half_life_seconds=36 wetness_half_life_seconds=18 semantic_lod=0.84 streaming_cost=0.34 patch_channels=rust,wetness,material_stability contact_channels=weld_contact,visual_occlusion,traversal_affordance residue_channels=rust_residue,acoustic_occlusion,player_readable_cause
 node export.runtime cook_export role=package
 node diagnostic.quality diagnostic role=quality
 edge factory.recipe factory.stage.source factory_order
@@ -10813,6 +10931,7 @@ edge mask.pits mask.layer_stack pitting_layer
 edge mask.pits mask.rust pitting_seed
 edge mask.rust_bloom mask.layer_stack bloom_layer
 edge mask.black_scab mask.layer_stack black_scab_layer
+edge perception.template export.runtime perceptual_template
 "#,
         )
         .expect("pipe graph");

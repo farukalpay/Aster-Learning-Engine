@@ -33,6 +33,10 @@ enum class BeliefFindingKind {
   SurfaceMemoryReset,
   AcousticFalseness,
   WorldStateDesynchronization,
+  MissingPerceptualPrimitive,
+  UnresolvedPerceptualBinding,
+  PerceptualExtractionDesynchronization,
+  BackendPerceptualTruthGap,
 };
 
 enum class BeliefFindingSeverity {

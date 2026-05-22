@@ -9,6 +9,7 @@
       "components": {
         "transform": { "translation": [0.0, 0.0, 0.0] },
         "mesh_renderer": { "mesh": "mesh.torch_pickup", "material": "material.torch_flame" },
+        "perceptual_binding": { "template": "asset_graph.material_lab.wet_decal_soot", "cell_anchor": "prefab.torch_pickup.root", "residency_role": "pickup-light", "local_cause": "torch-pickup-affordance", "traversal_role": "small-prop", "visual_occlusion_role": "emissive-held-object", "acoustic_role": "wood-cloth-contact", "material_half_life_override": 10.0, "streaming_cost_override": 0.16 },
         "collider": { "shape": "sphere", "radius": 0.24, "trigger": true, "layer": "world.pickup" },
         "interactable": {
           "tags": ["item.torch", "interaction.pickup"],

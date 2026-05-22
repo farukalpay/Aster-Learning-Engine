@@ -9,6 +9,7 @@
       "components": {
         "transform": { "translation": [0.0, 0.0, 0.0] },
         "mesh_renderer": { "mesh": "mesh.supply_chest", "material": "material.cave_rock" },
+        "perceptual_binding": { "template": "asset_graph.material_lab.wet_rock", "cell_anchor": "prefab.supply_chest.root", "residency_role": "interactable-container", "local_cause": "loot-affordance", "traversal_role": "cover-adjacent", "visual_occlusion_role": "grounded-prop", "acoustic_role": "wood-stone-contact", "material_half_life_override": 18.0, "streaming_cost_override": 0.24 },
         "collider": { "shape": "box", "half_extents": [0.55, 0.42, 0.38], "layer": "world.interactable" },
         "interactable": {
           "tags": ["lumen.container.supply", "interaction.openable"],
@@ -25,7 +26,8 @@
       "parent": "supply_chest.root",
       "components": {
         "transform": { "translation": [0.0, 0.49, 0.0] },
-        "mesh_renderer": { "mesh": "mesh.supply_chest_lid", "material": "material.cave_rock" }
+        "mesh_renderer": { "mesh": "mesh.supply_chest_lid", "material": "material.cave_rock" },
+        "perceptual_binding": { "template": "asset_graph.material_lab.wet_rock", "cell_anchor": "prefab.supply_chest.lid", "residency_role": "moving-container-part", "local_cause": "open-close-contact", "traversal_role": "hinged-occluder", "visual_occlusion_role": "lid-contact-shadow", "acoustic_role": "wood-hinge", "material_half_life_override": 18.0, "streaming_cost_override": 0.20 }
       }
     }
   ]

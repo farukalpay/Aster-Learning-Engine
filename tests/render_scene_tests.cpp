@@ -703,6 +703,47 @@ void testFrameMathDiagnostics() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
 
+void testStrictPerceptualRenderableCoverage() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+
+  aster::RenderObject object;
+  object.name = "strict missing perceptual primitive";
+  object.primitive = aster::MeshPrimitive::Box;
+  object.transform.position = {0.0f, 0.5f, 0.0f};
+  object.material = aster::makeMaterial({.base_color = {0.72f, 0.18f, 0.12f}});
+  object.perceptual_truth_mode = aster::RenderPerceptualTruthMode::Strict;
+
+  aster::Scene scene;
+  scene.objects().push_back(object);
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.5f, 0.0f};
+  camera.yaw = aster::radians(35.0f);
+  camera.pitch = aster::radians(15.0f);
+  camera.radius = 3.0f;
+  camera.vertical_fov = aster::radians(42.0f);
+
+  aster::RendererSettings settings;
+  settings.pipeline.clear_color = {0.0f, 0.0f, 0.0f};
+  settings.atmosphere.enabled = false;
+  settings.sun_light.enabled = false;
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.prepareScene(scene);
+  const aster::FrameStats stats = renderer.render(scene, camera, settings, 48, 32, 0.0);
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  assert(stats.draw_calls == 0u);
+  assert(std::any_of(forensics.events.begin(), forensics.events.end(),
+                     [](const aster::FrameDiagnosticEvent &event) {
+                       return event.kind == aster::FrameDiagnosticKind::PerceptualTruthGap &&
+                              event.severity == aster::FrameDiagnosticSeverity::Error;
+                     }));
+
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
 void testFrameDebuggerMaterialBindingTrace() {
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
   setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
@@ -798,6 +839,8 @@ void testFrameDebuggerPerceptionLedgerTrace() {
       {.primitive_id = "render.perception.primitive",
        .object_name = object.name,
        .world_owner_hash = 0xA57E77u,
+       .template_hash = 0xA57E7701u,
+       .cell_hash = 0xA57E7702u,
        .player_readable_cause_hash = 0xA57E88u,
        .delta_seconds = 1.0f / 60.0f,
        .wetness_half_life_seconds = 10.0f,
@@ -1196,6 +1239,8 @@ void testFrameDebuggerEvidenceTimelineAndRegressionLab() {
       {.primitive_id = "render.timeline.primitive",
        .object_name = object.name,
        .world_owner_hash = 0xA57E9001u,
+       .template_hash = 0xA57E9003u,
+       .cell_hash = 0xA57E9004u,
        .player_readable_cause_hash = 0xA57E9002u,
        .cell_residency = 1.0f,
        .streaming_cost = 0.18f,
@@ -3121,6 +3166,7 @@ constexpr TestCase kTestCases[] = {
     {"software_depth_policy_object_order", testSoftwareDepthPolicyIsStableAcrossObjectOrder},
     {"prepare_scene_custom_mesh_cache", testPrepareSceneInvalidatesCustomMeshCache},
     {"frame_math_diagnostics", testFrameMathDiagnostics},
+    {"strict_perceptual_renderable_coverage", testStrictPerceptualRenderableCoverage},
     {"frame_debugger_material_binding_trace", testFrameDebuggerMaterialBindingTrace},
     {"frame_debugger_perception_ledger_trace", testFrameDebuggerPerceptionLedgerTrace},
     {"frame_debugger_asset_provenance_trace", testFrameDebuggerAssetProvenanceTrace},

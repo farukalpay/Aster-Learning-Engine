@@ -78,6 +78,7 @@ struct WorldTickDesc {
   double delta_seconds = 0.0;
   std::uint64_t input_event_hash = 0u;
   std::uint64_t asset_lineage_hash = 0u;
+  std::uint64_t perceptual_truth_hash = 0u;
   std::uint64_t extraction_hash = 0u;
   std::uint64_t frame_submission_hash = 0u;
 };
@@ -184,7 +185,9 @@ public:
 
   [[nodiscard]] WorldTickResult tick(WorldTickDesc desc);
   void noteRenderableExtraction(std::uint64_t extraction_hash,
-                                std::uint64_t frame_submission_hash);
+                                std::uint64_t frame_submission_hash,
+                                std::uint64_t perceptual_truth_hash = 0u);
+  void notePerceptualTruth(std::uint64_t perceptual_truth_hash);
   void noteRegionGate(std::uint64_t region_id, bool accepted, std::uint64_t report_hash,
                       std::string diagnostic);
 

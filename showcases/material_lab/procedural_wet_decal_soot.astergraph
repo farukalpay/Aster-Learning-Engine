@@ -43,7 +43,9 @@ node collision.proxy collision_proxy role=collision shape=none
 node lod.single lod_generator role=lod policy=single-lod
 node probe.preview probe_helper role=lighting environment=cave-dark
 node prefab.variant prefab_variant role=prefab variant=material-lab
+node perception.template world_perceptual_template role=perceptual profile=plain surface_response=wet-decal-soot history_response=residue-smear-memory material_half_life_seconds=14 wetness_half_life_seconds=7 semantic_lod=0.62 streaming_cost=0.18 patch_channels=decal,wetness,exposure contact_channels=contact_normal,visual_occlusion,traversal_affordance residue_channels=soot_residue,acoustic_occlusion,player_readable_cause
 node export.runtime cook_export role=package target=assetgraphbin
 node diagnostic.quality diagnostic role=quality profile=production
 edge mat.decal material.assign opacity
 edge mat.wet material.assign wetness
+edge perception.template export.runtime perceptual_template

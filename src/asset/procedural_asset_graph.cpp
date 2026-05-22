@@ -270,6 +270,31 @@ void readFallbackArray(const Value &fallback, const std::string_view key,
   return report;
 }
 
+[[nodiscard]] ProceduralAssetGraphPerceptualTemplate perceptualTemplateFrom(const Value &json) {
+  ProceduralAssetGraphPerceptualTemplate out;
+  const Value *perceptual_json = objectField(json, "perceptual_template");
+  if (perceptual_json == nullptr) {
+    return out;
+  }
+  out.id = asset_json::textOr(*perceptual_json, "id");
+  out.valid_primitive_profile =
+      asset_json::textOr(*perceptual_json, "valid_primitive_profile");
+  out.surface_response = asset_json::textOr(*perceptual_json, "surface_response");
+  out.history_response = asset_json::textOr(*perceptual_json, "history_response");
+  out.material_half_life_seconds =
+      asset_json::f32Or(*perceptual_json, "material_half_life_seconds");
+  out.wetness_half_life_seconds =
+      asset_json::f32Or(*perceptual_json, "wetness_half_life_seconds");
+  out.semantic_lod = asset_json::f32Or(*perceptual_json, "semantic_lod");
+  out.streaming_cost = asset_json::f32Or(*perceptual_json, "streaming_cost");
+  out.required_patch_channels = stringArrayFrom(*perceptual_json, "required_patch_channels");
+  out.required_contact_channels =
+      stringArrayFrom(*perceptual_json, "required_contact_channels");
+  out.required_residue_channels =
+      stringArrayFrom(*perceptual_json, "required_residue_channels");
+  return out;
+}
+
 [[nodiscard]] MaterialAsset materialFrom(const Value &root,
                                          const ProceduralAssetGraphPackage &package) {
   MaterialAsset material;
@@ -356,6 +381,7 @@ ProceduralAssetGraphPackage loadProceduralAssetGraphPackage(const std::filesyste
   package.production_session = productionSessionFrom(root);
   package.factory_report = factoryReportFrom(root);
   package.quality = qualityFrom(root);
+  package.perceptual_template = perceptualTemplateFrom(root);
 
   if (const Value *material = objectField(root, "material")) {
     package.shader_variant_tag = asset_json::textOr(*material, "shader_variant_tag");

@@ -20,6 +20,11 @@ namespace aster {
 struct CpuMesh;
 struct RenderObject;
 
+enum class RenderPerceptualTruthMode : std::uint32_t {
+  Compatibility = 0,
+  Strict = 1,
+};
+
 enum class MeshPrimitive {
   Box,
   Sphere,
@@ -338,6 +343,7 @@ struct RenderObject {
   RenderLodPolicy lod{};
   DynamicMeshResourceKey dynamic_mesh{};
   RenderObjectAssetProvenance asset_provenance{};
+  RenderPerceptualTruthMode perceptual_truth_mode = RenderPerceptualTruthMode::Compatibility;
   WorldPerceptualPrimitive perceptual_primitive{};
 };
 

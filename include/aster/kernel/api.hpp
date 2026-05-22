@@ -257,6 +257,17 @@ public:
     return Status(aster_kernel_world_record_region_gate(handle_, &report));
   }
 
+  [[nodiscard]] Result<AsterWorldPerceptualPrimitiveInfo> perceptualPrimitive(
+      const std::uint32_t index) const noexcept {
+    AsterWorldPerceptualPrimitiveInfo primitive{sizeof(AsterWorldPerceptualPrimitiveInfo),
+                                                ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_world_perceptual_primitive(handle_, index, &primitive));
+    if (!status) {
+      return Result<AsterWorldPerceptualPrimitiveInfo>(status);
+    }
+    return Result<AsterWorldPerceptualPrimitiveInfo>(std::move(primitive));
+  }
+
   [[nodiscard]] Result<AsterWorldRenderExtraction>
   extractRender(const AsterWorldRenderExtractionDesc &desc) noexcept {
     AsterWorldRenderExtraction extraction{sizeof(AsterWorldRenderExtraction),
@@ -1445,6 +1456,18 @@ public:
       return Result<AsterPerceptualWorldScheduleInfo>(status);
     }
     return Result<AsterPerceptualWorldScheduleInfo>(std::move(schedule));
+  }
+
+  [[nodiscard]] Result<AsterWorldPerceptualPrimitiveInfo> framePerceptualPrimitive(
+      const std::uint32_t index) const noexcept {
+    AsterWorldPerceptualPrimitiveInfo primitive{sizeof(AsterWorldPerceptualPrimitiveInfo),
+                                                ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_renderer_frame_perceptual_primitive(handle_, index, &primitive));
+    if (!status) {
+      return Result<AsterWorldPerceptualPrimitiveInfo>(status);
+    }
+    return Result<AsterWorldPerceptualPrimitiveInfo>(std::move(primitive));
   }
 
   [[nodiscard]] Result<AsterFrameDebugCaptureInfo> debugCaptureInfo(

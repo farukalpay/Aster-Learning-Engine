@@ -226,6 +226,42 @@ struct AsterFrameScheduleHandle__ {
   std::vector<KernelValidationRecord> validation_events;
 };
 
+struct KernelPerceptualPrimitiveRecord {
+  std::string primitive_id;
+  std::string object_name;
+  std::size_t object_index = 0u;
+  std::uint64_t primitive_hash = 0u;
+  std::uint64_t world_owner_hash = 0u;
+  std::uint64_t template_hash = 0u;
+  std::uint64_t cell_hash = 0u;
+  std::uint64_t player_readable_cause_hash = 0u;
+  float cell_residency = 0.0f;
+  float exposure_age_seconds = 0.0f;
+  float material_half_life_seconds = 0.0f;
+  float streaming_cost = 0.0f;
+  float material_stability = 1.0f;
+  aster::Vec3 contact_normal_history{0.0f, 1.0f, 0.0f};
+  float acoustic_occlusion_trust = 0.0f;
+  float visual_occlusion_trust = 0.0f;
+  float traversal_affordance = 0.0f;
+  float semantic_lod = 0.0f;
+  float material_memory = 0.0f;
+  float interaction_residue = 0.0f;
+  float contact_field = 0.0f;
+  float light_history = 0.0f;
+  float acoustic_occlusion = 0.0f;
+  float ecology_pressure = 0.0f;
+  float threat_gradient = 0.0f;
+  float traversal_pressure = 0.0f;
+  float decision_impact = 0.0f;
+  float player_readable_cause = 0.0f;
+  std::size_t cell_anchor_count = 0u;
+  std::size_t surface_patch_count = 0u;
+  std::size_t contact_zone_count = 0u;
+  std::size_t residue_channel_count = 0u;
+  bool accepted = false;
+};
+
 struct AsterWorldHandle__ {
   std::uint32_t magic = kWorldMagic;
   AsterEngineHandle owner = nullptr;
@@ -268,6 +304,7 @@ struct AsterWorldHandle__ {
   std::string perceptual_continuity_diagnostic;
   aster::PerceptualWorldScheduleReport perceptual_world_schedule;
   aster::WorldPerceptualPrimitiveSummary perceptual_world_truth;
+  std::vector<KernelPerceptualPrimitiveRecord> perceptual_primitives;
   aster::BeliefExtractionReport belief_report;
   std::uint64_t belief_world_transition_hash = 0u;
   std::uint64_t belief_extraction_hash = 0u;
@@ -361,6 +398,20 @@ bool validWorldRegionGateReport(const AsterWorldRegionGateReport *value) {
                                           perceptual_continuity_budget));
 }
 
+bool validWorldRenderExtractionDesc(const AsterWorldRenderExtractionDesc *value) {
+  return validTailExtendedStruct(value, value == nullptr ? 0u : value->size,
+                                 value == nullptr ? 0u : value->version,
+                                 offsetof(AsterWorldRenderExtractionDesc,
+                                          perceptual_truth_hash));
+}
+
+bool validWorldRenderExtraction(const AsterWorldRenderExtraction *value) {
+  return validTailExtendedStruct(value, value == nullptr ? 0u : value->size,
+                                 value == nullptr ? 0u : value->version,
+                                 offsetof(AsterWorldRenderExtraction,
+                                          perceptual_truth_hash));
+}
+
 bool validWorldForensics(const AsterWorldForensics *value) {
   return validTailExtendedStruct(value, value == nullptr ? 0u : value->size,
                                  value == nullptr ? 0u : value->version,
@@ -398,6 +449,17 @@ std::string stringFromView(const AsterStringView view) {
     return {};
   }
   return std::string(view.data, view.size);
+}
+
+std::uint64_t hashStringView(const AsterStringView view) {
+  std::uint64_t hash = 1469598103934665603ull;
+  if (view.data != nullptr) {
+    for (std::size_t i = 0u; i < view.size; ++i) {
+      hash ^= static_cast<std::uint8_t>(view.data[i]);
+      hash *= 1099511628211ull;
+    }
+  }
+  return hash == 0u ? 1u : hash;
 }
 
 bool hasPerceptualWorldScheduleInfo(const AsterPerceptualWorldScheduleInfo &schedule) {
@@ -448,6 +510,10 @@ bool validBeliefFindingKind(const AsterBeliefFindingKind kind) {
   case ASTER_BELIEF_FINDING_SURFACE_MEMORY_RESET:
   case ASTER_BELIEF_FINDING_ACOUSTIC_FALSENESS:
   case ASTER_BELIEF_FINDING_WORLD_STATE_DESYNCHRONIZATION:
+  case ASTER_BELIEF_FINDING_MISSING_PERCEPTUAL_PRIMITIVE:
+  case ASTER_BELIEF_FINDING_UNRESOLVED_PERCEPTUAL_BINDING:
+  case ASTER_BELIEF_FINDING_PERCEPTUAL_EXTRACTION_DESYNCHRONIZATION:
+  case ASTER_BELIEF_FINDING_BACKEND_PERCEPTUAL_TRUTH_GAP:
     return true;
   case ASTER_BELIEF_FINDING_UNKNOWN:
   default:
@@ -498,6 +564,14 @@ AsterBeliefFindingKind abiBeliefFindingKind(const aster::BeliefFindingKind kind)
     return ASTER_BELIEF_FINDING_ACOUSTIC_FALSENESS;
   case aster::BeliefFindingKind::WorldStateDesynchronization:
     return ASTER_BELIEF_FINDING_WORLD_STATE_DESYNCHRONIZATION;
+  case aster::BeliefFindingKind::MissingPerceptualPrimitive:
+    return ASTER_BELIEF_FINDING_MISSING_PERCEPTUAL_PRIMITIVE;
+  case aster::BeliefFindingKind::UnresolvedPerceptualBinding:
+    return ASTER_BELIEF_FINDING_UNRESOLVED_PERCEPTUAL_BINDING;
+  case aster::BeliefFindingKind::PerceptualExtractionDesynchronization:
+    return ASTER_BELIEF_FINDING_PERCEPTUAL_EXTRACTION_DESYNCHRONIZATION;
+  case aster::BeliefFindingKind::BackendPerceptualTruthGap:
+    return ASTER_BELIEF_FINDING_BACKEND_PERCEPTUAL_TRUTH_GAP;
   case aster::BeliefFindingKind::MaterialFamilyCollapse:
   default:
     return ASTER_BELIEF_FINDING_MATERIAL_FAMILY_COLLAPSE;
@@ -536,6 +610,14 @@ aster::BeliefFindingKind beliefFindingKindFromAbi(const AsterBeliefFindingKind k
     return aster::BeliefFindingKind::AcousticFalseness;
   case ASTER_BELIEF_FINDING_WORLD_STATE_DESYNCHRONIZATION:
     return aster::BeliefFindingKind::WorldStateDesynchronization;
+  case ASTER_BELIEF_FINDING_MISSING_PERCEPTUAL_PRIMITIVE:
+    return aster::BeliefFindingKind::MissingPerceptualPrimitive;
+  case ASTER_BELIEF_FINDING_UNRESOLVED_PERCEPTUAL_BINDING:
+    return aster::BeliefFindingKind::UnresolvedPerceptualBinding;
+  case ASTER_BELIEF_FINDING_PERCEPTUAL_EXTRACTION_DESYNCHRONIZATION:
+    return aster::BeliefFindingKind::PerceptualExtractionDesynchronization;
+  case ASTER_BELIEF_FINDING_BACKEND_PERCEPTUAL_TRUTH_GAP:
+    return aster::BeliefFindingKind::BackendPerceptualTruthGap;
   case ASTER_BELIEF_FINDING_MATERIAL_FAMILY_COLLAPSE:
   default:
     return aster::BeliefFindingKind::MaterialFamilyCollapse;
@@ -1201,6 +1283,9 @@ std::uint32_t componentFlags(const aster::sdk::ComponentSet &components) {
   if (components.mesh_renderer.has_value()) {
     flags |= ASTER_AUTHORING_ENTITY_COMPONENT_MESH_RENDERER;
   }
+  if (components.perceptual_binding.has_value()) {
+    flags |= ASTER_AUTHORING_ENTITY_COMPONENT_PERCEPTUAL_BINDING;
+  }
   if (components.collider.has_value()) {
     flags |= ASTER_AUTHORING_ENTITY_COMPONENT_COLLIDER;
   }
@@ -1394,6 +1479,188 @@ aster::Vec2 vec(const AsterVec2 value) {
 
 AsterVec3 abiVec(const aster::Vec3 value) {
   return {value.x, value.y, value.z};
+}
+
+bool validPerceptualPrimitiveInfo(const AsterWorldPerceptualPrimitiveInfo &info) {
+  return info.size >= sizeof(AsterWorldPerceptualPrimitiveInfo) &&
+         info.version == ASTER_KERNEL_STRUCT_VERSION_1 && validStringView(info.primitive_id) &&
+         validStringView(info.object_name);
+}
+
+KernelPerceptualPrimitiveRecord primitiveRecordFromAbi(
+    const AsterWorldPerceptualPrimitiveInfo &info);
+
+bool validPerceptualPrimitiveSpan(const AsterSpan primitives) {
+  if (primitives.size == 0u) {
+    return true;
+  }
+  if (primitives.data == nullptr ||
+      primitives.stride < sizeof(AsterWorldPerceptualPrimitiveInfo)) {
+    return false;
+  }
+  const auto *data = static_cast<const unsigned char *>(primitives.data);
+  for (std::size_t index = 0u; index < primitives.size; ++index) {
+    const auto *info =
+        reinterpret_cast<const AsterWorldPerceptualPrimitiveInfo *>(data + index * primitives.stride);
+    if (!validPerceptualPrimitiveInfo(*info)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::uint64_t perceptualPrimitiveEvidenceHash(const AsterSpan primitives) {
+  std::uint64_t hash = mixWorldEvidence(0xA57E901D9E9CE001ull,
+                                        static_cast<std::uint64_t>(primitives.size));
+  if (primitives.data == nullptr || primitives.stride < sizeof(AsterWorldPerceptualPrimitiveInfo)) {
+    return hash;
+  }
+  const auto *data = static_cast<const unsigned char *>(primitives.data);
+  for (std::size_t index = 0u; index < primitives.size; ++index) {
+    const auto *info =
+        reinterpret_cast<const AsterWorldPerceptualPrimitiveInfo *>(data + index * primitives.stride);
+    hash = mixWorldEvidence(hash, info->primitive_hash);
+    hash = mixWorldEvidence(hash, hashStringView(info->primitive_id));
+    hash = mixWorldEvidence(hash, info->template_hash);
+    hash = mixWorldEvidence(hash, info->cell_hash);
+    hash = mixWorldEvidence(hash, info->player_readable_cause_hash);
+  }
+  return hash;
+}
+
+std::vector<KernelPerceptualPrimitiveRecord> primitiveRecordsFromSpan(
+    const AsterSpan primitives) {
+  std::vector<KernelPerceptualPrimitiveRecord> out;
+  if (primitives.data == nullptr || primitives.size == 0u) {
+    return out;
+  }
+  out.reserve(primitives.size);
+  const auto *data = static_cast<const unsigned char *>(primitives.data);
+  for (std::size_t index = 0u; index < primitives.size; ++index) {
+    const auto *info =
+        reinterpret_cast<const AsterWorldPerceptualPrimitiveInfo *>(data + index * primitives.stride);
+    out.push_back(primitiveRecordFromAbi(*info));
+  }
+  return out;
+}
+
+KernelPerceptualPrimitiveRecord primitiveRecordFromAbi(
+    const AsterWorldPerceptualPrimitiveInfo &info) {
+  KernelPerceptualPrimitiveRecord record;
+  record.primitive_id = stringFromView(info.primitive_id);
+  record.object_name = stringFromView(info.object_name);
+  record.object_index = info.object_index;
+  record.primitive_hash = info.primitive_hash;
+  record.world_owner_hash = info.world_owner_hash;
+  record.template_hash = info.template_hash;
+  record.cell_hash = info.cell_hash;
+  record.player_readable_cause_hash = info.player_readable_cause_hash;
+  record.cell_residency = info.cell_residency;
+  record.exposure_age_seconds = info.exposure_age_seconds;
+  record.material_half_life_seconds = info.material_half_life_seconds;
+  record.streaming_cost = info.streaming_cost;
+  record.material_stability = info.material_stability;
+  record.contact_normal_history = vec(info.contact_normal_history);
+  record.acoustic_occlusion_trust = info.acoustic_occlusion_trust;
+  record.visual_occlusion_trust = info.visual_occlusion_trust;
+  record.traversal_affordance = info.traversal_affordance;
+  record.semantic_lod = info.semantic_lod;
+  record.material_memory = info.material_memory;
+  record.interaction_residue = info.interaction_residue;
+  record.contact_field = info.contact_field;
+  record.light_history = info.light_history;
+  record.acoustic_occlusion = info.acoustic_occlusion;
+  record.ecology_pressure = info.ecology_pressure;
+  record.threat_gradient = info.threat_gradient;
+  record.traversal_pressure = info.traversal_pressure;
+  record.decision_impact = info.decision_impact;
+  record.player_readable_cause = info.player_readable_cause;
+  record.cell_anchor_count = info.cell_anchor_count;
+  record.surface_patch_count = info.surface_patch_count;
+  record.contact_zone_count = info.contact_zone_count;
+  record.residue_channel_count = info.residue_channel_count;
+  record.accepted = info.accepted != 0u;
+  return record;
+}
+
+void fillPerceptualPrimitiveInfoCommon(const KernelPerceptualPrimitiveRecord &record,
+                                       AsterStringView primitive_id,
+                                       AsterStringView object_name,
+                                       AsterWorldPerceptualPrimitiveInfo *out_primitive) {
+  out_primitive->size = sizeof(AsterWorldPerceptualPrimitiveInfo);
+  out_primitive->version = ASTER_KERNEL_STRUCT_VERSION_1;
+  out_primitive->accepted = record.accepted ? 1u : 0u;
+  out_primitive->primitive_id = primitive_id;
+  out_primitive->object_name = object_name;
+  out_primitive->object_index = record.object_index;
+  out_primitive->primitive_hash = record.primitive_hash;
+  out_primitive->world_owner_hash = record.world_owner_hash;
+  out_primitive->template_hash = record.template_hash;
+  out_primitive->cell_hash = record.cell_hash;
+  out_primitive->player_readable_cause_hash = record.player_readable_cause_hash;
+  out_primitive->cell_residency = record.cell_residency;
+  out_primitive->exposure_age_seconds = record.exposure_age_seconds;
+  out_primitive->material_half_life_seconds = record.material_half_life_seconds;
+  out_primitive->streaming_cost = record.streaming_cost;
+  out_primitive->material_stability = record.material_stability;
+  out_primitive->contact_normal_history = abiVec(record.contact_normal_history);
+  out_primitive->acoustic_occlusion_trust = record.acoustic_occlusion_trust;
+  out_primitive->visual_occlusion_trust = record.visual_occlusion_trust;
+  out_primitive->traversal_affordance = record.traversal_affordance;
+  out_primitive->semantic_lod = record.semantic_lod;
+  out_primitive->material_memory = record.material_memory;
+  out_primitive->interaction_residue = record.interaction_residue;
+  out_primitive->contact_field = record.contact_field;
+  out_primitive->light_history = record.light_history;
+  out_primitive->acoustic_occlusion = record.acoustic_occlusion;
+  out_primitive->ecology_pressure = record.ecology_pressure;
+  out_primitive->threat_gradient = record.threat_gradient;
+  out_primitive->traversal_pressure = record.traversal_pressure;
+  out_primitive->decision_impact = record.decision_impact;
+  out_primitive->player_readable_cause = record.player_readable_cause;
+  out_primitive->cell_anchor_count = record.cell_anchor_count;
+  out_primitive->surface_patch_count = record.surface_patch_count;
+  out_primitive->contact_zone_count = record.contact_zone_count;
+  out_primitive->residue_channel_count = record.residue_channel_count;
+}
+
+KernelPerceptualPrimitiveRecord primitiveRecordFromTrace(
+    const aster::WorldPerceptualPrimitiveTrace &trace) {
+  KernelPerceptualPrimitiveRecord record;
+  record.primitive_id = trace.primitive_id;
+  record.object_name = trace.object_name;
+  record.object_index = trace.object_index;
+  record.primitive_hash = trace.primitive_hash;
+  record.world_owner_hash = trace.world_owner_hash;
+  record.template_hash = trace.template_hash;
+  record.cell_hash = trace.cell_hash;
+  record.player_readable_cause_hash = trace.player_readable_cause_hash;
+  record.cell_residency = trace.cell_residency;
+  record.exposure_age_seconds = trace.exposure_age_seconds;
+  record.material_half_life_seconds = trace.material_half_life_seconds;
+  record.streaming_cost = trace.streaming_cost;
+  record.material_stability = trace.material_stability;
+  record.contact_normal_history = trace.contact_normal_history;
+  record.acoustic_occlusion_trust = trace.acoustic_occlusion_trust;
+  record.visual_occlusion_trust = trace.visual_occlusion_trust;
+  record.traversal_affordance = trace.traversal_affordance;
+  record.semantic_lod = trace.semantic_lod;
+  record.material_memory = trace.material_memory;
+  record.interaction_residue = trace.interaction_residue;
+  record.contact_field = trace.contact_field;
+  record.light_history = trace.light_history;
+  record.acoustic_occlusion = trace.acoustic_occlusion;
+  record.ecology_pressure = trace.ecology_pressure;
+  record.threat_gradient = trace.threat_gradient;
+  record.traversal_pressure = trace.traversal_pressure;
+  record.decision_impact = trace.decision_impact;
+  record.player_readable_cause = trace.player_readable_cause;
+  record.cell_anchor_count = trace.cell_anchor_count;
+  record.surface_patch_count = trace.surface_patch_count;
+  record.contact_zone_count = trace.contact_zone_count;
+  record.residue_channel_count = trace.residue_channel_count;
+  record.accepted = trace.accepted;
+  return record;
 }
 
 aster::Viewport viewport(const AsterViewport *value) {
@@ -2047,6 +2314,8 @@ AsterKernelFrameDiagnosticKind diagnosticKind(const aster::FrameDiagnosticKind k
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_MESH_ATTRIBUTE_DEGRADED;
   case aster::FrameDiagnosticKind::SurfacePresentationWarning:
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_SURFACE_PRESENTATION_WARNING;
+  case aster::FrameDiagnosticKind::PerceptualTruthGap:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_PERCEPTUAL_TRUTH_GAP;
   case aster::FrameDiagnosticKind::BackendFallback:
   default:
     return ASTER_KERNEL_FRAME_DIAGNOSTIC_BACKEND_FALLBACK;
@@ -2720,6 +2989,10 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
   const bool has_belief_findings_field =
       abiStructHasField(report->size, offsetof(AsterWorldRegionGateReport, belief_findings),
                         sizeof(report->belief_findings));
+  const bool has_perceptual_primitives_field =
+      abiStructHasField(report->size,
+                        offsetof(AsterWorldRegionGateReport, perceptual_primitives),
+                        sizeof(report->perceptual_primitives));
   if (has_continuity_budget &&
       !validPerceptualContinuityBudget(report->perceptual_continuity_budget)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
@@ -2734,6 +3007,17 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
       !validPerceptualWorldTruthSummary(report->perceptual_world_truth)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
                       "world perceptual truth version is not supported");
+  }
+  if (has_perceptual_primitives_field &&
+      !validPerceptualPrimitiveSpan(report->perceptual_primitives)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "world perceptual primitive span version is not supported");
+  }
+  if (has_perceptual_world_truth && has_perceptual_primitives_field &&
+      report->perceptual_world_truth.primitive_count > 0u &&
+      report->perceptual_primitives.size != report->perceptual_world_truth.primitive_count) {
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                      "world region gate perceptual primitive records are missing");
   }
   if (!validStringView(report->diagnostic) || !validStringView(report->navigation.diagnostic) ||
       !validStringView(report->perceptual_budget.diagnostic) ||
@@ -2773,6 +3057,11 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
   if (has_perceptual_world_truth) {
     report_hash = mixWorldEvidence(report_hash, report->perceptual_world_truth.truth_hash);
   }
+  if (has_perceptual_primitives_field) {
+    report_hash =
+        mixWorldEvidence(report_hash,
+                         perceptualPrimitiveEvidenceHash(report->perceptual_primitives));
+  }
   const bool accepted = report->verdict == ASTER_WORLD_REGION_GATE_ACCEPTED &&
                         report->navigation.valid != 0u &&
                         report->perceptual_budget.accepted != 0u &&
@@ -2811,6 +3100,9 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
     world->perceptual_world_truth =
         perceptualWorldTruthFromAbi(report->perceptual_world_truth);
   }
+  if (has_perceptual_primitives_field) {
+    world->perceptual_primitives = primitiveRecordsFromSpan(report->perceptual_primitives);
+  }
   if (has_belief_report) {
     world->belief_report = std::move(belief_report);
     world->belief_world_transition_hash = report->belief_report.world_transition_hash;
@@ -2824,13 +3116,34 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
   return aster_kernel_status_ok();
 }
 
+AsterStatus aster_kernel_world_perceptual_primitive(
+    const AsterWorldHandle world, const std::uint32_t index,
+    AsterWorldPerceptualPrimitiveInfo *out_primitive) {
+  if (!validWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
+  }
+  if (!validStruct(out_primitive)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "world perceptual primitive struct version is not supported");
+  }
+  if (index >= world->perceptual_primitives.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "world perceptual primitive index is out of range");
+  }
+  const KernelPerceptualPrimitiveRecord &record = world->perceptual_primitives[index];
+  fillPerceptualPrimitiveInfoCommon(record, worldScratch(world, record.primitive_id),
+                                    worldScratch(world, record.object_name),
+                                    out_primitive);
+  return aster_kernel_status_ok();
+}
+
 AsterStatus aster_kernel_world_extract_render(const AsterWorldHandle world,
                                               const AsterWorldRenderExtractionDesc *desc,
                                               AsterWorldRenderExtraction *out_extraction) {
   if (!validWorld(world)) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
   }
-  if (!validStruct(desc) || !validStruct(out_extraction)) {
+  if (!validWorldRenderExtractionDesc(desc) || !validWorldRenderExtraction(out_extraction)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
                       "world render extraction struct version is not supported");
   }
@@ -2838,7 +3151,22 @@ AsterStatus aster_kernel_world_extract_render(const AsterWorldHandle world,
     return makeStatus(ASTER_STATUS_VALIDATION_ERROR,
                       "world render extraction requires an accepted transition");
   }
-  world->world.noteRenderableExtraction(desc->extraction_hash, desc->frame_submission_hash);
+  const bool has_perceptual_truth_hash =
+      abiStructHasField(desc->size,
+                        offsetof(AsterWorldRenderExtractionDesc, perceptual_truth_hash),
+                        sizeof(desc->perceptual_truth_hash));
+  const std::uint64_t perceptual_truth_hash =
+      has_perceptual_truth_hash && desc->perceptual_truth_hash != 0u
+          ? desc->perceptual_truth_hash
+          : world->perceptual_world_truth.truth_hash;
+  if (has_perceptual_truth_hash && desc->perceptual_truth_hash != 0u &&
+      world->perceptual_world_truth.truth_hash != 0u &&
+      desc->perceptual_truth_hash != world->perceptual_world_truth.truth_hash) {
+    return makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                      "world render extraction perceptual truth is desynchronized");
+  }
+  world->world.noteRenderableExtraction(desc->extraction_hash, desc->frame_submission_hash,
+                                        perceptual_truth_hash);
   world->render_extraction_hash = desc->extraction_hash;
   out_extraction->world_transition_hash = world->world_transition_hash;
   out_extraction->epoch = world->world.currentTick();
@@ -2847,6 +3175,11 @@ AsterStatus aster_kernel_world_extract_render(const AsterWorldHandle world,
   out_extraction->extraction_hash = desc->extraction_hash;
   out_extraction->frame_submission_hash = desc->frame_submission_hash;
   out_extraction->streaming_region_id = world->streaming_region_id;
+  if (abiStructHasField(out_extraction->size,
+                        offsetof(AsterWorldRenderExtraction, perceptual_truth_hash),
+                        sizeof(out_extraction->perceptual_truth_hash))) {
+    out_extraction->perceptual_truth_hash = perceptual_truth_hash;
+  }
   return aster_kernel_status_ok();
 }
 
@@ -4769,6 +5102,29 @@ AsterStatus aster_kernel_renderer_frame_perceptual_world_schedule(
   schedule.decision_impact_score = forensics.perceptual_decision_impact_score;
   schedule.frame_cost_ms = forensics.perceptual_scheduler_frame_cost_ms;
   fillPerceptualScheduleInfo(schedule, out_schedule);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_frame_perceptual_primitive(
+    const AsterRendererHandle renderer, const std::uint32_t index,
+    AsterWorldPerceptualPrimitiveInfo *out_primitive) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_primitive)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame perceptual primitive struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.perceptual_primitive_traces.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame perceptual primitive index is out of range");
+  }
+  const KernelPerceptualPrimitiveRecord record =
+      primitiveRecordFromTrace(forensics.perceptual_primitive_traces[index]);
+  fillPerceptualPrimitiveInfoCommon(record, viewFromScratch(renderer, record.primitive_id),
+                                    viewFromScratch(renderer, record.object_name),
+                                    out_primitive);
   return aster_kernel_status_ok();
 }
 

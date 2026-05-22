@@ -72,14 +72,22 @@ struct WorldPerceptualPrimitiveDesc {
   std::string primitive_id;
   std::string object_name;
   std::uint64_t world_owner_hash = 0u;
+  std::uint64_t template_hash = 0u;
+  std::uint64_t cell_hash = 0u;
   std::uint64_t player_readable_cause_hash = 0u;
   float delta_seconds = 1.0f / 60.0f;
   float wetness_half_life_seconds = 12.0f;
+  float material_half_life_seconds = 12.0f;
   float exposure_age_seconds = 0.0f;
   float world_ownership = 1.0f;
   float cell_residency = 0.0f;
   float streaming_cost = 0.0f;
   float material_stability = 1.0f;
+  Vec3 contact_normal_history{0.0f, 1.0f, 0.0f};
+  float acoustic_occlusion_trust = 0.0f;
+  float visual_occlusion_trust = 0.0f;
+  float traversal_affordance = 0.0f;
+  float semantic_lod = 0.0f;
   bool player_observable = true;
   WorldPerceptualSignals signals;
   std::vector<WorldPerceptualCellAnchor> cell_anchors;
@@ -93,14 +101,22 @@ struct WorldPerceptualPrimitive {
   std::string object_name;
   std::uint64_t truth_hash = 0u;
   std::uint64_t world_owner_hash = 0u;
+  std::uint64_t template_hash = 0u;
+  std::uint64_t cell_hash = 0u;
   std::uint64_t player_readable_cause_hash = 0u;
   WorldPerceptualSignals signals;
   float cell_residency = 0.0f;
   float world_ownership = 0.0f;
   float wetness_half_life_seconds = 0.0f;
+  float material_half_life_seconds = 0.0f;
   float exposure_age_seconds = 0.0f;
   float streaming_cost = 0.0f;
   float material_stability = 1.0f;
+  Vec3 contact_normal_history{0.0f, 1.0f, 0.0f};
+  float acoustic_occlusion_trust = 0.0f;
+  float visual_occlusion_trust = 0.0f;
+  float traversal_affordance = 0.0f;
+  float semantic_lod = 0.0f;
   std::size_t active_cell_anchor_count = 0u;
   std::size_t active_surface_patch_count = 0u;
   std::size_t active_contact_zone_count = 0u;
@@ -135,6 +151,58 @@ struct WorldPerceptualPrimitiveSummary {
   float player_readable_cause = 0.0f;
   bool accepted = false;
   std::string diagnostic;
+};
+
+struct WorldPerceptualFieldKey {
+  std::uint64_t world_owner_hash = 0u;
+  std::uint64_t template_hash = 0u;
+  std::uint64_t cell_hash = 0u;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return world_owner_hash != 0u && template_hash != 0u && cell_hash != 0u;
+  }
+
+  [[nodiscard]] friend bool operator==(const WorldPerceptualFieldKey &lhs,
+                                       const WorldPerceptualFieldKey &rhs) noexcept {
+    return lhs.world_owner_hash == rhs.world_owner_hash &&
+           lhs.template_hash == rhs.template_hash && lhs.cell_hash == rhs.cell_hash;
+  }
+};
+
+struct WorldPerceptualFieldObservation {
+  WorldPerceptualFieldKey key;
+  std::string primitive_id;
+  std::string object_name;
+  std::uint64_t player_readable_cause_hash = 0u;
+  Vec3 cell_center{};
+  Vec3 contact_normal{0.0f, 1.0f, 0.0f};
+  float delta_seconds = 1.0f / 60.0f;
+  float material_half_life_seconds = 12.0f;
+  float cell_residency = 0.0f;
+  float streaming_cost = 0.0f;
+  float material_stability = 1.0f;
+  float acoustic_occlusion_trust = 0.0f;
+  float visual_occlusion_trust = 0.0f;
+  float traversal_affordance = 0.0f;
+  float semantic_lod = 0.0f;
+  bool player_observable = true;
+  WorldPerceptualSignals target_signals;
+};
+
+struct WorldPerceptualFieldState {
+  WorldPerceptualFieldKey key;
+  float exposure_age_seconds = 0.0f;
+  WorldPerceptualPrimitive primitive;
+};
+
+class WorldPerceptualField {
+public:
+  void reset();
+  [[nodiscard]] WorldPerceptualPrimitive advance(const WorldPerceptualFieldObservation &observation);
+  [[nodiscard]] const std::vector<WorldPerceptualFieldState> &states() const noexcept;
+
+private:
+  std::vector<WorldPerceptualFieldState> states_;
 };
 
 [[nodiscard]] WorldPerceptualSignals

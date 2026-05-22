@@ -299,7 +299,8 @@ typedef enum AsterKernelFrameDiagnosticKind {
   ASTER_KERNEL_FRAME_DIAGNOSTIC_VOLUMETRIC_LIGHT_MISSING = 24,
   ASTER_KERNEL_FRAME_DIAGNOSTIC_LIGHT_FALLOFF_DISCONTINUITY = 25,
   ASTER_KERNEL_FRAME_DIAGNOSTIC_CAVE_LIGHT_EXPOSURE_UNDERFLOW = 26,
-  ASTER_KERNEL_FRAME_DIAGNOSTIC_CAVE_LIGHT_EXPOSURE_OVERFLOW = 27
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_CAVE_LIGHT_EXPOSURE_OVERFLOW = 27,
+  ASTER_KERNEL_FRAME_DIAGNOSTIC_PERCEPTUAL_TRUTH_GAP = 28
 } AsterKernelFrameDiagnosticKind;
 
 typedef enum AsterBeliefFindingKind {
@@ -319,7 +320,11 @@ typedef enum AsterBeliefFindingKind {
   ASTER_BELIEF_FINDING_AI_ATTENTION_INCOHERENCE = 13,
   ASTER_BELIEF_FINDING_SURFACE_MEMORY_RESET = 14,
   ASTER_BELIEF_FINDING_ACOUSTIC_FALSENESS = 15,
-  ASTER_BELIEF_FINDING_WORLD_STATE_DESYNCHRONIZATION = 16
+  ASTER_BELIEF_FINDING_WORLD_STATE_DESYNCHRONIZATION = 16,
+  ASTER_BELIEF_FINDING_MISSING_PERCEPTUAL_PRIMITIVE = 17,
+  ASTER_BELIEF_FINDING_UNRESOLVED_PERCEPTUAL_BINDING = 18,
+  ASTER_BELIEF_FINDING_PERCEPTUAL_EXTRACTION_DESYNCHRONIZATION = 19,
+  ASTER_BELIEF_FINDING_BACKEND_PERCEPTUAL_TRUTH_GAP = 20
 } AsterBeliefFindingKind;
 
 typedef struct AsterBeliefFindingInfo {
@@ -416,7 +421,11 @@ typedef enum AsterValidationKind {
   ASTER_VALIDATION_VISIBLE_VOID = 17,
   ASTER_VALIDATION_SUPPORT_RENDER_MISMATCH = 18,
   ASTER_VALIDATION_Z_FIGHT_CANDIDATE = 19,
-  ASTER_VALIDATION_TRAVERSAL_BLOCKER = 20
+  ASTER_VALIDATION_TRAVERSAL_BLOCKER = 20,
+  ASTER_VALIDATION_MISSING_PERCEPTUAL_PRIMITIVE = 21,
+  ASTER_VALIDATION_UNRESOLVED_PERCEPTUAL_BINDING = 22,
+  ASTER_VALIDATION_PERCEPTUAL_EXTRACTION_DESYNC = 23,
+  ASTER_VALIDATION_BACKEND_PERCEPTUAL_TRUTH_GAP = 24
 } AsterValidationKind;
 
 typedef enum AsterSystemComponentAccessMode {
@@ -552,7 +561,8 @@ enum {
   ASTER_AUTHORING_ENTITY_COMPONENT_TORCH_SOCKET = 1u << 10u,
   ASTER_AUTHORING_ENTITY_COMPONENT_SPAWN_POINT = 1u << 11u,
   ASTER_AUTHORING_ENTITY_COMPONENT_MINING = 1u << 12u,
-  ASTER_AUTHORING_ENTITY_COMPONENT_CAVE_DEBUG = 1u << 13u
+  ASTER_AUTHORING_ENTITY_COMPONENT_CAVE_DEBUG = 1u << 13u,
+  ASTER_AUTHORING_ENTITY_COMPONENT_PERCEPTUAL_BINDING = 1u << 14u
 };
 
 typedef enum AsterTextureRole {
@@ -655,6 +665,44 @@ typedef struct AsterVec4 {
   float z;
   float w;
 } AsterVec4;
+
+typedef struct AsterWorldPerceptualPrimitiveInfo {
+  size_t size;
+  uint32_t version;
+  uint32_t accepted;
+  AsterStringView primitive_id;
+  AsterStringView object_name;
+  size_t object_index;
+  uint64_t primitive_hash;
+  uint64_t world_owner_hash;
+  uint64_t template_hash;
+  uint64_t cell_hash;
+  uint64_t player_readable_cause_hash;
+  float cell_residency;
+  float exposure_age_seconds;
+  float material_half_life_seconds;
+  float streaming_cost;
+  float material_stability;
+  AsterVec3 contact_normal_history;
+  float acoustic_occlusion_trust;
+  float visual_occlusion_trust;
+  float traversal_affordance;
+  float semantic_lod;
+  float material_memory;
+  float interaction_residue;
+  float contact_field;
+  float light_history;
+  float acoustic_occlusion;
+  float ecology_pressure;
+  float threat_gradient;
+  float traversal_pressure;
+  float decision_impact;
+  float player_readable_cause;
+  size_t cell_anchor_count;
+  size_t surface_patch_count;
+  size_t contact_zone_count;
+  size_t residue_channel_count;
+} AsterWorldPerceptualPrimitiveInfo;
 
 typedef struct AsterDVec2 {
   double x;
@@ -1449,6 +1497,7 @@ typedef struct AsterWorldRegionGateReport {
   AsterBeliefReportInfo belief_report;
   AsterSpan belief_findings;
   AsterPerceptualWorldTruthSummary perceptual_world_truth;
+  AsterSpan perceptual_primitives;
 } AsterWorldRegionGateReport;
 
 typedef struct AsterWorldRenderExtractionDesc {
@@ -1457,6 +1506,7 @@ typedef struct AsterWorldRenderExtractionDesc {
   uint64_t visibility_set_hash;
   uint64_t extraction_hash;
   uint64_t frame_submission_hash;
+  uint64_t perceptual_truth_hash;
 } AsterWorldRenderExtractionDesc;
 
 typedef struct AsterWorldRenderExtraction {
@@ -1469,6 +1519,7 @@ typedef struct AsterWorldRenderExtraction {
   uint64_t extraction_hash;
   uint64_t frame_submission_hash;
   uint64_t streaming_region_id;
+  uint64_t perceptual_truth_hash;
 } AsterWorldRenderExtraction;
 
 typedef struct AsterWorldForensics {
@@ -2045,6 +2096,8 @@ ASTER_KERNEL_API AsterStatus aster_kernel_world_belief_report(
     AsterWorldHandle world, AsterBeliefReportInfo *out_report);
 ASTER_KERNEL_API AsterStatus aster_kernel_world_belief_finding(
     AsterWorldHandle world, uint32_t index, AsterBeliefFindingInfo *out_finding);
+ASTER_KERNEL_API AsterStatus aster_kernel_world_perceptual_primitive(
+    AsterWorldHandle world, uint32_t index, AsterWorldPerceptualPrimitiveInfo *out_primitive);
 ASTER_KERNEL_API AsterStatus aster_kernel_world_destroy(AsterWorldHandle world);
 
 ASTER_KERNEL_API AsterStatus aster_kernel_system_world_create(
@@ -2158,6 +2211,9 @@ ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_falseness_finding(
     AsterRendererHandle renderer, uint32_t index, AsterBeliefFindingInfo *out_finding);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_perceptual_world_schedule(
     AsterRendererHandle renderer, AsterPerceptualWorldScheduleInfo *out_schedule);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_perceptual_primitive(
+    AsterRendererHandle renderer, uint32_t index,
+    AsterWorldPerceptualPrimitiveInfo *out_primitive);
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_debug_capture_info(AsterRendererHandle renderer, size_t index,
                                          AsterFrameDebugCaptureInfo *out_capture);
