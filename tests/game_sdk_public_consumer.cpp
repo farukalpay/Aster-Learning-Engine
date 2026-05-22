@@ -64,6 +64,10 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(cave.value.validation.perceptual_runtime->id == "entry_perceptual_world_runtime");
   assert(cave.value.validation.perceptual_runtime->exposure_horizon_seconds >= 47.0f);
   assert(cave.value.validation.perceptual_runtime->minimum_occlusion_trust > 0.0f);
+  assert(cave.value.validation.belief_contract.has_value());
+  assert(cave.value.validation.belief_contract->id == "entry_belief_contract");
+  assert(cave.value.validation.belief_contract->minimum_score >= 0.70f);
+  assert(cave.value.validation.belief_contract->required_checks.size() == 8u);
   const std::vector<aster::sdk::Diagnostic> cave_diagnostics =
       aster::sdk::validateCaveDocument(cave.value, &project.value, &scene.value,
                                        project_root / "caves" / "cave_entry.cave");
@@ -213,6 +217,14 @@ void testSchemaDiagnosticsRejectInvalidDocuments() {
   const std::vector<aster::sdk::Diagnostic> bad_cave_diagnostics =
       aster::sdk::validateCaveDocument(bad_cave.value, &sparse_project.value, nullptr);
   assert(!bad_cave_diagnostics.empty());
+  bool saw_default_belief_warning = false;
+  for (const aster::sdk::Diagnostic &diagnostic : bad_cave_diagnostics) {
+    saw_default_belief_warning =
+        saw_default_belief_warning ||
+        (diagnostic.severity == aster::sdk::DiagnosticSeverity::Warning &&
+         diagnostic.path == "$.validation.belief_contract");
+  }
+  assert(saw_default_belief_warning);
 }
 
 void testWorldRejectsDuplicateEntityInstances() {

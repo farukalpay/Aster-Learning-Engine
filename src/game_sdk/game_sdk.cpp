@@ -1005,6 +1005,20 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
   return out;
 }
 
+[[nodiscard]] CaveBeliefContractDocument parseCaveBeliefContractDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
+  CaveBeliefContractDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readStringOr(value, "id", diagnostics, source, path, {});
+  out.minimum_score =
+      readFloatOr(value, "minimum_score", diagnostics, source, path, out.minimum_score);
+  out.required_checks = readStringArray(value, "required_checks", diagnostics, source, path);
+  return out;
+}
+
 [[nodiscard]] CaveValidationDocument parseCaveValidationDocument(
     const Json &root, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
     const std::string &path) {
@@ -1103,6 +1117,10 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
   if (const Json *runtime = member(root, "perceptual_runtime")) {
     out.perceptual_runtime = parseCavePerceptualRuntimeDocument(
         *runtime, diagnostics, source, childPath(path, "perceptual_runtime"));
+  }
+  if (const Json *belief = member(root, "belief_contract")) {
+    out.belief_contract = parseCaveBeliefContractDocument(
+        *belief, diagnostics, source, childPath(path, "belief_contract"));
   }
   return out;
 }
@@ -2105,6 +2123,10 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
   const auto addError = [&](std::string path, std::string message) {
     addDiagnostic(diagnostics, source_path, std::move(path), std::move(message));
   };
+  const auto addWarning = [&](std::string path, std::string message) {
+    addDiagnostic(diagnostics, source_path, std::move(path), std::move(message),
+                  DiagnosticSeverity::Warning);
+  };
 
   if (cave.id.empty()) {
     addError("$.id", "cave id must not be empty");
@@ -2453,6 +2475,35 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
       addError("$.validation.perceptual_runtime.minimum_player_readable_cause",
                "perceptual runtime minimum_player_readable_cause must be in [0, 1]");
     }
+  }
+
+  const auto validBeliefCheck = [](const std::string &check) {
+    return check == "material_family_collapse" || check == "contextual_grounding_failure" ||
+           check == "contact_shadow_credibility_failure" ||
+           check == "volumetric_scene_coupling_failure" ||
+           check == "material_response_instability" ||
+           check == "lod_transition_visibility" ||
+           check == "asset_scale_incoherence" ||
+           check == "environmental_entropy_deficit";
+  };
+  if (cave.validation.belief_contract.has_value()) {
+    const CaveBeliefContractDocument &belief = *cave.validation.belief_contract;
+    if (belief.id.empty()) {
+      addError("$.validation.belief_contract.id", "belief contract id must not be empty");
+    }
+    if (belief.minimum_score < 0.0f || belief.minimum_score > 1.0f) {
+      addError("$.validation.belief_contract.minimum_score",
+               "belief contract minimum_score must be in [0, 1]");
+    }
+    for (const std::string &check : belief.required_checks) {
+      if (!validBeliefCheck(check)) {
+        addError("$.validation.belief_contract.required_checks",
+                 "unknown belief contract check '" + check + "'");
+      }
+    }
+  } else {
+    addWarning("$.validation.belief_contract",
+               "missing belief contract; using default V1 minimum_score 0.70");
   }
 
   if (scene != nullptr) {

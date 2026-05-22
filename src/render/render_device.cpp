@@ -6328,6 +6328,45 @@ void RenderDevice::stampLastFramePerceptualState(const PerceptualFrameState &sta
   last_forensics_.perceptual_state_accepted = state.accepted;
 }
 
+void RenderDevice::stampLastFrameBeliefReport(const BeliefExtractionReport &report) {
+  last_forensics_.belief_falseness_report = report;
+  for (const BeliefExtractionFinding &finding : report.findings) {
+    FrameDiagnosticKind event_kind = FrameDiagnosticKind::SurfacePresentationWarning;
+    switch (finding.kind) {
+    case BeliefFindingKind::MaterialFamilyCollapse:
+      event_kind = FrameDiagnosticKind::MaterialVariantFallback;
+      break;
+    case BeliefFindingKind::ContextualGroundingFailure:
+    case BeliefFindingKind::ContactShadowCredibilityFailure:
+    case BeliefFindingKind::VolumetricSceneCouplingFailure:
+    case BeliefFindingKind::EnvironmentalEntropyDeficit:
+      event_kind = FrameDiagnosticKind::SurfacePresentationWarning;
+      break;
+    case BeliefFindingKind::MaterialResponseInstability:
+      event_kind = FrameDiagnosticKind::TextureRoleDegraded;
+      break;
+    case BeliefFindingKind::LodTransitionVisibility:
+    case BeliefFindingKind::AssetScaleIncoherence:
+      event_kind = FrameDiagnosticKind::MeshAttributeDegraded;
+      break;
+    }
+
+    FrameDiagnosticSeverity severity = FrameDiagnosticSeverity::Warning;
+    if (finding.severity == BeliefFindingSeverity::Info) {
+      severity = FrameDiagnosticSeverity::Info;
+    } else if (finding.severity == BeliefFindingSeverity::Error) {
+      severity = FrameDiagnosticSeverity::Error;
+    }
+    last_forensics_.events.push_back(
+        {.kind = event_kind,
+         .severity = severity,
+         .pass = "belief-extraction",
+         .label = "belief." + std::string(beliefFindingKindName(finding.kind)),
+         .message = std::string(beliefFindingKindName(finding.kind)) + ": " + finding.message,
+         .value = finding.evidence_hash});
+  }
+}
+
 const std::shared_ptr<const MaterialResourceLibrary> &RenderDevice::materialResourceLibrary()
     const noexcept {
   return material_library_;

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "aster/game_sdk/game_sdk.hpp"
+#include "aster/core/belief_extraction.hpp"
 #include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/world_perception_ledger.hpp"
 #include "aster/core/world_state.hpp"
@@ -188,6 +189,7 @@ struct LumenWorldForensics {
   LumenReactionPackageReport coal_mining_reaction;
   WorldPerceptionLedgerReport perception_ledger;
   PerceptualFrameState perceptual_state;
+  BeliefExtractionReport belief_report;
   std::vector<WorldPerceptionObjectTrace> perception_object_traces;
   bool render_extraction_ready = false;
 };
@@ -462,6 +464,7 @@ private:
   buildPerceptionObjectTraces(const WorldPerceptionLedgerReport &ledger) const;
   [[nodiscard]] PerceptualWorldObservation
   makePerceptualObservation(float dt, Vec2 move_axis, Vec3 previous_player_position) const;
+  [[nodiscard]] BeliefExtractionReport buildBeliefExtractionReport() const;
   void advancePerceptualRuntime(float dt, Vec2 move_axis, Vec3 previous_player_position);
   void advanceWorldProof(float dt, Vec2 move_axis, bool run_requested, bool jump_requested,
                          Vec3 previous_player_position);

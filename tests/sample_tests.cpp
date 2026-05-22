@@ -70,6 +70,9 @@ void testLumenWorldForensicsContract() {
   assert(world.perceptual_state.semantic_budget_hash != 0u);
   assert(world.perceptual_state.material_memory > 0.0f);
   assert(world.perceptual_state.occlusion_trust > 0.0f);
+  assert(world.belief_report.belief_contract_hash != 0u);
+  assert(world.belief_report.readability_audit_hash != 0u);
+  assert(world.belief_report.score >= 0.70f);
   assert(!world.perception_object_traces.empty());
 
   run.noteRenderExtraction(0xA57E1001u, 0xA57E2002u);

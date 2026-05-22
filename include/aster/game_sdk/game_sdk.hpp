@@ -436,6 +436,12 @@ struct CavePerceptualRuntimeDocument {
   float minimum_player_readable_cause = 0.45f;
 };
 
+struct CaveBeliefContractDocument {
+  std::string id;
+  float minimum_score = 0.70f;
+  std::vector<std::string> required_checks;
+};
+
 struct CaveValidationDocument {
   std::vector<CaveRouteValidationDocument> walkable_routes;
   std::vector<CaveVolumeValidationDocument> spawn_volumes;
@@ -448,6 +454,7 @@ struct CaveValidationDocument {
   std::optional<CavePerceptualContinuityBudgetDocument> perceptual_continuity_budget;
   std::optional<CavePerceptionLedgerDocument> perception_ledger;
   std::optional<CavePerceptualRuntimeDocument> perceptual_runtime;
+  std::optional<CaveBeliefContractDocument> belief_contract;
 };
 
 struct CaveDocument {

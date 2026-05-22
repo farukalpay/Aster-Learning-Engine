@@ -842,6 +842,21 @@ void testFrameDebuggerPerceptionLedgerTrace() {
   observation.traversal_speed = 1.0f;
   const aster::PerceptualFrameState perceptual_state = runtime.advance(observation);
   renderer.stampLastFramePerceptualState(perceptual_state);
+  aster::BeliefExtractionDesc belief_desc;
+  belief_desc.subject = object.name;
+  belief_desc.minimum_score = 0.70f;
+  belief_desc.perception_ledger = ledger;
+  belief_desc.perceptual_state = perceptual_state;
+  belief_desc.visible_object_count = 6u;
+  belief_desc.material_family_count = 1u;
+  belief_desc.contact_shadow_enabled = true;
+  belief_desc.material_response_stability = 0.80f;
+  belief_desc.lod_transition_invisibility = 0.90f;
+  belief_desc.asset_scale_coherence = 0.90f;
+  belief_desc.environmental_entropy = 0.90f;
+  const aster::BeliefExtractionReport belief_report =
+      aster::extractBeliefContract(belief_desc);
+  renderer.stampLastFrameBeliefReport(belief_report);
 
   const aster::FrameForensics &forensics = renderer.lastFrameForensics();
   assert(forensics.perception_ledger_accepted);
@@ -855,6 +870,16 @@ void testFrameDebuggerPerceptionLedgerTrace() {
   assert(forensics.perceptual_semantic_budget_hash == perceptual_state.semantic_budget_hash);
   assert(forensics.perceptual_material_memory > 0.0f);
   assert(forensics.perceptual_occlusion_trust > 0.0f);
+  assert(forensics.belief_falseness_report.belief_contract_hash ==
+         belief_report.belief_contract_hash);
+  assert(!forensics.belief_falseness_report.findings.empty());
+  assert(std::any_of(forensics.events.begin(), forensics.events.end(),
+                     [](const aster::FrameDiagnosticEvent &event) {
+                       return event.pass == "belief-extraction" &&
+                              event.label == "belief.material_family_collapse" &&
+                              event.kind ==
+                                  aster::FrameDiagnosticKind::MaterialVariantFallback;
+                     }));
 
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }

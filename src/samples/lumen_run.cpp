@@ -725,6 +725,58 @@ LumenRun::makePerceptualObservation(const float dt, const Vec2 move_axis,
   return observation;
 }
 
+BeliefExtractionReport LumenRun::buildBeliefExtractionReport() const {
+  BeliefExtractionDesc desc;
+  desc.subject = "lumen_run.cave_entry";
+  desc.world_transition_hash = world_forensics_.world_transition_hash;
+  desc.extraction_hash = world_forensics_.render_extraction_hash;
+  desc.source_hash = world_forensics_.cave_gate.probe_trace_hash;
+  desc.perception_ledger = world_forensics_.perception_ledger;
+  desc.perceptual_state = world_forensics_.perceptual_state;
+  if (authoring_.valid && authoring_.cave.validation.belief_contract.has_value()) {
+    desc.minimum_score = authoring_.cave.validation.belief_contract->minimum_score;
+  }
+
+  desc.visible_object_count = scene_.objects().size();
+  std::vector<std::string> material_families;
+  material_families.reserve(scene_.objects().size());
+  for (const RenderObject &object : scene_.objects()) {
+    std::string family = object.material_asset_id;
+    if (family.empty()) {
+      family = std::string(materialSurfaceProfileName(resolveMaterialSurfaceProfile(object.material)));
+    }
+    if (family.empty()) {
+      family = "runtime-material";
+    }
+    if (std::find(material_families.begin(), material_families.end(), family) ==
+        material_families.end()) {
+      material_families.push_back(std::move(family));
+    }
+  }
+  desc.material_family_count = material_families.size();
+
+  const bool has_contact = world_forensics_.perception_ledger.contact_history_hash != 0u;
+  const bool has_lighting = world_forensics_.perception_ledger.lighting_exposure_hash != 0u;
+  const bool has_atmosphere = world_forensics_.perception_ledger.atmosphere_cell_hash != 0u;
+  const bool has_material_memory = world_forensics_.perception_ledger.material_memory_hash != 0u;
+  const bool has_wear = world_forensics_.perception_ledger.wear_continuity_hash != 0u;
+  const bool has_affordance =
+      world_forensics_.perception_ledger.gameplay_affordance_hash != 0u;
+
+  desc.contact_shadow_required = true;
+  desc.contact_shadow_enabled = has_contact;
+  desc.contact_shadow_credibility = has_contact ? 0.82f : 0.0f;
+  desc.volumetric_required = has_atmosphere || has_lighting;
+  desc.volumetric_scene_coupled = has_atmosphere && has_lighting;
+  desc.volumetric_scene_coupling = desc.volumetric_scene_coupled ? 0.76f : 0.0f;
+  desc.material_response_stability = has_material_memory && has_wear ? 0.80f : 0.40f;
+  desc.lod_transition_invisibility =
+      world_forensics_.perception_ledger.streaming_semantic_lod_hash != 0u ? 0.84f : 0.25f;
+  desc.asset_scale_coherence = world_forensics_.cave_gate.navigation_valid ? 0.82f : 0.25f;
+  desc.environmental_entropy = has_material_memory && has_wear && has_affordance ? 0.78f : 0.35f;
+  return extractBeliefContract(desc);
+}
+
 void LumenRun::advancePerceptualRuntime(const float dt, const Vec2 move_axis,
                                         const Vec3 previous_player_position) {
   const std::uint64_t region_id = world_forensics_.streaming_region_id != 0u
@@ -1213,6 +1265,7 @@ void LumenRun::rebuildCaveWorldGate() {
   world_forensics_.perception_ledger = perception_ledger;
   world_forensics_.perception_object_traces =
       buildPerceptionObjectTraces(world_forensics_.perception_ledger);
+  world_forensics_.belief_report = buildBeliefExtractionReport();
   perceptual_runtime_.setOptions(perceptualRuntimeOptions(report.region_id));
   perceptual_runtime_.reset();
 }
@@ -1291,6 +1344,7 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   world_forensics_.sensory_event_hash = sensory_hash;
   world_forensics_.visibility_set_hash = visibility_hash;
   advancePerceptualRuntime(step, move_axis, previous_player_position);
+  world_forensics_.belief_report = buildBeliefExtractionReport();
 
   const WorldTickResult tick =
       world_state_.tick({.tick = next_world_epoch_++,
@@ -1327,6 +1381,7 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   transition_hash =
       lumenHash(transition_hash, world_forensics_.perceptual_state.perceptual_state_hash);
   transition_hash = lumenHash(transition_hash, world_forensics_.perceptual_state.semantic_budget_hash);
+  transition_hash = lumenHash(transition_hash, world_forensics_.belief_report.belief_contract_hash);
   world_forensics_.world_transition_hash = transition_hash;
 }
 

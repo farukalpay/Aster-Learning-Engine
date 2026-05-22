@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "aster/core/belief_extraction.hpp"
 #include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/world_perception_ledger.hpp"
 #include "aster/math/vec.hpp"
@@ -820,6 +821,7 @@ struct FrameForensics {
   float perceptual_player_readable_cause = 0.0f;
   std::uint64_t perceptual_semantic_budget_hash = 0u;
   bool perceptual_state_accepted = false;
+  BeliefExtractionReport belief_falseness_report;
   std::vector<WorldPerceptionObjectTrace> perception_object_traces;
   std::vector<FramePassStats> passes;
   std::vector<FrameDiagnosticEvent> events;
@@ -1042,6 +1044,7 @@ public:
   void stampLastFramePerceptionLedger(const WorldPerceptionLedgerReport &ledger,
                                       std::vector<WorldPerceptionObjectTrace> object_traces);
   void stampLastFramePerceptualState(const PerceptualFrameState &state);
+  void stampLastFrameBeliefReport(const BeliefExtractionReport &report);
   [[nodiscard]] const std::shared_ptr<const MaterialResourceLibrary> &materialResourceLibrary()
       const noexcept;
 

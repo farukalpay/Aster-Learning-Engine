@@ -2065,7 +2065,12 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_system_world_destroy",
       "aster_kernel_sample_app_destroy",
   };
-  assert(readManifest() == expected);
+  const std::set<std::string> manifest = readManifest();
+  assert(manifest == expected);
+  assert(std::none_of(manifest.begin(), manifest.end(), [](const std::string &symbol) {
+    return symbol.find("belief") != std::string::npos ||
+           symbol.find("falseness") != std::string::npos;
+  }));
 
   (void)&aster_kernel_abi_version;
   (void)&aster_kernel_status_ok;

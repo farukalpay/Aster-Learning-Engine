@@ -3,6 +3,7 @@
 
 #include "test_support.hpp"
 
+#include "aster/core/belief_extraction.hpp"
 #include "aster/core/job_graph.hpp"
 #include "aster/core/module_registry.hpp"
 #include "aster/core/perceptual_world_runtime.hpp"
@@ -11,6 +12,7 @@
 #include "aster/core/world_perception_ledger.hpp"
 #include "aster/core/world_state.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <type_traits>
 
@@ -745,6 +747,94 @@ void testPerceptualWorldRuntimeContracts() {
   assert(first.lastState().interaction_residue > 0.45f);
 }
 
+bool hasBeliefFinding(const aster::BeliefExtractionReport &report,
+                      const aster::BeliefFindingKind kind) {
+  return std::any_of(report.findings.begin(), report.findings.end(),
+                     [kind](const aster::BeliefExtractionFinding &finding) {
+                       return finding.kind == kind && finding.evidence_hash != 0u &&
+                              !finding.message.empty();
+                     });
+}
+
+void testBeliefExtractionContracts() {
+  aster::BeliefExtractionDesc accepted;
+  accepted.subject = "accepted cave";
+  accepted.minimum_score = 0.70f;
+  accepted.visible_object_count = 8u;
+  accepted.material_family_count = 5u;
+  accepted.perception_ledger = aster::summarizeWorldPerceptionLedger(0xA57Eu, 0u, 0.0f, {});
+  accepted.perceptual_state = {.perceptual_state_hash = 0xA57E1001u,
+                               .material_memory = 0.82f,
+                               .interaction_residue = 0.78f,
+                               .traversal_pressure = 0.76f,
+                               .lighting_believability = 0.80f,
+                               .occlusion_trust = 0.84f,
+                               .ecology_signal = 0.72f,
+                               .player_readable_cause = 0.74f,
+                               .semantic_budget_hash = 0xA57E2002u,
+                               .accepted = true};
+  const aster::BeliefExtractionReport accepted_report =
+      aster::extractBeliefContract(accepted);
+  assert(accepted_report.accepted);
+  assert(accepted_report.score >= accepted_report.minimum_score);
+  assert(accepted_report.belief_contract_hash != 0u);
+  assert(accepted_report.readability_audit_hash != 0u);
+  assert(accepted_report.findings.empty());
+
+  const auto require_finding = [&](aster::BeliefExtractionDesc desc,
+                                   const aster::BeliefFindingKind kind) {
+    const aster::BeliefExtractionReport report = aster::extractBeliefContract(desc);
+    assert(!report.accepted);
+    assert(hasBeliefFinding(report, kind));
+  };
+
+  aster::BeliefExtractionDesc material = accepted;
+  material.subject = "repeated material spheres";
+  material.visible_object_count = 8u;
+  material.material_family_count = 1u;
+  require_finding(material, aster::BeliefFindingKind::MaterialFamilyCollapse);
+
+  aster::BeliefExtractionDesc grounding = accepted;
+  const std::uint32_t contact_required =
+      aster::worldPerceptionLedgerChannelBit("contact_history");
+  grounding.perception_ledger =
+      aster::summarizeWorldPerceptionLedger(0xA57Eu, contact_required, 1.0f, {});
+  require_finding(grounding, aster::BeliefFindingKind::ContextualGroundingFailure);
+
+  aster::BeliefExtractionDesc contact = accepted;
+  contact.contact_shadow_enabled = false;
+  require_finding(contact, aster::BeliefFindingKind::ContactShadowCredibilityFailure);
+
+  aster::BeliefExtractionDesc fog = accepted;
+  fog.volumetric_required = true;
+  fog.volumetric_scene_coupled = false;
+  require_finding(fog, aster::BeliefFindingKind::VolumetricSceneCouplingFailure);
+
+  aster::BeliefExtractionDesc material_response = accepted;
+  material_response.material_response_stability = 0.10f;
+  material_response.perceptual_state.material_memory = 0.0f;
+  require_finding(material_response, aster::BeliefFindingKind::MaterialResponseInstability);
+
+  aster::BeliefExtractionDesc lod = accepted;
+  lod.lod_transition_invisibility = 0.10f;
+  require_finding(lod, aster::BeliefFindingKind::LodTransitionVisibility);
+
+  aster::BeliefExtractionDesc scale = accepted;
+  scale.asset_scale_coherence = 0.10f;
+  require_finding(scale, aster::BeliefFindingKind::AssetScaleIncoherence);
+
+  aster::BeliefExtractionDesc entropy = accepted;
+  entropy.environmental_entropy = 0.10f;
+  entropy.perceptual_state.ecology_signal = 0.0f;
+  require_finding(entropy, aster::BeliefFindingKind::EnvironmentalEntropyDeficit);
+
+  assert(aster::beliefFindingKindName(
+             aster::BeliefFindingKind::MaterialFamilyCollapse) ==
+         "material_family_collapse");
+  assert(aster::beliefFindingSeverityName(aster::BeliefFindingSeverity::Warning) ==
+         "warning");
+}
+
 void testSourceBoundaryContracts() {
   const std::filesystem::path project_root =
       std::filesystem::path(__FILE__).parent_path().parent_path();
@@ -850,6 +940,7 @@ int main() {
   testWorldStateTransitionContracts();
   testWorldPerceptionLedgerContracts();
   testPerceptualWorldRuntimeContracts();
+  testBeliefExtractionContracts();
   testSourceBoundaryContracts();
   testConfigLayerStackAndSessionJournal();
   std::cout << "core_tests passed.\n";

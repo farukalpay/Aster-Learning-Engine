@@ -374,6 +374,20 @@
       "minimum_occlusion_trust": 0.45,
       "minimum_lighting_believability": 0.45,
       "minimum_player_readable_cause": 0.45
+    },
+    "belief_contract": {
+      "id": "entry_belief_contract",
+      "minimum_score": 0.70,
+      "required_checks": [
+        "material_family_collapse",
+        "contextual_grounding_failure",
+        "contact_shadow_credibility_failure",
+        "volumetric_scene_coupling_failure",
+        "material_response_instability",
+        "lod_transition_visibility",
+        "asset_scale_incoherence",
+        "environmental_entropy_deficit"
+      ]
     }
   }
 }

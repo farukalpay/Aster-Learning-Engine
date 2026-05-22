@@ -3681,6 +3681,38 @@ fn perception_ledger_score(required: u32, observed: u32) -> f64 {
     covered / required.count_ones() as f64
 }
 
+const CAVE_BELIEF_FINDING_KINDS: [&str; 8] = [
+    "material_family_collapse",
+    "contextual_grounding_failure",
+    "contact_shadow_credibility_failure",
+    "volumetric_scene_coupling_failure",
+    "material_response_instability",
+    "lod_transition_visibility",
+    "asset_scale_incoherence",
+    "environmental_entropy_deficit",
+];
+
+fn cave_belief_finding(
+    kind: &str,
+    severity: &str,
+    subject: &str,
+    score: f64,
+    threshold: f64,
+    evidence_hash: &str,
+    message: String,
+) -> Value {
+    serde_json::json!({
+        "kind": kind,
+        "severity": severity,
+        "subject": subject,
+        "score": score,
+        "threshold": threshold,
+        "evidence_hash": evidence_hash,
+        "source": "assetc.cave_world_gate",
+        "message": message,
+    })
+}
+
 fn cave_world_gate_report(
     root: &Value,
     id: &str,
@@ -4175,7 +4207,7 @@ fn cave_world_gate_report(
         } else {
             0.0
         })
-    .clamp(0.0, 1.0);
+    .clamp(0.0_f64, 1.0_f64);
     let runtime_lighting_believability =
         (if ledger_observed & perception_ledger_channel_bit("lighting_exposure") != 0 {
             0.38
@@ -4208,7 +4240,7 @@ fn cave_world_gate_report(
             0.0
         }
         + if reaction_packages_valid { 0.12 } else { 0.0 })
-    .clamp(0.0, 1.0);
+    .clamp(0.0_f64, 1.0_f64);
     let runtime_player_readable_cause: f64 =
         (if reaction_packages_valid {
             0.26_f64
@@ -4258,14 +4290,6 @@ fn cave_world_gate_report(
     let runtime_state_hash = hash_hex_text(&format!(
         "{id}:perceptual-runtime:{runtime_id}:{exposure_horizon_seconds:.3}:{runtime_continuity_score:.3}:{runtime_continuity_debt:.3}:{runtime_semantic_budget_hash}"
     ));
-    let verdict = nav_valid
-        && resource_valid
-        && encounter_valid
-        && perceptual_valid
-        && continuity_valid
-        && ledger_valid
-        && runtime_valid
-        && checked_steps > 0;
     let region_id = hash_hex_text(&format!("{id}:{guid}:{source_hash}:region"));
     let probe_trace_hash = hash_hex_text(&format!(
         "{id}:{source_hash}:{checked_steps}:{blocked_steps}:{resource_capacity}:{encounter_count}:{salience_score:.3}:{continuity_score:.3}:{continuity_required}:{continuity_observed}:{ledger_hash}:{runtime_state_hash}"
@@ -4284,6 +4308,238 @@ fn cave_world_gate_report(
     let continuity_report_hash = hash_hex_text(&format!(
         "{id}:continuity:{continuity_required}:{continuity_observed}:{continuity_missing}:{continuity_score:.3}:{continuity_minimum:.3}"
     ));
+    let belief_budget = validation.get("belief_contract");
+    let belief_id = belief_budget
+        .and_then(|value| value.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("default_belief_contract");
+    let belief_minimum_score = belief_budget
+        .and_then(|value| value.get("minimum_score"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.70)
+        .clamp(0.0, 1.0);
+    let belief_required_checks = belief_budget
+        .and_then(|value| value.get("required_checks"))
+        .and_then(Value::as_array)
+        .map(|checks| {
+            checks
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|check| CAVE_BELIEF_FINDING_KINDS.contains(check))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .filter(|checks| !checks.is_empty())
+        .unwrap_or_else(|| {
+            CAVE_BELIEF_FINDING_KINDS
+                .iter()
+                .map(|check| (*check).to_string())
+                .collect()
+        });
+    let material_family_score: f64 = if resource_capacity > 0 || fixture_count > 1 {
+        0.76
+    } else if fixture_count > 0 {
+        0.42
+    } else {
+        0.22
+    };
+    let contextual_grounding_raw: f64 = if nav_valid { 0.34 } else { 0.08 }
+        + if collision_count > 0 { 0.28 } else { 0.0 }
+        + if fixture_count > 0 { 0.14 } else { 0.0 }
+        + if runtime_interaction_residue > 0.0 {
+            0.10
+        } else {
+            0.0
+        };
+    let contextual_grounding_score = contextual_grounding_raw.clamp(0.0, 1.0);
+    let contact_shadow_score = (if collision_count > 0 { 0.46 } else { 0.10 }
+        + runtime_occlusion_trust * 0.42
+        + if ledger_observed & perception_ledger_channel_bit("contact_history") != 0 {
+            0.14
+        } else {
+            0.0
+        })
+    .clamp(0.0_f64, 1.0_f64);
+    let volumetric_scene_score = (runtime_lighting_believability * 0.66
+        + if section_count > 0 { 0.18 } else { 0.0 }
+        + if fixture_count > 0 { 0.16 } else { 0.0 })
+    .clamp(0.0_f64, 1.0_f64);
+    let material_response_score = (ledger_score * 0.56
+        + runtime_material_memory * 0.30
+        + if resource_capacity > 0 { 0.14 } else { 0.0 })
+    .clamp(0.0_f64, 1.0_f64);
+    let lod_transition_raw: f64 =
+        if nav_valid && checked_steps > 0 {
+            0.64
+        } else {
+            0.18
+        } + if ledger_observed & perception_ledger_channel_bit("streaming_semantic_lod") != 0 {
+            0.18
+        } else {
+            0.0
+        } + if continuity_observed & perceptual_continuity_channel_bit("streaming_residency") != 0 {
+            0.12
+        } else {
+            0.0
+        };
+    let lod_transition_score = lod_transition_raw.clamp(0.0, 1.0);
+    let asset_scale_raw: f64 = if nav_valid { 0.44 } else { 0.12 }
+        + if checked_steps > 0 { 0.18 } else { 0.0 }
+        + if blocked_steps == 0 { 0.18 } else { 0.0 }
+        + if collision_count > 0 { 0.08 } else { 0.0 };
+    let asset_scale_score = asset_scale_raw.clamp(0.0, 1.0);
+    let environmental_entropy_score = (if section_count > 0 { 0.14 } else { 0.0 }
+        + (fixture_count.min(4) as f64 / 4.0) * 0.20
+        + ((resource_capacity.max(0).min(8) as f64) / 8.0) * 0.20
+        + (encounter_count.min(2) as f64 / 2.0) * 0.16
+        + if runtime_ecology_signal >= 0.40 {
+            0.24
+        } else {
+            runtime_ecology_signal * 0.50
+        })
+    .clamp(0.0, 1.0);
+    let mut belief_scores = Vec::<f64>::new();
+    let mut belief_findings = Vec::<Value>::new();
+    {
+        let mut record_belief_check =
+            |kind: &str, score: f64, threshold: f64, evidence_hash: &str, message: String| {
+                belief_scores.push(score);
+                if score + f64::EPSILON >= threshold
+                    || !belief_required_checks.iter().any(|check| check == kind)
+                {
+                    return;
+                }
+                let severity = if score < threshold * 0.5 {
+                    "error"
+                } else {
+                    "warning"
+                };
+                belief_findings.push(cave_belief_finding(
+                    kind,
+                    severity,
+                    id,
+                    score,
+                    threshold,
+                    evidence_hash,
+                    message,
+                ));
+            };
+        record_belief_check(
+            "material_family_collapse",
+            material_family_score,
+            0.34,
+            &ledger_material_memory_hash,
+            format!(
+                "material family evidence score {material_family_score:.2} is below threshold 0.34"
+            ),
+        );
+        record_belief_check(
+            "contextual_grounding_failure",
+            contextual_grounding_score,
+            0.62,
+            &nav_report_hash,
+            format!(
+                "contextual grounding score {contextual_grounding_score:.2} is below threshold 0.62"
+            ),
+        );
+        record_belief_check(
+            "contact_shadow_credibility_failure",
+            contact_shadow_score,
+            0.64,
+            &ledger_contact_history_hash,
+            format!(
+                "contact shadow credibility score {contact_shadow_score:.2} is below threshold 0.64"
+            ),
+        );
+        record_belief_check(
+            "volumetric_scene_coupling_failure",
+            volumetric_scene_score,
+            0.58,
+            &runtime_semantic_budget_hash,
+            format!(
+                "volumetric scene coupling score {volumetric_scene_score:.2} is below threshold 0.58"
+            ),
+        );
+        record_belief_check(
+            "material_response_instability",
+            material_response_score,
+            0.62,
+            &ledger_hash,
+            format!(
+                "material response stability score {material_response_score:.2} is below threshold 0.62"
+            ),
+        );
+        record_belief_check(
+            "lod_transition_visibility",
+            lod_transition_score,
+            0.70,
+            &ledger_streaming_semantic_lod_hash,
+            format!(
+                "LOD transition invisibility score {lod_transition_score:.2} is below threshold 0.70"
+            ),
+        );
+        record_belief_check(
+            "asset_scale_incoherence",
+            asset_scale_score,
+            0.70,
+            &probe_trace_hash,
+            format!("asset scale coherence score {asset_scale_score:.2} is below threshold 0.70"),
+        );
+        record_belief_check(
+            "environmental_entropy_deficit",
+            environmental_entropy_score,
+            0.58,
+            &perceptual_report_hash,
+            format!(
+                "environmental entropy score {environmental_entropy_score:.2} is below threshold 0.58"
+            ),
+        );
+    }
+    let belief_score = if belief_scores.is_empty() {
+        1.0
+    } else {
+        (belief_scores.iter().sum::<f64>() / belief_scores.len() as f64).clamp(0.0, 1.0)
+    };
+    let belief_finding_keys = belief_findings
+        .iter()
+        .map(|finding| {
+            finding
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+    let belief_contract_hash = hash_hex_text(&format!(
+        "{id}:belief:{belief_id}:{belief_minimum_score:.3}:{belief_score:.3}:{}:{belief_finding_keys}:{source_hash}:{ledger_hash}:{continuity_report_hash}:{runtime_state_hash}",
+        belief_required_checks.join("|")
+    ));
+    let readability_audit_hash = hash_hex_text(&format!(
+        "{id}:belief-readability:{material_family_score:.3}:{contextual_grounding_score:.3}:{contact_shadow_score:.3}:{volumetric_scene_score:.3}:{material_response_score:.3}:{lod_transition_score:.3}:{asset_scale_score:.3}:{environmental_entropy_score:.3}"
+    ));
+    let belief_valid =
+        belief_findings.is_empty() && belief_score + f64::EPSILON >= belief_minimum_score;
+    if !belief_valid {
+        reasons.push(format!(
+            "belief contract score {belief_score:.2} is below minimum {belief_minimum_score:.2}"
+        ));
+    }
+    let world_transition_hash = hash_hex_text(&format!(
+        "{id}:world-transition:{probe_trace_hash}:{ledger_hash}:{runtime_state_hash}:{belief_contract_hash}"
+    ));
+    let extraction_hash = hash_hex_text(&format!(
+        "{id}:render-extraction:{probe_trace_hash}:{runtime_state_hash}:{belief_contract_hash}:{readability_audit_hash}"
+    ));
+    let verdict = nav_valid
+        && resource_valid
+        && encounter_valid
+        && perceptual_valid
+        && continuity_valid
+        && ledger_valid
+        && runtime_valid
+        && belief_valid
+        && checked_steps > 0;
     let diagnostic = if verdict {
         "accepted".to_string()
     } else {
@@ -4304,6 +4560,9 @@ fn cave_world_gate_report(
         "source_hash": source_hash,
         "region_id": region_id,
         "probe_trace_hash": probe_trace_hash,
+        "world_transition_hash": world_transition_hash,
+        "extraction_hash": extraction_hash,
+        "belief_contract_hash": belief_contract_hash,
         "verdict": if verdict { "accepted" } else { "quarantined" },
         "navigation": {
             "valid": nav_valid,
@@ -4386,6 +4645,29 @@ fn cave_world_gate_report(
             "player_readable_cause": runtime_player_readable_cause,
             "semantic_budget_hash": runtime_semantic_budget_hash,
             "continuity_score": runtime_continuity_score,
+        },
+        "belief_contract": {
+            "schema_version": 1,
+            "kind": "belief_contract_report",
+            "id": belief_id,
+            "accepted": belief_valid,
+            "score": belief_score,
+            "minimum_score": belief_minimum_score,
+            "belief_contract_hash": belief_contract_hash,
+            "readability_audit_hash": readability_audit_hash,
+            "required_checks": belief_required_checks,
+            "findings": belief_findings.clone(),
+        },
+        "falseness_report": {
+            "schema_version": 1,
+            "kind": "belief_falseness_report",
+            "world_transition_hash": world_transition_hash,
+            "extraction_hash": extraction_hash,
+            "belief_contract_hash": belief_contract_hash,
+            "accepted": belief_valid,
+            "score": belief_score,
+            "minimum_score": belief_minimum_score,
+            "findings": belief_findings,
         },
         "diagnostic": diagnostic,
     });
@@ -9873,6 +10155,38 @@ edge mat.wet material.assign wetness
                 .expect("occlusion trust")
                 >= 0.45
         );
+        assert_eq!(report["belief_contract"]["accepted"], true);
+        assert_eq!(report["belief_contract"]["minimum_score"], 0.70);
+        assert!(
+            report["belief_contract"]["score"]
+                .as_f64()
+                .expect("belief score")
+                >= 0.70
+        );
+        assert!(
+            report["belief_contract"]["belief_contract_hash"]
+                .as_str()
+                .expect("belief hash")
+                .len()
+                >= 16
+        );
+        assert_eq!(
+            report["falseness_report"]["kind"],
+            "belief_falseness_report"
+        );
+        assert_eq!(report["falseness_report"]["accepted"], true);
+        assert_eq!(
+            report["falseness_report"]["world_transition_hash"],
+            report["world_transition_hash"]
+        );
+        assert_eq!(
+            report["falseness_report"]["extraction_hash"],
+            report["extraction_hash"]
+        );
+        assert!(report["falseness_report"]["findings"]
+            .as_array()
+            .expect("belief findings")
+            .is_empty());
         assert_eq!(report["perceptual_continuity_budget"]["accepted"], true);
         assert_eq!(
             report["perceptual_continuity_budget"]["missing_channel_mask"],
@@ -9908,6 +10222,17 @@ edge mat.wet material.assign wetness
         );
         assert_eq!(blocked_report["perception_ledger"]["accepted"], false);
         assert_eq!(blocked_report["perceptual_runtime"]["accepted"], false);
+        assert_eq!(blocked_report["belief_contract"]["accepted"], false);
+        assert_eq!(blocked_report["falseness_report"]["accepted"], false);
+        assert!(blocked_report["falseness_report"]["findings"]
+            .as_array()
+            .expect("blocked belief findings")
+            .iter()
+            .any(|finding| {
+                finding["kind"] == "contextual_grounding_failure"
+                    || finding["kind"] == "lod_transition_visibility"
+                    || finding["kind"] == "asset_scale_incoherence"
+            }));
         assert_ne!(
             blocked_report["perception_ledger"]["missing_channel_mask"],
             0
