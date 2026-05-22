@@ -312,7 +312,14 @@ typedef enum AsterBeliefFindingKind {
   ASTER_BELIEF_FINDING_LOD_TRANSITION_VISIBILITY = 6,
   ASTER_BELIEF_FINDING_ASSET_SCALE_INCOHERENCE = 7,
   ASTER_BELIEF_FINDING_ENVIRONMENTAL_ENTROPY_DEFICIT = 8,
-  ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP = 9
+  ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP = 9,
+  ASTER_BELIEF_FINDING_LIGHT_HISTORY_DISCONTINUITY = 10,
+  ASTER_BELIEF_FINDING_INTERACTION_DEBT_LEAK = 11,
+  ASTER_BELIEF_FINDING_SEMANTIC_REPETITION = 12,
+  ASTER_BELIEF_FINDING_AI_ATTENTION_INCOHERENCE = 13,
+  ASTER_BELIEF_FINDING_SURFACE_MEMORY_RESET = 14,
+  ASTER_BELIEF_FINDING_ACOUSTIC_FALSENESS = 15,
+  ASTER_BELIEF_FINDING_WORLD_STATE_DESYNCHRONIZATION = 16
 } AsterBeliefFindingKind;
 
 typedef struct AsterBeliefFindingInfo {
@@ -362,6 +369,31 @@ typedef struct AsterPerceptualWorldScheduleInfo {
   float decision_impact_score;
   float frame_cost_ms;
 } AsterPerceptualWorldScheduleInfo;
+
+typedef struct AsterPerceptualWorldTruthSummary {
+  size_t size;
+  uint32_t version;
+  uint32_t accepted;
+  size_t primitive_count;
+  size_t active_cell_anchor_count;
+  size_t active_surface_patch_count;
+  size_t active_contact_zone_count;
+  size_t active_residue_channel_count;
+  uint64_t truth_hash;
+  float belief_state;
+  float perceptual_debt;
+  float material_memory;
+  float interaction_residue;
+  float contact_field;
+  float light_history;
+  float acoustic_occlusion;
+  float ecology_pressure;
+  float threat_gradient;
+  float traversal_pressure;
+  float semantic_lod;
+  float decision_impact;
+  float player_readable_cause;
+} AsterPerceptualWorldTruthSummary;
 
 typedef enum AsterValidationKind {
   ASTER_VALIDATION_UNKNOWN = 0,
@@ -1277,6 +1309,7 @@ typedef struct AsterRendererSettings {
   AsterPerceptualWorldScheduleInfo perceptual_world_schedule;
   AsterBeliefReportInfo belief_falseness_report;
   AsterSpan belief_falseness_findings;
+  AsterPerceptualWorldTruthSummary perceptual_world_truth;
 } AsterRendererSettings;
 
 typedef struct AsterSystemEntityHandle {
@@ -1415,6 +1448,7 @@ typedef struct AsterWorldRegionGateReport {
   AsterPerceptualWorldScheduleInfo perceptual_world_schedule;
   AsterBeliefReportInfo belief_report;
   AsterSpan belief_findings;
+  AsterPerceptualWorldTruthSummary perceptual_world_truth;
 } AsterWorldRegionGateReport;
 
 typedef struct AsterWorldRenderExtractionDesc {
@@ -1457,6 +1491,7 @@ typedef struct AsterWorldForensics {
   uint64_t sensory_event_hash;
   uint64_t visibility_set_hash;
   AsterPerceptualContinuityBudget perceptual_continuity_budget;
+  AsterPerceptualWorldTruthSummary perceptual_world_truth;
 } AsterWorldForensics;
 
 typedef struct AsterSystemWorldDesc {
@@ -1674,6 +1709,9 @@ typedef struct AsterFrameForensicsDetailCounts {
   uint64_t sensory_event_hash;
   uint64_t visibility_set_hash;
   AsterPerceptualContinuityBudget perceptual_continuity_budget;
+  AsterPerceptualWorldTruthSummary perceptual_world_truth;
+  uint64_t world_truth_audit_hash;
+  size_t perceptual_primitive_trace_count;
 } AsterFrameForensicsDetailCounts;
 
 typedef struct AsterFramePassStats {

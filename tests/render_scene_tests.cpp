@@ -192,6 +192,8 @@ void testIndustrialPipeSceneContract() {
       {.asset_id = "test.pipe.runtime",
        .radial_segments = 64,
        .length_segments = 16,
+       .include_flanges = true,
+       .include_bolts = true,
        .bolt_count_per_flange = 8});
   assert(asset.cook_report.production_ready);
   assert(asset.parts.size() >= 6u);
@@ -792,6 +794,40 @@ void testFrameDebuggerPerceptionLedgerTrace() {
   object.primitive = aster::MeshPrimitive::Box;
   object.transform.position = {0.0f, 0.5f, 0.0f};
   object.material = aster::makeMaterial({.base_color = {0.45f, 0.58f, 0.36f}});
+  object.perceptual_primitive = aster::evaluateWorldPerceptualPrimitive(
+      {.primitive_id = "render.perception.primitive",
+       .object_name = object.name,
+       .world_owner_hash = 0xA57E77u,
+       .player_readable_cause_hash = 0xA57E88u,
+       .delta_seconds = 1.0f / 60.0f,
+       .wetness_half_life_seconds = 10.0f,
+       .exposure_age_seconds = 2.0f,
+       .world_ownership = 1.0f,
+       .cell_residency = 1.0f,
+       .streaming_cost = 0.20f,
+       .material_stability = 0.86f,
+       .player_observable = true,
+       .signals = {.belief_state = 0.82f,
+                   .perceptual_debt = 0.12f,
+                   .material_memory = 0.64f,
+                   .interaction_residue = 0.46f,
+                   .contact_field = 0.72f,
+                   .light_history = 0.68f,
+                   .acoustic_occlusion = 0.38f,
+                   .ecology_pressure = 0.40f,
+                   .threat_gradient = 0.32f,
+                   .traversal_pressure = 0.54f,
+                   .semantic_lod = 0.76f,
+                   .decision_impact = 0.66f,
+                   .player_readable_cause = 0.80f},
+       .cell_anchors = {{.id = "entry-cell", .cell_hash = 0x101u, .residency = 1.0f}},
+       .surface_patches = {{.id = "wet-patch", .patch_hash = 0x202u, .wetness_flow = 0.44f}},
+       .contact_zones = {{.id = "contact-zone", .zone_hash = 0x303u, .contact_field = 0.72f}},
+       .residue_channels = {{.id = "residue-channel",
+                              .channel_hash = 0x404u,
+                              .residue = 0.46f,
+                              .acoustic_occlusion = 0.38f,
+                              .decision_impact = 0.66f}}});
 
   aster::Scene scene;
   scene.objects().push_back(object);
@@ -913,6 +949,12 @@ void testFrameDebuggerPerceptionLedgerTrace() {
   assert(forensics.perceptual_streaming_budget_hash == schedule.streaming_budget_hash);
   assert(forensics.perceptual_decision_impact_score > 0.0f);
   assert(forensics.perceptual_scheduler_frame_cost_ms >= 12.0f);
+  assert(forensics.perceptual_primitive_summary.accepted);
+  assert(forensics.perceptual_primitive_summary.truth_hash != 0u);
+  assert(forensics.perceptual_primitive_traces.size() == 1u);
+  assert(forensics.perceptual_primitive_traces[0].primitive_hash ==
+         object.perceptual_primitive.truth_hash);
+  assert(forensics.world_truth_audit_hash != 0u);
   assert(forensics.belief_falseness_report.belief_contract_hash ==
          belief_report.belief_contract_hash);
   assert(!forensics.belief_falseness_report.findings.empty());
@@ -1150,6 +1192,35 @@ void testFrameDebuggerEvidenceTimelineAndRegressionLab() {
                              .material_slot = "Proof Material",
                              .uv0_present = true,
                              .authored_tangent_basis = true};
+  object.perceptual_primitive = aster::evaluateWorldPerceptualPrimitive(
+      {.primitive_id = "render.timeline.primitive",
+       .object_name = object.name,
+       .world_owner_hash = 0xA57E9001u,
+       .player_readable_cause_hash = 0xA57E9002u,
+       .cell_residency = 1.0f,
+       .streaming_cost = 0.18f,
+       .material_stability = 0.88f,
+       .signals = {.belief_state = 0.82f,
+                   .perceptual_debt = 0.12f,
+                   .material_memory = 0.66f,
+                   .interaction_residue = 0.52f,
+                   .contact_field = 0.74f,
+                   .light_history = 0.72f,
+                   .acoustic_occlusion = 0.34f,
+                   .ecology_pressure = 0.40f,
+                   .threat_gradient = 0.38f,
+                   .traversal_pressure = 0.54f,
+                   .semantic_lod = 0.78f,
+                   .decision_impact = 0.64f,
+                   .player_readable_cause = 0.84f},
+       .cell_anchors = {{.id = "timeline-cell", .cell_hash = 0x901u, .residency = 1.0f}},
+       .surface_patches = {{.id = "timeline-surface", .patch_hash = 0x902u, .wetness_flow = 0.36f}},
+       .contact_zones = {{.id = "timeline-contact", .zone_hash = 0x903u, .contact_field = 0.74f}},
+       .residue_channels = {{.id = "timeline-residue",
+                              .channel_hash = 0x904u,
+                              .residue = 0.52f,
+                              .acoustic_occlusion = 0.34f,
+                              .decision_impact = 0.64f}}});
 
   aster::RenderObject floor;
   floor.name = "evidence receiver floor";
@@ -1216,6 +1287,7 @@ void testFrameDebuggerEvidenceTimelineAndRegressionLab() {
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::SurfaceOcclusion));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Fog));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Probe));
+  assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::PerceptualPrimitive));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::PassOutput));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Overdraw));
   assert(has_timeline_kind(aster::FrameDebuggerTimelineEventKind::Fallback));

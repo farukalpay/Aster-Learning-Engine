@@ -7,6 +7,7 @@
 #include "aster/core/belief_extraction.hpp"
 #include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/world_perception_ledger.hpp"
+#include "aster/core/world_perceptual_primitive.hpp"
 #include "aster/core/world_state.hpp"
 #include "aster/systems/animation_system.hpp"
 #include "aster/systems/classic_actor_runtime.hpp"
@@ -190,8 +191,11 @@ struct LumenWorldForensics {
   WorldPerceptionLedgerReport perception_ledger;
   PerceptualFrameState perceptual_state;
   PerceptualWorldScheduleReport perceptual_schedule;
+  std::vector<WorldPerceptualPrimitive> perceptual_primitives;
+  WorldPerceptualPrimitiveSummary perceptual_primitive_summary;
   BeliefExtractionReport belief_report;
   std::vector<WorldPerceptionObjectTrace> perception_object_traces;
+  std::uint64_t world_truth_audit_hash = 0u;
   bool render_extraction_ready = false;
 };
 
@@ -469,6 +473,10 @@ private:
   [[nodiscard]] PerceptualWorldScheduleReport
   buildPerceptualScheduleReport(float frame_cost_ms) const;
   [[nodiscard]] BeliefExtractionReport buildBeliefExtractionReport() const;
+  [[nodiscard]] std::vector<WorldPerceptualPrimitive>
+  buildWorldPerceptualPrimitives() const;
+  void refreshWorldPerceptualPrimitives();
+  void applyWorldPerceptualPrimitivesToScene();
   void advancePerceptualRuntime(float dt, Vec2 move_axis, Vec3 previous_player_position);
   void advanceWorldProof(float dt, Vec2 move_axis, bool run_requested, bool jump_requested,
                          Vec3 previous_player_position);

@@ -156,6 +156,7 @@ set(ASTER_CORE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/session_journal.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/work_budget.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/world_perception_ledger.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/world_perceptual_primitive.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/world_state.cpp"
   "${PROJECT_SOURCE_DIR}/src/math/transform.cpp"
 )

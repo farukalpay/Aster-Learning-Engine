@@ -298,6 +298,14 @@ ShaderPermutationSpace makeMaterialShaderPermutationSpace() {
                                                 "ASTER_FEATURE_DOUBLE_SIDED"));
   space.add(ShaderPermutationDimension::boolean("feature_instancing", "ASTER_FEATURE_INSTANCING",
                                                 true));
+  space.add(ShaderPermutationDimension::boolean("feature_world_perceptual_primitive",
+                                                "ASTER_FEATURE_WORLD_PERCEPTUAL_PRIMITIVE"));
+  space.add(ShaderPermutationDimension::boolean("feature_contact_field",
+                                                "ASTER_FEATURE_CONTACT_FIELD"));
+  space.add(ShaderPermutationDimension::boolean("feature_light_history",
+                                                "ASTER_FEATURE_LIGHT_HISTORY"));
+  space.add(ShaderPermutationDimension::boolean("feature_interaction_residue",
+                                                "ASTER_FEATURE_INTERACTION_RESIDUE"));
   return space;
 }
 
@@ -323,6 +331,12 @@ ShaderPermutationSelection shaderPermutationSelectionForVariant(
   appendFeature(selection, variant, ShaderFeatureFlag::AlphaBlend, "feature_alpha_blend");
   appendFeature(selection, variant, ShaderFeatureFlag::DoubleSided, "feature_double_sided");
   appendFeature(selection, variant, ShaderFeatureFlag::Instancing, "feature_instancing");
+  appendFeature(selection, variant, ShaderFeatureFlag::WorldPerceptualPrimitive,
+                "feature_world_perceptual_primitive");
+  appendFeature(selection, variant, ShaderFeatureFlag::ContactField, "feature_contact_field");
+  appendFeature(selection, variant, ShaderFeatureFlag::LightHistory, "feature_light_history");
+  appendFeature(selection, variant, ShaderFeatureFlag::InteractionResidue,
+                "feature_interaction_residue");
   return selection;
 }
 
@@ -382,6 +396,10 @@ std::string shaderVariantTag(const ShaderVariantKey &key) {
   append(ShaderFeatureFlag::AlphaBlend, "alpha-blend");
   append(ShaderFeatureFlag::DoubleSided, "double-sided");
   append(ShaderFeatureFlag::Instancing, "instancing");
+  append(ShaderFeatureFlag::WorldPerceptualPrimitive, "world-perceptual");
+  append(ShaderFeatureFlag::ContactField, "contact-field");
+  append(ShaderFeatureFlag::LightHistory, "light-history");
+  append(ShaderFeatureFlag::InteractionResidue, "interaction-residue");
   return out.str();
 }
 

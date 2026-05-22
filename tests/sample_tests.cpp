@@ -3,6 +3,7 @@
 
 #include "test_support.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -147,6 +148,72 @@ void testLumenCoalMiningReactionContinuity() {
   assert(run.worldForensics().perceptual_schedule.material_age > 0.0f);
   assert(run.worldForensics().perceptual_schedule.interaction_debt > 0.0f);
   assert(run.worldForensics().perceptual_schedule.decision_impact_score > 0.0f);
+}
+
+struct LumenMineOreTorchReplayHashes {
+  std::uint64_t world_hash = 0u;
+  std::uint64_t primitive_truth_hash = 0u;
+  std::uint64_t belief_hash = 0u;
+  std::uint64_t render_extraction_hash = 0u;
+  std::uint64_t ai_visibility_hash = 0u;
+  std::uint64_t streaming_budget_hash = 0u;
+  std::uint64_t audit_hash = 0u;
+};
+
+LumenMineOreTorchReplayHashes runMineOreTorchReplay() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  aster::Vec3 ore_position{};
+  bool found_ore = false;
+  for (const aster::RenderObject &object : run.scene().objects()) {
+    if (object.name == "Coal ore vein node") {
+      ore_position = object.transform.position;
+      found_ore = true;
+      break;
+    }
+  }
+  assert(found_ore);
+  run.relocatePlayer(run.supplyCratePosition(), 0.0f);
+  assert(run.takeSupplyTorch());
+  assert(run.takeChestItem("pickaxe"));
+  const aster::Vec3 player_position = ore_position + aster::Vec3{0.0f, 0.05f, 1.45f};
+  run.relocatePlayer(player_position, aster::radians(180.0f));
+  const aster::Vec3 focus_origin = player_position + aster::Vec3{0.0f, 0.42f, 0.0f};
+  run.updateInteractionFocus(focus_origin, aster::normalize(ore_position - focus_origin),
+                             1.0f / 60.0f);
+  run.interactFocused();
+  run.update(1.0f / 60.0f, {}, false, false);
+  run.noteRenderExtraction(0xA57E7101u, 0xA57E7102u, 11.75f);
+
+  const aster::LumenWorldForensics &world = run.worldForensics();
+  assert(world.render_extraction_ready);
+  assert(world.perceptual_primitive_summary.truth_hash != 0u);
+  assert(!world.perceptual_primitives.empty());
+  assert(world.world_truth_audit_hash != 0u);
+  assert(std::any_of(run.scene().objects().begin(), run.scene().objects().end(),
+                     [](const aster::RenderObject &object) {
+                       return object.name == "Coal ore vein node" &&
+                              object.perceptual_primitive.truth_hash != 0u &&
+                              object.perceptual_primitive.signals.interaction_residue > 0.0f;
+                     }));
+  return {.world_hash = world.world_hash,
+          .primitive_truth_hash = world.perceptual_primitive_summary.truth_hash,
+          .belief_hash = world.belief_report.belief_contract_hash,
+          .render_extraction_hash = world.render_extraction_hash,
+          .ai_visibility_hash = world.coal_mining_reaction.ai_attention_hash,
+          .streaming_budget_hash = world.perceptual_schedule.streaming_budget_hash,
+          .audit_hash = world.world_truth_audit_hash};
+}
+
+void testLumenMineOreTorchDeterministicPerceptualReplay() {
+  const LumenMineOreTorchReplayHashes first = runMineOreTorchReplay();
+  const LumenMineOreTorchReplayHashes second = runMineOreTorchReplay();
+  assert(first.world_hash == second.world_hash);
+  assert(first.primitive_truth_hash == second.primitive_truth_hash);
+  assert(first.belief_hash == second.belief_hash);
+  assert(first.render_extraction_hash == second.render_extraction_hash);
+  assert(first.ai_visibility_hash == second.ai_visibility_hash);
+  assert(first.streaming_budget_hash == second.streaming_budget_hash);
+  assert(first.audit_hash == second.audit_hash);
 }
 
 void testLumenPerceptualWorldRuntimeExposure() {
@@ -1036,6 +1103,7 @@ int main() {
   testLumenSceneCoherenceReport();
   testLumenWorldForensicsContract();
   testLumenCoalMiningReactionContinuity();
+  testLumenMineOreTorchDeterministicPerceptualReplay();
   testLumenPerceptualWorldRuntimeExposure();
   testLumenCameraCollisionCanBeatComfortRadius();
   testLumenInnerPondSeamHasSupport();

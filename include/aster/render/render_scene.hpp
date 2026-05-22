@@ -64,6 +64,18 @@ struct RenderObjectPacket {
   float lod_min_projected_radius = 0.0f;
   float portal_depth = 0.0f;
   std::uint64_t dynamic_mesh_generation = 0u;
+  std::uint64_t perceptual_primitive_hash = 0u;
+  float perceptual_material_memory = 0.0f;
+  float perceptual_interaction_residue = 0.0f;
+  float perceptual_contact_field = 0.0f;
+  float perceptual_light_history = 0.0f;
+  float perceptual_acoustic_occlusion = 0.0f;
+  float perceptual_ecology_pressure = 0.0f;
+  float perceptual_threat_gradient = 0.0f;
+  float perceptual_traversal_pressure = 0.0f;
+  float perceptual_semantic_lod = 0.0f;
+  float perceptual_decision_impact = 0.0f;
+  float perceptual_player_readable_cause = 0.0f;
 };
 
 struct CanonicalDrawSignature {

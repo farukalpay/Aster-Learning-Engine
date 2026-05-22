@@ -2036,8 +2036,14 @@ aster::RenderObject contactShadowObjectFor(const aster::RenderObject &object,
   shadow.transform.scale = {footprint_x, 1.0f, footprint_z};
   shadow.material.base_color.value = {0.0f, 0.0f, 0.0f};
   shadow.material.roughness = 1.0f;
+  const float perceptual_contact =
+      std::clamp(object.perceptual_primitive.signals.contact_field * 0.28f +
+                     object.perceptual_primitive.signals.interaction_residue * 0.18f,
+                 0.0f, 0.40f);
   shadow.material.opacity = std::clamp(
-      grounding.contact_shadow_strength * object.contact_shadow_strength * fade, 0.0f, 0.85f);
+      grounding.contact_shadow_strength * object.contact_shadow_strength *
+          (1.0f + perceptual_contact) * fade,
+      0.0f, 0.85f);
   shadow.material.surface_profile = aster::MaterialSurfaceProfile::ContactShadow;
   shadow.material.surface_pattern = aster::SurfacePattern::ContactShadow;
   shadow.material.alpha_mode = aster::MaterialAlphaMode::Blend;
@@ -2614,6 +2620,41 @@ bool shouldCullTriangle(const ProjectedVertex &a, const ProjectedVertex &b,
          (cull_mode == aster::FaceCullMode::Front && front_facing);
 }
 
+aster::Material applyWorldPerceptualMaterialMemory(
+    const aster::RenderObject &object, const aster::Material &base_material) {
+  const aster::WorldPerceptualPrimitive &primitive = object.perceptual_primitive;
+  if (primitive.truth_hash == 0u) {
+    return base_material;
+  }
+  const aster::WorldPerceptualSignals &signals = primitive.signals;
+  aster::Material material = base_material;
+  const float wet_history =
+      std::clamp(signals.material_memory * 0.20f + signals.interaction_residue * 0.16f +
+                     signals.light_history * 0.06f,
+                 0.0f, 0.42f);
+  const float dirt_history =
+      std::clamp(signals.interaction_residue * 0.28f + signals.contact_field * 0.24f +
+                     signals.ecology_pressure * 0.12f,
+                 0.0f, 0.50f);
+  const float age_history =
+      std::clamp(signals.light_history * 0.18f + signals.material_memory * 0.16f +
+                     (1.0f - primitive.material_stability) * 0.20f,
+                 0.0f, 0.44f);
+  material.procedural.wetness = std::max(material.procedural.wetness, wet_history);
+  material.procedural.cavity_grime =
+      std::clamp(material.procedural.cavity_grime + dirt_history, 0.0f, 1.0f);
+  material.procedural.height_shading =
+      std::clamp(material.procedural.height_shading + signals.contact_field * 0.16f, 0.0f, 1.5f);
+  material.edge_wear = std::clamp(material.edge_wear + age_history * 0.35f, 0.0f, 1.0f);
+  material.ambient_occlusion =
+      std::clamp(material.ambient_occlusion * (1.0f - dirt_history * 0.18f), 0.0f, 1.0f);
+  material.roughness =
+      std::clamp(std::lerp(material.roughness, 0.92f, dirt_history * 0.35f), 0.045f, 1.0f);
+  material.detail_strength =
+      std::clamp(material.detail_strength + signals.player_readable_cause * 0.08f, 0.0f, 2.0f);
+  return material;
+}
+
 void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mesh,
               const aster::RenderObject &object, const aster::OrbitCamera &camera,
               const aster::RendererSettings &settings, const double frame_seconds,
@@ -2627,8 +2668,8 @@ void drawMesh(aster::SoftwareFrameBuffer &framebuffer, const aster::CpuMesh &mes
       material_library == nullptr
           ? nullptr
           : material_library->findForMaterialIds(object.material_asset_id, object.material.asset_id);
-  const aster::Material &material =
-      runtime_material == nullptr ? object.material : runtime_material->fallback_material;
+  const aster::Material material = applyWorldPerceptualMaterialMemory(
+      object, runtime_material == nullptr ? object.material : runtime_material->fallback_material);
   const aster::RuntimeTextureSet *runtime_textures =
       runtime_material == nullptr ? nullptr : &runtime_material->texture_set;
 
@@ -2836,6 +2877,8 @@ std::string_view frameDebuggerTimelineEventKindName(
     return "fog";
   case FrameDebuggerTimelineEventKind::Probe:
     return "probe";
+  case FrameDebuggerTimelineEventKind::PerceptualPrimitive:
+    return "perceptual-primitive";
   case FrameDebuggerTimelineEventKind::PassOutput:
     return "pass-output";
   case FrameDebuggerTimelineEventKind::Overdraw:
@@ -2917,10 +2960,10 @@ void applyRenderStyleProfile(RendererSettings &settings, const RenderStyleProfil
   settings.atmosphere.fog_power = 1.45f;
   settings.atmosphere.saturation = 1.08f;
   settings.atmosphere.contrast = 1.18f;
-  settings.atmosphere.shadow_tint = {1.10f, 0.44f, 0.34f};
-  settings.atmosphere.shadow_tint_strength = 0.12f;
-  settings.atmosphere.highlight_tint = {1.16f, 0.66f, 0.42f};
-  settings.atmosphere.highlight_tint_strength = 0.08f;
+  settings.atmosphere.shadow_tint = {1.35f, 0.28f, 0.18f};
+  settings.atmosphere.shadow_tint_strength = 0.42f;
+  settings.atmosphere.highlight_tint = {1.42f, 0.50f, 0.24f};
+  settings.atmosphere.highlight_tint_strength = 0.28f;
 }
 
 LightRig defaultLightRig() {
@@ -4731,6 +4774,71 @@ void appendSurfacePresentationTraces(const aster::Scene &scene,
   }
 }
 
+std::uint64_t worldTruthAuditHash(const aster::FrameForensics &forensics) {
+  std::uint64_t hash = appendEvidenceText(1469598103934665603ull, "aster.world-truth-audit.v1");
+  hash = appendEvidenceValue(hash, forensics.world_trace_hash);
+  hash = appendEvidenceValue(hash, forensics.simulation_tick);
+  hash = appendEvidenceValue(hash, forensics.world_transition_hash);
+  hash = appendEvidenceValue(hash, forensics.actor_state_delta_hash);
+  hash = appendEvidenceValue(hash, forensics.sensory_event_hash);
+  hash = appendEvidenceValue(hash, forensics.visibility_set_hash);
+  hash = appendEvidenceValue(hash, forensics.extraction_hash);
+  hash = appendEvidenceValue(hash, forensics.perception_ledger_hash);
+  hash = appendEvidenceValue(hash, forensics.perceptual_state_hash);
+  hash = appendEvidenceValue(hash, forensics.perceptual_scheduler_hash);
+  hash = appendEvidenceValue(hash, forensics.belief_falseness_report.belief_contract_hash);
+  hash = appendEvidenceValue(hash, forensics.perceptual_primitive_summary.truth_hash);
+  hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(
+                                      forensics.perceptual_primitive_traces.size()));
+  for (const aster::WorldPerceptualPrimitiveTrace &trace :
+       forensics.perceptual_primitive_traces) {
+    hash = appendEvidenceText(hash, trace.object_name);
+    hash = appendEvidenceValue(hash, trace.primitive_hash);
+    hash = appendEvidenceValue(
+        hash, static_cast<std::uint64_t>(std::lround(trace.decision_impact * 1000000.0f)));
+  }
+  return hash;
+}
+
+void appendWorldPerceptualPrimitiveTraces(const aster::Scene &scene,
+                                          aster::FrameForensics &forensics) {
+  forensics.perceptual_primitive_traces.clear();
+  std::vector<aster::WorldPerceptualPrimitive> primitives;
+  primitives.reserve(scene.objects().size());
+  forensics.perceptual_primitive_traces.reserve(scene.objects().size());
+  for (std::size_t object_index = 0u; object_index < scene.objects().size(); ++object_index) {
+    const aster::RenderObject &object = scene.objects()[object_index];
+    const aster::WorldPerceptualPrimitive &primitive = object.perceptual_primitive;
+    if (primitive.truth_hash == 0u) {
+      continue;
+    }
+    primitives.push_back(primitive);
+    forensics.perceptual_primitive_traces.push_back(
+        {.object_name = objectDiagnosticLabel(object, object_index),
+         .object_index = object_index,
+         .primitive_hash = primitive.truth_hash,
+         .cell_residency = primitive.cell_residency,
+         .material_memory = primitive.signals.material_memory,
+         .interaction_residue = primitive.signals.interaction_residue,
+         .contact_field = primitive.signals.contact_field,
+         .light_history = primitive.signals.light_history,
+         .acoustic_occlusion = primitive.signals.acoustic_occlusion,
+         .ecology_pressure = primitive.signals.ecology_pressure,
+         .threat_gradient = primitive.signals.threat_gradient,
+         .traversal_pressure = primitive.signals.traversal_pressure,
+         .semantic_lod = primitive.signals.semantic_lod,
+         .decision_impact = primitive.signals.decision_impact,
+         .player_readable_cause = primitive.signals.player_readable_cause,
+         .cell_anchor_count = primitive.active_cell_anchor_count,
+         .surface_patch_count = primitive.active_surface_patch_count,
+         .contact_zone_count = primitive.active_contact_zone_count,
+         .residue_channel_count = primitive.active_residue_channel_count,
+         .accepted = primitive.accepted});
+  }
+  forensics.perceptual_primitive_summary = aster::summarizeWorldPerceptualPrimitives(primitives);
+  forensics.world_truth_audit_hash = worldTruthAuditHash(forensics);
+}
+
 void appendObjectRenderFateTraces(const aster::Scene &scene, const aster::FrameRenderPlan &plan,
                                   const aster::RendererSettings &settings,
                                   const aster::MaterialResourceLibrary *library,
@@ -4968,7 +5076,8 @@ void rebuildFrameDebuggerTimeline(aster::FrameForensics &forensics) {
   forensics.debug_timeline.clear();
   forensics.debug_timeline.reserve(forensics.passes.size() + forensics.object_fates.size() * 7u +
                                    forensics.material_bindings.size() +
-                                   forensics.object_clusters.size());
+                                   forensics.object_clusters.size() +
+                                   forensics.perceptual_primitive_traces.size());
 
   for (const aster::FramePassStats &pass : forensics.passes) {
     appendTimelineEvent(forensics.debug_timeline,
@@ -5031,6 +5140,21 @@ void rebuildFrameDebuggerTimeline(aster::FrameForensics &forensics) {
                          .object_index = cluster.object_index,
                          .label = "cluster:" + std::to_string(cluster.cluster_index),
                          .evidence = cluster.visible ? "visible-object" : "not-visible"});
+  }
+
+  for (const aster::WorldPerceptualPrimitiveTrace &trace :
+       forensics.perceptual_primitive_traces) {
+    appendTimelineEvent(
+        forensics.debug_timeline,
+        {.kind = aster::FrameDebuggerTimelineEventKind::PerceptualPrimitive,
+         .pass = aster::RenderGraphPass::Opaque,
+         .resource = aster::RenderGraphResource::SceneColor,
+         .object_name = trace.object_name,
+         .object_index = trace.object_index,
+         .label = trace.accepted ? "world-perceptual-primitive" : "perceptual-debt",
+         .evidence = "truth=" + std::to_string(trace.primitive_hash) +
+                     " decision=" + std::to_string(trace.decision_impact) +
+                     " contact=" + std::to_string(trace.contact_field)});
   }
 
   for (const aster::ObjectRenderFateTrace &fate : forensics.object_fates) {
@@ -5869,6 +5993,7 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
                                   static_cast<std::uint32_t>(active_capabilities.kind),
                               .draw_signature_count =
                                   static_cast<std::uint32_t>(plan.groups.size())};
+  appendWorldPerceptualPrimitiveTraces(scene, last_forensics_);
   const bool detailed_forensics = settings.forensics.detailed_traces;
   const bool capture_forensics = settings.forensics.capture_payloads;
   const bool certify_forensics = settings.forensics.backend_certification;
@@ -5894,6 +6019,18 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
     appendObjectRenderFateTraces(scene, plan, settings, material_library_.get(),
                                  active_capabilities, last_forensics_);
     appendSurfacePresentationTraces(scene, settings, last_forensics_);
+    appendWorldPerceptualPrimitiveTraces(scene, last_forensics_);
+    if (last_forensics_.perceptual_primitive_summary.truth_hash != 0u &&
+        active_capabilities.kind != RenderBackendKind::SoftwareReference) {
+      last_forensics_.events.push_back(
+          {.kind = FrameDiagnosticKind::CapabilityMismatch,
+           .severity = FrameDiagnosticSeverity::Warning,
+           .pass = "world-perceptual-primitive",
+           .label = "backend-truth-gap",
+           .message =
+               "Native backend must prove equivalent perceptual primitive bindings before truth parity is accepted.",
+           .value = last_forensics_.perceptual_primitive_summary.truth_hash});
+    }
     last_forensics_.events.insert(last_forensics_.events.end(),
                                   std::make_move_iterator(material_summary.events.begin()),
                                   std::make_move_iterator(material_summary.events.end()));
@@ -6302,6 +6439,7 @@ void RenderDevice::stampLastFrameCausalTrace(const std::uint64_t world_trace_has
   last_forensics_.resource_state_hash = resource_state_hash;
   last_forensics_.event_residue_hash = event_residue_hash;
   last_forensics_.readability_audit_hash = readability_audit_hash;
+  last_forensics_.world_truth_audit_hash = worldTruthAuditHash(last_forensics_);
 }
 
 void RenderDevice::stampLastFramePerceptionLedger(
@@ -6312,6 +6450,7 @@ void RenderDevice::stampLastFramePerceptionLedger(
   last_forensics_.perception_ledger_score = ledger.score;
   last_forensics_.perception_ledger_accepted = ledger.accepted;
   last_forensics_.perception_object_traces = std::move(object_traces);
+  last_forensics_.world_truth_audit_hash = worldTruthAuditHash(last_forensics_);
 }
 
 void RenderDevice::stampLastFramePerceptualState(const PerceptualFrameState &state) {
@@ -6326,6 +6465,7 @@ void RenderDevice::stampLastFramePerceptualState(const PerceptualFrameState &sta
   last_forensics_.perceptual_player_readable_cause = state.player_readable_cause;
   last_forensics_.perceptual_semantic_budget_hash = state.semantic_budget_hash;
   last_forensics_.perceptual_state_accepted = state.accepted;
+  last_forensics_.world_truth_audit_hash = worldTruthAuditHash(last_forensics_);
 }
 
 void RenderDevice::stampLastFramePerceptualSchedule(
@@ -6347,10 +6487,22 @@ void RenderDevice::stampLastFramePerceptualSchedule(
   last_forensics_.perceptual_decision_impact_score = schedule.decision_impact_score;
   last_forensics_.perceptual_scheduler_frame_cost_ms = schedule.frame_cost_ms;
   last_forensics_.perceptual_scheduler_accepted = schedule.accepted;
+  last_forensics_.world_truth_audit_hash = worldTruthAuditHash(last_forensics_);
+}
+
+void RenderDevice::stampLastFramePerceptualWorldTruth(
+    const WorldPerceptualPrimitiveSummary &summary) {
+  if (summary.truth_hash == 0u &&
+      last_forensics_.perceptual_primitive_summary.truth_hash != 0u) {
+    return;
+  }
+  last_forensics_.perceptual_primitive_summary = summary;
+  last_forensics_.world_truth_audit_hash = worldTruthAuditHash(last_forensics_);
 }
 
 void RenderDevice::stampLastFrameBeliefReport(const BeliefExtractionReport &report) {
   last_forensics_.belief_falseness_report = report;
+  last_forensics_.world_truth_audit_hash = worldTruthAuditHash(last_forensics_);
   for (const BeliefExtractionFinding &finding : report.findings) {
     FrameDiagnosticKind event_kind = FrameDiagnosticKind::SurfacePresentationWarning;
     switch (finding.kind) {
@@ -6361,6 +6513,13 @@ void RenderDevice::stampLastFrameBeliefReport(const BeliefExtractionReport &repo
     case BeliefFindingKind::ContactShadowCredibilityFailure:
     case BeliefFindingKind::VolumetricSceneCouplingFailure:
     case BeliefFindingKind::EnvironmentalEntropyDeficit:
+    case BeliefFindingKind::LightHistoryDiscontinuity:
+    case BeliefFindingKind::InteractionDebtLeak:
+    case BeliefFindingKind::SemanticRepetition:
+    case BeliefFindingKind::AiAttentionIncoherence:
+    case BeliefFindingKind::SurfaceMemoryReset:
+    case BeliefFindingKind::AcousticFalseness:
+    case BeliefFindingKind::WorldStateDesynchronization:
       event_kind = FrameDiagnosticKind::SurfacePresentationWarning;
       break;
     case BeliefFindingKind::BackendVisualTruthGap:

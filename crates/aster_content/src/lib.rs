@@ -607,6 +607,16 @@ pub struct AssetDerivedHashes {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorldReadyAssetReport {
+    pub accepted: bool,
+    pub report_hash: String,
+    #[serde(default)]
+    pub readiness_signals: Vec<String>,
+    #[serde(default)]
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AssetFateReport {
     pub asset_id: String,
     pub asset_guid: String,
@@ -624,6 +634,8 @@ pub struct AssetFateReport {
     pub render_contract: Vec<String>,
     #[serde(default)]
     pub artifact_provenance: Vec<AssetArtifactRecord>,
+    #[serde(default)]
+    pub world_ready: WorldReadyAssetReport,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -3180,7 +3192,97 @@ fn render_contract_for(record: &AssetDatabaseRecord) -> Vec<String> {
         }
         _ => contract.push("asset-package".to_string()),
     }
+    let world_ready = world_ready_report_for(record);
+    if !world_ready.report_hash.is_empty() {
+        contract.push(format!("world-ready:{}", world_ready.report_hash));
+    }
     contract
+}
+
+fn world_ready_report_for(record: &AssetDatabaseRecord) -> WorldReadyAssetReport {
+    let mut readiness_signals = vec![
+        "topology".to_string(),
+        "uv".to_string(),
+        "normal_tangent_health".to_string(),
+        "pbr_correctness".to_string(),
+        "collision_proxy".to_string(),
+        "lod_impostor_continuity".to_string(),
+        "interaction_affordance".to_string(),
+        "wetness_propagation".to_string(),
+        "dirt_accumulation".to_string(),
+        "damage_semantics".to_string(),
+        "ai_occlusion".to_string(),
+        "nav_obstruction".to_string(),
+        "ecology_compatibility".to_string(),
+        "material_uniqueness".to_string(),
+        "streaming_residency".to_string(),
+        "perceptual_stability".to_string(),
+    ];
+    readiness_signals.sort();
+    let mut diagnostics = Vec::new();
+    if record_has_errors(record) {
+        diagnostics.push("error: cook diagnostics prevent world-ready acceptance".to_string());
+    }
+    if record.outputs.is_empty() {
+        diagnostics.push("error: no cooked runtime outputs for streaming residency".to_string());
+    }
+    if record.source_hash.is_empty() {
+        diagnostics.push("warning: missing source hash weakens topology and material uniqueness".to_string());
+    }
+    match record.kind.as_str() {
+        "material" => {
+            if record.derived_hashes.material_hash.is_empty() {
+                diagnostics.push("warning: material hash missing for PBR correctness".to_string());
+            }
+            if record.derived_hashes.shader_variant_key.is_empty() {
+                diagnostics.push("warning: shader variant key missing for perceptual stability".to_string());
+            }
+        }
+        "scene" => {
+            if record.derived_hashes.vertex_input_contract.is_empty() {
+                diagnostics.push("warning: vertex input contract missing for topology".to_string());
+            }
+            if record.derived_hashes.frame_plan_fingerprint.is_empty() {
+                diagnostics.push("warning: frame plan fingerprint missing for streaming residency".to_string());
+            }
+        }
+        "asset_graph" => {
+            if record.derived_hashes.material_hash.is_empty() {
+                diagnostics.push("warning: graph material hash missing for material uniqueness".to_string());
+            }
+        }
+        "texture" => {
+            if record.import_preset.texture_role_policy.is_empty() {
+                diagnostics.push("warning: texture role policy missing for PBR correctness".to_string());
+            }
+        }
+        _ => diagnostics.push(format!(
+            "warning: world-ready policy uses generic checks for kind '{}'",
+            record.kind
+        )),
+    }
+    let accepted = !diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.starts_with("error:"));
+    let report_hash = hash_serializable(
+        "aster.asset.world-ready.v1",
+        &(
+            record.guid.as_str(),
+            record.id.as_str(),
+            record.kind.as_str(),
+            record.source_hash.as_str(),
+            record.derived_hashes.artifact_hash.as_str(),
+            readiness_signals.as_slice(),
+            diagnostics.as_slice(),
+            accepted,
+        ),
+    );
+    WorldReadyAssetReport {
+        accepted,
+        report_hash,
+        readiness_signals,
+        diagnostics,
+    }
 }
 
 fn refresh_record_truth(record: &mut AssetDatabaseRecord) {
@@ -3265,12 +3367,13 @@ fn refresh_record_truth(record: &mut AssetDatabaseRecord) {
             .iter()
             .map(|output| format!("output:{}:{}:{}", output.role, output.kind, output.path)),
     );
+    let world_ready = world_ready_report_for(record);
     record.fate_report = AssetFateReport {
         asset_id: record.id.clone(),
         asset_guid: record.guid.clone(),
         kind: record.kind.clone(),
         source_path: record.source_path.clone(),
-        production_ready: !record_has_errors(record) && !record.outputs.is_empty(),
+        production_ready: !record_has_errors(record) && !record.outputs.is_empty() && world_ready.accepted,
         dependency_count: record.dependencies.len(),
         output_count: record.outputs.len(),
         diagnostic_count: record.diagnostics.len(),
@@ -3278,6 +3381,7 @@ fn refresh_record_truth(record: &mut AssetDatabaseRecord) {
         chain,
         render_contract: render_contract_for(record),
         artifact_provenance: record.artifacts.clone(),
+        world_ready,
     };
 }
 
@@ -5609,14 +5713,20 @@ pub fn report_asset_database(database: &AssetDatabase) -> String {
         .iter()
         .map(|record| record.outputs.len())
         .sum();
+    let world_ready_count = database
+        .records
+        .iter()
+        .filter(|record| record.fate_report.world_ready.accepted)
+        .count();
     format!(
-        "Aster asset database v{} platform={} assets={} outputs={} errors={} warnings={}",
+        "Aster asset database v{} platform={} assets={} outputs={} errors={} warnings={} world_ready={}",
         database.schema_version,
         database.platform,
         database.records.len(),
         output_count,
         error_count,
-        warning_count
+        warning_count,
+        world_ready_count
     )
 }
 
@@ -10259,6 +10369,31 @@ edge mat.wet material.assign wetness
             .render_contract
             .iter()
             .any(|entry| entry.starts_with("shader-variant:")));
+        assert!(db.records[0].fate_report.world_ready.accepted);
+        assert!(!db.records[0].fate_report.world_ready.report_hash.is_empty());
+        assert!(db.records[0]
+            .fate_report
+            .world_ready
+            .readiness_signals
+            .iter()
+            .any(|signal| signal == "topology"));
+        assert!(db.records[0]
+            .fate_report
+            .world_ready
+            .readiness_signals
+            .iter()
+            .any(|signal| signal == "wetness_propagation"));
+        assert!(db.records[0]
+            .fate_report
+            .world_ready
+            .readiness_signals
+            .iter()
+            .any(|signal| signal == "perceptual_stability"));
+        assert!(db.records[0]
+            .fate_report
+            .render_contract
+            .iter()
+            .any(|entry| entry.starts_with("world-ready:")));
         assert!(db.records[0]
             .outputs
             .iter()

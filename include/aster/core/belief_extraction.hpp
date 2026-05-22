@@ -5,6 +5,7 @@
 
 #include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/world_perception_ledger.hpp"
+#include "aster/core/world_perceptual_primitive.hpp"
 #include "aster/scene/scene_coherence.hpp"
 
 #include <cstddef>
@@ -25,6 +26,13 @@ enum class BeliefFindingKind {
   AssetScaleIncoherence,
   EnvironmentalEntropyDeficit,
   BackendVisualTruthGap,
+  LightHistoryDiscontinuity,
+  InteractionDebtLeak,
+  SemanticRepetition,
+  AiAttentionIncoherence,
+  SurfaceMemoryReset,
+  AcousticFalseness,
+  WorldStateDesynchronization,
 };
 
 enum class BeliefFindingSeverity {
@@ -73,6 +81,14 @@ struct BeliefExtractionDesc {
   bool backend_swapchain_equivalent = true;
   bool backend_fog_probe_shadow_equivalent = true;
   float backend_visual_truth_score = 1.0f;
+  float light_history_continuity = 1.0f;
+  float interaction_debt_leak = 0.0f;
+  float semantic_repetition_score = 0.0f;
+  float ai_attention_coherence = 1.0f;
+  float surface_memory_continuity = 1.0f;
+  float acoustic_truth = 1.0f;
+  float world_state_sync = 1.0f;
+  WorldPerceptualPrimitiveSummary perceptual_primitive_summary;
 };
 
 struct BeliefExtractionReport {

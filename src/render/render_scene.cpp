@@ -48,6 +48,18 @@ struct RuntimeRenderObject {
   float lod_min_projected_radius = 0.0f;
   float portal_depth = 0.0f;
   std::uint64_t dynamic_mesh_generation = 0;
+  std::uint64_t perceptual_primitive_hash = 0;
+  float perceptual_material_memory = 0.0f;
+  float perceptual_interaction_residue = 0.0f;
+  float perceptual_contact_field = 0.0f;
+  float perceptual_light_history = 0.0f;
+  float perceptual_acoustic_occlusion = 0.0f;
+  float perceptual_ecology_pressure = 0.0f;
+  float perceptual_threat_gradient = 0.0f;
+  float perceptual_traversal_pressure = 0.0f;
+  float perceptual_semantic_lod = 0.0f;
+  float perceptual_decision_impact = 0.0f;
+  float perceptual_player_readable_cause = 0.0f;
 };
 
 struct RuntimeCamera {
@@ -145,7 +157,8 @@ static_assert(offsetof(RuntimeRenderObject, render_queue) == 32u);
 static_assert(offsetof(RuntimeRenderObject, position) == 44u);
 static_assert(offsetof(RuntimeRenderObject, bounds_center) == 68u);
 static_assert(offsetof(RuntimeRenderObject, dynamic_mesh_generation) == 104u);
-static_assert(sizeof(RuntimeRenderObject) == 112u);
+static_assert(offsetof(RuntimeRenderObject, perceptual_primitive_hash) == 112u);
+static_assert(sizeof(RuntimeRenderObject) == 168u);
 
 static_assert(sizeof(std::size_t) == 8u,
               "The Rust render planner ABI currently uses usize and is validated for 64-bit "
@@ -421,7 +434,24 @@ void RenderScene::rebuild(const Scene &scene) {
         .lod_min_projected_radius = std::max(object.lod.min_projected_radius, 0.0f),
         .portal_depth = object.visibility_hint.portal_depth,
         .dynamic_mesh_generation = object.dynamic_mesh.valid() ? object.dynamic_mesh.generation
-                                                               : 0u};
+                                                               : 0u,
+        .perceptual_primitive_hash = object.perceptual_primitive.truth_hash,
+        .perceptual_material_memory = object.perceptual_primitive.signals.material_memory,
+        .perceptual_interaction_residue =
+            object.perceptual_primitive.signals.interaction_residue,
+        .perceptual_contact_field = object.perceptual_primitive.signals.contact_field,
+        .perceptual_light_history = object.perceptual_primitive.signals.light_history,
+        .perceptual_acoustic_occlusion =
+            object.perceptual_primitive.signals.acoustic_occlusion,
+        .perceptual_ecology_pressure =
+            object.perceptual_primitive.signals.ecology_pressure,
+        .perceptual_threat_gradient = object.perceptual_primitive.signals.threat_gradient,
+        .perceptual_traversal_pressure =
+            object.perceptual_primitive.signals.traversal_pressure,
+        .perceptual_semantic_lod = object.perceptual_primitive.signals.semantic_lod,
+        .perceptual_decision_impact = object.perceptual_primitive.signals.decision_impact,
+        .perceptual_player_readable_cause =
+            object.perceptual_primitive.signals.player_readable_cause};
     appendKey(ir_hash, packet.entity.value);
     appendKey(ir_hash, packet.object_index);
     appendKey(ir_hash, packet.mesh.value);
@@ -439,6 +469,18 @@ void RenderScene::rebuild(const Scene &scene) {
     appendKey(ir_hash, packet.bounds.radius);
     appendKey(ir_hash, packet.opacity);
     appendKey(ir_hash, packet.dynamic_mesh_generation);
+    appendKey(ir_hash, packet.perceptual_primitive_hash);
+    appendKey(ir_hash, packet.perceptual_material_memory);
+    appendKey(ir_hash, packet.perceptual_interaction_residue);
+    appendKey(ir_hash, packet.perceptual_contact_field);
+    appendKey(ir_hash, packet.perceptual_light_history);
+    appendKey(ir_hash, packet.perceptual_acoustic_occlusion);
+    appendKey(ir_hash, packet.perceptual_ecology_pressure);
+    appendKey(ir_hash, packet.perceptual_threat_gradient);
+    appendKey(ir_hash, packet.perceptual_traversal_pressure);
+    appendKey(ir_hash, packet.perceptual_semantic_lod);
+    appendKey(ir_hash, packet.perceptual_decision_impact);
+    appendKey(ir_hash, packet.perceptual_player_readable_cause);
     ir_.objects.push_back(packet);
   }
   ir_.content_hash = ir_hash;
@@ -481,7 +523,31 @@ FrameRenderPlan buildFrameRenderPlan(const RenderScene &scene, const OrbitCamera
                                    object.lod_min_projected_radius,
                                .portal_depth = object.portal_depth,
                                .dynamic_mesh_generation =
-                                   object.dynamic_mesh_generation});
+                                   object.dynamic_mesh_generation,
+                               .perceptual_primitive_hash =
+                                   object.perceptual_primitive_hash,
+                               .perceptual_material_memory =
+                                   object.perceptual_material_memory,
+                               .perceptual_interaction_residue =
+                                   object.perceptual_interaction_residue,
+                               .perceptual_contact_field =
+                                   object.perceptual_contact_field,
+                               .perceptual_light_history =
+                                   object.perceptual_light_history,
+                               .perceptual_acoustic_occlusion =
+                                   object.perceptual_acoustic_occlusion,
+                               .perceptual_ecology_pressure =
+                                   object.perceptual_ecology_pressure,
+                               .perceptual_threat_gradient =
+                                   object.perceptual_threat_gradient,
+                               .perceptual_traversal_pressure =
+                                   object.perceptual_traversal_pressure,
+                               .perceptual_semantic_lod =
+                                   object.perceptual_semantic_lod,
+                               .perceptual_decision_impact =
+                                   object.perceptual_decision_impact,
+                               .perceptual_player_readable_cause =
+                                   object.perceptual_player_readable_cause});
   }
 
   RuntimePlanOptions options;

@@ -137,6 +137,72 @@ constexpr std::uint64_t kBeliefSeed = 0xA57EBE11EF000001ull;
   return clamp01(total / static_cast<float>(scores.size()));
 }
 
+[[nodiscard]] float lightHistoryScore(const BeliefExtractionDesc &desc) {
+  float score = scoreWithDefault(desc.light_history_continuity);
+  if (desc.perceptual_primitive_summary.primitive_count > 0u) {
+    score = std::min(score, scoreWithDefault(desc.perceptual_primitive_summary.light_history));
+  }
+  return score;
+}
+
+[[nodiscard]] float interactionDebtScore(const BeliefExtractionDesc &desc) {
+  float score = 1.0f - scoreWithDefault(desc.interaction_debt_leak);
+  if (desc.perceptual_primitive_summary.primitive_count > 0u) {
+    const float residue = scoreWithDefault(desc.perceptual_primitive_summary.interaction_residue);
+    const float debt = scoreWithDefault(desc.perceptual_primitive_summary.perceptual_debt);
+    score = std::min(score, residue > 0.05f ? 1.0f - debt * 0.45f : 0.45f);
+  }
+  return clamp01(score);
+}
+
+[[nodiscard]] float semanticRepetitionGroundingScore(const BeliefExtractionDesc &desc) {
+  float score = 1.0f - scoreWithDefault(desc.semantic_repetition_score);
+  if (desc.perceptual_primitive_summary.primitive_count > 0u) {
+    score = std::max(score, scoreWithDefault(desc.perceptual_primitive_summary.semantic_lod));
+  }
+  return clamp01(score);
+}
+
+[[nodiscard]] float aiAttentionScore(const BeliefExtractionDesc &desc) {
+  float score = scoreWithDefault(desc.ai_attention_coherence);
+  if (desc.perceptual_primitive_summary.primitive_count > 0u &&
+      desc.perceptual_primitive_summary.threat_gradient > 0.0f) {
+    score = std::min(score,
+                     std::max(scoreWithDefault(desc.perceptual_primitive_summary.decision_impact),
+                              0.50f));
+  }
+  return score;
+}
+
+[[nodiscard]] float surfaceMemoryScore(const BeliefExtractionDesc &desc) {
+  float score = scoreWithDefault(desc.surface_memory_continuity);
+  if (desc.perceptual_primitive_summary.primitive_count > 0u) {
+    score = std::min(score,
+                     std::max(scoreWithDefault(desc.perceptual_primitive_summary.material_memory),
+                              0.35f));
+  }
+  return score;
+}
+
+[[nodiscard]] float acousticTruthScore(const BeliefExtractionDesc &desc) {
+  float score = scoreWithDefault(desc.acoustic_truth);
+  if (desc.perceptual_primitive_summary.primitive_count > 0u) {
+    const float primitive_acoustic =
+        scoreWithDefault(desc.perceptual_primitive_summary.acoustic_occlusion);
+    score = std::min(score, primitive_acoustic > 0.0f ? 0.82f : 1.0f);
+  }
+  return score;
+}
+
+[[nodiscard]] float worldStateSyncScore(const BeliefExtractionDesc &desc) {
+  float score = scoreWithDefault(desc.world_state_sync);
+  if (desc.perceptual_primitive_summary.primitive_count > 0u &&
+      desc.perceptual_primitive_summary.truth_hash == 0u) {
+    score = 0.0f;
+  }
+  return score;
+}
+
 [[nodiscard]] std::uint64_t findingEvidenceHash(const BeliefExtractionDesc &desc,
                                                 const BeliefFindingKind kind,
                                                 const float score,
@@ -148,6 +214,7 @@ constexpr std::uint64_t kBeliefSeed = 0xA57EBE11EF000001ull;
   hash = mix(hash, desc.source_hash);
   hash = mix(hash, desc.perception_ledger.ledger_hash);
   hash = mix(hash, desc.perceptual_state.perceptual_state_hash);
+  hash = mix(hash, desc.perceptual_primitive_summary.truth_hash);
   hash = mix(hash, score);
   return mix(hash, threshold);
 }
@@ -182,6 +249,7 @@ void addFinding(std::vector<BeliefExtractionFinding> &findings,
   hash = mix(hash, desc.source_hash);
   hash = mix(hash, desc.perception_ledger.ledger_hash);
   hash = mix(hash, desc.perceptual_state.perceptual_state_hash);
+  hash = mix(hash, desc.perceptual_primitive_summary.truth_hash);
   hash = mix(hash, report.score);
   hash = mix(hash, report.minimum_score);
   hash = mix(hash, report.accepted);
@@ -213,6 +281,20 @@ std::string_view beliefFindingKindName(const BeliefFindingKind kind) noexcept {
     return "environmental_entropy_deficit";
   case BeliefFindingKind::BackendVisualTruthGap:
     return "backend_visual_truth_gap";
+  case BeliefFindingKind::LightHistoryDiscontinuity:
+    return "light_history_discontinuity";
+  case BeliefFindingKind::InteractionDebtLeak:
+    return "interaction_debt_leak";
+  case BeliefFindingKind::SemanticRepetition:
+    return "semantic_repetition";
+  case BeliefFindingKind::AiAttentionIncoherence:
+    return "ai_attention_incoherence";
+  case BeliefFindingKind::SurfaceMemoryReset:
+    return "surface_memory_reset";
+  case BeliefFindingKind::AcousticFalseness:
+    return "acoustic_falseness";
+  case BeliefFindingKind::WorldStateDesynchronization:
+    return "world_state_desynchronization";
   }
   return "material_family_collapse";
 }
@@ -242,6 +324,13 @@ BeliefExtractionReport extractBeliefContract(const BeliefExtractionDesc &desc) {
   constexpr float kScaleThreshold = 0.70f;
   constexpr float kEntropyThreshold = 0.58f;
   constexpr float kBackendTruthThreshold = 0.74f;
+  constexpr float kLightHistoryThreshold = 0.60f;
+  constexpr float kInteractionDebtThreshold = 0.58f;
+  constexpr float kSemanticThreshold = 0.55f;
+  constexpr float kAiAttentionThreshold = 0.58f;
+  constexpr float kSurfaceMemoryThreshold = 0.60f;
+  constexpr float kAcousticTruthThreshold = 0.58f;
+  constexpr float kWorldSyncThreshold = 0.70f;
 
   const float material_family = materialFamilyUniqueness(desc);
   const float grounding = contextualGroundingScore(desc);
@@ -252,6 +341,13 @@ BeliefExtractionReport extractBeliefContract(const BeliefExtractionDesc &desc) {
   const float scale = scoreWithDefault(desc.asset_scale_coherence);
   const float entropy = environmentalEntropyScore(desc);
   const float backend_truth = backendVisualTruthScore(desc);
+  const float light_history = lightHistoryScore(desc);
+  const float interaction_debt = interactionDebtScore(desc);
+  const float semantic_repetition = semanticRepetitionGroundingScore(desc);
+  const float ai_attention = aiAttentionScore(desc);
+  const float surface_memory = surfaceMemoryScore(desc);
+  const float acoustic_truth = acousticTruthScore(desc);
+  const float world_sync = worldStateSyncScore(desc);
 
   addFinding(report.findings, desc, BeliefFindingKind::MaterialFamilyCollapse,
              material_family, kMaterialFamilyThreshold, "material-family",
@@ -281,10 +377,44 @@ BeliefExtractionReport extractBeliefContract(const BeliefExtractionDesc &desc) {
              backend_truth, kBackendTruthThreshold, "backend-visual-truth",
              "backend proof does not establish equivalent HDR, MSAA, timestamp, swapchain, fog, "
              "probe, and shadow truth");
+  addFinding(report.findings, desc, BeliefFindingKind::LightHistoryDiscontinuity,
+             light_history, kLightHistoryThreshold, "light-history-cache",
+             "light exposure history is discontinuous across world state, fog, probes, or surfaces");
+  addFinding(report.findings, desc, BeliefFindingKind::InteractionDebtLeak,
+             interaction_debt, kInteractionDebtThreshold, "perceptual-debt",
+             "interaction debt is not being paid back into persistent material or residue state");
+  addFinding(report.findings, desc, BeliefFindingKind::SemanticRepetition,
+             semantic_repetition, kSemanticThreshold, "semantic-lod",
+             "semantic LOD or material usage repeats too strongly for the authored context");
+  addFinding(report.findings, desc, BeliefFindingKind::AiAttentionIncoherence,
+             ai_attention, kAiAttentionThreshold, "ai-visibility",
+             "AI attention evidence does not match threat, cover, or player-readable causes");
+  addFinding(report.findings, desc, BeliefFindingKind::SurfaceMemoryReset,
+             surface_memory, kSurfaceMemoryThreshold, "surface-memory",
+             "surface memory appears reset instead of preserving accumulated contact and material history");
+  addFinding(report.findings, desc, BeliefFindingKind::AcousticFalseness,
+             acoustic_truth, kAcousticTruthThreshold, "acoustic-occlusion",
+             "audio cue budget or acoustic occlusion evidence does not match the world state");
+  addFinding(report.findings, desc, BeliefFindingKind::WorldStateDesynchronization,
+             world_sync, kWorldSyncThreshold, "world-truth-audit",
+             "world, belief, render extraction, or perceptual primitive hashes are desynchronized");
 
-  const std::array<float, 9> scores{material_family, grounding, contact, volumetric,
-                                    material_response, lod,       scale,   entropy,
-                                    backend_truth};
+  const std::array<float, 16> scores{material_family,
+                                     grounding,
+                                     contact,
+                                     volumetric,
+                                     material_response,
+                                     lod,
+                                     scale,
+                                     entropy,
+                                     backend_truth,
+                                     light_history,
+                                     interaction_debt,
+                                     semantic_repetition,
+                                     ai_attention,
+                                     surface_memory,
+                                     acoustic_truth,
+                                     world_sync};
   float total = 0.0f;
   for (const float score : scores) {
     total += score;

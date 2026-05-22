@@ -6,6 +6,7 @@
 #include "aster/core/belief_extraction.hpp"
 #include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/world_perception_ledger.hpp"
+#include "aster/core/world_perceptual_primitive.hpp"
 #include "aster/math/vec.hpp"
 #include "aster/render/camera.hpp"
 #include "aster/render/material_compiler.hpp"
@@ -639,6 +640,29 @@ struct ObjectRenderFateTrace {
   std::uint64_t contribution_hash = 0u;
 };
 
+struct WorldPerceptualPrimitiveTrace {
+  std::string object_name;
+  std::size_t object_index = 0u;
+  std::uint64_t primitive_hash = 0u;
+  float cell_residency = 0.0f;
+  float material_memory = 0.0f;
+  float interaction_residue = 0.0f;
+  float contact_field = 0.0f;
+  float light_history = 0.0f;
+  float acoustic_occlusion = 0.0f;
+  float ecology_pressure = 0.0f;
+  float threat_gradient = 0.0f;
+  float traversal_pressure = 0.0f;
+  float semantic_lod = 0.0f;
+  float decision_impact = 0.0f;
+  float player_readable_cause = 0.0f;
+  std::size_t cell_anchor_count = 0u;
+  std::size_t surface_patch_count = 0u;
+  std::size_t contact_zone_count = 0u;
+  std::size_t residue_channel_count = 0u;
+  bool accepted = false;
+};
+
 struct SurfacePresentationTrace {
   std::string object_name;
   std::size_t object_index = 0u;
@@ -661,6 +685,7 @@ enum class FrameDebuggerTimelineEventKind : std::uint32_t {
   SurfaceOcclusion,
   Fog,
   Probe,
+  PerceptualPrimitive,
   PassOutput,
   Overdraw,
   Fallback,
@@ -838,8 +863,11 @@ struct FrameForensics {
   float perceptual_decision_impact_score = 0.0f;
   float perceptual_scheduler_frame_cost_ms = 0.0f;
   bool perceptual_scheduler_accepted = false;
+  WorldPerceptualPrimitiveSummary perceptual_primitive_summary;
+  std::uint64_t world_truth_audit_hash = 0u;
   BeliefExtractionReport belief_falseness_report;
   std::vector<WorldPerceptionObjectTrace> perception_object_traces;
+  std::vector<WorldPerceptualPrimitiveTrace> perceptual_primitive_traces;
   std::vector<FramePassStats> passes;
   std::vector<FrameDiagnosticEvent> events;
   std::vector<FrameDebugCapture> captures;
@@ -1062,6 +1090,7 @@ public:
                                       std::vector<WorldPerceptionObjectTrace> object_traces);
   void stampLastFramePerceptualState(const PerceptualFrameState &state);
   void stampLastFramePerceptualSchedule(const PerceptualWorldScheduleReport &schedule);
+  void stampLastFramePerceptualWorldTruth(const WorldPerceptualPrimitiveSummary &summary);
   void stampLastFrameBeliefReport(const BeliefExtractionReport &report);
   [[nodiscard]] const std::shared_ptr<const MaterialResourceLibrary> &materialResourceLibrary()
       const noexcept;

@@ -1535,11 +1535,33 @@ void drawWorldBelievabilityPanel(aster::UiCanvas &canvas,
           x, y, width, visible_top, visible_bottom);
   textRow(canvas, "AI cover", hexU64(forensics->ai_attention_hash), x, y, width, visible_top,
           visible_bottom);
+  textRow(canvas, "Truth model", hexU64(forensics->perceptual_primitive_summary.truth_hash), x,
+          y, width, visible_top, visible_bottom);
+  textRow(canvas, "Cell/patch",
+          std::to_string(forensics->perceptual_primitive_summary.active_cell_anchor_count) +
+              " / " +
+              std::to_string(forensics->perceptual_primitive_summary.active_surface_patch_count),
+          x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Contact/residue",
+          std::to_string(forensics->perceptual_primitive_summary.active_contact_zone_count) +
+              " / " +
+              std::to_string(forensics->perceptual_primitive_summary.active_residue_channel_count),
+          x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Wet/contact",
+          std::to_string(forensics->perceptual_primitive_summary.material_memory) + " / " +
+              std::to_string(forensics->perceptual_primitive_summary.contact_field),
+          x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "Echo/cover",
+          std::to_string(forensics->perceptual_primitive_summary.acoustic_occlusion) + " / " +
+              std::to_string(forensics->perceptual_primitive_summary.threat_gradient),
+          x, y, width, visible_top, visible_bottom);
   textRow(canvas, "Frame cost", std::to_string(forensics->perceptual_scheduler_frame_cost_ms), x,
           y, width, visible_top, visible_bottom);
   textRow(canvas, "Belief risk",
           std::to_string(1.0f - std::clamp(forensics->perceptual_belief_stability, 0.0f, 1.0f)),
           x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "World audit", hexU64(forensics->world_truth_audit_hash), x, y, width,
+          visible_top, visible_bottom);
 }
 
 void drawFramePanel(aster::UiCanvas &canvas, const aster::UiRect panel,

@@ -5,6 +5,7 @@
 
 #include "aster/math/transform.hpp"
 #include "aster/math/vec.hpp"
+#include "aster/core/world_perceptual_primitive.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -337,6 +338,7 @@ struct RenderObject {
   RenderLodPolicy lod{};
   DynamicMeshResourceKey dynamic_mesh{};
   RenderObjectAssetProvenance asset_provenance{};
+  WorldPerceptualPrimitive perceptual_primitive{};
 };
 
 struct ReflectionProbe {

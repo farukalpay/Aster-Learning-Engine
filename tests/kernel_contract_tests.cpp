@@ -70,6 +70,7 @@ static_assert(std::is_standard_layout_v<AsterPerceptualContinuityBudget>);
 static_assert(std::is_standard_layout_v<AsterBeliefFindingInfo>);
 static_assert(std::is_standard_layout_v<AsterBeliefReportInfo>);
 static_assert(std::is_standard_layout_v<AsterPerceptualWorldScheduleInfo>);
+static_assert(std::is_standard_layout_v<AsterPerceptualWorldTruthSummary>);
 static_assert(std::is_standard_layout_v<AsterWorldDesc>);
 static_assert(std::is_standard_layout_v<AsterWorldAdvanceDesc>);
 static_assert(std::is_standard_layout_v<AsterWorldAdvanceResult>);
@@ -876,6 +877,29 @@ void testRendererAbi5Lifecycle() {
       0.81f,
       0.57f,
       12.5f};
+  presentation_settings.perceptual_world_truth = {
+      sizeof(AsterPerceptualWorldTruthSummary),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      1u,
+      2u,
+      2u,
+      2u,
+      1u,
+      1u,
+      0xA57E0000000000D1ull,
+      0.82f,
+      0.14f,
+      0.63f,
+      0.48f,
+      0.72f,
+      0.68f,
+      0.36f,
+      0.44f,
+      0.52f,
+      0.57f,
+      0.76f,
+      0.64f,
+      0.83f};
   const AsterBeliefFindingInfo renderer_belief_finding{
       sizeof(AsterBeliefFindingInfo),
       ASTER_KERNEL_STRUCT_VERSION_1,
@@ -935,6 +959,10 @@ void testRendererAbi5Lifecycle() {
   assert(detail_counts.streaming_region_id == presentation_settings.streaming_region_id);
   assert(detail_counts.perceptual_salience_score ==
          presentation_settings.perceptual_salience_score);
+  assert(detail_counts.perceptual_world_truth.truth_hash ==
+         presentation_settings.perceptual_world_truth.truth_hash);
+  assert(detail_counts.perceptual_world_truth.primitive_count == 2u);
+  assert(detail_counts.world_truth_audit_hash != 0u);
   AsterPerceptualWorldScheduleInfo frame_schedule{
       sizeof(AsterPerceptualWorldScheduleInfo), ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_renderer_frame_perceptual_world_schedule(renderer, &frame_schedule).code ==
@@ -1928,11 +1956,35 @@ void testWorldRootAbi6Contracts() {
                                0xA57E000000001302ull,
                                1u};
   belief_gate.belief_findings = {&world_belief_finding, 1u, sizeof(AsterBeliefFindingInfo)};
+  belief_gate.perceptual_world_truth = {sizeof(AsterPerceptualWorldTruthSummary),
+                                        ASTER_KERNEL_STRUCT_VERSION_1,
+                                        1u,
+                                        1u,
+                                        1u,
+                                        1u,
+                                        1u,
+                                        1u,
+                                        0xA57E000000001401ull,
+                                        0.80f,
+                                        0.18f,
+                                        0.64f,
+                                        0.52f,
+                                        0.70f,
+                                        0.66f,
+                                        0.34f,
+                                        0.44f,
+                                        0.48f,
+                                        0.56f,
+                                        0.74f,
+                                        0.62f,
+                                        0.82f};
   assert(aster_kernel_world_record_region_gate(world, &belief_gate).code == ASTER_STATUS_OK);
   AsterWorldForensics belief_forensics{sizeof(AsterWorldForensics),
                                        ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_world_forensics(world, &belief_forensics).code == ASTER_STATUS_OK);
   assert(belief_forensics.generated_region_gate == ASTER_WORLD_REGION_GATE_QUARANTINED);
+  assert(belief_forensics.perceptual_world_truth.truth_hash ==
+         belief_gate.perceptual_world_truth.truth_hash);
   AsterBeliefReportInfo world_belief{sizeof(AsterBeliefReportInfo),
                                      ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_world_belief_report(world, &world_belief).code == ASTER_STATUS_OK);

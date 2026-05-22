@@ -221,6 +221,13 @@ Vec3 compressLocalRadiance(const Vec3 radiance, const float soft_limit) {
 }
 
 Vec3 applyAtmosphereGrade(Vec3 color, const AtmosphereSettings &atmosphere) {
+  const float pre_grade_luma = luminanceOf(color);
+  color = mixVec(color, color * atmosphere.shadow_tint,
+                 std::clamp(atmosphere.shadow_tint_strength, 0.0f, 1.0f) *
+                     (1.0f - smoothstep(0.05f, 0.48f, pre_grade_luma)));
+  color = mixVec(color, color * atmosphere.highlight_tint,
+                 std::clamp(atmosphere.highlight_tint_strength, 0.0f, 1.0f) *
+                     smoothstep(0.52f, 1.45f, pre_grade_luma));
   const float saturation = std::max(atmosphere.saturation, 0.0f);
   if (std::abs(saturation - 1.0f) > 0.0001f) {
     const float luma = luminanceOf(color);
@@ -569,6 +576,30 @@ bool intersectTriangle(const Ray &ray, const TraceTriangle &triangle, float &t, 
   return t > 0.001f;
 }
 
+Material applyWorldPerceptualMaterialMemory(const RenderObject &object, const Material &base) {
+  if (object.perceptual_primitive.truth_hash == 0u) {
+    return base;
+  }
+  Material material = base;
+  const WorldPerceptualSignals &signals = object.perceptual_primitive.signals;
+  const float wet =
+      std::clamp(signals.material_memory * 0.18f + signals.interaction_residue * 0.14f +
+                     signals.light_history * 0.05f,
+                 0.0f, 0.38f);
+  const float residue =
+      std::clamp(signals.interaction_residue * 0.22f + signals.contact_field * 0.18f +
+                     signals.ecology_pressure * 0.10f,
+                 0.0f, 0.45f);
+  material.procedural.wetness = std::max(material.procedural.wetness, wet);
+  material.procedural.cavity_grime =
+      std::clamp(material.procedural.cavity_grime + residue, 0.0f, 1.0f);
+  material.ambient_occlusion =
+      std::clamp(material.ambient_occlusion * (1.0f - residue * 0.15f), 0.0f, 1.0f);
+  material.roughness =
+      std::clamp(std::lerp(material.roughness, 0.94f, residue * 0.30f), 0.045f, 1.0f);
+  return material;
+}
+
 bool intersectPreparedMesh(const Ray &ray, const PreparedObject &prepared, Hit &hit) {
   if (prepared.triangles.empty() ||
       !intersectBounds(ray, prepared.bounds_min, prepared.bounds_max, hit.distance)) {
@@ -602,7 +633,8 @@ bool intersectPreparedMesh(const Ray &ray, const PreparedObject &prepared, Hit &
     hit.normal = normal;
     hit.tangent = length(tangent) > 0.0001f ? normalize(tangent) : Vec3{1.0f, 0.0f, 0.0f};
     hit.uv = triangle.uva * w + triangle.uvb * u + triangle.uvc * v;
-    hit.material = prepared.object.material;
+    hit.material =
+        applyWorldPerceptualMaterialMemory(prepared.object, prepared.object.material);
     hit.object_label_hash = stableLabelHash(prepared.object.name);
     found = true;
   }

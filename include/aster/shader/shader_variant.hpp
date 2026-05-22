@@ -28,6 +28,10 @@ enum class ShaderFeatureFlag : std::uint64_t {
   AlphaBlend = 1ull << 11ull,
   DoubleSided = 1ull << 12ull,
   Instancing = 1ull << 13ull,
+  WorldPerceptualPrimitive = 1ull << 14ull,
+  ContactField = 1ull << 15ull,
+  LightHistory = 1ull << 16ull,
+  InteractionResidue = 1ull << 17ull,
 };
 
 [[nodiscard]] constexpr std::uint64_t shaderFeatureFlagBit(const ShaderFeatureFlag flag) {

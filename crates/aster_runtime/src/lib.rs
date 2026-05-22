@@ -37,6 +37,18 @@ pub struct AsterRuntimeRenderObject {
     pub lod_min_projected_radius: f32,
     pub portal_depth: f32,
     pub dynamic_mesh_generation: u64,
+    pub perceptual_primitive_hash: u64,
+    pub perceptual_material_memory: f32,
+    pub perceptual_interaction_residue: f32,
+    pub perceptual_contact_field: f32,
+    pub perceptual_light_history: f32,
+    pub perceptual_acoustic_occlusion: f32,
+    pub perceptual_ecology_pressure: f32,
+    pub perceptual_threat_gradient: f32,
+    pub perceptual_traversal_pressure: f32,
+    pub perceptual_semantic_lod: f32,
+    pub perceptual_decision_impact: f32,
+    pub perceptual_player_readable_cause: f32,
 }
 
 #[repr(C)]
@@ -925,6 +937,18 @@ mod tests {
             lod_min_projected_radius: 0.0,
             portal_depth: 0.0,
             dynamic_mesh_generation: 0,
+            perceptual_primitive_hash: 0,
+            perceptual_material_memory: 0.0,
+            perceptual_interaction_residue: 0.0,
+            perceptual_contact_field: 0.0,
+            perceptual_light_history: 0.0,
+            perceptual_acoustic_occlusion: 0.0,
+            perceptual_ecology_pressure: 0.0,
+            perceptual_threat_gradient: 0.0,
+            perceptual_traversal_pressure: 0.0,
+            perceptual_semantic_lod: 0.0,
+            perceptual_decision_impact: 0.0,
+            perceptual_player_readable_cause: 0.0,
         }
     }
 
@@ -958,7 +982,7 @@ mod tests {
     fn abi_layout_matches_cxx_runtime_contract() {
         assert_eq!(std::mem::size_of::<AsterRuntimeVec3>(), 12);
         assert_eq!(std::mem::align_of::<AsterRuntimeVec3>(), 4);
-        assert_eq!(std::mem::size_of::<AsterRuntimeRenderObject>(), 112);
+        assert_eq!(std::mem::size_of::<AsterRuntimeRenderObject>(), 168);
         assert_eq!(std::mem::align_of::<AsterRuntimeRenderObject>(), 8);
         assert_eq!(std::mem::size_of::<AsterRuntimeCamera>(), 64);
         assert_eq!(std::mem::size_of::<AsterRuntimeLineOfSightFade>(), 48);

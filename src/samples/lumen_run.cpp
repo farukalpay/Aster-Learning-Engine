@@ -350,6 +350,7 @@ void LumenRun::reset() {
 
   rebuildScene();
   rebuildCaveWorldGate();
+  refreshWorldPerceptualPrimitives();
   clearTransientFeedback();
 }
 
@@ -444,7 +445,9 @@ void LumenRun::noteRenderExtraction(const std::uint64_t extraction_hash,
   world_forensics_.world_hash = world_state_.worldHash();
   world_forensics_.trace_hash = world_state_.traceHash();
   world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(frame_cost_ms);
+  refreshWorldPerceptualPrimitives();
   world_forensics_.belief_report = buildBeliefExtractionReport();
+  refreshWorldPerceptualPrimitives();
 }
 
 void LumenRun::resetWorldProof() {
@@ -841,7 +844,245 @@ BeliefExtractionReport LumenRun::buildBeliefExtractionReport() const {
       std::max(has_material_memory && has_wear && has_affordance ? 0.78f : 0.35f,
                world_forensics_.perceptual_schedule.memory_residue * 0.45f +
                    world_forensics_.perceptual_schedule.material_age * 0.55f);
+  desc.light_history_continuity =
+      has_lighting ? std::max(0.74f, world_forensics_.perceptual_state.lighting_believability)
+                   : 0.32f;
+  desc.interaction_debt_leak =
+      world_forensics_.perceptual_schedule.interaction_debt <= 0.55f ? 0.12f : 0.68f;
+  desc.semantic_repetition_score =
+      desc.material_family_count >= 4u ? 0.12f : 0.46f;
+  desc.ai_attention_coherence =
+      world_forensics_.coal_mining_reaction.ai_attention_hash != 0u || !cave_skitters_.empty()
+          ? std::max(0.72f, world_forensics_.perceptual_schedule.threat_signal)
+          : 1.0f;
+  desc.surface_memory_continuity =
+      has_material_memory && has_wear
+          ? std::max(0.76f, world_forensics_.perceptual_state.material_memory)
+          : 0.35f;
+  desc.acoustic_truth =
+      world_forensics_.perception_ledger.audio_visual_cue_budget_hash != 0u ? 0.78f : 0.30f;
+  desc.world_state_sync =
+      world_forensics_.world_hash != 0u && world_forensics_.trace_hash != 0u &&
+              world_forensics_.perception_ledger.ledger_hash != 0u
+          ? 0.82f
+          : 0.20f;
+  desc.perceptual_primitive_summary = world_forensics_.perceptual_primitive_summary;
   return extractBeliefContract(desc);
+}
+
+std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives() const {
+  std::vector<WorldPerceptualPrimitive> primitives;
+  primitives.reserve(1u + coal_ores_.size() + placed_rocks_.size());
+  primitives.push_back(makeWorldPerceptualPrimitiveFromRuntime(
+      "lumen.runtime.mine_ore_torch", "Lumen Run Mine Ore + Torch",
+      world_forensics_.perceptual_state, world_forensics_.perceptual_schedule,
+      world_forensics_.perception_ledger));
+
+  const PerceptualFrameState &state = world_forensics_.perceptual_state;
+  const PerceptualWorldScheduleReport &schedule = world_forensics_.perceptual_schedule;
+  const WorldPerceptionLedgerReport &ledger = world_forensics_.perception_ledger;
+  const float semantic_lod =
+      ledger.streaming_semantic_lod_hash != 0u ? std::max(0.62f, state.render_budget.lod_bias)
+                                               : state.render_budget.lod_bias;
+  const float acoustic_occlusion = std::clamp(1.0f - state.render_budget.audio, 0.0f, 1.0f);
+
+  for (std::size_t index = 0u; index < coal_ores_.size(); ++index) {
+    const CoalOreNode &ore = coal_ores_[index];
+    if (ore.collected) {
+      continue;
+    }
+    const float damage = 1.0f - static_cast<float>(std::max(ore.health, 0)) /
+                                    static_cast<float>(std::max(ore.max_health, 1));
+    const std::uint64_t object_seed =
+        lumenHash(ore.position, lumenHash(static_cast<std::uint64_t>(index), ledger.ledger_hash));
+    WorldPerceptualPrimitiveDesc desc;
+    desc.primitive_id = "lumen.ore." + std::to_string(index);
+    desc.object_name = "Coal ore vein node";
+    desc.world_owner_hash = ledger.region_id;
+    desc.player_readable_cause_hash =
+        world_forensics_.coal_mining_reaction.readability_audit_hash != 0u
+            ? world_forensics_.coal_mining_reaction.readability_audit_hash
+            : ledger.gameplay_affordance_hash;
+    desc.delta_seconds = 1.0f / 60.0f;
+    desc.wetness_half_life_seconds = 18.0f;
+    desc.exposure_age_seconds = state.exposure_seconds;
+    desc.cell_residency = ledger.streaming_semantic_lod_hash != 0u ? 1.0f : 0.72f;
+    desc.streaming_cost = std::clamp(1.0f - schedule.streaming_budget + damage * 0.08f, 0.0f, 1.0f);
+    desc.material_stability = std::clamp(0.86f - damage * 0.25f +
+                                             schedule.belief_stability * 0.12f,
+                                         0.0f, 1.0f);
+    desc.signals = {.belief_state = schedule.belief_stability,
+                    .perceptual_debt = state.continuity_debt,
+                    .material_memory = std::max(state.material_memory, 0.46f + damage * 0.42f),
+                    .interaction_residue =
+                        std::max({state.interaction_residue, damage + ore.hit_flash * 0.28f,
+                                  schedule.memory_residue * 0.35f, 0.18f}),
+                    .contact_field =
+                        std::max({state.occlusion_trust, schedule.memory_residue, 0.55f}),
+                    .light_history = std::max(state.lighting_believability,
+                                              schedule.material_age * 0.40f + 0.68f),
+                    .acoustic_occlusion = acoustic_occlusion,
+                    .ecology_pressure = std::max(state.ecology_signal, schedule.material_age),
+                    .threat_gradient = schedule.threat_signal,
+                    .traversal_pressure = state.traversal_pressure,
+                    .semantic_lod = semantic_lod,
+                    .decision_impact = std::max(schedule.decision_impact_score, damage),
+                    .player_readable_cause =
+                        std::max(state.player_readable_cause, damage > 0.0f ? 0.82f : 0.55f)};
+    desc.cell_anchors.push_back({.id = "lumen.cave.cell.ore",
+                                 .cell_hash = lumenHashString("ore-cell", object_seed),
+                                 .center = ore.position,
+                                 .residency = desc.cell_residency,
+                                 .streaming_cost = desc.streaming_cost});
+    desc.surface_patches.push_back({.id = "lumen.ore.surface",
+                                    .patch_hash = ledger.material_memory_hash != 0u
+                                                      ? ledger.material_memory_hash
+                                                      : object_seed,
+                                    .normal = ore.normal,
+                                    .wetness_flow = std::max(schedule.material_age * 0.24f,
+                                                             state.material_memory * 0.18f),
+                                    .exposure_age = std::clamp(state.exposure_seconds / 47.0f,
+                                                               0.0f, 1.0f),
+                                    .thermal_history = desc.signals.light_history,
+                                    .chemical_history = schedule.material_age,
+                                    .material_stability = desc.material_stability});
+    desc.contact_zones.push_back({.id = "lumen.ore.contact",
+                                  .zone_hash = ledger.contact_history_hash != 0u
+                                                   ? ledger.contact_history_hash
+                                                   : object_seed,
+                                  .normal = ore.normal,
+                                  .contact_field = desc.signals.contact_field,
+                                  .occlusion_trust = state.occlusion_trust,
+                                  .ai_cover_value = schedule.threat_signal,
+                                  .traversal_affordance = state.traversal_pressure});
+    desc.residue_channels.push_back(
+        {.id = "lumen.ore.residue",
+         .channel_hash = world_forensics_.coal_mining_reaction.event_residue_hash != 0u
+                             ? world_forensics_.coal_mining_reaction.event_residue_hash
+                             : object_seed,
+         .residue = desc.signals.interaction_residue,
+         .acoustic_occlusion = acoustic_occlusion,
+         .ecology_signal = desc.signals.ecology_pressure,
+         .threat = schedule.threat_signal,
+         .decision_impact = desc.signals.decision_impact});
+    primitives.push_back(evaluateWorldPerceptualPrimitive(desc));
+  }
+
+  for (std::size_t index = 0u; index < placed_rocks_.size(); ++index) {
+    const PlacedResourceRock &rock = placed_rocks_[index];
+    const std::uint64_t object_seed =
+        lumenHash(rock.position, lumenHashString(rock.id, ledger.ledger_hash));
+    WorldPerceptualPrimitiveDesc desc;
+    desc.primitive_id = "lumen.studio.stone." + std::to_string(index);
+    desc.object_name = "Placed cave resource rock";
+    desc.world_owner_hash = ledger.region_id;
+    desc.player_readable_cause_hash =
+        lumenHashString("studio-stone-placement", object_seed);
+    desc.delta_seconds = 1.0f / 60.0f;
+    desc.wetness_half_life_seconds = 24.0f;
+    desc.exposure_age_seconds = state.exposure_seconds;
+    desc.cell_residency = ledger.streaming_semantic_lod_hash != 0u ? 1.0f : 0.68f;
+    desc.streaming_cost = std::clamp(1.0f - schedule.streaming_budget + 0.08f, 0.0f, 1.0f);
+    desc.material_stability = std::max(0.74f, 1.0f - schedule.interaction_debt * 0.20f);
+    desc.signals = {.belief_state = std::max(0.72f, schedule.belief_stability),
+                    .perceptual_debt = state.continuity_debt,
+                    .material_memory = std::max(0.58f, state.material_memory),
+                    .interaction_residue = std::max(0.42f, state.interaction_residue),
+                    .contact_field = std::max(0.72f, state.occlusion_trust),
+                    .light_history = std::max(0.66f, state.lighting_believability),
+                    .acoustic_occlusion = acoustic_occlusion,
+                    .ecology_pressure = std::max(0.48f, state.ecology_signal),
+                    .threat_gradient = schedule.threat_signal,
+                    .traversal_pressure = std::max(0.44f, state.traversal_pressure),
+                    .semantic_lod = std::max(0.70f, semantic_lod),
+                    .decision_impact = std::max(0.52f, schedule.decision_impact_score),
+                    .player_readable_cause = std::max(0.74f, state.player_readable_cause)};
+    desc.cell_anchors.push_back({.id = "studio.stone.cell",
+                                 .cell_hash = lumenHashString("stone-cell", object_seed),
+                                 .center = rock.position,
+                                 .residency = desc.cell_residency,
+                                 .streaming_cost = desc.streaming_cost});
+    desc.surface_patches.push_back({.id = "studio.stone.surface",
+                                    .patch_hash = lumenHashString("stone-surface", object_seed),
+                                    .normal = rock.normal,
+                                    .wetness_flow = schedule.material_age * 0.22f,
+                                    .exposure_age = std::clamp(state.exposure_seconds / 47.0f,
+                                                               0.0f, 1.0f),
+                                    .thermal_history = desc.signals.light_history,
+                                    .chemical_history = schedule.material_age,
+                                    .material_stability = desc.material_stability});
+    desc.contact_zones.push_back({.id = "studio.stone.contact",
+                                  .zone_hash = lumenHashString("stone-contact", object_seed),
+                                  .normal = rock.normal,
+                                  .contact_field = desc.signals.contact_field,
+                                  .occlusion_trust = desc.signals.contact_field,
+                                  .ai_cover_value = desc.signals.threat_gradient,
+                                  .traversal_affordance = desc.signals.traversal_pressure});
+    desc.residue_channels.push_back({.id = "studio.stone.residue",
+                                     .channel_hash =
+                                         lumenHashString("stone-residue", object_seed),
+                                     .residue = desc.signals.interaction_residue,
+                                     .acoustic_occlusion = acoustic_occlusion,
+                                     .ecology_signal = desc.signals.ecology_pressure,
+                                     .threat = desc.signals.threat_gradient,
+                                     .decision_impact = desc.signals.decision_impact});
+    primitives.push_back(evaluateWorldPerceptualPrimitive(desc));
+  }
+  return primitives;
+}
+
+void LumenRun::applyWorldPerceptualPrimitivesToScene() {
+  auto find_primitive = [&](const std::string_view id) -> const WorldPerceptualPrimitive * {
+    const auto found = std::find_if(
+        world_forensics_.perceptual_primitives.begin(),
+        world_forensics_.perceptual_primitives.end(),
+        [id](const WorldPerceptualPrimitive &primitive) { return primitive.primitive_id == id; });
+    return found == world_forensics_.perceptual_primitives.end() ? nullptr : &*found;
+  };
+  for (std::size_t index = 0u; index < coal_ores_.size(); ++index) {
+    const CoalOreNode &ore = coal_ores_[index];
+    if (ore.object_index >= scene_.objects().size()) {
+      continue;
+    }
+    if (const WorldPerceptualPrimitive *primitive =
+            find_primitive("lumen.ore." + std::to_string(index))) {
+      scene_.objects()[ore.object_index].perceptual_primitive = *primitive;
+    }
+  }
+  for (std::size_t index = 0u; index < placed_rocks_.size(); ++index) {
+    const PlacedResourceRock &rock = placed_rocks_[index];
+    if (rock.object_index >= scene_.objects().size()) {
+      continue;
+    }
+    if (const WorldPerceptualPrimitive *primitive =
+            find_primitive("lumen.studio.stone." + std::to_string(index))) {
+      scene_.objects()[rock.object_index].perceptual_primitive = *primitive;
+    }
+  }
+}
+
+void LumenRun::refreshWorldPerceptualPrimitives() {
+  world_forensics_.perceptual_primitives = buildWorldPerceptualPrimitives();
+  world_forensics_.perceptual_primitive_summary =
+      summarizeWorldPerceptualPrimitives(world_forensics_.perceptual_primitives);
+  std::uint64_t audit_hash = lumenHashString("lumen.world-truth-audit.v1",
+                                             world_forensics_.world_transition_hash);
+  audit_hash = lumenHash(audit_hash, world_forensics_.epoch);
+  audit_hash = lumenHash(audit_hash, world_forensics_.world_hash);
+  audit_hash = lumenHash(audit_hash, world_forensics_.trace_hash);
+  audit_hash = lumenHash(audit_hash, world_forensics_.actor_state_delta_hash);
+  audit_hash = lumenHash(audit_hash, world_forensics_.sensory_event_hash);
+  audit_hash = lumenHash(audit_hash, world_forensics_.visibility_set_hash);
+  audit_hash = lumenHash(audit_hash, world_forensics_.perception_ledger.ledger_hash);
+  audit_hash =
+      lumenHash(audit_hash, world_forensics_.perceptual_state.perceptual_state_hash);
+  audit_hash =
+      lumenHash(audit_hash, world_forensics_.perceptual_schedule.scheduler_hash);
+  audit_hash =
+      lumenHash(audit_hash, world_forensics_.perceptual_primitive_summary.truth_hash);
+  audit_hash = lumenHash(audit_hash, world_forensics_.belief_report.belief_contract_hash);
+  world_forensics_.world_truth_audit_hash = audit_hash;
+  applyWorldPerceptualPrimitivesToScene();
 }
 
 void LumenRun::advancePerceptualRuntime(const float dt, const Vec2 move_axis,
@@ -981,6 +1222,8 @@ void LumenRun::recordCoalMiningReaction(const std::size_t ore_index,
       buildPerceptionLedgerReport(world_forensics_.streaming_region_id);
   world_forensics_.perception_object_traces =
       buildPerceptionObjectTraces(world_forensics_.perception_ledger);
+  world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(0.0f);
+  refreshWorldPerceptualPrimitives();
 }
 
 void LumenRun::rebuildCaveWorldGate() {
@@ -1336,7 +1579,9 @@ void LumenRun::rebuildCaveWorldGate() {
   perceptual_runtime_.setOptions(perceptualRuntimeOptions(report.region_id));
   perceptual_runtime_.reset();
   world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(0.0f);
+  refreshWorldPerceptualPrimitives();
   world_forensics_.belief_report = buildBeliefExtractionReport();
+  refreshWorldPerceptualPrimitives();
 }
 
 void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const bool run_requested,
@@ -1413,7 +1658,9 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   world_forensics_.sensory_event_hash = sensory_hash;
   world_forensics_.visibility_set_hash = visibility_hash;
   advancePerceptualRuntime(step, move_axis, previous_player_position);
+  refreshWorldPerceptualPrimitives();
   world_forensics_.belief_report = buildBeliefExtractionReport();
+  refreshWorldPerceptualPrimitives();
 
   const WorldTickResult tick =
       world_state_.tick({.tick = next_world_epoch_++,
@@ -1456,7 +1703,9 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   transition_hash = lumenHash(transition_hash, world_forensics_.belief_report.belief_contract_hash);
   world_forensics_.world_transition_hash = transition_hash;
   world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(0.0f);
+  refreshWorldPerceptualPrimitives();
   world_forensics_.belief_report = buildBeliefExtractionReport();
+  refreshWorldPerceptualPrimitives();
 }
 
 Vec3 LumenRun::playerPosition() const {

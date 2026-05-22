@@ -56,6 +56,18 @@ fn self_check() {
         lod_min_projected_radius: 0.0,
         portal_depth: 0.0,
         dynamic_mesh_generation: 0,
+        perceptual_primitive_hash: 0,
+        perceptual_material_memory: 0.0,
+        perceptual_interaction_residue: 0.0,
+        perceptual_contact_field: 0.0,
+        perceptual_light_history: 0.0,
+        perceptual_acoustic_occlusion: 0.0,
+        perceptual_ecology_pressure: 0.0,
+        perceptual_threat_gradient: 0.0,
+        perceptual_traversal_pressure: 0.0,
+        perceptual_semantic_lod: 0.0,
+        perceptual_decision_impact: 0.0,
+        perceptual_player_readable_cause: 0.0,
     };
     let camera = AsterRuntimeCamera {
         position: AsterRuntimeVec3::default(),
@@ -323,12 +335,14 @@ fn report_command(args: &[String]) -> Result<(), String> {
     println!("{}", report_asset_database(&database));
     for record in database.records {
         println!(
-            "{} kind={} source={} outputs={} diagnostics={}",
+            "{} kind={} source={} outputs={} diagnostics={} world_ready={} world_ready_hash={}",
             record.id,
             record.kind,
             record.source_path,
             record.outputs.len(),
-            record.diagnostics.len()
+            record.diagnostics.len(),
+            record.fate_report.world_ready.accepted,
+            record.fate_report.world_ready.report_hash
         );
         for diagnostic in record.diagnostics {
             println!("{}: {}", diagnostic.severity, diagnostic.message);

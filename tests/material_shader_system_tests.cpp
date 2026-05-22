@@ -494,6 +494,39 @@ void testShaderLibraryAndReflection() {
   assert(fog.source.find("falloff") != std::string::npos);
 }
 
+void testWorldPerceptualShaderPermutationContracts() {
+  aster::ShaderVariantKey variant;
+  variant.feature_mask =
+      aster::shaderFeatureFlagBit(aster::ShaderFeatureFlag::WorldPerceptualPrimitive) |
+      aster::shaderFeatureFlagBit(aster::ShaderFeatureFlag::ContactField) |
+      aster::shaderFeatureFlagBit(aster::ShaderFeatureFlag::LightHistory) |
+      aster::shaderFeatureFlagBit(aster::ShaderFeatureFlag::InteractionResidue);
+  variant.tag = aster::shaderVariantTag(variant);
+  assert(variant.tag.find("world-perceptual") != std::string::npos);
+  assert(variant.tag.find("contact-field") != std::string::npos);
+  assert(variant.tag.find("light-history") != std::string::npos);
+  assert(variant.tag.find("interaction-residue") != std::string::npos);
+
+  const aster::ShaderPermutationSpace space = aster::makeMaterialShaderPermutationSpace();
+  const aster::ShaderPermutationSelection selection =
+      aster::shaderPermutationSelectionForVariant(variant);
+  assert(space.validate(selection).empty());
+  const std::vector<aster::ShaderPermutationDefine> defines = space.defines(selection);
+  const auto has_define = [&defines](const std::string_view name) {
+    return std::any_of(defines.begin(), defines.end(),
+                       [name](const aster::ShaderPermutationDefine &define) {
+                         return define.name == name && define.value == "1";
+                       });
+  };
+  assert(has_define("ASTER_FEATURE_WORLD_PERCEPTUAL_PRIMITIVE"));
+  assert(has_define("ASTER_FEATURE_CONTACT_FIELD"));
+  assert(has_define("ASTER_FEATURE_LIGHT_HISTORY"));
+  assert(has_define("ASTER_FEATURE_INTERACTION_RESIDUE"));
+  const aster::StableShaderKey key = aster::stableShaderKeyForVariant(variant);
+  assert(key.hash != 0u);
+  assert(key.tag.find("world-perceptual") != std::string::npos);
+}
+
 void testTextureValidationAndDebugContracts() {
   const aster::MaterialAssetLoadResult loaded =
       aster::parseMaterialAsset(sampleMaterialSource(), "memory.astermat");
@@ -899,6 +932,7 @@ constexpr TestCase kTestCases[] = {
     {"material_authoring_graph_and_lab_audit", testMaterialAuthoringGraphAndLabAudit},
     {"material_lab_preview_debug_views", testMaterialLabPreviewRendersDebugViews},
     {"shader_library_and_reflection", testShaderLibraryAndReflection},
+    {"world_perceptual_shader_permutations", testWorldPerceptualShaderPermutationContracts},
     {"texture_validation_and_debug", testTextureValidationAndDebugContracts},
     {"render_quality_profile", testRenderQualityProfileContracts},
     {"render_style_profile", testRenderStyleProfileContracts},

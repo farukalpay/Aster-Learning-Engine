@@ -267,6 +267,7 @@ struct AsterWorldHandle__ {
   std::uint64_t readability_audit_hash = 0u;
   std::string perceptual_continuity_diagnostic;
   aster::PerceptualWorldScheduleReport perceptual_world_schedule;
+  aster::WorldPerceptualPrimitiveSummary perceptual_world_truth;
   aster::BeliefExtractionReport belief_report;
   std::uint64_t belief_world_transition_hash = 0u;
   std::uint64_t belief_extraction_hash = 0u;
@@ -409,6 +410,16 @@ bool validPerceptualWorldScheduleInfo(const AsterPerceptualWorldScheduleInfo &sc
           schedule.version == ASTER_KERNEL_STRUCT_VERSION_1);
 }
 
+bool hasPerceptualWorldTruthSummary(const AsterPerceptualWorldTruthSummary &summary) {
+  return summary.size != 0u;
+}
+
+bool validPerceptualWorldTruthSummary(const AsterPerceptualWorldTruthSummary &summary) {
+  return !hasPerceptualWorldTruthSummary(summary) ||
+         (summary.size >= sizeof(AsterPerceptualWorldTruthSummary) &&
+          summary.version == ASTER_KERNEL_STRUCT_VERSION_1);
+}
+
 bool hasBeliefReportInfo(const AsterBeliefReportInfo &report) {
   return report.size != 0u;
 }
@@ -430,6 +441,13 @@ bool validBeliefFindingKind(const AsterBeliefFindingKind kind) {
   case ASTER_BELIEF_FINDING_ASSET_SCALE_INCOHERENCE:
   case ASTER_BELIEF_FINDING_ENVIRONMENTAL_ENTROPY_DEFICIT:
   case ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP:
+  case ASTER_BELIEF_FINDING_LIGHT_HISTORY_DISCONTINUITY:
+  case ASTER_BELIEF_FINDING_INTERACTION_DEBT_LEAK:
+  case ASTER_BELIEF_FINDING_SEMANTIC_REPETITION:
+  case ASTER_BELIEF_FINDING_AI_ATTENTION_INCOHERENCE:
+  case ASTER_BELIEF_FINDING_SURFACE_MEMORY_RESET:
+  case ASTER_BELIEF_FINDING_ACOUSTIC_FALSENESS:
+  case ASTER_BELIEF_FINDING_WORLD_STATE_DESYNCHRONIZATION:
     return true;
   case ASTER_BELIEF_FINDING_UNKNOWN:
   default:
@@ -466,6 +484,20 @@ AsterBeliefFindingKind abiBeliefFindingKind(const aster::BeliefFindingKind kind)
     return ASTER_BELIEF_FINDING_ENVIRONMENTAL_ENTROPY_DEFICIT;
   case aster::BeliefFindingKind::BackendVisualTruthGap:
     return ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP;
+  case aster::BeliefFindingKind::LightHistoryDiscontinuity:
+    return ASTER_BELIEF_FINDING_LIGHT_HISTORY_DISCONTINUITY;
+  case aster::BeliefFindingKind::InteractionDebtLeak:
+    return ASTER_BELIEF_FINDING_INTERACTION_DEBT_LEAK;
+  case aster::BeliefFindingKind::SemanticRepetition:
+    return ASTER_BELIEF_FINDING_SEMANTIC_REPETITION;
+  case aster::BeliefFindingKind::AiAttentionIncoherence:
+    return ASTER_BELIEF_FINDING_AI_ATTENTION_INCOHERENCE;
+  case aster::BeliefFindingKind::SurfaceMemoryReset:
+    return ASTER_BELIEF_FINDING_SURFACE_MEMORY_RESET;
+  case aster::BeliefFindingKind::AcousticFalseness:
+    return ASTER_BELIEF_FINDING_ACOUSTIC_FALSENESS;
+  case aster::BeliefFindingKind::WorldStateDesynchronization:
+    return ASTER_BELIEF_FINDING_WORLD_STATE_DESYNCHRONIZATION;
   case aster::BeliefFindingKind::MaterialFamilyCollapse:
   default:
     return ASTER_BELIEF_FINDING_MATERIAL_FAMILY_COLLAPSE;
@@ -490,6 +522,20 @@ aster::BeliefFindingKind beliefFindingKindFromAbi(const AsterBeliefFindingKind k
     return aster::BeliefFindingKind::EnvironmentalEntropyDeficit;
   case ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP:
     return aster::BeliefFindingKind::BackendVisualTruthGap;
+  case ASTER_BELIEF_FINDING_LIGHT_HISTORY_DISCONTINUITY:
+    return aster::BeliefFindingKind::LightHistoryDiscontinuity;
+  case ASTER_BELIEF_FINDING_INTERACTION_DEBT_LEAK:
+    return aster::BeliefFindingKind::InteractionDebtLeak;
+  case ASTER_BELIEF_FINDING_SEMANTIC_REPETITION:
+    return aster::BeliefFindingKind::SemanticRepetition;
+  case ASTER_BELIEF_FINDING_AI_ATTENTION_INCOHERENCE:
+    return aster::BeliefFindingKind::AiAttentionIncoherence;
+  case ASTER_BELIEF_FINDING_SURFACE_MEMORY_RESET:
+    return aster::BeliefFindingKind::SurfaceMemoryReset;
+  case ASTER_BELIEF_FINDING_ACOUSTIC_FALSENESS:
+    return aster::BeliefFindingKind::AcousticFalseness;
+  case ASTER_BELIEF_FINDING_WORLD_STATE_DESYNCHRONIZATION:
+    return aster::BeliefFindingKind::WorldStateDesynchronization;
   case ASTER_BELIEF_FINDING_MATERIAL_FAMILY_COLLAPSE:
   default:
     return aster::BeliefFindingKind::MaterialFamilyCollapse;
@@ -602,6 +648,59 @@ void fillPerceptualScheduleInfo(const aster::PerceptualWorldScheduleReport &sche
   out_schedule->belief_stability = schedule.belief_stability;
   out_schedule->decision_impact_score = schedule.decision_impact_score;
   out_schedule->frame_cost_ms = schedule.frame_cost_ms;
+}
+
+aster::WorldPerceptualPrimitiveSummary perceptualWorldTruthFromAbi(
+    const AsterPerceptualWorldTruthSummary &summary) {
+  aster::WorldPerceptualPrimitiveSummary out;
+  if (!hasPerceptualWorldTruthSummary(summary)) {
+    return out;
+  }
+  out.primitive_count = summary.primitive_count;
+  out.active_cell_anchor_count = summary.active_cell_anchor_count;
+  out.active_surface_patch_count = summary.active_surface_patch_count;
+  out.active_contact_zone_count = summary.active_contact_zone_count;
+  out.active_residue_channel_count = summary.active_residue_channel_count;
+  out.truth_hash = summary.truth_hash;
+  out.belief_state = summary.belief_state;
+  out.perceptual_debt = summary.perceptual_debt;
+  out.material_memory = summary.material_memory;
+  out.interaction_residue = summary.interaction_residue;
+  out.contact_field = summary.contact_field;
+  out.light_history = summary.light_history;
+  out.acoustic_occlusion = summary.acoustic_occlusion;
+  out.ecology_pressure = summary.ecology_pressure;
+  out.threat_gradient = summary.threat_gradient;
+  out.traversal_pressure = summary.traversal_pressure;
+  out.semantic_lod = summary.semantic_lod;
+  out.decision_impact = summary.decision_impact;
+  out.player_readable_cause = summary.player_readable_cause;
+  out.accepted = summary.accepted != 0u;
+  return out;
+}
+
+void fillPerceptualWorldTruthSummary(const aster::WorldPerceptualPrimitiveSummary &summary,
+                                     AsterPerceptualWorldTruthSummary *out_summary) {
+  out_summary->accepted = summary.accepted ? 1u : 0u;
+  out_summary->primitive_count = summary.primitive_count;
+  out_summary->active_cell_anchor_count = summary.active_cell_anchor_count;
+  out_summary->active_surface_patch_count = summary.active_surface_patch_count;
+  out_summary->active_contact_zone_count = summary.active_contact_zone_count;
+  out_summary->active_residue_channel_count = summary.active_residue_channel_count;
+  out_summary->truth_hash = summary.truth_hash;
+  out_summary->belief_state = summary.belief_state;
+  out_summary->perceptual_debt = summary.perceptual_debt;
+  out_summary->material_memory = summary.material_memory;
+  out_summary->interaction_residue = summary.interaction_residue;
+  out_summary->contact_field = summary.contact_field;
+  out_summary->light_history = summary.light_history;
+  out_summary->acoustic_occlusion = summary.acoustic_occlusion;
+  out_summary->ecology_pressure = summary.ecology_pressure;
+  out_summary->threat_gradient = summary.threat_gradient;
+  out_summary->traversal_pressure = summary.traversal_pressure;
+  out_summary->semantic_lod = summary.semantic_lod;
+  out_summary->decision_impact = summary.decision_impact;
+  out_summary->player_readable_cause = summary.player_readable_cause;
 }
 
 aster::BeliefExtractionReport beliefReportFromAbi(const AsterBeliefReportInfo &report,
@@ -2613,6 +2712,11 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
       abiStructHasField(report->size, offsetof(AsterWorldRegionGateReport, belief_report),
                         sizeof(report->belief_report)) &&
       hasBeliefReportInfo(report->belief_report);
+  const bool has_perceptual_world_truth =
+      abiStructHasField(report->size,
+                        offsetof(AsterWorldRegionGateReport, perceptual_world_truth),
+                        sizeof(report->perceptual_world_truth)) &&
+      hasPerceptualWorldTruthSummary(report->perceptual_world_truth);
   const bool has_belief_findings_field =
       abiStructHasField(report->size, offsetof(AsterWorldRegionGateReport, belief_findings),
                         sizeof(report->belief_findings));
@@ -2625,6 +2729,11 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
       !validPerceptualWorldScheduleInfo(report->perceptual_world_schedule)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
                       "world perceptual schedule version is not supported");
+  }
+  if (has_perceptual_world_truth &&
+      !validPerceptualWorldTruthSummary(report->perceptual_world_truth)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "world perceptual truth version is not supported");
   }
   if (!validStringView(report->diagnostic) || !validStringView(report->navigation.diagnostic) ||
       !validStringView(report->perceptual_budget.diagnostic) ||
@@ -2661,6 +2770,9 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
     report_hash = mixWorldEvidence(
         report_hash, beliefReportEvidenceHash(report->belief_report, belief_findings));
   }
+  if (has_perceptual_world_truth) {
+    report_hash = mixWorldEvidence(report_hash, report->perceptual_world_truth.truth_hash);
+  }
   const bool accepted = report->verdict == ASTER_WORLD_REGION_GATE_ACCEPTED &&
                         report->navigation.valid != 0u &&
                         report->perceptual_budget.accepted != 0u &&
@@ -2668,6 +2780,8 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
                          report->perceptual_continuity_budget.accepted != 0u) &&
                         (!has_perceptual_schedule ||
                          report->perceptual_world_schedule.accepted != 0u) &&
+                        (!has_perceptual_world_truth ||
+                         report->perceptual_world_truth.accepted != 0u) &&
                         (!has_belief_report || report->belief_report.accepted != 0u);
   world->world.noteRegionGate(report->region_id, accepted, report_hash,
                               stringFromView(report->diagnostic));
@@ -2692,6 +2806,10 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
   if (has_perceptual_schedule) {
     world->perceptual_world_schedule =
         perceptualScheduleFromAbi(report->perceptual_world_schedule);
+  }
+  if (has_perceptual_world_truth) {
+    world->perceptual_world_truth =
+        perceptualWorldTruthFromAbi(report->perceptual_world_truth);
   }
   if (has_belief_report) {
     world->belief_report = std::move(belief_report);
@@ -2796,6 +2914,15 @@ AsterStatus aster_kernel_world_forensics(const AsterWorldHandle world,
         .event_residue_hash = world->event_residue_hash,
         .readability_audit_hash = world->readability_audit_hash,
         .diagnostic = worldScratch(world, world->perceptual_continuity_diagnostic)};
+  }
+  if (abiStructHasField(out_forensics->size,
+                        offsetof(AsterWorldForensics, perceptual_world_truth),
+                        sizeof(out_forensics->perceptual_world_truth))) {
+    out_forensics->perceptual_world_truth = {
+        .size = sizeof(AsterPerceptualWorldTruthSummary),
+        .version = ASTER_KERNEL_STRUCT_VERSION_1};
+    fillPerceptualWorldTruthSummary(world->perceptual_world_truth,
+                                    &out_forensics->perceptual_world_truth);
   }
   return aster_kernel_status_ok();
 }
@@ -3422,6 +3549,11 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
                         offsetof(AsterRendererSettings, belief_falseness_report),
                         sizeof(settings_desc.belief_falseness_report)) &&
       hasBeliefReportInfo(settings_desc.belief_falseness_report);
+  const bool has_perceptual_world_truth =
+      abiStructHasField(settings->size,
+                        offsetof(AsterRendererSettings, perceptual_world_truth),
+                        sizeof(settings_desc.perceptual_world_truth)) &&
+      hasPerceptualWorldTruthSummary(settings_desc.perceptual_world_truth);
   const bool has_belief_findings_field =
       abiStructHasField(settings->size,
                         offsetof(AsterRendererSettings, belief_falseness_findings),
@@ -3435,6 +3567,11 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
       !validPerceptualWorldScheduleInfo(settings_desc.perceptual_world_schedule)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
                       "renderer perceptual schedule version is not supported");
+  }
+  if (has_perceptual_world_truth &&
+      !validPerceptualWorldTruthSummary(settings_desc.perceptual_world_truth)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "renderer perceptual world truth version is not supported");
   }
   AsterStatus belief_status = aster_kernel_status_ok();
   const AsterSpan belief_findings =
@@ -3537,6 +3674,10 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
     if (has_perceptual_schedule) {
       renderer->renderer->stampLastFramePerceptualSchedule(
           perceptualScheduleFromAbi(settings_desc.perceptual_world_schedule));
+    }
+    if (has_perceptual_world_truth) {
+      renderer->renderer->stampLastFramePerceptualWorldTruth(
+          perceptualWorldTruthFromAbi(settings_desc.perceptual_world_truth));
     }
     if (has_belief_report) {
       renderer->renderer->stampLastFrameBeliefReport(belief_report);
@@ -4484,6 +4625,27 @@ AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
         .event_residue_hash = forensics.event_residue_hash,
         .readability_audit_hash = forensics.readability_audit_hash,
         .diagnostic = {}};
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, perceptual_world_truth),
+                        sizeof(out_counts->perceptual_world_truth))) {
+    out_counts->perceptual_world_truth = {
+        .size = sizeof(AsterPerceptualWorldTruthSummary),
+        .version = ASTER_KERNEL_STRUCT_VERSION_1};
+    fillPerceptualWorldTruthSummary(forensics.perceptual_primitive_summary,
+                                    &out_counts->perceptual_world_truth);
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts, world_truth_audit_hash),
+                        sizeof(out_counts->world_truth_audit_hash))) {
+    out_counts->world_truth_audit_hash = forensics.world_truth_audit_hash;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 perceptual_primitive_trace_count),
+                        sizeof(out_counts->perceptual_primitive_trace_count))) {
+    out_counts->perceptual_primitive_trace_count =
+        forensics.perceptual_primitive_traces.size();
   }
   return aster_kernel_status_ok();
 }

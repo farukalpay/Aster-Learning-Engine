@@ -354,6 +354,7 @@ fn cook_and_report_asset_database() {
     let report_stdout = String::from_utf8_lossy(&report.stdout);
     assert!(report_stdout.contains("material.cli_wet_rock"));
     assert!(report_stdout.contains("outputs="));
+    assert!(report_stdout.contains("world_ready=true"));
 
     let graph = Command::new(binary)
         .arg("graph")
@@ -378,6 +379,9 @@ fn cook_and_report_asset_database() {
     let fate_stdout = String::from_utf8_lossy(&fate.stdout);
     assert!(fate_stdout.contains("shader-variant"));
     assert!(fate_stdout.contains("material-hash"));
+    assert!(fate_stdout.contains("world_ready"));
+    assert!(fate_stdout.contains("wetness_propagation"));
+    assert!(fate_stdout.contains("perceptual_stability"));
 
     let diff = Command::new(binary)
         .arg("diff")

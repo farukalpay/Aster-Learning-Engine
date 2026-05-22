@@ -747,6 +747,71 @@ void testPerceptualWorldRuntimeContracts() {
   assert(first.lastState().interaction_residue > 0.45f);
 }
 
+void testWorldPerceptualPrimitiveContracts() {
+  const aster::WorldPerceptionLedgerReport ledger = makeFullPerceptualLedger();
+  aster::PerceptualWorldRuntime runtime({.region_id = ledger.region_id,
+                                         .id = "primitive-test-runtime",
+                                         .exposure_horizon_seconds = 8.0f,
+                                         .minimum_continuity_score = 0.50f,
+                                         .minimum_occlusion_trust = 0.40f,
+                                         .minimum_lighting_believability = 0.40f,
+                                         .minimum_player_readable_cause = 0.40f});
+  aster::PerceptualWorldObservation observation = makeStrongPerceptualObservation();
+  for (int i = 0; i < 12; ++i) {
+    observation.player_position.x += 0.20f;
+    (void)runtime.advance(observation);
+  }
+  aster::PerceptualWorldScheduleDesc schedule_desc;
+  schedule_desc.region_id = ledger.region_id;
+  schedule_desc.world_transition_hash = 0xA57E5001u;
+  schedule_desc.actor_state_delta_hash = 0xA57E5002u;
+  schedule_desc.sensory_event_hash = 0xA57E5003u;
+  schedule_desc.visibility_set_hash = 0xA57E5004u;
+  schedule_desc.navigation_valid = true;
+  schedule_desc.perceptual_salience_score = 0.92f;
+  schedule_desc.encounter_pressure = 0.40f;
+  schedule_desc.resource_pressure = 0.65f;
+  schedule_desc.frame_cost_ms = 10.0f;
+  schedule_desc.ledger = ledger;
+  schedule_desc.perceptual_state = runtime.lastState();
+  schedule_desc.reaction_package_hash = 0xA57E6001u;
+  schedule_desc.material_memory_hash = 0xA57E6002u;
+  schedule_desc.contact_history_hash = 0xA57E6003u;
+  schedule_desc.lighting_atmosphere_hash = 0xA57E6004u;
+  schedule_desc.wear_continuity_hash = 0xA57E6005u;
+  schedule_desc.ai_attention_hash = 0xA57E6006u;
+  schedule_desc.streaming_residency_lod_hash = 0xA57E6007u;
+  schedule_desc.resource_state_hash = 0xA57E6008u;
+  schedule_desc.event_residue_hash = 0xA57E6009u;
+  schedule_desc.audio_visual_cue_budget_hash = 0xA57E600Au;
+  schedule_desc.readability_audit_hash = 0xA57E600Bu;
+  const aster::PerceptualWorldScheduleReport schedule =
+      aster::schedulePerceptualWorld(schedule_desc);
+  const aster::WorldPerceptualPrimitive primitive =
+      aster::makeWorldPerceptualPrimitiveFromRuntime("primitive.core.ore",
+                                                     "Core primitive ore",
+                                                     runtime.lastState(), schedule, ledger);
+  assert(primitive.accepted);
+  assert(primitive.truth_hash != 0u);
+  assert(primitive.active_cell_anchor_count == 1u);
+  assert(primitive.active_surface_patch_count == 1u);
+  assert(primitive.active_contact_zone_count == 1u);
+  assert(primitive.active_residue_channel_count == 1u);
+  assert(primitive.signals.material_memory > 0.0f);
+  assert(primitive.signals.decision_impact > 0.0f);
+
+  const aster::WorldPerceptualSignals decayed =
+      aster::decayWorldPerceptualSignals({}, primitive.signals, 0.25f, 2.0f);
+  assert(decayed.material_memory > 0.0f);
+  assert(decayed.material_memory < primitive.signals.material_memory);
+  const aster::WorldPerceptualPrimitiveSummary summary =
+      aster::summarizeWorldPerceptualPrimitives({primitive});
+  assert(summary.accepted);
+  assert(summary.primitive_count == 1u);
+  assert(summary.truth_hash != 0u);
+  assert(summary.material_memory == primitive.signals.material_memory);
+}
+
 bool hasBeliefFinding(const aster::BeliefExtractionReport &report,
                       const aster::BeliefFindingKind kind) {
   return std::any_of(report.findings.begin(), report.findings.end(),
@@ -827,6 +892,34 @@ void testBeliefExtractionContracts() {
   entropy.environmental_entropy = 0.10f;
   entropy.perceptual_state.ecology_signal = 0.0f;
   require_finding(entropy, aster::BeliefFindingKind::EnvironmentalEntropyDeficit);
+
+  aster::BeliefExtractionDesc light = accepted;
+  light.light_history_continuity = 0.10f;
+  require_finding(light, aster::BeliefFindingKind::LightHistoryDiscontinuity);
+
+  aster::BeliefExtractionDesc debt = accepted;
+  debt.interaction_debt_leak = 0.90f;
+  require_finding(debt, aster::BeliefFindingKind::InteractionDebtLeak);
+
+  aster::BeliefExtractionDesc repetition = accepted;
+  repetition.semantic_repetition_score = 0.90f;
+  require_finding(repetition, aster::BeliefFindingKind::SemanticRepetition);
+
+  aster::BeliefExtractionDesc ai = accepted;
+  ai.ai_attention_coherence = 0.10f;
+  require_finding(ai, aster::BeliefFindingKind::AiAttentionIncoherence);
+
+  aster::BeliefExtractionDesc memory = accepted;
+  memory.surface_memory_continuity = 0.10f;
+  require_finding(memory, aster::BeliefFindingKind::SurfaceMemoryReset);
+
+  aster::BeliefExtractionDesc acoustic = accepted;
+  acoustic.acoustic_truth = 0.10f;
+  require_finding(acoustic, aster::BeliefFindingKind::AcousticFalseness);
+
+  aster::BeliefExtractionDesc sync = accepted;
+  sync.world_state_sync = 0.10f;
+  require_finding(sync, aster::BeliefFindingKind::WorldStateDesynchronization);
 
   assert(aster::beliefFindingKindName(
              aster::BeliefFindingKind::MaterialFamilyCollapse) ==
@@ -940,6 +1033,7 @@ int main() {
   testWorldStateTransitionContracts();
   testWorldPerceptionLedgerContracts();
   testPerceptualWorldRuntimeContracts();
+  testWorldPerceptualPrimitiveContracts();
   testBeliefExtractionContracts();
   testSourceBoundaryContracts();
   testConfigLayerStackAndSessionJournal();
