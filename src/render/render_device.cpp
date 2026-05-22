@@ -3413,8 +3413,91 @@ bool perceptualTruthRequired(const aster::RenderPerceptualTruthMode mode) {
          mode == aster::RenderPerceptualTruthMode::Strict;
 }
 
+std::uint64_t worldTruthAuditHash(const aster::FrameForensics &forensics);
+
+bool backendHasGraphResource(const aster::RenderBackendCapabilities &capabilities,
+                             const aster::RenderGraphResource resource) {
+  return (capabilities.graph_resource_mask & aster::renderGraphResourceBit(resource)) != 0u;
+}
+
+bool rendererRequestsBackendVisualTruth(const aster::RendererSettings &settings) {
+  return (settings.shadows.enabled && settings.shadows.directional_cascades > 0u) ||
+         (settings.atmosphere.enabled && settings.atmosphere.fog_strength > 0.0f) ||
+         (settings.reflections.enabled && settings.reflections.static_local_probes);
+}
+
+std::string renderObjectMaterialFamily(const aster::RenderObject &object) {
+  if (!object.material_asset_id.empty()) {
+    return object.material_asset_id;
+  }
+  if (!object.material.asset_id.empty()) {
+    return object.material.asset_id;
+  }
+  const std::uint64_t profile =
+      aster::materialSurfaceProfileId(aster::resolveMaterialSurfaceProfile(object.material));
+  return "surface-profile:" + std::to_string(profile);
+}
+
+void appendFrameBeliefDiagnostics(const aster::BeliefExtractionReport &report,
+                                  aster::FrameForensics &forensics) {
+  forensics.belief_falseness_report = report;
+  for (const aster::BeliefExtractionFinding &finding : report.findings) {
+    aster::FrameDiagnosticKind event_kind = aster::FrameDiagnosticKind::SurfacePresentationWarning;
+    switch (finding.kind) {
+    case aster::BeliefFindingKind::MaterialFamilyCollapse:
+      event_kind = aster::FrameDiagnosticKind::MaterialVariantFallback;
+      break;
+    case aster::BeliefFindingKind::BackendVisualTruthGap:
+      event_kind = aster::FrameDiagnosticKind::CapabilityMismatch;
+      break;
+    case aster::BeliefFindingKind::MaterialResponseInstability:
+      event_kind = aster::FrameDiagnosticKind::TextureRoleDegraded;
+      break;
+    case aster::BeliefFindingKind::LodTransitionVisibility:
+    case aster::BeliefFindingKind::AssetScaleIncoherence:
+      event_kind = aster::FrameDiagnosticKind::MeshAttributeDegraded;
+      break;
+    case aster::BeliefFindingKind::MissingPerceptualPrimitive:
+    case aster::BeliefFindingKind::UnresolvedPerceptualBinding:
+    case aster::BeliefFindingKind::PerceptualExtractionDesynchronization:
+    case aster::BeliefFindingKind::BackendPerceptualTruthGap:
+      event_kind = aster::FrameDiagnosticKind::PerceptualTruthGap;
+      break;
+    case aster::BeliefFindingKind::ContextualGroundingFailure:
+    case aster::BeliefFindingKind::ContactShadowCredibilityFailure:
+    case aster::BeliefFindingKind::VolumetricSceneCouplingFailure:
+    case aster::BeliefFindingKind::EnvironmentalEntropyDeficit:
+    case aster::BeliefFindingKind::LightHistoryDiscontinuity:
+    case aster::BeliefFindingKind::InteractionDebtLeak:
+    case aster::BeliefFindingKind::SemanticRepetition:
+    case aster::BeliefFindingKind::AiAttentionIncoherence:
+    case aster::BeliefFindingKind::SurfaceMemoryReset:
+    case aster::BeliefFindingKind::AcousticFalseness:
+    case aster::BeliefFindingKind::WorldStateDesynchronization:
+      event_kind = aster::FrameDiagnosticKind::SurfacePresentationWarning;
+      break;
+    }
+
+    aster::FrameDiagnosticSeverity severity = aster::FrameDiagnosticSeverity::Warning;
+    if (finding.severity == aster::BeliefFindingSeverity::Info) {
+      severity = aster::FrameDiagnosticSeverity::Info;
+    } else if (finding.severity == aster::BeliefFindingSeverity::Error) {
+      severity = aster::FrameDiagnosticSeverity::Error;
+    }
+    forensics.events.push_back(
+        {.kind = event_kind,
+         .severity = severity,
+         .pass = "belief-extraction",
+         .label = "belief." + std::string(aster::beliefFindingKindName(finding.kind)),
+         .message = std::string(aster::beliefFindingKindName(finding.kind)) + ": " +
+                    finding.message,
+         .value = finding.evidence_hash});
+  }
+}
+
 bool appendWorldPerceptualTruthDiagnostics(const aster::Scene &scene,
                                            const aster::RendererSettings &settings,
+                                           const aster::RenderBackendCapabilities &capabilities,
                                            aster::FrameForensics &forensics) {
   bool rejected = false;
   std::uint64_t policy_hash =
@@ -3424,6 +3507,10 @@ bool appendWorldPerceptualTruthDiagnostics(const aster::Scene &scene,
   policy_hash = appendEvidenceValue(
       policy_hash, static_cast<std::uint64_t>(settings.perceptual_truth_expected_count));
   policy_hash = appendEvidenceValue(policy_hash, settings.perceptual_truth_policy_hash);
+  std::vector<aster::WorldPerceptualPrimitive> observed_primitives;
+  observed_primitives.reserve(scene.objects().size());
+  std::vector<std::string> material_families;
+  material_families.reserve(scene.objects().size());
   for (std::size_t i = 0u; i < scene.objects().size(); ++i) {
     const aster::RenderObject &object = scene.objects()[i];
     const aster::RenderPerceptualTruthMode mode =
@@ -3434,10 +3521,16 @@ bool appendWorldPerceptualTruthDiagnostics(const aster::Scene &scene,
       continue;
     }
     ++forensics.perceptual_truth_expected_count;
+    const std::string family = renderObjectMaterialFamily(object);
+    if (std::find(material_families.begin(), material_families.end(), family) ==
+        material_families.end()) {
+      material_families.push_back(family);
+    }
     const bool has_truth =
         object.perceptual_primitive.truth_hash != 0u && object.perceptual_primitive.accepted;
     if (has_truth) {
       ++forensics.perceptual_truth_observed_count;
+      observed_primitives.push_back(object.perceptual_primitive);
       continue;
     }
     ++forensics.perceptual_truth_missing_count;
@@ -3482,6 +3575,43 @@ bool appendWorldPerceptualTruthDiagnostics(const aster::Scene &scene,
   policy_hash = appendEvidenceValue(
       policy_hash, static_cast<std::uint64_t>(forensics.perceptual_truth_missing_count));
   forensics.perceptual_truth_policy_hash = policy_hash;
+  forensics.perceptual_primitive_summary =
+      aster::summarizeWorldPerceptualPrimitives(observed_primitives);
+  if (forensics.perceptual_truth_expected_count > 0u) {
+    aster::BeliefExtractionDesc desc;
+    desc.subject = "renderer.frame";
+    desc.minimum_score = 0.70f;
+    desc.source_hash = policy_hash;
+    desc.visible_object_count = forensics.perceptual_truth_expected_count;
+    desc.material_family_count = std::max<std::size_t>(material_families.size(), 1u);
+    desc.contact_shadow_required = false;
+    desc.light_history_continuity = 1.0f;
+    desc.interaction_debt_leak = 0.0f;
+    desc.perceptual_primitive_summary = forensics.perceptual_primitive_summary;
+    const bool wants_backend_truth = rendererRequestsBackendVisualTruth(settings);
+    desc.backend_visual_truth_required = wants_backend_truth;
+    if (wants_backend_truth) {
+      const bool shadow_equivalent =
+          !settings.shadows.enabled ||
+          backendHasGraphResource(capabilities, aster::RenderGraphResource::ShadowAtlas);
+      const bool fog_equivalent =
+          !(settings.atmosphere.enabled && settings.atmosphere.fog_strength > 0.0f) ||
+          backendHasGraphResource(capabilities, aster::RenderGraphResource::VolumetricFog);
+      const bool probe_equivalent =
+          !(settings.reflections.enabled && settings.reflections.static_local_probes) ||
+          backendHasGraphResource(capabilities, aster::RenderGraphResource::ReflectionProbes);
+      desc.backend_hdr_equivalent = true;
+      desc.backend_msaa_equivalent = true;
+      desc.backend_timestamp_equivalent = true;
+      desc.backend_swapchain_equivalent = true;
+      desc.backend_fog_probe_shadow_equivalent =
+          shadow_equivalent && fog_equivalent && probe_equivalent;
+      desc.backend_visual_truth_score = desc.backend_fog_probe_shadow_equivalent ? 1.0f : 0.0f;
+    }
+    const aster::BeliefExtractionReport report = aster::extractBeliefContract(desc);
+    appendFrameBeliefDiagnostics(report, forensics);
+  }
+  forensics.world_truth_audit_hash = worldTruthAuditHash(forensics);
   return rejected;
 }
 
@@ -6088,7 +6218,10 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   if (framebuffer_width <= 0 || framebuffer_height <= 0) {
     return stats;
   }
-  if (appendWorldPerceptualTruthDiagnostics(scene, settings, last_forensics_)) {
+  const RenderBackendCapabilities active_capabilities =
+      native_backend_ != nullptr ? native_backend_->capabilities() : softwareCapabilities();
+  if (appendWorldPerceptualTruthDiagnostics(scene, settings, active_capabilities,
+                                            last_forensics_)) {
     last_forensics_.world_truth_audit_hash = worldTruthAuditHash(last_forensics_);
     return stats;
   }
@@ -6098,8 +6231,6 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   const FrameRenderPlan plan =
       buildFrameRenderPlan(render_world_.scene(), camera, settings.line_of_sight_fade,
                            framebuffer_width, framebuffer_height);
-  const RenderBackendCapabilities active_capabilities =
-      native_backend_ != nullptr ? native_backend_->capabilities() : softwareCapabilities();
   last_forensics_.math_contract =
       certifyRenderMathContract(scene, camera, active_capabilities, material_library_.get());
   const ClusteredLightGrid clustered_lights =
@@ -6615,59 +6746,8 @@ void RenderDevice::stampLastFramePerceptualWorldTruth(
 }
 
 void RenderDevice::stampLastFrameBeliefReport(const BeliefExtractionReport &report) {
-  last_forensics_.belief_falseness_report = report;
+  appendFrameBeliefDiagnostics(report, last_forensics_);
   last_forensics_.world_truth_audit_hash = worldTruthAuditHash(last_forensics_);
-  for (const BeliefExtractionFinding &finding : report.findings) {
-    FrameDiagnosticKind event_kind = FrameDiagnosticKind::SurfacePresentationWarning;
-    switch (finding.kind) {
-    case BeliefFindingKind::MaterialFamilyCollapse:
-      event_kind = FrameDiagnosticKind::MaterialVariantFallback;
-      break;
-    case BeliefFindingKind::ContextualGroundingFailure:
-    case BeliefFindingKind::ContactShadowCredibilityFailure:
-    case BeliefFindingKind::VolumetricSceneCouplingFailure:
-    case BeliefFindingKind::EnvironmentalEntropyDeficit:
-    case BeliefFindingKind::LightHistoryDiscontinuity:
-    case BeliefFindingKind::InteractionDebtLeak:
-    case BeliefFindingKind::SemanticRepetition:
-    case BeliefFindingKind::AiAttentionIncoherence:
-    case BeliefFindingKind::SurfaceMemoryReset:
-    case BeliefFindingKind::AcousticFalseness:
-    case BeliefFindingKind::WorldStateDesynchronization:
-      event_kind = FrameDiagnosticKind::SurfacePresentationWarning;
-      break;
-    case BeliefFindingKind::MissingPerceptualPrimitive:
-    case BeliefFindingKind::UnresolvedPerceptualBinding:
-    case BeliefFindingKind::PerceptualExtractionDesynchronization:
-    case BeliefFindingKind::BackendPerceptualTruthGap:
-      event_kind = FrameDiagnosticKind::PerceptualTruthGap;
-      break;
-    case BeliefFindingKind::BackendVisualTruthGap:
-      event_kind = FrameDiagnosticKind::CapabilityMismatch;
-      break;
-    case BeliefFindingKind::MaterialResponseInstability:
-      event_kind = FrameDiagnosticKind::TextureRoleDegraded;
-      break;
-    case BeliefFindingKind::LodTransitionVisibility:
-    case BeliefFindingKind::AssetScaleIncoherence:
-      event_kind = FrameDiagnosticKind::MeshAttributeDegraded;
-      break;
-    }
-
-    FrameDiagnosticSeverity severity = FrameDiagnosticSeverity::Warning;
-    if (finding.severity == BeliefFindingSeverity::Info) {
-      severity = FrameDiagnosticSeverity::Info;
-    } else if (finding.severity == BeliefFindingSeverity::Error) {
-      severity = FrameDiagnosticSeverity::Error;
-    }
-    last_forensics_.events.push_back(
-        {.kind = event_kind,
-         .severity = severity,
-         .pass = "belief-extraction",
-         .label = "belief." + std::string(beliefFindingKindName(finding.kind)),
-         .message = std::string(beliefFindingKindName(finding.kind)) + ": " + finding.message,
-         .value = finding.evidence_hash});
-  }
 }
 
 const std::shared_ptr<const MaterialResourceLibrary> &RenderDevice::materialResourceLibrary()

@@ -1560,6 +1560,36 @@ void drawWorldBelievabilityPanel(aster::UiCanvas &canvas,
   textRow(canvas, "Belief risk",
           std::to_string(1.0f - std::clamp(forensics->perceptual_belief_stability, 0.0f, 1.0f)),
           x, y, width, visible_top, visible_bottom);
+  if (!forensics->belief_falseness_report.findings.empty()) {
+    std::vector<std::string> finding_rows;
+    finding_rows.reserve(forensics->belief_falseness_report.findings.size());
+    for (const aster::BeliefExtractionFinding &finding :
+         forensics->belief_falseness_report.findings) {
+      char row[128]{};
+      std::snprintf(row, sizeof(row), "%s %.2f/%.2f",
+                    std::string(aster::beliefFindingKindName(finding.kind)).c_str(),
+                    finding.score, finding.threshold);
+      finding_rows.emplace_back(row);
+    }
+    listRows(canvas, "Findings", finding_rows, 4u, x, y, width, visible_top, visible_bottom);
+  }
+  if (!forensics->perceptual_primitive_traces.empty()) {
+    std::vector<std::string> primitive_rows;
+    primitive_rows.reserve(forensics->perceptual_primitive_traces.size());
+    for (const aster::WorldPerceptualPrimitiveTrace &trace :
+         forensics->perceptual_primitive_traces) {
+      char row[192]{};
+      std::snprintf(row, sizeof(row), "%s m%.2f c%.2f l%.2f a%.2f t%.2f r%.2f",
+                    trace.primitive_id.empty() ? trace.object_name.c_str()
+                                               : trace.primitive_id.c_str(),
+                    trace.material_memory, trace.contact_field, trace.light_history,
+                    trace.acoustic_occlusion, trace.traversal_pressure,
+                    trace.player_readable_cause);
+      primitive_rows.emplace_back(row);
+    }
+    listRows(canvas, "Primitive", primitive_rows, 4u, x, y, width, visible_top,
+             visible_bottom);
+  }
   textRow(canvas, "World audit", hexU64(forensics->world_truth_audit_hash), x, y, width,
           visible_top, visible_bottom);
 }

@@ -812,6 +812,7 @@ void testWorldPerceptualPrimitiveContracts() {
   assert(summary.primitive_count == 1u);
   assert(summary.truth_hash != 0u);
   assert(summary.material_memory == primitive.signals.material_memory);
+  assert(summary.perceptual_debt == primitive.signals.perceptual_debt);
 
   aster::WorldPerceptualField field_a;
   aster::WorldPerceptualField field_b;
@@ -1134,9 +1135,26 @@ void testBeliefExtractionContracts() {
   partial_primitive.perceptual_primitive_summary.active_contact_zone_count = 0u;
   require_finding(partial_primitive, aster::BeliefFindingKind::UnresolvedPerceptualBinding);
 
+  aster::BeliefExtractionDesc extraction_desync = accepted;
+  extraction_desync.perceptual_primitive_summary.truth_hash = 0u;
+  require_finding(extraction_desync,
+                  aster::BeliefFindingKind::PerceptualExtractionDesynchronization);
+
+  aster::BeliefExtractionDesc backend_primitive = accepted;
+  backend_primitive.backend_visual_truth_required = true;
+  backend_primitive.backend_hdr_equivalent = false;
+  backend_primitive.backend_msaa_equivalent = false;
+  backend_primitive.backend_timestamp_equivalent = false;
+  backend_primitive.backend_swapchain_equivalent = false;
+  backend_primitive.backend_fog_probe_shadow_equivalent = false;
+  backend_primitive.backend_visual_truth_score = 0.0f;
+  require_finding(backend_primitive, aster::BeliefFindingKind::BackendPerceptualTruthGap);
+
   assert(aster::beliefFindingKindName(
              aster::BeliefFindingKind::MaterialFamilyCollapse) ==
          "material_family_collapse");
+  assert(aster::isCanonicalBeliefFindingName("backend_perceptual_truth_gap"));
+  assert(!aster::isCanonicalBeliefFindingName("not_a_belief_finding"));
   assert(aster::beliefFindingSeverityName(aster::BeliefFindingSeverity::Warning) ==
          "warning");
 }

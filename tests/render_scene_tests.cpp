@@ -739,6 +739,13 @@ void testStrictPerceptualRenderableCoverage() {
   assert(forensics.perceptual_truth_observed_count == 0u);
   assert(forensics.perceptual_truth_missing_count == 1u);
   assert(forensics.perceptual_truth_policy_hash != 0u);
+  assert(!forensics.belief_falseness_report.accepted);
+  assert(std::any_of(forensics.belief_falseness_report.findings.begin(),
+                     forensics.belief_falseness_report.findings.end(),
+                     [](const aster::BeliefExtractionFinding &finding) {
+                       return finding.kind ==
+                              aster::BeliefFindingKind::MissingPerceptualPrimitive;
+                     }));
   assert(std::any_of(forensics.events.begin(), forensics.events.end(),
                      [](const aster::FrameDiagnosticEvent &event) {
                        return event.kind == aster::FrameDiagnosticKind::PerceptualTruthGap &&
@@ -782,12 +789,165 @@ void testWarnPerceptualRenderableCoverage() {
   assert(forensics.perceptual_truth_observed_count == 0u);
   assert(forensics.perceptual_truth_missing_count == 1u);
   assert(forensics.perceptual_truth_policy_hash != 0u);
+  assert(!forensics.belief_falseness_report.accepted);
+  assert(std::any_of(forensics.belief_falseness_report.findings.begin(),
+                     forensics.belief_falseness_report.findings.end(),
+                     [](const aster::BeliefExtractionFinding &finding) {
+                       return finding.kind ==
+                              aster::BeliefFindingKind::MissingPerceptualPrimitive;
+                     }));
   assert(std::any_of(forensics.events.begin(), forensics.events.end(),
                      [](const aster::FrameDiagnosticEvent &event) {
                        return event.kind == aster::FrameDiagnosticKind::PerceptualTruthGap &&
                               event.severity == aster::FrameDiagnosticSeverity::Warning;
                      }));
 
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
+void testRendererBackendPerceptualTruthGapForAcceptedPrimitive() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", true);
+
+  aster::RenderObject object;
+  object.name = "accepted primitive backend gap probe";
+  object.primitive = aster::MeshPrimitive::Box;
+  object.transform.position = {0.0f, 0.5f, 0.0f};
+  object.material = aster::makeMaterial({.base_color = {0.36f, 0.52f, 0.66f}});
+  object.perceptual_truth_mode = aster::RenderPerceptualTruthMode::Strict;
+  object.perceptual_primitive = aster::evaluateWorldPerceptualPrimitive(
+      {.primitive_id = "render.backend-gap.primitive",
+       .object_name = object.name,
+       .world_owner_hash = 0xA57E9100u,
+       .template_hash = 0xA57E9101u,
+       .cell_hash = 0xA57E9102u,
+       .player_readable_cause_hash = 0xA57E9103u,
+       .sound_surface_class_hash = 0xA57E9104u,
+       .neural_irradiance_hash = 0xA57E9105u,
+       .delta_seconds = 1.0f / 60.0f,
+       .wetness_half_life_seconds = 8.0f,
+       .exposure_age_seconds = 4.0f,
+       .world_ownership = 1.0f,
+       .cell_residency = 1.0f,
+       .streaming_cost = 0.12f,
+       .material_stability = 0.86f,
+       .acoustic_occlusion_trust = 0.68f,
+       .visual_occlusion_trust = 0.74f,
+       .ai_cover_value = 0.42f,
+       .traversal_affordance = 0.58f,
+       .semantic_lod = 0.82f,
+       .neural_irradiance = {0.50f, 0.42f, 0.28f},
+       .neural_irradiance_confidence = 0.76f,
+       .changed_channel_mask = 0x7u,
+       .decision_channel_mask = 0x5u,
+       .player_observable = true,
+       .signals = {.belief_state = 0.84f,
+                   .perceptual_debt = 0.10f,
+                   .material_memory = 0.72f,
+                   .interaction_residue = 0.64f,
+                   .contact_field = 0.78f,
+                   .light_history = 0.82f,
+                   .acoustic_occlusion = 0.34f,
+                   .ecology_pressure = 0.56f,
+                   .threat_gradient = 0.18f,
+                   .traversal_pressure = 0.62f,
+                   .semantic_lod = 0.82f,
+                   .decision_impact = 0.70f,
+                   .player_readable_cause = 0.86f},
+       .cell_anchors = {{.id = "backend-gap.cell",
+                         .cell_hash = 0xA57E9201u,
+                         .residency = 1.0f,
+                         .streaming_cost = 0.12f}},
+       .surface_patches = {{.id = "backend-gap.surface",
+                            .patch_hash = 0xA57E9202u,
+                            .normal = {0.0f, 1.0f, 0.0f},
+                            .wetness_flow = 0.22f,
+                            .exposure_age = 0.58f,
+                            .thermal_history = 0.34f,
+                            .chemical_history = 0.18f,
+                            .material_stability = 0.86f}},
+       .contact_zones = {{.id = "backend-gap.contact",
+                          .zone_hash = 0xA57E9203u,
+                          .normal = {0.0f, 1.0f, 0.0f},
+                          .contact_field = 0.78f,
+                          .occlusion_trust = 0.74f,
+                          .ai_cover_value = 0.42f,
+                          .traversal_affordance = 0.58f}},
+       .residue_channels = {{.id = "backend-gap.residue",
+                             .channel_hash = 0xA57E9204u,
+                             .residue = 0.64f,
+                             .acoustic_occlusion = 0.34f,
+                             .ecology_signal = 0.56f,
+                             .threat = 0.18f,
+                             .decision_impact = 0.70f}}});
+  assert(object.perceptual_primitive.accepted);
+
+  aster::Scene scene;
+  scene.objects().push_back(object);
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.5f, 0.0f};
+  camera.yaw = aster::radians(25.0f);
+  camera.pitch = aster::radians(18.0f);
+  camera.radius = 3.0f;
+  camera.vertical_fov = aster::radians(44.0f);
+
+  aster::RendererSettings settings;
+  settings.shadows.enabled = true;
+  settings.shadows.directional_cascades = 1u;
+  settings.atmosphere.enabled = true;
+  settings.atmosphere.fog_strength = 0.45f;
+  settings.reflections.enabled = true;
+  settings.reflections.static_local_probes = true;
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.prepareScene(scene);
+  const aster::FrameStats stats = renderer.render(scene, camera, settings, 48, 32, 0.0);
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  assert(stats.backend_kind_value == static_cast<std::uint32_t>(aster::RenderBackendKind::Null));
+  assert(forensics.perceptual_truth_expected_count == 1u);
+  assert(forensics.perceptual_truth_observed_count == 1u);
+  assert(forensics.perceptual_truth_missing_count == 0u);
+  assert(forensics.perceptual_primitive_summary.accepted);
+  assert(!forensics.belief_falseness_report.accepted);
+  assert(std::any_of(forensics.belief_falseness_report.findings.begin(),
+                     forensics.belief_falseness_report.findings.end(),
+                     [](const aster::BeliefExtractionFinding &finding) {
+                       return finding.kind == aster::BeliefFindingKind::BackendVisualTruthGap;
+                     }));
+  assert(std::any_of(forensics.belief_falseness_report.findings.begin(),
+                     forensics.belief_falseness_report.findings.end(),
+                     [](const aster::BeliefExtractionFinding &finding) {
+                       return finding.kind ==
+                              aster::BeliefFindingKind::BackendPerceptualTruthGap;
+                     }));
+  assert(std::any_of(forensics.events.begin(), forensics.events.end(),
+                     [](const aster::FrameDiagnosticEvent &event) {
+                       return event.label == "belief.backend_perceptual_truth_gap" &&
+                              event.kind == aster::FrameDiagnosticKind::PerceptualTruthGap;
+                     }));
+
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+
+  aster::RenderDevice software_renderer;
+  software_renderer.initialize();
+  software_renderer.prepareScene(scene);
+  (void)software_renderer.render(scene, camera, settings, 48, 32, 0.0);
+  const aster::FrameForensics &software_forensics = software_renderer.lastFrameForensics();
+  assert(software_forensics.perceptual_truth_expected_count == 1u);
+  assert(software_forensics.perceptual_truth_observed_count == 1u);
+  assert(software_forensics.perceptual_truth_missing_count == 0u);
+  assert(software_forensics.belief_falseness_report.accepted);
+  assert(std::none_of(software_forensics.belief_falseness_report.findings.begin(),
+                      software_forensics.belief_falseness_report.findings.end(),
+                      [](const aster::BeliefExtractionFinding &finding) {
+                        return finding.kind ==
+                                   aster::BeliefFindingKind::BackendVisualTruthGap ||
+                               finding.kind ==
+                                   aster::BeliefFindingKind::BackendPerceptualTruthGap;
+                      }));
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
 }
 
@@ -3226,6 +3386,8 @@ constexpr TestCase kTestCases[] = {
     {"frame_math_diagnostics", testFrameMathDiagnostics},
     {"strict_perceptual_renderable_coverage", testStrictPerceptualRenderableCoverage},
     {"warn_perceptual_renderable_coverage", testWarnPerceptualRenderableCoverage},
+    {"renderer_backend_perceptual_truth_gap_for_accepted_primitive",
+     testRendererBackendPerceptualTruthGapForAcceptedPrimitive},
     {"frame_debugger_material_binding_trace", testFrameDebuggerMaterialBindingTrace},
     {"frame_debugger_perception_ledger_trace", testFrameDebuggerPerceptionLedgerTrace},
     {"frame_debugger_asset_provenance_trace", testFrameDebuggerAssetProvenanceTrace},

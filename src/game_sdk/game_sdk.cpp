@@ -3,6 +3,8 @@
 
 #include "aster/game_sdk/game_sdk.hpp"
 
+#include "aster/core/belief_extraction.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -2753,16 +2755,6 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
     }
   }
 
-  const auto validBeliefCheck = [](const std::string &check) {
-    return check == "material_family_collapse" || check == "contextual_grounding_failure" ||
-           check == "contact_shadow_credibility_failure" ||
-           check == "volumetric_scene_coupling_failure" ||
-           check == "material_response_instability" ||
-           check == "lod_transition_visibility" ||
-           check == "asset_scale_incoherence" ||
-           check == "environmental_entropy_deficit" ||
-           check == "backend_visual_truth_gap";
-  };
   if (cave.validation.belief_contract.has_value()) {
     const CaveBeliefContractDocument &belief = *cave.validation.belief_contract;
     if (belief.id.empty()) {
@@ -2773,7 +2765,7 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
                "belief contract minimum_score must be in [0, 1]");
     }
     for (const std::string &check : belief.required_checks) {
-      if (!validBeliefCheck(check)) {
+      if (!aster::isCanonicalBeliefFindingName(check)) {
         addError("$.validation.belief_contract.required_checks",
                  "unknown belief contract check '" + check + "'");
       }

@@ -106,6 +106,21 @@ struct BeliefExtractionReport {
 
 [[nodiscard]] std::string_view beliefFindingKindName(BeliefFindingKind kind) noexcept;
 [[nodiscard]] std::string_view beliefFindingSeverityName(BeliefFindingSeverity severity) noexcept;
+[[nodiscard]] inline bool isCanonicalBeliefFindingName(const std::string_view name) noexcept {
+  return name == "material_family_collapse" || name == "contextual_grounding_failure" ||
+         name == "contact_shadow_credibility_failure" ||
+         name == "volumetric_scene_coupling_failure" ||
+         name == "material_response_instability" ||
+         name == "lod_transition_visibility" || name == "asset_scale_incoherence" ||
+         name == "environmental_entropy_deficit" || name == "backend_visual_truth_gap" ||
+         name == "light_history_discontinuity" || name == "interaction_debt_leak" ||
+         name == "semantic_repetition" || name == "ai_attention_incoherence" ||
+         name == "surface_memory_reset" || name == "acoustic_falseness" ||
+         name == "world_state_desynchronization" || name == "missing_perceptual_primitive" ||
+         name == "unresolved_perceptual_binding" ||
+         name == "perceptual_extraction_desynchronization" ||
+         name == "backend_perceptual_truth_gap";
+}
 [[nodiscard]] BeliefExtractionReport
 extractBeliefContract(const BeliefExtractionDesc &desc);
 

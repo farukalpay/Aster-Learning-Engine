@@ -331,6 +331,7 @@ WorldPerceptualPrimitiveSummary summarizeWorldPerceptualPrimitives(
     summary.diagnostic = "no world perceptual primitives";
     return summary;
   }
+  summary.perceptual_debt = 0.0f;
 
   std::uint64_t hash = mixString(kWorldPrimitiveSeed, "aster.world-perceptual-summary.v1");
   std::size_t accepted = 0u;

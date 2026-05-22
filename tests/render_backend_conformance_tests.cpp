@@ -1520,6 +1520,26 @@ void testBackendVisualTruthGapIsReported() {
   desc.backend_swapchain_equivalent = false;
   desc.backend_fog_probe_shadow_equivalent = false;
   desc.backend_visual_truth_score = 0.0f;
+  desc.perceptual_primitive_summary = {.primitive_count = 1u,
+                                       .active_cell_anchor_count = 1u,
+                                       .active_surface_patch_count = 1u,
+                                       .active_contact_zone_count = 1u,
+                                       .active_residue_channel_count = 1u,
+                                       .truth_hash = 0xA57E5001u,
+                                       .belief_state = 0.82f,
+                                       .perceptual_debt = 0.12f,
+                                       .material_memory = 0.78f,
+                                       .interaction_residue = 0.74f,
+                                       .contact_field = 0.76f,
+                                       .light_history = 0.80f,
+                                       .acoustic_occlusion = 0.24f,
+                                       .ecology_pressure = 0.68f,
+                                       .threat_gradient = 0.28f,
+                                       .traversal_pressure = 0.64f,
+                                       .semantic_lod = 0.82f,
+                                       .decision_impact = 0.72f,
+                                       .player_readable_cause = 0.78f,
+                                       .accepted = true};
 
   const aster::BeliefExtractionReport report = aster::extractBeliefContract(desc);
   assert(!report.accepted);
@@ -1527,6 +1547,13 @@ void testBackendVisualTruthGapIsReported() {
                      [](const aster::BeliefExtractionFinding &finding) {
                        return finding.kind == aster::BeliefFindingKind::BackendVisualTruthGap &&
                               finding.source == "backend-visual-truth" &&
+                              finding.score < finding.threshold;
+                     }));
+  assert(std::any_of(report.findings.begin(), report.findings.end(),
+                     [](const aster::BeliefExtractionFinding &finding) {
+                       return finding.kind ==
+                                  aster::BeliefFindingKind::BackendPerceptualTruthGap &&
+                              finding.source == "backend-perceptual-truth" &&
                               finding.score < finding.threshold;
                      }));
 }

@@ -414,7 +414,18 @@
         "lod_transition_visibility",
         "asset_scale_incoherence",
         "environmental_entropy_deficit",
-        "backend_visual_truth_gap"
+        "backend_visual_truth_gap",
+        "light_history_discontinuity",
+        "interaction_debt_leak",
+        "semantic_repetition",
+        "ai_attention_incoherence",
+        "surface_memory_reset",
+        "acoustic_falseness",
+        "world_state_desynchronization",
+        "missing_perceptual_primitive",
+        "unresolved_perceptual_binding",
+        "perceptual_extraction_desynchronization",
+        "backend_perceptual_truth_gap"
       ]
     }
   }

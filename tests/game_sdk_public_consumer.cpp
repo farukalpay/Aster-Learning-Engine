@@ -76,7 +76,7 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(cave.value.validation.belief_contract.has_value());
   assert(cave.value.validation.belief_contract->id == "entry_belief_contract");
   assert(cave.value.validation.belief_contract->minimum_score >= 0.70f);
-  assert(cave.value.validation.belief_contract->required_checks.size() == 9u);
+  assert(cave.value.validation.belief_contract->required_checks.size() == 20u);
   const std::vector<aster::sdk::Diagnostic> cave_diagnostics =
       aster::sdk::validateCaveDocument(cave.value, &project.value, &scene.value,
                                        project_root / "caves" / "cave_entry.cave");

@@ -856,6 +856,9 @@ if(ASTER_BUILD_TESTS)
       software_depth_policy_object_order
       prepare_scene_custom_mesh_cache
       frame_math_diagnostics
+      strict_perceptual_renderable_coverage
+      warn_perceptual_renderable_coverage
+      renderer_backend_perceptual_truth_gap_for_accepted_primitive
       frame_debugger_material_binding_trace
       frame_debugger_perception_ledger_trace
       frame_debugger_asset_provenance_trace
