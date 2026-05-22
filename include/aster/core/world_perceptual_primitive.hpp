@@ -93,6 +93,8 @@ struct WorldPerceptualPrimitiveDesc {
   float semantic_lod = 0.0f;
   Vec3 neural_irradiance{};
   float neural_irradiance_confidence = 0.0f;
+  std::uint32_t changed_channel_mask = 0u;
+  std::uint32_t decision_channel_mask = 0u;
   bool player_observable = true;
   WorldPerceptualSignals signals;
   std::vector<WorldPerceptualCellAnchor> cell_anchors;
@@ -127,6 +129,8 @@ struct WorldPerceptualPrimitive {
   float semantic_lod = 0.0f;
   Vec3 neural_irradiance{};
   float neural_irradiance_confidence = 0.0f;
+  std::uint32_t changed_channel_mask = 0u;
+  std::uint32_t decision_channel_mask = 0u;
   std::size_t active_cell_anchor_count = 0u;
   std::size_t active_surface_patch_count = 0u;
   std::size_t active_contact_zone_count = 0u;
@@ -200,6 +204,8 @@ struct WorldPerceptualFieldObservation {
   float semantic_lod = 0.0f;
   Vec3 neural_irradiance{};
   float neural_irradiance_confidence = 0.0f;
+  std::uint32_t changed_channel_mask = 0u;
+  std::uint32_t decision_channel_mask = 0u;
   bool player_observable = true;
   WorldPerceptualSignals target_signals;
 };

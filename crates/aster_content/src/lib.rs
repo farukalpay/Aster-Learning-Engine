@@ -3908,6 +3908,36 @@ fn perception_ledger_score(required: u32, observed: u32) -> f64 {
     covered / required.count_ones() as f64
 }
 
+fn perceptual_causality_channel_bit(channel: &str) -> u32 {
+    match channel {
+        "material_memory" => 1 << 0,
+        "contact_residue" | "contact_history" => 1 << 1,
+        "light_history" | "lighting_exposure" => 1 << 2,
+        "acoustic_surface" | "audio_visual_cue_budget" => 1 << 3,
+        "traversal_affordance" | "traversal_pressure" => 1 << 4,
+        "threat_cover" | "ai_attention" => 1 << 5,
+        "semantic_lod" | "streaming_semantic_lod" => 1 << 6,
+        "streaming_cost" | "streaming_residency" => 1 << 7,
+        "player_readable_cause" | "gameplay_affordance" => 1 << 8,
+        "neural_irradiance" => 1 << 9,
+        _ => 0,
+    }
+}
+
+fn perceptual_causality_mask(value: Option<&Value>) -> u32 {
+    value
+        .and_then(Value::as_array)
+        .map(|channels| {
+            channels
+                .iter()
+                .filter_map(Value::as_str)
+                .fold(0u32, |mask, channel| {
+                    mask | perceptual_causality_channel_bit(channel)
+                })
+        })
+        .unwrap_or(0)
+}
+
 const CAVE_BELIEF_FINDING_KINDS: [&str; 9] = [
     "material_family_collapse",
     "contextual_grounding_failure",
@@ -4657,6 +4687,83 @@ fn cave_world_gate_report(
     let continuity_report_hash = hash_hex_text(&format!(
         "{id}:continuity:{continuity_required}:{continuity_observed}:{continuity_missing}:{continuity_score:.3}:{continuity_minimum:.3}"
     ));
+    let causality_budget = validation.get("perceptual_causality_graph");
+    let causality_id = causality_budget
+        .and_then(|value| value.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("perceptual_causality_graph");
+    let causality_required_changed = perceptual_causality_mask(
+        causality_budget.and_then(|value| value.get("required_causal_edges")),
+    );
+    let causality_required_decision = perceptual_causality_mask(
+        causality_budget.and_then(|value| value.get("required_decision_channels")),
+    );
+    let causality_minimum_decision_impact = causality_budget
+        .and_then(|value| value.get("minimum_decision_impact"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.50)
+        .clamp(0.0, 1.0);
+    let mut causality_changed = 0u32;
+    if ledger_observed & perception_ledger_channel_bit("material_memory") != 0 {
+        causality_changed |= perceptual_causality_channel_bit("material_memory");
+    }
+    if ledger_observed & perception_ledger_channel_bit("contact_history") != 0
+        || continuity_observed & perceptual_continuity_channel_bit("event_residue") != 0
+    {
+        causality_changed |= perceptual_causality_channel_bit("contact_residue");
+    }
+    if ledger_observed & perception_ledger_channel_bit("lighting_exposure") != 0 {
+        causality_changed |= perceptual_causality_channel_bit("light_history");
+    }
+    if ledger_observed & perception_ledger_channel_bit("audio_visual_cue_budget") != 0 {
+        causality_changed |= perceptual_causality_channel_bit("acoustic_surface");
+    }
+    if nav_valid || ledger_observed & perception_ledger_channel_bit("streaming_semantic_lod") != 0 {
+        causality_changed |= perceptual_causality_channel_bit("traversal_affordance")
+            | perceptual_causality_channel_bit("semantic_lod")
+            | perceptual_causality_channel_bit("streaming_cost");
+    }
+    if ledger_observed & perception_ledger_channel_bit("occlusion_role") != 0
+        || continuity_observed & perceptual_continuity_channel_bit("ai_attention") != 0
+    {
+        causality_changed |= perceptual_causality_channel_bit("threat_cover");
+    }
+    if ledger_observed & perception_ledger_channel_bit("gameplay_affordance") != 0
+        || runtime_player_readable_cause > 0.0
+    {
+        causality_changed |= perceptual_causality_channel_bit("player_readable_cause");
+    }
+    if fixture_count > 0 {
+        causality_changed |= perceptual_causality_channel_bit("neural_irradiance");
+    }
+    let causality_decision = causality_changed
+        & (perceptual_causality_channel_bit("material_memory")
+            | perceptual_causality_channel_bit("light_history")
+            | perceptual_causality_channel_bit("acoustic_surface")
+            | perceptual_causality_channel_bit("threat_cover")
+            | perceptual_causality_channel_bit("traversal_affordance")
+            | perceptual_causality_channel_bit("player_readable_cause"));
+    let causality_primitive_count = resource_capacity.max(0) as u64
+        + encounter_count as u64
+        + fixture_count as u64
+        + checked_steps.max(1) as u64;
+    let causality_decision_impact = scheduler_decision_impact
+        .max(runtime_player_readable_cause * 0.72)
+        .clamp(0.0, 1.0);
+    let causality_valid = causality_primitive_count > 0
+        && (causality_required_changed == 0
+            || (causality_changed & causality_required_changed) == causality_required_changed)
+        && (causality_required_decision == 0
+            || (causality_decision & causality_required_decision) == causality_required_decision)
+        && causality_decision_impact + f64::EPSILON >= causality_minimum_decision_impact;
+    if !causality_valid {
+        reasons.push(format!(
+            "perceptual causality graph decision impact {causality_decision_impact:.2} is below minimum {causality_minimum_decision_impact:.2}"
+        ));
+    }
+    let causality_graph_hash = hash_hex_text(&format!(
+        "{id}:causality:{causality_id}:{probe_trace_hash}:{causality_primitive_count}:{causality_changed}:{causality_decision}:{causality_decision_impact:.3}"
+    ));
     let belief_budget = validation.get("belief_contract");
     let belief_id = belief_budget
         .and_then(|value| value.get("id"))
@@ -4885,10 +4992,10 @@ fn cave_world_gate_report(
         ));
     }
     let world_transition_hash = hash_hex_text(&format!(
-        "{id}:world-transition:{probe_trace_hash}:{ledger_hash}:{runtime_state_hash}:{scheduler_hash}:{belief_contract_hash}"
+        "{id}:world-transition:{probe_trace_hash}:{ledger_hash}:{runtime_state_hash}:{scheduler_hash}:{causality_graph_hash}:{belief_contract_hash}"
     ));
     let extraction_hash = hash_hex_text(&format!(
-        "{id}:render-extraction:{probe_trace_hash}:{runtime_state_hash}:{scheduler_hash}:{belief_contract_hash}:{readability_audit_hash}"
+        "{id}:render-extraction:{probe_trace_hash}:{runtime_state_hash}:{scheduler_hash}:{causality_graph_hash}:{belief_contract_hash}:{readability_audit_hash}"
     ));
     let verdict = nav_valid
         && resource_valid
@@ -4898,6 +5005,7 @@ fn cave_world_gate_report(
         && ledger_valid
         && runtime_valid
         && scheduler_valid
+        && causality_valid
         && belief_valid
         && checked_steps > 0;
     let diagnostic = if verdict {
@@ -5052,6 +5160,20 @@ fn cave_world_gate_report(
             "player_readable_cause": runtime_player_readable_cause,
             "semantic_budget_hash": runtime_semantic_budget_hash,
             "continuity_score": runtime_continuity_score,
+        },
+        "perceptual_causality_graph": {
+            "id": causality_id,
+            "accepted": causality_valid,
+            "graph_hash": causality_graph_hash,
+            "source_world_transition_hash": probe_trace_hash,
+            "primitive_count": causality_primitive_count,
+            "changed_channel_mask": causality_changed,
+            "decision_channel_mask": causality_decision,
+            "required_changed_channel_mask": causality_required_changed,
+            "required_decision_channel_mask": causality_required_decision,
+            "decision_impact_score": causality_decision_impact,
+            "minimum_decision_impact": causality_minimum_decision_impact,
+            "diagnostic": if causality_valid { "perceptual causality graph accepted" } else { "perceptual causality graph missing required causal decision evidence" },
         },
         "perceptual_world_scheduler": {
             "schema_version": 1,

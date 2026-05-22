@@ -15,13 +15,21 @@ The detailed inspection surface is:
   template hash, cell hash, residency, exposure age, semantic LOD, material
   half-life, wetness/history decay, residue, contact-normal history, light,
   acoustic and visual occlusion trust, traversal affordance, streaming cost,
-  decision impact, player-readable cause, and truth hash.
+  decision impact, player-readable cause, sound surface hash, neural irradiance,
+  AI cover value, belief state, perceptual debt, changed/decision channel masks,
+  and truth hash.
+- `AsterPerceptualCausalityGraphInfo`, which records graph hash, source world
+  transition hash, changed/decision channel masks, decision impact, primitive
+  count, and acceptance diagnostic for the graph that generated the primitive
+  evidence.
 - Four span-backed subrecord views for `CellAnchor`, `SurfacePatch`,
   `ContactZone`, and `ResidueChannel`.
 - `aster_kernel_world_perceptual_primitive`, which returns the primitive records
   stored with the last accepted world evidence.
 - `aster_kernel_renderer_frame_perceptual_primitive`, which returns the
   primitive traces consumed by the last rendered frame.
+- `aster_kernel_renderer_frame_perceptual_causality_graph`, which returns the
+  graph proof stamped onto the last rendered frame.
 
 Strict renderables must provide accepted primitive truth before frame planning.
 The frozen `AsterSceneObjectDesc` path remains a compatibility exception: frames
@@ -35,4 +43,5 @@ Acceptance requirements for future tail fields:
 - New-size structs must round-trip the compact summary and detailed primitive
   records without exposing mutable runtime storage.
 - Deterministic replay must keep primitive truth hashes aligned with simulation,
-  render extraction, belief extraction, and FrameForensics audit hashes.
+  perceptual causality graph hashes, render extraction, belief extraction, and
+  FrameForensics audit hashes.

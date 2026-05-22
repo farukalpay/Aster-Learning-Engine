@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 6u
-#define ASTER_KERNEL_ABI_MINOR 4u
+#define ASTER_KERNEL_ABI_MINOR 5u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -400,6 +400,19 @@ typedef struct AsterPerceptualWorldTruthSummary {
   float player_readable_cause;
 } AsterPerceptualWorldTruthSummary;
 
+typedef struct AsterPerceptualCausalityGraphInfo {
+  size_t size;
+  uint32_t version;
+  uint32_t accepted;
+  uint64_t graph_hash;
+  uint64_t source_world_transition_hash;
+  size_t primitive_count;
+  uint32_t changed_channel_mask;
+  uint32_t decision_channel_mask;
+  float decision_impact_score;
+  AsterStringView diagnostic;
+} AsterPerceptualCausalityGraphInfo;
+
 typedef enum AsterValidationKind {
   ASTER_VALIDATION_UNKNOWN = 0,
   ASTER_VALIDATION_TEXTURE_ROLE_MISMATCH = 1,
@@ -669,6 +682,53 @@ typedef struct AsterVec4 {
   float w;
 } AsterVec4;
 
+typedef struct AsterWorldPerceptualCellAnchorInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView id;
+  uint64_t cell_hash;
+  AsterVec3 center;
+  float residency;
+  float streaming_cost;
+} AsterWorldPerceptualCellAnchorInfo;
+
+typedef struct AsterWorldPerceptualSurfacePatchInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView id;
+  uint64_t patch_hash;
+  AsterVec3 normal;
+  float wetness_flow;
+  float exposure_age;
+  float thermal_history;
+  float chemical_history;
+  float material_stability;
+} AsterWorldPerceptualSurfacePatchInfo;
+
+typedef struct AsterWorldPerceptualContactZoneInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView id;
+  uint64_t zone_hash;
+  AsterVec3 normal;
+  float contact_field;
+  float occlusion_trust;
+  float ai_cover_value;
+  float traversal_affordance;
+} AsterWorldPerceptualContactZoneInfo;
+
+typedef struct AsterWorldPerceptualResidueChannelInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView id;
+  uint64_t channel_hash;
+  float residue;
+  float acoustic_occlusion;
+  float ecology_signal;
+  float threat;
+  float decision_impact;
+} AsterWorldPerceptualResidueChannelInfo;
+
 typedef struct AsterWorldPerceptualPrimitiveInfo {
   size_t size;
   uint32_t version;
@@ -705,6 +765,21 @@ typedef struct AsterWorldPerceptualPrimitiveInfo {
   size_t surface_patch_count;
   size_t contact_zone_count;
   size_t residue_channel_count;
+  uint64_t sound_surface_class_hash;
+  uint64_t neural_irradiance_hash;
+  AsterVec3 neural_irradiance;
+  float neural_irradiance_confidence;
+  float world_ownership;
+  float wetness_half_life_seconds;
+  float ai_cover_value;
+  float belief_state;
+  float perceptual_debt;
+  uint32_t changed_channel_mask;
+  uint32_t decision_channel_mask;
+  AsterSpan cell_anchors;
+  AsterSpan surface_patches;
+  AsterSpan contact_zones;
+  AsterSpan residue_channels;
 } AsterWorldPerceptualPrimitiveInfo;
 
 typedef struct AsterDVec2 {
@@ -1366,6 +1441,7 @@ typedef struct AsterRendererSettings {
   uint32_t perceptual_truth_mode;
   size_t perceptual_truth_expected_count;
   uint64_t perceptual_truth_policy_hash;
+  AsterPerceptualCausalityGraphInfo perceptual_causality_graph;
 } AsterRendererSettings;
 
 typedef struct AsterSystemEntityHandle {
@@ -1506,6 +1582,7 @@ typedef struct AsterWorldRegionGateReport {
   AsterSpan belief_findings;
   AsterPerceptualWorldTruthSummary perceptual_world_truth;
   AsterSpan perceptual_primitives;
+  AsterPerceptualCausalityGraphInfo perceptual_causality_graph;
 } AsterWorldRegionGateReport;
 
 typedef struct AsterWorldRenderExtractionDesc {
@@ -1551,6 +1628,7 @@ typedef struct AsterWorldForensics {
   uint64_t visibility_set_hash;
   AsterPerceptualContinuityBudget perceptual_continuity_budget;
   AsterPerceptualWorldTruthSummary perceptual_world_truth;
+  AsterPerceptualCausalityGraphInfo perceptual_causality_graph;
 } AsterWorldForensics;
 
 typedef struct AsterSystemWorldDesc {
@@ -1775,6 +1853,7 @@ typedef struct AsterFrameForensicsDetailCounts {
   size_t perceptual_truth_observed_count;
   size_t perceptual_truth_missing_count;
   uint64_t perceptual_truth_policy_hash;
+  AsterPerceptualCausalityGraphInfo perceptual_causality_graph;
 } AsterFrameForensicsDetailCounts;
 
 typedef struct AsterFramePassStats {
@@ -2223,6 +2302,8 @@ ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_falseness_finding(
     AsterRendererHandle renderer, uint32_t index, AsterBeliefFindingInfo *out_finding);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_perceptual_world_schedule(
     AsterRendererHandle renderer, AsterPerceptualWorldScheduleInfo *out_schedule);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_perceptual_causality_graph(
+    AsterRendererHandle renderer, AsterPerceptualCausalityGraphInfo *out_graph);
 ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_perceptual_primitive(
     AsterRendererHandle renderer, uint32_t index,
     AsterWorldPerceptualPrimitiveInfo *out_primitive);

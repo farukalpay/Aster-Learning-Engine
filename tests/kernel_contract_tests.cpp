@@ -5,6 +5,7 @@
 #include "aster/math/mat4.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -71,6 +72,11 @@ static_assert(std::is_standard_layout_v<AsterBeliefFindingInfo>);
 static_assert(std::is_standard_layout_v<AsterBeliefReportInfo>);
 static_assert(std::is_standard_layout_v<AsterPerceptualWorldScheduleInfo>);
 static_assert(std::is_standard_layout_v<AsterPerceptualWorldTruthSummary>);
+static_assert(std::is_standard_layout_v<AsterPerceptualCausalityGraphInfo>);
+static_assert(std::is_standard_layout_v<AsterWorldPerceptualCellAnchorInfo>);
+static_assert(std::is_standard_layout_v<AsterWorldPerceptualSurfacePatchInfo>);
+static_assert(std::is_standard_layout_v<AsterWorldPerceptualContactZoneInfo>);
+static_assert(std::is_standard_layout_v<AsterWorldPerceptualResidueChannelInfo>);
 static_assert(std::is_standard_layout_v<AsterWorldPerceptualPrimitiveInfo>);
 static_assert(std::is_standard_layout_v<AsterWorldDesc>);
 static_assert(std::is_standard_layout_v<AsterWorldAdvanceDesc>);
@@ -185,6 +191,8 @@ static_assert(offsetof(AsterRendererSettings, perceptual_world_schedule) >
               offsetof(AsterRendererSettings, perceptual_continuity_budget));
 static_assert(offsetof(AsterRendererSettings, perceptual_truth_mode) >
               offsetof(AsterRendererSettings, perceptual_world_truth));
+static_assert(offsetof(AsterWorldPerceptualPrimitiveInfo, cell_anchors) >
+              offsetof(AsterWorldPerceptualPrimitiveInfo, decision_channel_mask));
 
 struct LegacyCameraDesc {
   size_t size;
@@ -327,7 +335,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 6u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 4u);
+  assert(version.minor == 5u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -704,7 +712,7 @@ void testRendererAbi5Lifecycle() {
   assert(aster_kernel_material_create(engine, &material_desc, &material).code ==
          ASTER_STATUS_OK);
 
-  const AsterWorldPerceptualPrimitiveInfo scene_primitive{
+  AsterWorldPerceptualPrimitiveInfo scene_primitive{
       sizeof(AsterWorldPerceptualPrimitiveInfo),
       ASTER_KERNEL_STRUCT_VERSION_1,
       1u,
@@ -740,6 +748,64 @@ void testRendererAbi5Lifecycle() {
       1u,
       1u,
       1u};
+  scene_primitive.sound_surface_class_hash = 0xA57E00000000E101ull;
+  scene_primitive.neural_irradiance_hash = 0xA57E00000000E102ull;
+  scene_primitive.neural_irradiance = {0.22f, 0.18f, 0.14f};
+  scene_primitive.neural_irradiance_confidence = 0.64f;
+  scene_primitive.world_ownership = 0.88f;
+  scene_primitive.wetness_half_life_seconds = 6.5f;
+  scene_primitive.ai_cover_value = 0.53f;
+  scene_primitive.belief_state = 0.91f;
+  scene_primitive.perceptual_debt = 0.08f;
+  scene_primitive.changed_channel_mask = 0x15u;
+  scene_primitive.decision_channel_mask = 0x11u;
+  const AsterWorldPerceptualCellAnchorInfo scene_cell_anchors[]{
+      {sizeof(AsterWorldPerceptualCellAnchorInfo),
+       ASTER_KERNEL_STRUCT_VERSION_1,
+       {"scene-cell", 10u},
+       0xA57E00000000E201ull,
+       {0.0f, 0.5f, 0.0f},
+       0.91f,
+       0.18f}};
+  const AsterWorldPerceptualSurfacePatchInfo scene_surface_patches[]{
+      {sizeof(AsterWorldPerceptualSurfacePatchInfo),
+       ASTER_KERNEL_STRUCT_VERSION_1,
+       {"scene-surface", 13u},
+       0xA57E00000000E202ull,
+       {0.0f, 1.0f, 0.0f},
+       0.44f,
+       0.32f,
+       0.62f,
+       0.24f,
+       0.86f}};
+  const AsterWorldPerceptualContactZoneInfo scene_contact_zones[]{
+      {sizeof(AsterWorldPerceptualContactZoneInfo),
+       ASTER_KERNEL_STRUCT_VERSION_1,
+       {"scene-contact", 13u},
+       0xA57E00000000E203ull,
+       {0.0f, 1.0f, 0.0f},
+       0.72f,
+       0.74f,
+       0.53f,
+       0.68f}};
+  const AsterWorldPerceptualResidueChannelInfo scene_residue_channels[]{
+      {sizeof(AsterWorldPerceptualResidueChannelInfo),
+       ASTER_KERNEL_STRUCT_VERSION_1,
+       {"scene-residue", 13u},
+       0xA57E00000000E204ull,
+       0.66f,
+       0.24f,
+       0.42f,
+       0.18f,
+       0.82f}};
+  scene_primitive.cell_anchors =
+      {scene_cell_anchors, 1u, sizeof(AsterWorldPerceptualCellAnchorInfo)};
+  scene_primitive.surface_patches =
+      {scene_surface_patches, 1u, sizeof(AsterWorldPerceptualSurfacePatchInfo)};
+  scene_primitive.contact_zones =
+      {scene_contact_zones, 1u, sizeof(AsterWorldPerceptualContactZoneInfo)};
+  scene_primitive.residue_channels =
+      {scene_residue_channels, 1u, sizeof(AsterWorldPerceptualResidueChannelInfo)};
   const AsterSceneObjectDesc object_desc{sizeof(AsterSceneObjectDesc),
                                          ASTER_KERNEL_STRUCT_VERSION_1,
                                          mesh,
@@ -979,6 +1045,17 @@ void testRendererAbi5Lifecycle() {
       0.76f,
       0.64f,
       0.83f};
+  presentation_settings.perceptual_causality_graph = {
+      sizeof(AsterPerceptualCausalityGraphInfo),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      1u,
+      0xA57E0000000000E1ull,
+      presentation_settings.world_transition_hash,
+      1u,
+      0x15u,
+      0x11u,
+      0.76f,
+      {"renderer causality accepted", 27u}};
   const AsterBeliefFindingInfo renderer_belief_finding{
       sizeof(AsterBeliefFindingInfo),
       ASTER_KERNEL_STRUCT_VERSION_1,
@@ -1046,6 +1123,10 @@ void testRendererAbi5Lifecycle() {
   assert(detail_counts.perceptual_truth_observed_count == 1u);
   assert(detail_counts.perceptual_truth_missing_count == 1u);
   assert(detail_counts.perceptual_truth_policy_hash != 0u);
+  assert(detail_counts.perceptual_causality_graph.graph_hash ==
+         presentation_settings.perceptual_causality_graph.graph_hash);
+  assert(detail_counts.perceptual_causality_graph.decision_channel_mask ==
+         presentation_settings.perceptual_causality_graph.decision_channel_mask);
   assert(detail_counts.world_truth_audit_hash != 0u);
   AsterWorldPerceptualPrimitiveInfo frame_primitive{
       sizeof(AsterWorldPerceptualPrimitiveInfo), ASTER_KERNEL_STRUCT_VERSION_1};
@@ -1053,6 +1134,53 @@ void testRendererAbi5Lifecycle() {
          ASTER_STATUS_OK);
   assert(frame_primitive.primitive_hash == scene_primitive.primitive_hash);
   assert(frame_primitive.primitive_id.size > 0u);
+  assert(frame_primitive.sound_surface_class_hash ==
+         scene_primitive.sound_surface_class_hash);
+  assert(frame_primitive.neural_irradiance_hash == scene_primitive.neural_irradiance_hash);
+  assert(frame_primitive.wetness_half_life_seconds ==
+         scene_primitive.wetness_half_life_seconds);
+  assert(frame_primitive.ai_cover_value == scene_primitive.ai_cover_value);
+  assert(frame_primitive.changed_channel_mask == scene_primitive.changed_channel_mask);
+  assert(frame_primitive.decision_channel_mask == scene_primitive.decision_channel_mask);
+  assert(frame_primitive.cell_anchors.size == 1u);
+  assert(frame_primitive.surface_patches.size == 1u);
+  assert(frame_primitive.contact_zones.size == 1u);
+  assert(frame_primitive.residue_channels.size == 1u);
+  const auto *frame_cell_anchor =
+      static_cast<const AsterWorldPerceptualCellAnchorInfo *>(frame_primitive.cell_anchors.data);
+  const auto *frame_surface_patch =
+      static_cast<const AsterWorldPerceptualSurfacePatchInfo *>(
+          frame_primitive.surface_patches.data);
+  const auto *frame_contact_zone =
+      static_cast<const AsterWorldPerceptualContactZoneInfo *>(frame_primitive.contact_zones.data);
+  const auto *frame_residue_channel =
+      static_cast<const AsterWorldPerceptualResidueChannelInfo *>(
+          frame_primitive.residue_channels.data);
+  assert(frame_cell_anchor->cell_hash == scene_cell_anchors[0].cell_hash);
+  assert(frame_surface_patch->patch_hash == scene_surface_patches[0].patch_hash);
+  assert(frame_contact_zone->zone_hash == scene_contact_zones[0].zone_hash);
+  assert(frame_residue_channel->channel_hash == scene_residue_channels[0].channel_hash);
+  constexpr std::size_t kLegacyPrimitiveInfoSize =
+      offsetof(AsterWorldPerceptualPrimitiveInfo, sound_surface_class_hash);
+  alignas(AsterWorldPerceptualPrimitiveInfo) std::array<
+      unsigned char, kLegacyPrimitiveInfoSize + sizeof(std::uint64_t)>
+      legacy_frame_primitive_storage{};
+  auto *legacy_frame_primitive =
+      reinterpret_cast<AsterWorldPerceptualPrimitiveInfo *>(legacy_frame_primitive_storage.data());
+  legacy_frame_primitive->size = kLegacyPrimitiveInfoSize;
+  legacy_frame_primitive->version = ASTER_KERNEL_STRUCT_VERSION_1;
+  const std::uint64_t legacy_frame_canary = 0xA57ECA1100FFEEull;
+  std::memcpy(legacy_frame_primitive_storage.data() + kLegacyPrimitiveInfoSize,
+              &legacy_frame_canary, sizeof(legacy_frame_canary));
+  assert(aster_kernel_renderer_frame_perceptual_primitive(renderer, 0u,
+                                                          legacy_frame_primitive)
+             .code == ASTER_STATUS_OK);
+  std::uint64_t legacy_frame_canary_after = 0u;
+  std::memcpy(&legacy_frame_canary_after,
+              legacy_frame_primitive_storage.data() + kLegacyPrimitiveInfoSize,
+              sizeof(legacy_frame_canary_after));
+  assert(legacy_frame_canary_after == legacy_frame_canary);
+  assert(legacy_frame_primitive->primitive_hash == scene_primitive.primitive_hash);
   assert(aster_kernel_renderer_frame_perceptual_primitive(renderer, 1u, &frame_primitive).code ==
          ASTER_STATUS_INVALID_ARGUMENT);
   AsterPerceptualWorldScheduleInfo frame_schedule{
@@ -1064,6 +1192,17 @@ void testRendererAbi5Lifecycle() {
          presentation_settings.perceptual_world_schedule.scheduler_hash);
   assert(frame_schedule.decision_impact_score ==
          presentation_settings.perceptual_world_schedule.decision_impact_score);
+  AsterPerceptualCausalityGraphInfo frame_causality_graph{
+      sizeof(AsterPerceptualCausalityGraphInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_perceptual_causality_graph(renderer,
+                                                                &frame_causality_graph)
+             .code == ASTER_STATUS_OK);
+  assert(frame_causality_graph.graph_hash ==
+         presentation_settings.perceptual_causality_graph.graph_hash);
+  assert(frame_causality_graph.source_world_transition_hash ==
+         presentation_settings.perceptual_causality_graph.source_world_transition_hash);
+  assert(frame_causality_graph.decision_impact_score ==
+         presentation_settings.perceptual_causality_graph.decision_impact_score);
   AsterBeliefReportInfo frame_belief{sizeof(AsterBeliefReportInfo),
                                      ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_renderer_frame_falseness_report(renderer, &frame_belief).code ==
@@ -1974,7 +2113,7 @@ void testWorldRootAbi6Contracts() {
       0xA57E000000001001ull,
       {"material-response", 17u},
       {"material response is unstable", 29u}};
-  const AsterWorldPerceptualPrimitiveInfo world_primitive{
+  AsterWorldPerceptualPrimitiveInfo world_primitive{
       sizeof(AsterWorldPerceptualPrimitiveInfo),
       ASTER_KERNEL_STRUCT_VERSION_1,
       1u,
@@ -2010,6 +2149,64 @@ void testWorldRootAbi6Contracts() {
       1u,
       1u,
       1u};
+  world_primitive.sound_surface_class_hash = 0xA57E000000001601ull;
+  world_primitive.neural_irradiance_hash = 0xA57E000000001602ull;
+  world_primitive.neural_irradiance = {0.28f, 0.21f, 0.16f};
+  world_primitive.neural_irradiance_confidence = 0.68f;
+  world_primitive.world_ownership = 0.94f;
+  world_primitive.wetness_half_life_seconds = 8.0f;
+  world_primitive.ai_cover_value = 0.57f;
+  world_primitive.belief_state = 0.88f;
+  world_primitive.perceptual_debt = 0.09f;
+  world_primitive.changed_channel_mask = 0x1Fu;
+  world_primitive.decision_channel_mask = 0x15u;
+  const AsterWorldPerceptualCellAnchorInfo world_cell_anchors[]{
+      {sizeof(AsterWorldPerceptualCellAnchorInfo),
+       ASTER_KERNEL_STRUCT_VERSION_1,
+       {"world-cell", 10u},
+       0xA57E000000001801ull,
+       {1.0f, 0.5f, 2.0f},
+       0.96f,
+       0.24f}};
+  const AsterWorldPerceptualSurfacePatchInfo world_surface_patches[]{
+      {sizeof(AsterWorldPerceptualSurfacePatchInfo),
+       ASTER_KERNEL_STRUCT_VERSION_1,
+       {"world-surface", 13u},
+       0xA57E000000001802ull,
+       {0.0f, 1.0f, 0.0f},
+       0.64f,
+       0.48f,
+       0.70f,
+       0.44f,
+       0.86f}};
+  const AsterWorldPerceptualContactZoneInfo world_contact_zones[]{
+      {sizeof(AsterWorldPerceptualContactZoneInfo),
+       ASTER_KERNEL_STRUCT_VERSION_1,
+       {"world-contact", 13u},
+       0xA57E000000001803ull,
+       {0.0f, 1.0f, 0.0f},
+       0.70f,
+       0.82f,
+       0.57f,
+       0.66f}};
+  const AsterWorldPerceptualResidueChannelInfo world_residue_channels[]{
+      {sizeof(AsterWorldPerceptualResidueChannelInfo),
+       ASTER_KERNEL_STRUCT_VERSION_1,
+       {"world-residue", 13u},
+       0xA57E000000001804ull,
+       0.64f,
+       0.34f,
+       0.44f,
+       0.48f,
+       0.82f}};
+  world_primitive.cell_anchors =
+      {world_cell_anchors, 1u, sizeof(AsterWorldPerceptualCellAnchorInfo)};
+  world_primitive.surface_patches =
+      {world_surface_patches, 1u, sizeof(AsterWorldPerceptualSurfacePatchInfo)};
+  world_primitive.contact_zones =
+      {world_contact_zones, 1u, sizeof(AsterWorldPerceptualContactZoneInfo)};
+  world_primitive.residue_channels =
+      {world_residue_channels, 1u, sizeof(AsterWorldPerceptualResidueChannelInfo)};
   AsterWorldRegionGateReport belief_gate{};
   belief_gate.size = sizeof(AsterWorldRegionGateReport);
   belief_gate.version = ASTER_KERNEL_STRUCT_VERSION_1;
@@ -2108,6 +2305,17 @@ void testWorldRootAbi6Contracts() {
                                         0.82f};
   belief_gate.perceptual_primitives = {&world_primitive, 1u,
                                        sizeof(AsterWorldPerceptualPrimitiveInfo)};
+  belief_gate.perceptual_causality_graph = {
+      sizeof(AsterPerceptualCausalityGraphInfo),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      1u,
+      0xA57E000000001701ull,
+      belief_gate.probe_trace_hash,
+      1u,
+      world_primitive.changed_channel_mask,
+      world_primitive.decision_channel_mask,
+      0.74f,
+      {"world causality accepted", 24u}};
   assert(aster_kernel_world_record_region_gate(world, &belief_gate).code == ASTER_STATUS_OK);
   AsterWorldForensics belief_forensics{sizeof(AsterWorldForensics),
                                        ASTER_KERNEL_STRUCT_VERSION_1};
@@ -2115,14 +2323,70 @@ void testWorldRootAbi6Contracts() {
   assert(belief_forensics.generated_region_gate == ASTER_WORLD_REGION_GATE_QUARANTINED);
   assert(belief_forensics.perceptual_world_truth.truth_hash ==
          belief_gate.perceptual_world_truth.truth_hash);
+  assert(belief_forensics.perceptual_causality_graph.graph_hash ==
+         belief_gate.perceptual_causality_graph.graph_hash);
+  assert(belief_forensics.perceptual_causality_graph.changed_channel_mask ==
+         belief_gate.perceptual_causality_graph.changed_channel_mask);
+  assert(belief_forensics.perceptual_causality_graph.decision_channel_mask ==
+         belief_gate.perceptual_causality_graph.decision_channel_mask);
   AsterWorldPerceptualPrimitiveInfo world_primitive_round_trip{
       sizeof(AsterWorldPerceptualPrimitiveInfo), ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_world_perceptual_primitive(world, 0u, &world_primitive_round_trip).code ==
          ASTER_STATUS_OK);
   assert(world_primitive_round_trip.primitive_hash == world_primitive.primitive_hash);
   assert(world_primitive_round_trip.template_hash == world_primitive.template_hash);
+  assert(world_primitive_round_trip.sound_surface_class_hash ==
+         world_primitive.sound_surface_class_hash);
+  assert(world_primitive_round_trip.neural_irradiance_hash ==
+         world_primitive.neural_irradiance_hash);
+  assert(world_primitive_round_trip.wetness_half_life_seconds ==
+         world_primitive.wetness_half_life_seconds);
+  assert(world_primitive_round_trip.ai_cover_value == world_primitive.ai_cover_value);
+  assert(world_primitive_round_trip.changed_channel_mask == world_primitive.changed_channel_mask);
+  assert(world_primitive_round_trip.decision_channel_mask ==
+         world_primitive.decision_channel_mask);
+  assert(world_primitive_round_trip.cell_anchors.size == 1u);
+  assert(world_primitive_round_trip.surface_patches.size == 1u);
+  assert(world_primitive_round_trip.contact_zones.size == 1u);
+  assert(world_primitive_round_trip.residue_channels.size == 1u);
+  const auto *world_cell_anchor =
+      static_cast<const AsterWorldPerceptualCellAnchorInfo *>(
+          world_primitive_round_trip.cell_anchors.data);
+  const auto *world_surface_patch =
+      static_cast<const AsterWorldPerceptualSurfacePatchInfo *>(
+          world_primitive_round_trip.surface_patches.data);
+  const auto *world_contact_zone =
+      static_cast<const AsterWorldPerceptualContactZoneInfo *>(
+          world_primitive_round_trip.contact_zones.data);
+  const auto *world_residue_channel =
+      static_cast<const AsterWorldPerceptualResidueChannelInfo *>(
+          world_primitive_round_trip.residue_channels.data);
+  assert(world_cell_anchor->cell_hash == world_cell_anchors[0].cell_hash);
+  assert(world_surface_patch->patch_hash == world_surface_patches[0].patch_hash);
+  assert(world_contact_zone->zone_hash == world_contact_zones[0].zone_hash);
+  assert(world_residue_channel->channel_hash == world_residue_channels[0].channel_hash);
   assert(toString(world_primitive_round_trip.primitive_id) == "primitive.ore");
   assert(toString(world_primitive_round_trip.object_name) == "ore primitive");
+  constexpr std::size_t kLegacyPrimitiveInfoSize =
+      offsetof(AsterWorldPerceptualPrimitiveInfo, sound_surface_class_hash);
+  alignas(AsterWorldPerceptualPrimitiveInfo) std::array<
+      unsigned char, kLegacyPrimitiveInfoSize + sizeof(std::uint64_t)>
+      legacy_world_primitive_storage{};
+  auto *legacy_world_primitive =
+      reinterpret_cast<AsterWorldPerceptualPrimitiveInfo *>(legacy_world_primitive_storage.data());
+  legacy_world_primitive->size = kLegacyPrimitiveInfoSize;
+  legacy_world_primitive->version = ASTER_KERNEL_STRUCT_VERSION_1;
+  const std::uint64_t legacy_world_canary = 0xA57ECA1100AAA1ull;
+  std::memcpy(legacy_world_primitive_storage.data() + kLegacyPrimitiveInfoSize,
+              &legacy_world_canary, sizeof(legacy_world_canary));
+  assert(aster_kernel_world_perceptual_primitive(world, 0u, legacy_world_primitive).code ==
+         ASTER_STATUS_OK);
+  std::uint64_t legacy_world_canary_after = 0u;
+  std::memcpy(&legacy_world_canary_after,
+              legacy_world_primitive_storage.data() + kLegacyPrimitiveInfoSize,
+              sizeof(legacy_world_canary_after));
+  assert(legacy_world_canary_after == legacy_world_canary);
+  assert(legacy_world_primitive->primitive_hash == world_primitive.primitive_hash);
   assert(aster_kernel_world_perceptual_primitive(world, 1u, &world_primitive_round_trip).code ==
          ASTER_STATUS_INVALID_ARGUMENT);
   AsterBeliefReportInfo world_belief{sizeof(AsterBeliefReportInfo),
@@ -2380,6 +2644,7 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_renderer_frame_falseness_report",
       "aster_kernel_renderer_frame_falseness_finding",
       "aster_kernel_renderer_frame_perceptual_world_schedule",
+      "aster_kernel_renderer_frame_perceptual_causality_graph",
       "aster_kernel_renderer_frame_perceptual_primitive",
       "aster_kernel_renderer_debug_capture_info",
       "aster_kernel_renderer_pass_artifact_info",
@@ -2538,6 +2803,7 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_renderer_frame_falseness_report;
   (void)&aster_kernel_renderer_frame_falseness_finding;
   (void)&aster_kernel_renderer_frame_perceptual_world_schedule;
+  (void)&aster_kernel_renderer_frame_perceptual_causality_graph;
   (void)&aster_kernel_renderer_frame_perceptual_primitive;
   (void)&aster_kernel_renderer_debug_capture_info;
   (void)&aster_kernel_renderer_pass_artifact_info;

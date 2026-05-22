@@ -119,6 +119,8 @@ void mixSignals(std::uint64_t &hash, const WorldPerceptualSignals &signals) {
   hash = mix(hash, primitive.semantic_lod);
   hash = mix(hash, primitive.neural_irradiance);
   hash = mix(hash, primitive.neural_irradiance_confidence);
+  hash = mix(hash, static_cast<std::uint64_t>(primitive.changed_channel_mask));
+  hash = mix(hash, static_cast<std::uint64_t>(primitive.decision_channel_mask));
   hash = mix(hash, desc.player_observable);
   mixSignals(hash, primitive.signals);
   for (const WorldPerceptualCellAnchor &anchor : primitive.cell_anchors) {
@@ -246,6 +248,8 @@ WorldPerceptualPrimitive evaluateWorldPerceptualPrimitive(
                                  finite01(desc.neural_irradiance.y),
                                  finite01(desc.neural_irradiance.z)};
   primitive.neural_irradiance_confidence = finite01(desc.neural_irradiance_confidence);
+  primitive.changed_channel_mask = desc.changed_channel_mask;
+  primitive.decision_channel_mask = desc.decision_channel_mask;
   primitive.signals = normalized(desc.signals);
   primitive.cell_anchors = desc.cell_anchors;
   primitive.surface_patches = desc.surface_patches;
@@ -487,6 +491,8 @@ WorldPerceptualField::advance(const WorldPerceptualFieldObservation &observation
   desc.semantic_lod = observation.semantic_lod;
   desc.neural_irradiance = observation.neural_irradiance;
   desc.neural_irradiance_confidence = observation.neural_irradiance_confidence;
+  desc.changed_channel_mask = observation.changed_channel_mask;
+  desc.decision_channel_mask = observation.decision_channel_mask;
   desc.player_observable = observation.player_observable;
   desc.signals =
       decayWorldPerceptualSignals(previous, observation.target_signals, delta_seconds,

@@ -375,6 +375,33 @@
       "minimum_lighting_believability": 0.45,
       "minimum_player_readable_cause": 0.45
     },
+    "perceptual_causality_graph": {
+      "id": "entry_perceptual_causality_graph",
+      "minimum_decision_impact": 0.50,
+      "required_causal_edges": [
+        "material_memory",
+        "contact_residue",
+        "light_history",
+        "acoustic_surface",
+        "traversal_affordance",
+        "threat_cover",
+        "semantic_lod",
+        "streaming_cost",
+        "player_readable_cause"
+      ],
+      "required_decision_channels": [
+        "material_memory",
+        "light_history",
+        "acoustic_surface",
+        "threat_cover",
+        "player_readable_cause"
+      ],
+      "required_player_readable_causes": [
+        "coal-vein-affordance",
+        "held-torch-warm-cave-surface",
+        "cave-ore-fracture"
+      ]
+    },
     "belief_contract": {
       "id": "entry_belief_contract",
       "minimum_score": 0.70,

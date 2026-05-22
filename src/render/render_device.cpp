@@ -4839,6 +4839,7 @@ std::uint64_t worldTruthAuditHash(const aster::FrameForensics &forensics) {
   hash = appendEvidenceValue(hash, forensics.perception_ledger_hash);
   hash = appendEvidenceValue(hash, forensics.perceptual_state_hash);
   hash = appendEvidenceValue(hash, forensics.perceptual_scheduler_hash);
+  hash = appendEvidenceValue(hash, forensics.perceptual_causality_graph.graph_hash);
   hash = appendEvidenceValue(hash, forensics.belief_falseness_report.belief_contract_hash);
   hash = appendEvidenceValue(hash, forensics.perceptual_primitive_summary.truth_hash);
   hash = appendEvidenceValue(
@@ -4857,6 +4858,8 @@ std::uint64_t worldTruthAuditHash(const aster::FrameForensics &forensics) {
     hash = appendEvidenceValue(hash, trace.primitive_hash);
     hash = appendEvidenceValue(hash, trace.sound_surface_class_hash);
     hash = appendEvidenceValue(hash, trace.neural_irradiance_hash);
+    hash = appendEvidenceValue(hash, trace.changed_channel_mask);
+    hash = appendEvidenceValue(hash, trace.decision_channel_mask);
     hash = appendEvidenceValue(
         hash, static_cast<std::uint64_t>(std::lround(trace.decision_impact * 1000000.0f)));
   }
@@ -4905,6 +4908,7 @@ void appendWorldPerceptualPrimitiveTraces(const aster::Scene &scene,
          .neural_irradiance_hash = primitive.neural_irradiance_hash,
          .cell_residency = primitive.cell_residency,
          .exposure_age_seconds = primitive.exposure_age_seconds,
+         .wetness_half_life_seconds = primitive.wetness_half_life_seconds,
          .material_half_life_seconds = primitive.material_half_life_seconds,
          .streaming_cost = primitive.streaming_cost,
          .material_stability = primitive.material_stability,
@@ -4926,11 +4930,17 @@ void appendWorldPerceptualPrimitiveTraces(const aster::Scene &scene,
          .semantic_lod = primitive.signals.semantic_lod,
          .decision_impact = primitive.signals.decision_impact,
          .player_readable_cause = primitive.signals.player_readable_cause,
+         .changed_channel_mask = primitive.changed_channel_mask,
+         .decision_channel_mask = primitive.decision_channel_mask,
          .cell_anchor_count = primitive.active_cell_anchor_count,
          .surface_patch_count = primitive.active_surface_patch_count,
          .contact_zone_count = primitive.active_contact_zone_count,
          .residue_channel_count = primitive.active_residue_channel_count,
-         .accepted = primitive.accepted});
+         .accepted = primitive.accepted,
+         .cell_anchors = primitive.cell_anchors,
+         .surface_patches = primitive.surface_patches,
+         .contact_zones = primitive.contact_zones,
+         .residue_channels = primitive.residue_channels});
   }
   if (neural_sample_count > 0u) {
     const float inv_count = 1.0f / static_cast<float>(neural_sample_count);
@@ -6585,6 +6595,12 @@ void RenderDevice::stampLastFramePerceptualSchedule(
   last_forensics_.perceptual_decision_impact_score = schedule.decision_impact_score;
   last_forensics_.perceptual_scheduler_frame_cost_ms = schedule.frame_cost_ms;
   last_forensics_.perceptual_scheduler_accepted = schedule.accepted;
+  last_forensics_.world_truth_audit_hash = worldTruthAuditHash(last_forensics_);
+}
+
+void RenderDevice::stampLastFramePerceptualCausalityGraph(
+    const PerceptualCausalityGraphReport &report) {
+  last_forensics_.perceptual_causality_graph = report;
   last_forensics_.world_truth_audit_hash = worldTruthAuditHash(last_forensics_);
 }
 

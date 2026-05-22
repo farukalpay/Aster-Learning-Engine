@@ -1005,6 +1005,28 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
   return out;
 }
 
+[[nodiscard]] CavePerceptualCausalityGraphDocument
+parseCavePerceptualCausalityGraphDocument(const Json &value,
+                                          std::vector<Diagnostic> &diagnostics,
+                                          const std::filesystem::path &source,
+                                          const std::string &path) {
+  CavePerceptualCausalityGraphDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readStringOr(value, "id", diagnostics, source, path, {});
+  out.minimum_decision_impact =
+      readFloatOr(value, "minimum_decision_impact", diagnostics, source, path,
+                  out.minimum_decision_impact);
+  out.required_causal_edges =
+      readStringArray(value, "required_causal_edges", diagnostics, source, path);
+  out.required_decision_channels =
+      readStringArray(value, "required_decision_channels", diagnostics, source, path);
+  out.required_player_readable_causes =
+      readStringArray(value, "required_player_readable_causes", diagnostics, source, path);
+  return out;
+}
+
 [[nodiscard]] CaveBeliefContractDocument parseCaveBeliefContractDocument(
     const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
     const std::string &path) {
@@ -1117,6 +1139,10 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value,
   if (const Json *runtime = member(root, "perceptual_runtime")) {
     out.perceptual_runtime = parseCavePerceptualRuntimeDocument(
         *runtime, diagnostics, source, childPath(path, "perceptual_runtime"));
+  }
+  if (const Json *causality = member(root, "perceptual_causality_graph")) {
+    out.perceptual_causality_graph = parseCavePerceptualCausalityGraphDocument(
+        *causality, diagnostics, source, childPath(path, "perceptual_causality_graph"));
   }
   if (const Json *belief = member(root, "belief_contract")) {
     out.belief_contract = parseCaveBeliefContractDocument(
@@ -2675,6 +2701,55 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
     if (!scoreInRange(runtime.minimum_player_readable_cause)) {
       addError("$.validation.perceptual_runtime.minimum_player_readable_cause",
                "perceptual runtime minimum_player_readable_cause must be in [0, 1]");
+    }
+  }
+
+  if (cave.validation.perceptual_causality_graph.has_value()) {
+    const CavePerceptualCausalityGraphDocument &graph =
+        *cave.validation.perceptual_causality_graph;
+    const auto scoreInRange = [](const float value) {
+      return value >= 0.0f && value <= 1.0f;
+    };
+    const auto validCausalityChannel = [](const std::string &channel) {
+      return channel == "material_memory" || channel == "contact_residue" ||
+             channel == "light_history" || channel == "acoustic_surface" ||
+             channel == "traversal_affordance" || channel == "threat_cover" ||
+             channel == "semantic_lod" || channel == "streaming_cost" ||
+             channel == "player_readable_cause" || channel == "neural_irradiance";
+    };
+    if (graph.id.empty()) {
+      addError("$.validation.perceptual_causality_graph.id",
+               "perceptual causality graph id must not be empty");
+    }
+    if (!scoreInRange(graph.minimum_decision_impact)) {
+      addError("$.validation.perceptual_causality_graph.minimum_decision_impact",
+               "perceptual causality graph minimum_decision_impact must be in [0, 1]");
+    }
+    if (graph.required_causal_edges.empty()) {
+      addError("$.validation.perceptual_causality_graph.required_causal_edges",
+               "perceptual causality graph must require at least one causal edge");
+    }
+    if (graph.required_decision_channels.empty()) {
+      addError("$.validation.perceptual_causality_graph.required_decision_channels",
+               "perceptual causality graph must require at least one decision channel");
+    }
+    for (const std::string &channel : graph.required_causal_edges) {
+      if (!validCausalityChannel(channel)) {
+        addError("$.validation.perceptual_causality_graph.required_causal_edges",
+                 "unknown perceptual causality channel '" + channel + "'");
+      }
+    }
+    for (const std::string &channel : graph.required_decision_channels) {
+      if (!validCausalityChannel(channel)) {
+        addError("$.validation.perceptual_causality_graph.required_decision_channels",
+                 "unknown perceptual causality decision channel '" + channel + "'");
+      }
+    }
+    for (const std::string &cause : graph.required_player_readable_causes) {
+      if (cause.empty()) {
+        addError("$.validation.perceptual_causality_graph.required_player_readable_causes",
+                 "player-readable cause id must not be empty");
+      }
     }
   }
 

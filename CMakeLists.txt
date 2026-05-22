@@ -44,7 +44,7 @@ include(CheckIncludeFileCXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-set(ASTER_KERNEL_PACKAGE_VERSION "6.4.0")
+set(ASTER_KERNEL_PACKAGE_VERSION "6.5.0")
 
 if(WIN32 AND NOT MINGW)
   set(ASTER_RUST_STATICLIB_NAME "aster_runtime.lib")
@@ -152,6 +152,7 @@ set(ASTER_CORE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/job_graph.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/module_registry.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/neural_irradiance_volume.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/perceptual_causality_graph.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/perceptual_world_runtime.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/profiler.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/session_journal.cpp"

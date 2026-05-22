@@ -99,6 +99,8 @@ void mixLumenSignals(std::uint64_t &hash, const WorldPerceptualSignals &signals)
   hash = lumenHash(hash, static_cast<std::uint64_t>(primitive.active_surface_patch_count));
   hash = lumenHash(hash, static_cast<std::uint64_t>(primitive.active_contact_zone_count));
   hash = lumenHash(hash, static_cast<std::uint64_t>(primitive.active_residue_channel_count));
+  hash = lumenHash(hash, primitive.changed_channel_mask);
+  hash = lumenHash(hash, primitive.decision_channel_mask);
   return hash;
 }
 
@@ -241,6 +243,51 @@ lumenPerceptionLedgerChannelMask(const std::vector<std::string> &channels) {
     mask |= worldPerceptionLedgerChannelBit(channel);
   }
   return mask;
+}
+
+[[nodiscard]] std::uint32_t
+lumenPerceptualCausalityChannelMask(const std::vector<std::string> &channels) {
+  std::uint32_t mask = 0u;
+  for (const std::string &channel : channels) {
+    mask |= perceptualCausalityChannelBit(channel);
+  }
+  return mask;
+}
+
+[[nodiscard]] PerceptualCausalityEdgeDesc
+lumenCausalEdgeFromPrimitive(const WorldPerceptualPrimitive &primitive,
+                             const std::uint64_t source_world_transition_hash,
+                             const float delta_seconds) {
+  PerceptualCausalityEdgeDesc edge;
+  edge.primitive_id = primitive.primitive_id;
+  edge.object_name = primitive.object_name;
+  edge.source_world_transition_hash = source_world_transition_hash;
+  edge.key = {.world_owner_hash = primitive.world_owner_hash,
+              .template_hash = primitive.template_hash,
+              .cell_hash = primitive.cell_hash};
+  edge.player_readable_cause_hash = primitive.player_readable_cause_hash;
+  edge.sound_surface_class_hash = primitive.sound_surface_class_hash;
+  edge.neural_irradiance_hash = primitive.neural_irradiance_hash;
+  if (!primitive.cell_anchors.empty()) {
+    edge.cell_center = primitive.cell_anchors.front().center;
+  }
+  edge.contact_normal = primitive.contact_normal_history;
+  edge.delta_seconds = delta_seconds;
+  edge.material_half_life_seconds = primitive.material_half_life_seconds;
+  edge.cell_residency = primitive.cell_residency;
+  edge.streaming_cost = primitive.streaming_cost;
+  edge.material_stability = primitive.material_stability;
+  edge.acoustic_occlusion_trust = primitive.acoustic_occlusion_trust;
+  edge.visual_occlusion_trust = primitive.visual_occlusion_trust;
+  edge.ai_cover_value = primitive.ai_cover_value;
+  edge.traversal_affordance = primitive.traversal_affordance;
+  edge.semantic_lod = primitive.semantic_lod;
+  edge.neural_irradiance = primitive.neural_irradiance;
+  edge.neural_irradiance_confidence = primitive.neural_irradiance_confidence;
+  edge.changed_channel_mask = primitive.changed_channel_mask;
+  edge.decision_channel_mask = primitive.decision_channel_mask;
+  edge.target_signals = primitive.signals;
+  return edge;
 }
 
 [[nodiscard]] float lumenContinuityScore(const std::uint32_t required,
@@ -572,6 +619,7 @@ void LumenRun::noteRenderExtraction(const std::uint64_t extraction_hash,
   world_forensics_.trace_hash = world_state_.traceHash();
   world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(frame_cost_ms);
   refreshWorldPerceptualPrimitives();
+  world_state_.notePerceptualTruth(world_forensics_.perceptual_causality_graph.graph_hash);
   world_forensics_.belief_report = buildBeliefExtractionReport();
   refreshWorldTruthAuditHash();
 }
@@ -582,6 +630,8 @@ void LumenRun::resetWorldProof() {
                              .label = "lumen.run.world"});
   perceptual_runtime_.setOptions(perceptualRuntimeOptions(0u));
   perceptual_runtime_.reset();
+  perceptual_causality_graph_.setOptions(perceptualCausalityGraphOptions(0u));
+  perceptual_causality_graph_.reset();
   torch_exposure_field_.reset();
   world_forensics_ = {};
   next_world_epoch_ = 1u;
@@ -603,6 +653,45 @@ LumenRun::perceptualRuntimeOptions(const std::uint64_t region_id) const {
     options.minimum_occlusion_trust = runtime.minimum_occlusion_trust;
     options.minimum_lighting_believability = runtime.minimum_lighting_believability;
     options.minimum_player_readable_cause = runtime.minimum_player_readable_cause;
+  }
+  return options;
+}
+
+PerceptualCausalityGraphOptions
+LumenRun::perceptualCausalityGraphOptions(const std::uint64_t region_id) const {
+  PerceptualCausalityGraphOptions options;
+  options.region_id = region_id;
+  options.id = "lumen_entry_perceptual_causality_graph";
+  options.required_changed_channel_mask =
+      perceptualCausalityChannelBit("material_memory") |
+      perceptualCausalityChannelBit("contact_residue") |
+      perceptualCausalityChannelBit("light_history") |
+      perceptualCausalityChannelBit("acoustic_surface") |
+      perceptualCausalityChannelBit("traversal_affordance") |
+      perceptualCausalityChannelBit("threat_cover") |
+      perceptualCausalityChannelBit("player_readable_cause");
+  options.required_decision_channel_mask =
+      perceptualCausalityChannelBit("material_memory") |
+      perceptualCausalityChannelBit("light_history") |
+      perceptualCausalityChannelBit("acoustic_surface") |
+      perceptualCausalityChannelBit("threat_cover") |
+      perceptualCausalityChannelBit("player_readable_cause");
+  options.minimum_decision_impact = 0.50f;
+  options.default_material_half_life_seconds = 18.0f;
+  if (authoring_.valid &&
+      authoring_.cave.validation.perceptual_causality_graph.has_value()) {
+    const sdk::CavePerceptualCausalityGraphDocument &graph =
+        *authoring_.cave.validation.perceptual_causality_graph;
+    options.id = graph.id.empty() ? options.id : graph.id;
+    options.minimum_decision_impact = graph.minimum_decision_impact;
+    if (!graph.required_causal_edges.empty()) {
+      options.required_changed_channel_mask =
+          lumenPerceptualCausalityChannelMask(graph.required_causal_edges);
+    }
+    if (!graph.required_decision_channels.empty()) {
+      options.required_decision_channel_mask =
+          lumenPerceptualCausalityChannelMask(graph.required_decision_channels);
+    }
   }
   return options;
 }
@@ -1353,7 +1442,28 @@ std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives()
       primitives.push_back(std::move(primitive));
     }
   }
-  return primitives;
+  std::vector<PerceptualCausalityEdgeDesc> causal_edges;
+  causal_edges.reserve(primitives.size());
+  const std::uint64_t source_transition_hash =
+      world_forensics_.world_transition_hash != 0u
+          ? world_forensics_.world_transition_hash
+          : world_forensics_.cave_gate.probe_trace_hash;
+  for (const WorldPerceptualPrimitive &primitive : primitives) {
+    causal_edges.push_back(lumenCausalEdgeFromPrimitive(primitive, source_transition_hash,
+                                                        1.0f / 60.0f));
+  }
+  const std::uint64_t region_id =
+      ledger.region_id != 0u ? ledger.region_id : kLumenEntryRegionId;
+  const PerceptualCausalityGraphOptions graph_options =
+      perceptualCausalityGraphOptions(region_id);
+  if (perceptual_causality_graph_.options().id != graph_options.id ||
+      perceptual_causality_graph_.options().region_id != graph_options.region_id) {
+    perceptual_causality_graph_.setOptions(graph_options);
+  }
+  const PerceptualCausalityGraphResult graph_result =
+      perceptual_causality_graph_.advance(causal_edges);
+  world_forensics_.perceptual_causality_graph = graph_result.report;
+  return graph_result.primitives.empty() ? primitives : graph_result.primitives;
 }
 
 void LumenRun::applyWorldPerceptualPrimitivesToScene() {
@@ -1430,6 +1540,8 @@ void LumenRun::refreshWorldTruthAuditHash() {
   audit_hash =
       lumenHash(audit_hash, world_forensics_.perceptual_schedule.scheduler_hash);
   audit_hash =
+      lumenHash(audit_hash, world_forensics_.perceptual_causality_graph.graph_hash);
+  audit_hash =
       lumenHash(audit_hash, world_forensics_.perceptual_primitive_summary.truth_hash);
   audit_hash = lumenHash(audit_hash, world_forensics_.belief_report.belief_contract_hash);
   world_forensics_.world_truth_audit_hash = audit_hash;
@@ -1452,6 +1564,12 @@ void LumenRun::advancePerceptualRuntime(const float dt, const Vec2 move_axis,
   if (perceptual_runtime_.options().id != options.id ||
       perceptual_runtime_.options().region_id != options.region_id) {
     perceptual_runtime_.setOptions(options);
+  }
+  const PerceptualCausalityGraphOptions graph_options =
+      perceptualCausalityGraphOptions(region_id);
+  if (perceptual_causality_graph_.options().id != graph_options.id ||
+      perceptual_causality_graph_.options().region_id != graph_options.region_id) {
+    perceptual_causality_graph_.setOptions(graph_options);
   }
   world_forensics_.perceptual_state =
       perceptual_runtime_.advance(makePerceptualObservation(dt, move_axis, previous_player_position));
@@ -1936,6 +2054,8 @@ void LumenRun::rebuildCaveWorldGate() {
       buildPerceptionObjectTraces(world_forensics_.perception_ledger);
   perceptual_runtime_.setOptions(perceptualRuntimeOptions(report.region_id));
   perceptual_runtime_.reset();
+  perceptual_causality_graph_.setOptions(perceptualCausalityGraphOptions(report.region_id));
+  perceptual_causality_graph_.reset();
   world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(0.0f);
   refreshWorldPerceptualPrimitives();
   world_forensics_.belief_report = buildBeliefExtractionReport();

@@ -7,6 +7,7 @@
 #include "aster/core/job_graph.hpp"
 #include "aster/core/module_registry.hpp"
 #include "aster/core/neural_irradiance_volume.hpp"
+#include "aster/core/perceptual_causality_graph.hpp"
 #include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/session_journal.hpp"
 #include "aster/core/signal.hpp"
@@ -858,6 +859,115 @@ void testWorldPerceptualPrimitiveContracts() {
   assert(field_second.signals.material_memory < field_first_a.signals.material_memory);
 }
 
+void testPerceptualCausalityGraphContracts() {
+  const std::uint32_t changed_mask =
+      aster::perceptualCausalityChannelBit("material_memory") |
+      aster::perceptualCausalityChannelBit("contact_residue") |
+      aster::perceptualCausalityChannelBit("light_history") |
+      aster::perceptualCausalityChannelBit("acoustic_surface") |
+      aster::perceptualCausalityChannelBit("traversal_affordance") |
+      aster::perceptualCausalityChannelBit("threat_cover") |
+      aster::perceptualCausalityChannelBit("player_readable_cause");
+  const std::uint32_t decision_mask =
+      aster::perceptualCausalityChannelBit("material_memory") |
+      aster::perceptualCausalityChannelBit("light_history") |
+      aster::perceptualCausalityChannelBit("acoustic_surface") |
+      aster::perceptualCausalityChannelBit("threat_cover") |
+      aster::perceptualCausalityChannelBit("player_readable_cause");
+
+  aster::PerceptualCausalityGraphOptions options;
+  options.id = "core-test-causality";
+  options.region_id = 0xA57ECAFEu;
+  options.required_changed_channel_mask = changed_mask;
+  options.required_decision_channel_mask = decision_mask;
+  options.minimum_decision_impact = 0.55f;
+  options.default_material_half_life_seconds = 2.0f;
+
+  aster::PerceptualCausalityEdgeDesc edge;
+  edge.primitive_id = "primitive.wet-ore";
+  edge.object_name = "Wet ore";
+  edge.source_world_transition_hash = 0xA57ECA0001u;
+  edge.key = {.world_owner_hash = 0xA57ECA0002u,
+              .template_hash = 0xA57ECA0003u,
+              .cell_hash = 0xA57ECA0004u};
+  edge.player_readable_cause_hash = 0xA57ECA0005u;
+  edge.sound_surface_class_hash = 0xA57ECA0006u;
+  edge.neural_irradiance_hash = 0xA57ECA0007u;
+  edge.cell_center = {1.0f, 2.0f, 3.0f};
+  edge.delta_seconds = 1.0f;
+  edge.material_half_life_seconds = 2.0f;
+  edge.cell_residency = 0.92f;
+  edge.streaming_cost = 0.24f;
+  edge.material_stability = 0.84f;
+  edge.acoustic_occlusion_trust = 0.73f;
+  edge.visual_occlusion_trust = 0.81f;
+  edge.ai_cover_value = 0.64f;
+  edge.traversal_affordance = 0.62f;
+  edge.semantic_lod = 0.78f;
+  edge.neural_irradiance = {0.30f, 0.26f, 0.18f};
+  edge.neural_irradiance_confidence = 0.72f;
+  edge.changed_channel_mask = changed_mask;
+  edge.decision_channel_mask = decision_mask;
+  edge.target_signals = {.belief_state = 0.86f,
+                         .perceptual_debt = 0.10f,
+                         .material_memory = 0.78f,
+                         .interaction_residue = 0.58f,
+                         .contact_field = 0.76f,
+                         .light_history = 0.68f,
+                         .acoustic_occlusion = 0.34f,
+                         .ecology_pressure = 0.42f,
+                         .threat_gradient = 0.44f,
+                         .traversal_pressure = 0.62f,
+                         .semantic_lod = 0.78f,
+                         .decision_impact = 0.71f,
+                         .player_readable_cause = 0.82f};
+
+  aster::PerceptualCausalityGraph graph_a(options);
+  graph_a.setOptions(options);
+  aster::PerceptualCausalityGraph graph_b(options);
+  graph_b.setOptions(options);
+  const aster::PerceptualCausalityGraphResult first = graph_a.advance({edge});
+  const aster::PerceptualCausalityGraphResult replay = graph_b.advance({edge});
+  assert(first.report.accepted);
+  assert(first.report.graph_hash == replay.report.graph_hash);
+  assert(first.report.source_world_transition_hash == edge.source_world_transition_hash);
+  assert((first.report.changed_channel_mask & changed_mask) == changed_mask);
+  assert((first.report.decision_channel_mask & decision_mask) == decision_mask);
+  assert(first.report.decision_impact_score >= options.minimum_decision_impact);
+  assert(first.primitives.size() == 1u);
+  const aster::WorldPerceptualPrimitive &primitive = first.primitives.front();
+  assert(primitive.accepted);
+  assert(primitive.sound_surface_class_hash == edge.sound_surface_class_hash);
+  assert(primitive.neural_irradiance_hash == edge.neural_irradiance_hash);
+  assert((primitive.changed_channel_mask & changed_mask) == changed_mask);
+  assert((primitive.decision_channel_mask & decision_mask) == decision_mask);
+  expectNear(primitive.wetness_half_life_seconds, 2.0f, 0.0001f);
+  expectNear(primitive.signals.material_memory, edge.target_signals.material_memory, 0.0001f);
+
+  edge.target_signals.material_memory = 0.0f;
+  edge.target_signals.light_history = 0.0f;
+  const aster::PerceptualCausalityGraphResult decayed = graph_a.advance({edge});
+  assert(decayed.report.accepted);
+  assert(decayed.primitives.front().exposure_age_seconds > primitive.exposure_age_seconds);
+  assert(decayed.primitives.front().signals.material_memory < primitive.signals.material_memory);
+  assert(decayed.primitives.front().signals.material_memory > 0.0f);
+
+  aster::PerceptualCausalityEdgeDesc missing = edge;
+  missing.changed_channel_mask = aster::perceptualCausalityChannelBit("material_memory");
+  missing.decision_channel_mask = aster::perceptualCausalityChannelBit("material_memory");
+  missing.sound_surface_class_hash = 0u;
+  missing.ai_cover_value = 0.0f;
+  missing.traversal_affordance = 0.0f;
+  missing.player_readable_cause_hash = 0u;
+  missing.target_signals = {};
+  missing.target_signals.material_memory = 0.4f;
+  aster::PerceptualCausalityGraph rejecting_graph(options);
+  rejecting_graph.setOptions(options);
+  const aster::PerceptualCausalityGraphResult rejected = rejecting_graph.advance({missing});
+  assert(!rejected.report.accepted);
+  assert(rejected.report.graph_hash != 0u);
+}
+
 void testNeuralIrradianceVolumeContracts() {
   const aster::NeuralIrradianceVolumeDesc volume =
       aster::makeDefaultNeuralIrradianceVolume(0xA57E2602u);
@@ -1137,6 +1247,7 @@ int main() {
   testWorldPerceptionLedgerContracts();
   testPerceptualWorldRuntimeContracts();
   testWorldPerceptualPrimitiveContracts();
+  testPerceptualCausalityGraphContracts();
   testNeuralIrradianceVolumeContracts();
   testBeliefExtractionContracts();
   testSourceBoundaryContracts();

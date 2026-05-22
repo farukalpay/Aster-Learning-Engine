@@ -4,6 +4,7 @@
 #pragma once
 
 #include "aster/core/belief_extraction.hpp"
+#include "aster/core/perceptual_causality_graph.hpp"
 #include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/world_perception_ledger.hpp"
 #include "aster/core/world_perceptual_primitive.hpp"
@@ -656,6 +657,7 @@ struct WorldPerceptualPrimitiveTrace {
   std::uint64_t neural_irradiance_hash = 0u;
   float cell_residency = 0.0f;
   float exposure_age_seconds = 0.0f;
+  float wetness_half_life_seconds = 0.0f;
   float material_half_life_seconds = 0.0f;
   float streaming_cost = 0.0f;
   float material_stability = 1.0f;
@@ -677,11 +679,17 @@ struct WorldPerceptualPrimitiveTrace {
   float semantic_lod = 0.0f;
   float decision_impact = 0.0f;
   float player_readable_cause = 0.0f;
+  std::uint32_t changed_channel_mask = 0u;
+  std::uint32_t decision_channel_mask = 0u;
   std::size_t cell_anchor_count = 0u;
   std::size_t surface_patch_count = 0u;
   std::size_t contact_zone_count = 0u;
   std::size_t residue_channel_count = 0u;
   bool accepted = false;
+  std::vector<WorldPerceptualCellAnchor> cell_anchors;
+  std::vector<WorldPerceptualSurfacePatch> surface_patches;
+  std::vector<WorldPerceptualContactZone> contact_zones;
+  std::vector<WorldPerceptualResidueChannel> residue_channels;
 };
 
 struct SurfacePresentationTrace {
@@ -885,6 +893,7 @@ struct FrameForensics {
   float perceptual_decision_impact_score = 0.0f;
   float perceptual_scheduler_frame_cost_ms = 0.0f;
   bool perceptual_scheduler_accepted = false;
+  PerceptualCausalityGraphReport perceptual_causality_graph;
   WorldPerceptualPrimitiveSummary perceptual_primitive_summary;
   std::size_t perceptual_truth_expected_count = 0u;
   std::size_t perceptual_truth_observed_count = 0u;
@@ -1119,6 +1128,7 @@ public:
                                       std::vector<WorldPerceptionObjectTrace> object_traces);
   void stampLastFramePerceptualState(const PerceptualFrameState &state);
   void stampLastFramePerceptualSchedule(const PerceptualWorldScheduleReport &schedule);
+  void stampLastFramePerceptualCausalityGraph(const PerceptualCausalityGraphReport &report);
   void stampLastFramePerceptualWorldTruth(const WorldPerceptualPrimitiveSummary &summary);
   void stampLastFrameBeliefReport(const BeliefExtractionReport &report);
   [[nodiscard]] const std::shared_ptr<const MaterialResourceLibrary> &materialResourceLibrary()

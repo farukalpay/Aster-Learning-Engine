@@ -5,6 +5,7 @@
 
 #include "aster/game_sdk/game_sdk.hpp"
 #include "aster/core/belief_extraction.hpp"
+#include "aster/core/perceptual_causality_graph.hpp"
 #include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/world_perception_ledger.hpp"
 #include "aster/core/world_perceptual_primitive.hpp"
@@ -191,6 +192,7 @@ struct LumenWorldForensics {
   WorldPerceptionLedgerReport perception_ledger;
   PerceptualFrameState perceptual_state;
   PerceptualWorldScheduleReport perceptual_schedule;
+  PerceptualCausalityGraphReport perceptual_causality_graph;
   std::vector<WorldPerceptualPrimitive> perceptual_primitives;
   WorldPerceptualPrimitiveSummary perceptual_primitive_summary;
   BeliefExtractionReport belief_report;
@@ -465,6 +467,8 @@ private:
   void rebuildCaveWorldGate();
   [[nodiscard]] PerceptualWorldRuntimeOptions perceptualRuntimeOptions(
       std::uint64_t region_id) const;
+  [[nodiscard]] PerceptualCausalityGraphOptions perceptualCausalityGraphOptions(
+      std::uint64_t region_id) const;
   [[nodiscard]] WorldPerceptionLedgerReport buildPerceptionLedgerReport(
       std::uint64_t region_id) const;
   [[nodiscard]] std::vector<WorldPerceptionObjectTrace>
@@ -541,6 +545,7 @@ private:
   LumenStatus status_{};
   WorldState world_state_{};
   PerceptualWorldRuntime perceptual_runtime_{};
+  PerceptualCausalityGraph perceptual_causality_graph_{};
   WorldPerceptualField torch_exposure_field_{};
   LumenWorldForensics world_forensics_{};
   std::uint64_t next_world_epoch_ = 1u;

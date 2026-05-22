@@ -1,6 +1,6 @@
 # Belief ABI
 
-Status: stable in kernel ABI 6.4.0.
+Status: stable in kernel ABI 6.5.0.
 
 Belief ABI exposes Aster's player-believable world proof as typed C data. It
 stabilizes the internal Belief Extraction V1 report, the frame falseness report,
@@ -18,6 +18,9 @@ The stable belief surface is append-only:
 - `AsterPerceptualWorldScheduleInfo` describes the runtime scheduler evidence
   that influenced memory residue, threat signal, material age, interaction debt,
   perceptual priority, streaming budget, belief stability, and frame cost.
+- `AsterPerceptualCausalityGraphInfo` describes the deterministic graph proof
+  that promoted world, sensory, and visibility transitions into player-readable
+  perceptual causes before render extraction.
 - `AsterWorldPerceptualPrimitiveInfo` describes one extracted primitive truth
   record for world and renderer inspection.
 
@@ -68,6 +71,10 @@ AsterStatus aster_kernel_renderer_frame_perceptual_world_schedule(
     AsterRendererHandle renderer,
     AsterPerceptualWorldScheduleInfo *out_schedule);
 
+AsterStatus aster_kernel_renderer_frame_perceptual_causality_graph(
+    AsterRendererHandle renderer,
+    AsterPerceptualCausalityGraphInfo *out_graph);
+
 AsterStatus aster_kernel_renderer_frame_perceptual_primitive(
     AsterRendererHandle renderer,
     uint32_t index,
@@ -88,12 +95,15 @@ when `index >= finding_count`.
 - `belief_findings`
 - `perceptual_world_truth`
 - `perceptual_primitives`
+- `perceptual_causality_graph`
 
 `AsterRendererSettings` appends:
 
 - `perceptual_world_schedule`
 - `belief_falseness_report`
 - `belief_falseness_findings`
+- `perceptual_world_truth`
+- `perceptual_causality_graph`
 
 The finding spans use `AsterSpan::size` as element count and `stride` as the byte
 distance between `AsterBeliefFindingInfo` entries. If a report declares findings,
@@ -132,7 +142,7 @@ drift, and backend frames that do not prove native primitive consumption.
 
 ## Compatibility
 
-- ABI version is `6.4.0`.
+- ABI version is `6.5.0`.
 - Existing ABI 6.3 callers remain source-compatible because new inputs are tail
   fields behind `size` checks.
 - Existing `AsterFrameDiagnosticEvent` reporting remains available.

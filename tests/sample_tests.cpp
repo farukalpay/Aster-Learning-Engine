@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <cstdlib>
 
 #if defined(_WIN32)
@@ -188,6 +189,17 @@ struct LumenMineOreTorchReplayHashes {
   std::uint64_t audit_hash = 0u;
 };
 
+struct LumenPerceptualCausalityReplayProof {
+  std::uint64_t world_hash = 0u;
+  std::uint64_t graph_hash = 0u;
+  std::uint64_t primitive_truth_hash = 0u;
+  std::uint64_t render_extraction_hash = 0u;
+  std::uint64_t audit_hash = 0u;
+  std::uint32_t changed_channel_mask = 0u;
+  std::uint32_t decision_channel_mask = 0u;
+  float decision_impact_score = 0.0f;
+};
+
 LumenMineOreTorchReplayHashes runMineOreTorchReplay() {
   aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
   aster::Vec3 ore_position{};
@@ -232,6 +244,104 @@ LumenMineOreTorchReplayHashes runMineOreTorchReplay() {
           .audit_hash = world.world_truth_audit_hash};
 }
 
+LumenPerceptualCausalityReplayProof runPerceptualCausalityReplay240() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  aster::Vec3 ore_position{};
+  bool found_ore = false;
+  for (const aster::RenderObject &object : run.scene().objects()) {
+    if (object.name == "Coal ore vein node") {
+      ore_position = object.transform.position;
+      found_ore = true;
+      break;
+    }
+  }
+  assert(found_ore);
+
+  run.relocatePlayer(run.supplyCratePosition(), 0.0f);
+  assert(run.takeChestItem("torch"));
+  assert(run.takeChestItem("pickaxe"));
+  run.selectHotbarSlot(0);
+  const aster::Vec3 mine_position = ore_position + aster::Vec3{0.0f, 0.05f, 1.45f};
+  run.relocatePlayer(mine_position, aster::radians(180.0f));
+  for (int frame = 0; frame < 40; ++frame) {
+    run.update(1.0f / 60.0f, {}, false, false);
+  }
+  assert(run.equippedLight().has_value());
+
+  run.relocatePlayer(mine_position, aster::radians(180.0f));
+  const aster::Vec3 focus_origin = mine_position + aster::Vec3{0.0f, 0.42f, 0.0f};
+  bool mined = false;
+  for (std::size_t slot = 0; slot < 6u && !mined; ++slot) {
+    run.selectHotbarSlot(slot);
+    run.updateInteractionFocus(focus_origin, aster::normalize(ore_position - focus_origin),
+                               1.0f / 60.0f);
+    run.interactFocused();
+    mined = run.worldForensics().coal_mining_reaction.ai_attention_hash != 0u;
+  }
+  assert(mined);
+  run.update(1.0f / 60.0f, {}, false, false);
+
+  run.relocatePlayer(ore_position + aster::Vec3{0.0f, 0.05f, 3.20f}, aster::radians(180.0f));
+  for (int frame = 0; frame < 80; ++frame) {
+    run.update(1.0f / 60.0f, {}, false, false);
+  }
+  run.relocatePlayer(mine_position, aster::radians(180.0f));
+  for (int frame = 0; frame < 119; ++frame) {
+    run.update(1.0f / 60.0f, {}, false, false);
+  }
+
+  run.noteRenderExtraction(0xA57E7201u, 0xA57E7202u, 12.25f);
+  const aster::LumenWorldForensics &world = run.worldForensics();
+  const std::uint32_t required_changed =
+      aster::perceptualCausalityChannelBit("material_memory") |
+      aster::perceptualCausalityChannelBit("contact_residue") |
+      aster::perceptualCausalityChannelBit("light_history") |
+      aster::perceptualCausalityChannelBit("acoustic_surface") |
+      aster::perceptualCausalityChannelBit("traversal_affordance") |
+      aster::perceptualCausalityChannelBit("threat_cover") |
+      aster::perceptualCausalityChannelBit("player_readable_cause");
+  const std::uint32_t required_decision =
+      aster::perceptualCausalityChannelBit("material_memory") |
+      aster::perceptualCausalityChannelBit("light_history") |
+      aster::perceptualCausalityChannelBit("acoustic_surface") |
+      aster::perceptualCausalityChannelBit("threat_cover") |
+      aster::perceptualCausalityChannelBit("player_readable_cause");
+  assert(world.render_extraction_ready);
+  assert(world.perceptual_causality_graph.accepted);
+  assert(world.perceptual_causality_graph.graph_hash != 0u);
+  assert((world.perceptual_causality_graph.changed_channel_mask & required_changed) ==
+         required_changed);
+  assert((world.perceptual_causality_graph.decision_channel_mask & required_decision) ==
+         required_decision);
+  assert(world.perceptual_causality_graph.decision_impact_score >= 0.50f);
+  assert(world.perceptual_primitive_summary.truth_hash != 0u);
+  assert(world.perceptual_primitive_summary.material_memory > 0.0f);
+  assert(world.perceptual_primitive_summary.interaction_residue > 0.0f);
+  assert(world.perceptual_primitive_summary.contact_field > 0.0f);
+  assert(world.perceptual_primitive_summary.light_history > 0.0f);
+  assert(world.perceptual_primitive_summary.acoustic_occlusion > 0.0f);
+  assert(world.perceptual_primitive_summary.threat_gradient > 0.0f);
+  assert(world.perceptual_primitive_summary.traversal_pressure > 0.0f);
+  assert(world.perceptual_primitive_summary.player_readable_cause > 0.0f);
+  assert(world.coal_mining_reaction.ai_attention_hash != 0u);
+  assert(std::any_of(world.perceptual_primitives.begin(), world.perceptual_primitives.end(),
+                     [](const aster::WorldPerceptualPrimitive &primitive) {
+                       return primitive.accepted && primitive.sound_surface_class_hash != 0u &&
+                              primitive.changed_channel_mask != 0u &&
+                              primitive.decision_channel_mask != 0u &&
+                              primitive.signals.light_history > 0.0f &&
+                              primitive.signals.player_readable_cause > 0.0f;
+                     }));
+  return {.world_hash = world.world_hash,
+          .graph_hash = world.perceptual_causality_graph.graph_hash,
+          .primitive_truth_hash = world.perceptual_primitive_summary.truth_hash,
+          .render_extraction_hash = world.render_extraction_hash,
+          .audit_hash = world.world_truth_audit_hash,
+          .changed_channel_mask = world.perceptual_causality_graph.changed_channel_mask,
+          .decision_channel_mask = world.perceptual_causality_graph.decision_channel_mask,
+          .decision_impact_score = world.perceptual_causality_graph.decision_impact_score};
+}
+
 void testLumenMineOreTorchDeterministicPerceptualReplay() {
   const LumenMineOreTorchReplayHashes first = runMineOreTorchReplay();
   const LumenMineOreTorchReplayHashes second = runMineOreTorchReplay();
@@ -242,6 +352,19 @@ void testLumenMineOreTorchDeterministicPerceptualReplay() {
   assert(first.ai_visibility_hash == second.ai_visibility_hash);
   assert(first.streaming_budget_hash == second.streaming_budget_hash);
   assert(first.audit_hash == second.audit_hash);
+}
+
+void testLumenPerceptualCausalityGraphReplay240() {
+  const LumenPerceptualCausalityReplayProof first = runPerceptualCausalityReplay240();
+  const LumenPerceptualCausalityReplayProof second = runPerceptualCausalityReplay240();
+  assert(first.world_hash == second.world_hash);
+  assert(first.graph_hash == second.graph_hash);
+  assert(first.primitive_truth_hash == second.primitive_truth_hash);
+  assert(first.render_extraction_hash == second.render_extraction_hash);
+  assert(first.audit_hash == second.audit_hash);
+  assert(first.changed_channel_mask == second.changed_channel_mask);
+  assert(first.decision_channel_mask == second.decision_channel_mask);
+  assert(first.decision_impact_score == second.decision_impact_score);
 }
 
 void testLumenPerceptualWorldRuntimeExposure() {
@@ -1231,24 +1354,59 @@ void testLumenClassicGauntletVisibleAndAutomapped() {
 
 } // namespace
 
-int main() {
-  testLumenSceneCoherenceReport();
-  testLumenWorldForensicsContract();
-  testLumenCoalMiningReactionContinuity();
-  testLumenWorldRenderablePerceptualCoverage();
-  testLumenMineOreTorchDeterministicPerceptualReplay();
-  testLumenPerceptualWorldRuntimeExposure();
-  testLumenCameraCollisionCanBeatComfortRadius();
-  testLumenInnerPondSeamHasSupport();
-  testLumenSupportSurfacesRenderOpaque();
-  testLumenSupplyCrateInventoryContract();
-  testLumenPrismRelayProximityInteraction();
-  testLumenCaveVisualContracts();
-  testLumenDeepCaveCaptureLightingContract();
-  testLumenHeldTorchLightsDeepCaveAndReplaysDeterministically();
-  testLumenCaveTraversalAndLightingContracts();
-  testLumenPondWallLightIsMountedOutsideWater();
-  testLumenClassicGauntletVisibleAndAutomapped();
+struct NamedSampleTest {
+  const char *name = "";
+  void (*run)() = nullptr;
+};
+
+bool sampleTestSelected(const char *name, const int argc, const char **argv) {
+  if (argc <= 1) {
+    return true;
+  }
+  for (int i = 1; i < argc; ++i) {
+    if (std::strcmp(argv[i], name) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+int main(const int argc, const char **argv) {
+  const NamedSampleTest tests[] = {
+      {"lumen_scene_coherence_report", testLumenSceneCoherenceReport},
+      {"lumen_world_forensics_contract", testLumenWorldForensicsContract},
+      {"lumen_coal_mining_reaction_continuity", testLumenCoalMiningReactionContinuity},
+      {"lumen_world_renderable_perceptual_coverage", testLumenWorldRenderablePerceptualCoverage},
+      {"lumen_mine_ore_torch_deterministic_perceptual_replay",
+       testLumenMineOreTorchDeterministicPerceptualReplay},
+      {"lumen_perceptual_causality_graph_replay_240",
+       testLumenPerceptualCausalityGraphReplay240},
+      {"lumen_perceptual_world_runtime_exposure", testLumenPerceptualWorldRuntimeExposure},
+      {"lumen_camera_collision_can_beat_comfort_radius",
+       testLumenCameraCollisionCanBeatComfortRadius},
+      {"lumen_inner_pond_seam_has_support", testLumenInnerPondSeamHasSupport},
+      {"lumen_support_surfaces_render_opaque", testLumenSupportSurfacesRenderOpaque},
+      {"lumen_supply_crate_inventory_contract", testLumenSupplyCrateInventoryContract},
+      {"lumen_prism_relay_proximity_interaction", testLumenPrismRelayProximityInteraction},
+      {"lumen_cave_visual_contracts", testLumenCaveVisualContracts},
+      {"lumen_deep_cave_capture_lighting_contract", testLumenDeepCaveCaptureLightingContract},
+      {"lumen_held_torch_lights_deep_cave_and_replays_deterministically",
+       testLumenHeldTorchLightsDeepCaveAndReplaysDeterministically},
+      {"lumen_cave_traversal_and_lighting_contracts",
+       testLumenCaveTraversalAndLightingContracts},
+      {"lumen_pond_wall_light_is_mounted_outside_water", testLumenPondWallLightIsMountedOutsideWater},
+      {"lumen_classic_gauntlet_visible_and_automapped",
+       testLumenClassicGauntletVisibleAndAutomapped},
+  };
+  bool ran = false;
+  for (const NamedSampleTest &test : tests) {
+    if (!sampleTestSelected(test.name, argc, argv)) {
+      continue;
+    }
+    test.run();
+    ran = true;
+  }
+  assert(ran);
   std::cout << "sample_tests passed.\n";
   return 0;
 }

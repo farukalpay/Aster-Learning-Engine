@@ -1458,6 +1458,18 @@ public:
     return Result<AsterPerceptualWorldScheduleInfo>(std::move(schedule));
   }
 
+  [[nodiscard]] Result<AsterPerceptualCausalityGraphInfo>
+  framePerceptualCausalityGraph() const noexcept {
+    AsterPerceptualCausalityGraphInfo graph{sizeof(AsterPerceptualCausalityGraphInfo),
+                                            ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_renderer_frame_perceptual_causality_graph(handle_, &graph));
+    if (!status) {
+      return Result<AsterPerceptualCausalityGraphInfo>(status);
+    }
+    return Result<AsterPerceptualCausalityGraphInfo>(std::move(graph));
+  }
+
   [[nodiscard]] Result<AsterWorldPerceptualPrimitiveInfo> framePerceptualPrimitive(
       const std::uint32_t index) const noexcept {
     AsterWorldPerceptualPrimitiveInfo primitive{sizeof(AsterWorldPerceptualPrimitiveInfo),

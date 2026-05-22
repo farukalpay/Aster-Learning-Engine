@@ -64,6 +64,15 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(cave.value.validation.perceptual_runtime->id == "entry_perceptual_world_runtime");
   assert(cave.value.validation.perceptual_runtime->exposure_horizon_seconds >= 47.0f);
   assert(cave.value.validation.perceptual_runtime->minimum_occlusion_trust > 0.0f);
+  assert(cave.value.validation.perceptual_causality_graph.has_value());
+  assert(cave.value.validation.perceptual_causality_graph->id ==
+         "entry_perceptual_causality_graph");
+  assert(cave.value.validation.perceptual_causality_graph->minimum_decision_impact >=
+         0.50f);
+  assert(cave.value.validation.perceptual_causality_graph->required_causal_edges.size() >=
+         9u);
+  assert(!cave.value.validation.perceptual_causality_graph->required_decision_channels.empty());
+  assert(!cave.value.validation.perceptual_causality_graph->required_player_readable_causes.empty());
   assert(cave.value.validation.belief_contract.has_value());
   assert(cave.value.validation.belief_contract->id == "entry_belief_contract");
   assert(cave.value.validation.belief_contract->minimum_score >= 0.70f);
@@ -201,6 +210,13 @@ void testSchemaDiagnosticsRejectInvalidDocuments() {
         "id": "",
         "exposure_horizon_seconds": -1,
         "minimum_continuity_score": 2.0
+      },
+      "perceptual_causality_graph": {
+        "id": "",
+        "minimum_decision_impact": 2.0,
+        "required_causal_edges": ["not_real"],
+        "required_decision_channels": [],
+        "required_player_readable_causes": ["missing-cause"]
       }
     }
   })json");
