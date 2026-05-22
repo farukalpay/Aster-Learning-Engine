@@ -476,6 +476,7 @@ private:
   [[nodiscard]] BeliefExtractionReport buildBeliefExtractionReport() const;
   [[nodiscard]] std::vector<WorldPerceptualPrimitive>
   buildWorldPerceptualPrimitives();
+  void refreshWorldTruthAuditHash();
   void refreshWorldPerceptualPrimitives();
   void applyWorldPerceptualPrimitivesToScene();
   void advancePerceptualRuntime(float dt, Vec2 move_axis, Vec3 previous_player_position);

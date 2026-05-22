@@ -912,6 +912,26 @@ void testBeliefExtractionContracts() {
                                .player_readable_cause = 0.74f,
                                .semantic_budget_hash = 0xA57E2002u,
                                .accepted = true};
+  accepted.perceptual_primitive_summary = {.primitive_count = 8u,
+                                           .active_cell_anchor_count = 8u,
+                                           .active_surface_patch_count = 8u,
+                                           .active_contact_zone_count = 8u,
+                                           .active_residue_channel_count = 8u,
+                                           .truth_hash = 0xA57E3003u,
+                                           .belief_state = 0.82f,
+                                           .perceptual_debt = 0.12f,
+                                           .material_memory = 0.82f,
+                                           .interaction_residue = 0.78f,
+                                           .contact_field = 0.80f,
+                                           .light_history = 0.80f,
+                                           .acoustic_occlusion = 0.24f,
+                                           .ecology_pressure = 0.72f,
+                                           .threat_gradient = 0.20f,
+                                           .traversal_pressure = 0.76f,
+                                           .semantic_lod = 0.82f,
+                                           .decision_impact = 0.74f,
+                                           .player_readable_cause = 0.74f,
+                                           .accepted = true};
   const aster::BeliefExtractionReport accepted_report =
       aster::extractBeliefContract(accepted);
   assert(accepted_report.accepted);
@@ -977,6 +997,7 @@ void testBeliefExtractionContracts() {
 
   aster::BeliefExtractionDesc repetition = accepted;
   repetition.semantic_repetition_score = 0.90f;
+  repetition.perceptual_primitive_summary.semantic_lod = 0.10f;
   require_finding(repetition, aster::BeliefFindingKind::SemanticRepetition);
 
   aster::BeliefExtractionDesc ai = accepted;
@@ -994,6 +1015,14 @@ void testBeliefExtractionContracts() {
   aster::BeliefExtractionDesc sync = accepted;
   sync.world_state_sync = 0.10f;
   require_finding(sync, aster::BeliefFindingKind::WorldStateDesynchronization);
+
+  aster::BeliefExtractionDesc missing_primitive = accepted;
+  missing_primitive.perceptual_primitive_summary = {};
+  require_finding(missing_primitive, aster::BeliefFindingKind::MissingPerceptualPrimitive);
+
+  aster::BeliefExtractionDesc partial_primitive = accepted;
+  partial_primitive.perceptual_primitive_summary.active_contact_zone_count = 0u;
+  require_finding(partial_primitive, aster::BeliefFindingKind::UnresolvedPerceptualBinding);
 
   assert(aster::beliefFindingKindName(
              aster::BeliefFindingKind::MaterialFamilyCollapse) ==

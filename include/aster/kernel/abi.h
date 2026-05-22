@@ -639,6 +639,9 @@ enum {
   ASTER_KERNEL_RENDER_SETTING_FXAA = 1u << 6u,
   ASTER_KERNEL_RENDER_SETTING_BLOOM = 1u << 7u,
   ASTER_KERNEL_RENDER_SETTING_PRESENTATION_LENS = 1u << 8u,
+  ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_COMPATIBILITY = 0u,
+  ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_WARN = 1u,
+  ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_STRICT = 2u,
   ASTER_KERNEL_BACKEND_CAP_GPU = 1u << 0u,
   ASTER_KERNEL_BACKEND_CAP_SHADER_MATERIALS = 1u << 1u,
   ASTER_KERNEL_BACKEND_CAP_TEXTURE_SAMPLING = 1u << 2u,
@@ -1283,6 +1286,8 @@ typedef struct AsterSceneObjectDesc {
   AsterVec3 rotation;
   AsterVec3 scale;
   AsterStringView debug_label;
+  uint32_t perceptual_truth_mode;
+  AsterWorldPerceptualPrimitiveInfo perceptual_primitive;
 } AsterSceneObjectDesc;
 
 typedef struct AsterCameraDesc {
@@ -1358,6 +1363,9 @@ typedef struct AsterRendererSettings {
   AsterBeliefReportInfo belief_falseness_report;
   AsterSpan belief_falseness_findings;
   AsterPerceptualWorldTruthSummary perceptual_world_truth;
+  uint32_t perceptual_truth_mode;
+  size_t perceptual_truth_expected_count;
+  uint64_t perceptual_truth_policy_hash;
 } AsterRendererSettings;
 
 typedef struct AsterSystemEntityHandle {
@@ -1763,6 +1771,10 @@ typedef struct AsterFrameForensicsDetailCounts {
   AsterPerceptualWorldTruthSummary perceptual_world_truth;
   uint64_t world_truth_audit_hash;
   size_t perceptual_primitive_trace_count;
+  size_t perceptual_truth_expected_count;
+  size_t perceptual_truth_observed_count;
+  size_t perceptual_truth_missing_count;
+  uint64_t perceptual_truth_policy_hash;
 } AsterFrameForensicsDetailCounts;
 
 typedef struct AsterFramePassStats {

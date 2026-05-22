@@ -384,6 +384,12 @@ bool validRendererSettings(const AsterRendererSettings *value) {
                                  offsetof(AsterRendererSettings, quality_tier));
 }
 
+bool validSceneObjectDesc(const AsterSceneObjectDesc *value) {
+  return validTailExtendedStruct(value, value == nullptr ? 0u : value->size,
+                                 value == nullptr ? 0u : value->version,
+                                 offsetof(AsterSceneObjectDesc, perceptual_truth_mode));
+}
+
 bool validWorldAdvanceDesc(const AsterWorldAdvanceDesc *value) {
   return validTailExtendedStruct(value, value == nullptr ? 0u : value->size,
                                  value == nullptr ? 0u : value->version,
@@ -1487,6 +1493,29 @@ bool validPerceptualPrimitiveInfo(const AsterWorldPerceptualPrimitiveInfo &info)
          validStringView(info.object_name);
 }
 
+bool hasPerceptualPrimitiveInfo(const AsterWorldPerceptualPrimitiveInfo &info) {
+  return info.primitive_hash != 0u || info.size != 0u;
+}
+
+bool validPerceptualTruthMode(const std::uint32_t mode) {
+  return mode == ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_COMPATIBILITY ||
+         mode == ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_WARN ||
+         mode == ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_STRICT;
+}
+
+aster::RenderPerceptualTruthMode renderPerceptualTruthModeFromAbi(
+    const std::uint32_t mode) {
+  switch (mode) {
+  case ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_WARN:
+    return aster::RenderPerceptualTruthMode::Warn;
+  case ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_STRICT:
+    return aster::RenderPerceptualTruthMode::Strict;
+  case ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_COMPATIBILITY:
+  default:
+    return aster::RenderPerceptualTruthMode::Compatibility;
+  }
+}
+
 KernelPerceptualPrimitiveRecord primitiveRecordFromAbi(
     const AsterWorldPerceptualPrimitiveInfo &info);
 
@@ -1581,6 +1610,52 @@ KernelPerceptualPrimitiveRecord primitiveRecordFromAbi(
   record.residue_channel_count = info.residue_channel_count;
   record.accepted = info.accepted != 0u;
   return record;
+}
+
+aster::WorldPerceptualPrimitive worldPerceptualPrimitiveFromRecord(
+    const KernelPerceptualPrimitiveRecord &record) {
+  aster::WorldPerceptualPrimitive primitive;
+  primitive.primitive_id = record.primitive_id;
+  primitive.object_name = record.object_name;
+  primitive.truth_hash = record.primitive_hash;
+  primitive.world_owner_hash = record.world_owner_hash;
+  primitive.template_hash = record.template_hash;
+  primitive.cell_hash = record.cell_hash;
+  primitive.player_readable_cause_hash = record.player_readable_cause_hash;
+  primitive.sound_surface_class_hash = record.cell_hash;
+  primitive.signals = {.belief_state = record.accepted ? 1.0f : 0.0f,
+                       .perceptual_debt = record.accepted ? 0.0f : 1.0f,
+                       .material_memory = record.material_memory,
+                       .interaction_residue = record.interaction_residue,
+                       .contact_field = record.contact_field,
+                       .light_history = record.light_history,
+                       .acoustic_occlusion = record.acoustic_occlusion,
+                       .ecology_pressure = record.ecology_pressure,
+                       .threat_gradient = record.threat_gradient,
+                       .traversal_pressure = record.traversal_pressure,
+                       .semantic_lod = record.semantic_lod,
+                       .decision_impact = record.decision_impact,
+                       .player_readable_cause = record.player_readable_cause};
+  primitive.cell_residency = record.cell_residency;
+  primitive.world_ownership = record.world_owner_hash != 0u ? 1.0f : 0.0f;
+  primitive.wetness_half_life_seconds = record.material_half_life_seconds;
+  primitive.material_half_life_seconds = record.material_half_life_seconds;
+  primitive.exposure_age_seconds = record.exposure_age_seconds;
+  primitive.streaming_cost = record.streaming_cost;
+  primitive.material_stability = record.material_stability;
+  primitive.contact_normal_history = record.contact_normal_history;
+  primitive.acoustic_occlusion_trust = record.acoustic_occlusion_trust;
+  primitive.visual_occlusion_trust = record.visual_occlusion_trust;
+  primitive.traversal_affordance = record.traversal_affordance;
+  primitive.semantic_lod = record.semantic_lod;
+  primitive.active_cell_anchor_count = record.cell_anchor_count;
+  primitive.active_surface_patch_count = record.surface_patch_count;
+  primitive.active_contact_zone_count = record.contact_zone_count;
+  primitive.active_residue_channel_count = record.residue_channel_count;
+  primitive.accepted = record.accepted;
+  primitive.diagnostic = record.accepted ? "ABI perceptual primitive accepted"
+                                         : "ABI perceptual primitive rejected";
+  return primitive;
 }
 
 void fillPerceptualPrimitiveInfoCommon(const KernelPerceptualPrimitiveRecord &record,
@@ -1903,7 +1978,8 @@ float cameraVerticalFov(const AsterCameraDesc &camera, const std::uint32_t width
 }
 
 aster::RendererSettings rendererSettingsFromAbi(const AsterRendererSettings &settings,
-                                                const AsterCameraDesc &camera) {
+                                                const AsterCameraDesc &camera,
+                                                const std::size_t settings_size) {
   aster::RendererSettings out;
   aster::applyRenderQualityProfile(
       out, aster::makeRenderQualityProfile(renderQualityTier(settings.quality_tier)));
@@ -2007,6 +2083,22 @@ aster::RendererSettings rendererSettingsFromAbi(const AsterRendererSettings &set
         positiveOr(camera.composition_weight, out.presentation.composition_weight);
     out.presentation.scale_reference_m =
         positiveOr(camera.scale_reference_m, out.presentation.scale_reference_m);
+  }
+
+  if (abiStructHasField(settings_size, offsetof(AsterRendererSettings, perceptual_truth_mode),
+                        sizeof(settings.perceptual_truth_mode))) {
+    out.perceptual_truth_mode =
+        renderPerceptualTruthModeFromAbi(settings.perceptual_truth_mode);
+  }
+  if (abiStructHasField(settings_size,
+                        offsetof(AsterRendererSettings, perceptual_truth_expected_count),
+                        sizeof(settings.perceptual_truth_expected_count))) {
+    out.perceptual_truth_expected_count = settings.perceptual_truth_expected_count;
+  }
+  if (abiStructHasField(settings_size,
+                        offsetof(AsterRendererSettings, perceptual_truth_policy_hash),
+                        sizeof(settings.perceptual_truth_policy_hash))) {
+    out.perceptual_truth_policy_hash = settings.perceptual_truth_policy_hash;
   }
 
   out.sun_light.enabled = true;
@@ -3724,42 +3816,70 @@ AsterStatus aster_kernel_scene_add_object(const AsterSceneHandle scene,
   if (!validScene(scene)) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "scene handle is invalid");
   }
-  if (!validStruct(desc)) {
+  if (!validSceneObjectDesc(desc)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH, "scene object descriptor version is not supported");
+  }
+  const AsterSceneObjectDesc object_desc = copyAbiStruct(desc);
+  const bool has_perceptual_truth_mode =
+      abiStructHasField(desc->size, offsetof(AsterSceneObjectDesc, perceptual_truth_mode),
+                        sizeof(object_desc.perceptual_truth_mode));
+  const bool has_perceptual_primitive =
+      abiStructHasField(desc->size, offsetof(AsterSceneObjectDesc, perceptual_primitive),
+                        sizeof(object_desc.perceptual_primitive)) &&
+      hasPerceptualPrimitiveInfo(object_desc.perceptual_primitive);
+  if (has_perceptual_truth_mode &&
+      !validPerceptualTruthMode(object_desc.perceptual_truth_mode)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "scene object perceptual truth mode is not supported");
+  }
+  if (has_perceptual_primitive &&
+      !validPerceptualPrimitiveInfo(object_desc.perceptual_primitive)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "scene object perceptual primitive version is not supported");
   }
   if (!validStringView(desc->debug_label)) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "scene object label has a size but no data");
   }
-  const std::string label = stringFromView(desc->debug_label);
-  if (!finiteVec3(desc->position) || !finiteVec3(desc->rotation) || !finiteVec3(desc->scale) ||
-      desc->scale.x == 0.0f || desc->scale.y == 0.0f || desc->scale.z == 0.0f) {
+  const std::string label = stringFromView(object_desc.debug_label);
+  if (!finiteVec3(object_desc.position) || !finiteVec3(object_desc.rotation) ||
+      !finiteVec3(object_desc.scale) || object_desc.scale.x == 0.0f ||
+      object_desc.scale.y == 0.0f || object_desc.scale.z == 0.0f) {
     return failWithValidation(scene->owner, ASTER_STATUS_VALIDATION_ERROR,
                               "scene object transform is invalid",
                               ASTER_VALIDATION_INVALID_TRANSFORM, "scene.add_object", label);
   }
-  if (desc->mesh != nullptr && !validMesh(desc->mesh)) {
+  if (object_desc.mesh != nullptr && !validMesh(object_desc.mesh)) {
     return failWithValidation(scene->owner, ASTER_STATUS_LIFETIME_ERROR,
                               "scene object mesh handle is invalid",
                               ASTER_VALIDATION_DESTROYED_HANDLE_USE, "scene.add_object", label);
   }
-  if (!validMaterial(desc->material)) {
+  if (!validMaterial(object_desc.material)) {
     return failWithValidation(scene->owner, ASTER_STATUS_VALIDATION_ERROR,
                               "scene object requires a valid material",
                               ASTER_VALIDATION_MISSING_REQUIRED_TEXTURE, "scene.add_object", label);
   }
-  if (desc->pipeline != nullptr && !validPipeline(desc->pipeline)) {
+  if (object_desc.pipeline != nullptr && !validPipeline(object_desc.pipeline)) {
     return failWithValidation(scene->owner, ASTER_STATUS_LIFETIME_ERROR,
                               "scene object pipeline handle is invalid",
                               ASTER_VALIDATION_DESTROYED_HANDLE_USE, "scene.add_object", label);
   }
   aster::RenderObject object;
   object.name = label;
-  object.primitive = validMesh(desc->mesh) ? desc->mesh->primitive : meshPrimitive(desc->primitive);
-  object.custom_mesh = validMesh(desc->mesh) ? desc->mesh->custom_mesh : nullptr;
-  object.material = desc->material->material;
-  object.transform.position = vec(desc->position);
-  object.transform.rotation = aster::quatFromEulerXyz(vec(desc->rotation));
-  object.transform.scale = vec(desc->scale);
+  object.primitive =
+      validMesh(object_desc.mesh) ? object_desc.mesh->primitive : meshPrimitive(object_desc.primitive);
+  object.custom_mesh = validMesh(object_desc.mesh) ? object_desc.mesh->custom_mesh : nullptr;
+  object.material = object_desc.material->material;
+  object.transform.position = vec(object_desc.position);
+  object.transform.rotation = aster::quatFromEulerXyz(vec(object_desc.rotation));
+  object.transform.scale = vec(object_desc.scale);
+  if (has_perceptual_truth_mode) {
+    object.perceptual_truth_mode =
+        renderPerceptualTruthModeFromAbi(object_desc.perceptual_truth_mode);
+  }
+  if (has_perceptual_primitive && object_desc.perceptual_primitive.primitive_hash != 0u) {
+    object.perceptual_primitive =
+        worldPerceptualPrimitiveFromRecord(primitiveRecordFromAbi(object_desc.perceptual_primitive));
+  }
   scene->scene.objects().push_back(std::move(object));
   return aster_kernel_status_ok();
 }
@@ -3891,6 +4011,10 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
       abiStructHasField(settings->size,
                         offsetof(AsterRendererSettings, belief_falseness_findings),
                         sizeof(settings_desc.belief_falseness_findings));
+  const bool has_perceptual_truth_mode =
+      abiStructHasField(settings->size,
+                        offsetof(AsterRendererSettings, perceptual_truth_mode),
+                        sizeof(settings_desc.perceptual_truth_mode));
   if (has_continuity_budget &&
       !validPerceptualContinuityBudget(settings_desc.perceptual_continuity_budget)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
@@ -3905,6 +4029,11 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
       !validPerceptualWorldTruthSummary(settings_desc.perceptual_world_truth)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
                       "renderer perceptual world truth version is not supported");
+  }
+  if (has_perceptual_truth_mode &&
+      !validPerceptualTruthMode(settings_desc.perceptual_truth_mode)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "renderer perceptual truth mode is not supported");
   }
   AsterStatus belief_status = aster_kernel_status_ok();
   const AsterSpan belief_findings =
@@ -3954,7 +4083,8 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
                                aster::radians(80.0f));
     }
 
-    aster::RendererSettings render_settings = rendererSettingsFromAbi(settings_desc, camera_desc);
+    aster::RendererSettings render_settings =
+        rendererSettingsFromAbi(settings_desc, camera_desc, settings->size);
 
     renderer->renderer->prepareScene(scene->scene);
     const double frame_seconds =
@@ -4534,7 +4664,10 @@ AsterStatus aster_kernel_renderer_frame_lighting_probe(
     orbit.near_plane = camera_desc.near_plane > 0.0f ? camera_desc.near_plane : 0.01f;
     orbit.far_plane =
         camera_desc.far_plane > orbit.near_plane ? camera_desc.far_plane : 100.0f;
-    aster::RendererSettings render_settings = rendererSettingsFromAbi(settings_desc, camera_desc);
+    const std::size_t renderer_settings_size =
+        settings == nullptr ? sizeof(AsterRendererSettings) : settings->size;
+    aster::RendererSettings render_settings =
+        rendererSettingsFromAbi(settings_desc, camera_desc, renderer_settings_size);
     render_settings.atmosphere.enabled = true;
     render_settings.atmosphere.local_light_scattering =
         std::max(render_settings.atmosphere.local_light_scattering, 0.32f);
@@ -4979,6 +5112,34 @@ AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
                         sizeof(out_counts->perceptual_primitive_trace_count))) {
     out_counts->perceptual_primitive_trace_count =
         forensics.perceptual_primitive_traces.size();
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 perceptual_truth_expected_count),
+                        sizeof(out_counts->perceptual_truth_expected_count))) {
+    out_counts->perceptual_truth_expected_count =
+        forensics.perceptual_truth_expected_count;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 perceptual_truth_observed_count),
+                        sizeof(out_counts->perceptual_truth_observed_count))) {
+    out_counts->perceptual_truth_observed_count =
+        forensics.perceptual_truth_observed_count;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 perceptual_truth_missing_count),
+                        sizeof(out_counts->perceptual_truth_missing_count))) {
+    out_counts->perceptual_truth_missing_count =
+        forensics.perceptual_truth_missing_count;
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 perceptual_truth_policy_hash),
+                        sizeof(out_counts->perceptual_truth_policy_hash))) {
+    out_counts->perceptual_truth_policy_hash =
+        forensics.perceptual_truth_policy_hash;
   }
   return aster_kernel_status_ok();
 }

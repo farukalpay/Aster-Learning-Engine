@@ -735,10 +735,57 @@ void testStrictPerceptualRenderableCoverage() {
   const aster::FrameStats stats = renderer.render(scene, camera, settings, 48, 32, 0.0);
   const aster::FrameForensics &forensics = renderer.lastFrameForensics();
   assert(stats.draw_calls == 0u);
+  assert(forensics.perceptual_truth_expected_count == 1u);
+  assert(forensics.perceptual_truth_observed_count == 0u);
+  assert(forensics.perceptual_truth_missing_count == 1u);
+  assert(forensics.perceptual_truth_policy_hash != 0u);
   assert(std::any_of(forensics.events.begin(), forensics.events.end(),
                      [](const aster::FrameDiagnosticEvent &event) {
                        return event.kind == aster::FrameDiagnosticKind::PerceptualTruthGap &&
                               event.severity == aster::FrameDiagnosticSeverity::Error;
+                     }));
+
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
+}
+
+void testWarnPerceptualRenderableCoverage() {
+  setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", true);
+  setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
+
+  aster::RenderObject object;
+  object.name = "warn missing perceptual primitive";
+  object.primitive = aster::MeshPrimitive::Box;
+  object.transform.position = {0.0f, 0.5f, 0.0f};
+  object.material = aster::makeMaterial({.base_color = {0.30f, 0.42f, 0.68f}});
+  object.perceptual_truth_mode = aster::RenderPerceptualTruthMode::Warn;
+
+  aster::Scene scene;
+  scene.objects().push_back(object);
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.5f, 0.0f};
+  camera.yaw = aster::radians(35.0f);
+  camera.pitch = aster::radians(15.0f);
+  camera.radius = 3.0f;
+
+  aster::RendererSettings settings;
+  settings.atmosphere.enabled = false;
+  settings.sun_light.enabled = true;
+
+  aster::RenderDevice renderer;
+  renderer.initialize();
+  renderer.prepareScene(scene);
+  const aster::FrameStats stats = renderer.render(scene, camera, settings, 48, 32, 0.0);
+  const aster::FrameForensics &forensics = renderer.lastFrameForensics();
+  assert(stats.draw_calls > 0u);
+  assert(forensics.perceptual_truth_expected_count == 1u);
+  assert(forensics.perceptual_truth_observed_count == 0u);
+  assert(forensics.perceptual_truth_missing_count == 1u);
+  assert(forensics.perceptual_truth_policy_hash != 0u);
+  assert(std::any_of(forensics.events.begin(), forensics.events.end(),
+                     [](const aster::FrameDiagnosticEvent &event) {
+                       return event.kind == aster::FrameDiagnosticKind::PerceptualTruthGap &&
+                              event.severity == aster::FrameDiagnosticSeverity::Warning;
                      }));
 
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);
@@ -3178,6 +3225,7 @@ constexpr TestCase kTestCases[] = {
     {"prepare_scene_custom_mesh_cache", testPrepareSceneInvalidatesCustomMeshCache},
     {"frame_math_diagnostics", testFrameMathDiagnostics},
     {"strict_perceptual_renderable_coverage", testStrictPerceptualRenderableCoverage},
+    {"warn_perceptual_renderable_coverage", testWarnPerceptualRenderableCoverage},
     {"frame_debugger_material_binding_trace", testFrameDebuggerMaterialBindingTrace},
     {"frame_debugger_perception_ledger_trace", testFrameDebuggerPerceptionLedgerTrace},
     {"frame_debugger_asset_provenance_trace", testFrameDebuggerAssetProvenanceTrace},

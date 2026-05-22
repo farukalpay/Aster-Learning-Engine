@@ -3323,6 +3323,8 @@ std::uint64_t appendEvidenceValue(std::uint64_t hash, const std::uint64_t value)
   return hash;
 }
 
+std::uint64_t appendEvidenceText(std::uint64_t hash, std::string_view value);
+
 std::uint64_t framePlanEvidenceHash(const FrameRenderPlan &plan) {
   std::uint64_t hash = 1469598103934665603ull;
   hash = appendEvidenceValue(hash, plan.source_ir_hash);
@@ -3398,30 +3400,88 @@ std::string objectDiagnosticLabel(const aster::RenderObject &object, const std::
   return object.name.empty() ? ("object:" + std::to_string(index)) : object.name;
 }
 
-bool appendWorldPerceptualTruthDiagnostics(
-    const aster::Scene &scene, std::vector<aster::FrameDiagnosticEvent> &events) {
+aster::RenderPerceptualTruthMode effectivePerceptualTruthMode(
+    const aster::RenderObject &object, const aster::RendererSettings &settings) {
+  if (object.perceptual_truth_mode != aster::RenderPerceptualTruthMode::Compatibility) {
+    return object.perceptual_truth_mode;
+  }
+  return settings.perceptual_truth_mode;
+}
+
+bool perceptualTruthRequired(const aster::RenderPerceptualTruthMode mode) {
+  return mode == aster::RenderPerceptualTruthMode::Warn ||
+         mode == aster::RenderPerceptualTruthMode::Strict;
+}
+
+bool appendWorldPerceptualTruthDiagnostics(const aster::Scene &scene,
+                                           const aster::RendererSettings &settings,
+                                           aster::FrameForensics &forensics) {
   bool rejected = false;
+  std::uint64_t policy_hash =
+      appendEvidenceText(1469598103934665603ull, "aster.perceptual-truth-policy.v1");
+  policy_hash = appendEvidenceValue(
+      policy_hash, static_cast<std::uint64_t>(settings.perceptual_truth_mode));
+  policy_hash = appendEvidenceValue(
+      policy_hash, static_cast<std::uint64_t>(settings.perceptual_truth_expected_count));
+  policy_hash = appendEvidenceValue(policy_hash, settings.perceptual_truth_policy_hash);
   for (std::size_t i = 0u; i < scene.objects().size(); ++i) {
     const aster::RenderObject &object = scene.objects()[i];
+    const aster::RenderPerceptualTruthMode mode =
+        effectivePerceptualTruthMode(object, settings);
+    policy_hash = appendEvidenceText(policy_hash, objectDiagnosticLabel(object, i));
+    policy_hash = appendEvidenceValue(policy_hash, static_cast<std::uint64_t>(mode));
+    if (!perceptualTruthRequired(mode)) {
+      continue;
+    }
+    ++forensics.perceptual_truth_expected_count;
     const bool has_truth =
         object.perceptual_primitive.truth_hash != 0u && object.perceptual_primitive.accepted;
     if (has_truth) {
+      ++forensics.perceptual_truth_observed_count;
       continue;
     }
+    ++forensics.perceptual_truth_missing_count;
     const bool strict =
-        object.perceptual_truth_mode == aster::RenderPerceptualTruthMode::Strict;
+        mode == aster::RenderPerceptualTruthMode::Strict;
     rejected = rejected || strict;
-    events.push_back({.kind = aster::FrameDiagnosticKind::PerceptualTruthGap,
-                      .severity = strict ? aster::FrameDiagnosticSeverity::Error
-                                         : aster::FrameDiagnosticSeverity::Warning,
-                      .pass = "world-perceptual-primitive",
-                      .label = objectDiagnosticLabel(object, i),
-                      .message =
-                          strict
-                              ? "Strict renderable rejected because perceptual truth is missing."
-                              : "Compatibility renderable has no perceptual primitive truth.",
-                      .value = i});
+    forensics.events.push_back(
+        {.kind = aster::FrameDiagnosticKind::PerceptualTruthGap,
+         .severity = strict ? aster::FrameDiagnosticSeverity::Error
+                            : aster::FrameDiagnosticSeverity::Warning,
+         .pass = "world-perceptual-primitive",
+         .label = objectDiagnosticLabel(object, i),
+         .message = strict ? "Strict renderable rejected because perceptual truth is missing."
+                           : "Renderable is missing world perceptual primitive truth.",
+         .value = i});
   }
+  if (settings.perceptual_truth_expected_count >
+      forensics.perceptual_truth_expected_count) {
+    const std::size_t missing_external =
+        settings.perceptual_truth_expected_count -
+        forensics.perceptual_truth_expected_count;
+    forensics.perceptual_truth_expected_count =
+        settings.perceptual_truth_expected_count;
+    forensics.perceptual_truth_missing_count += missing_external;
+    forensics.events.push_back(
+        {.kind = aster::FrameDiagnosticKind::PerceptualTruthGap,
+         .severity = settings.perceptual_truth_mode ==
+                             aster::RenderPerceptualTruthMode::Strict
+                         ? aster::FrameDiagnosticSeverity::Error
+                         : aster::FrameDiagnosticSeverity::Warning,
+         .pass = "world-perceptual-primitive",
+         .label = "perceptual-truth-policy",
+         .message = "Renderer expected more world perceptual primitive truth than the scene supplied.",
+         .value = static_cast<std::uint64_t>(missing_external)});
+    rejected = rejected ||
+               settings.perceptual_truth_mode == aster::RenderPerceptualTruthMode::Strict;
+  }
+  policy_hash = appendEvidenceValue(
+      policy_hash, static_cast<std::uint64_t>(forensics.perceptual_truth_expected_count));
+  policy_hash = appendEvidenceValue(
+      policy_hash, static_cast<std::uint64_t>(forensics.perceptual_truth_observed_count));
+  policy_hash = appendEvidenceValue(
+      policy_hash, static_cast<std::uint64_t>(forensics.perceptual_truth_missing_count));
+  forensics.perceptual_truth_policy_hash = policy_hash;
   return rejected;
 }
 
@@ -4781,6 +4841,13 @@ std::uint64_t worldTruthAuditHash(const aster::FrameForensics &forensics) {
   hash = appendEvidenceValue(hash, forensics.perceptual_scheduler_hash);
   hash = appendEvidenceValue(hash, forensics.belief_falseness_report.belief_contract_hash);
   hash = appendEvidenceValue(hash, forensics.perceptual_primitive_summary.truth_hash);
+  hash = appendEvidenceValue(
+      hash, static_cast<std::uint64_t>(forensics.perceptual_truth_expected_count));
+  hash = appendEvidenceValue(
+      hash, static_cast<std::uint64_t>(forensics.perceptual_truth_observed_count));
+  hash = appendEvidenceValue(
+      hash, static_cast<std::uint64_t>(forensics.perceptual_truth_missing_count));
+  hash = appendEvidenceValue(hash, forensics.perceptual_truth_policy_hash);
   hash = appendEvidenceValue(hash, forensics.neural_irradiance_hash);
   hash = appendEvidenceValue(hash, static_cast<std::uint64_t>(
                                       forensics.perceptual_primitive_traces.size()));
@@ -6011,7 +6078,8 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   if (framebuffer_width <= 0 || framebuffer_height <= 0) {
     return stats;
   }
-  if (appendWorldPerceptualTruthDiagnostics(scene, last_forensics_.events)) {
+  if (appendWorldPerceptualTruthDiagnostics(scene, settings, last_forensics_)) {
+    last_forensics_.world_truth_audit_hash = worldTruthAuditHash(last_forensics_);
     return stats;
   }
 

@@ -52,6 +52,56 @@ constexpr std::uint32_t kContinuityResourceState = 1u << 10u;
   return seed;
 }
 
+void mixLumenSignals(std::uint64_t &hash, const WorldPerceptualSignals &signals) {
+  hash = lumenHash(signals.belief_state, hash);
+  hash = lumenHash(signals.perceptual_debt, hash);
+  hash = lumenHash(signals.material_memory, hash);
+  hash = lumenHash(signals.interaction_residue, hash);
+  hash = lumenHash(signals.contact_field, hash);
+  hash = lumenHash(signals.light_history, hash);
+  hash = lumenHash(signals.acoustic_occlusion, hash);
+  hash = lumenHash(signals.ecology_pressure, hash);
+  hash = lumenHash(signals.threat_gradient, hash);
+  hash = lumenHash(signals.traversal_pressure, hash);
+  hash = lumenHash(signals.semantic_lod, hash);
+  hash = lumenHash(signals.decision_impact, hash);
+  hash = lumenHash(signals.player_readable_cause, hash);
+}
+
+[[nodiscard]] std::uint64_t lumenPrimitiveTruthHash(const WorldPerceptualPrimitive &primitive,
+                                                    const Vec3 center,
+                                                    std::uint64_t seed) {
+  std::uint64_t hash = lumenHashString("lumen.scene-primitive.v1", seed);
+  hash = lumenHashString(primitive.primitive_id, hash);
+  hash = lumenHashString(primitive.object_name, hash);
+  hash = lumenHash(hash, primitive.world_owner_hash);
+  hash = lumenHash(hash, primitive.template_hash);
+  hash = lumenHash(hash, primitive.cell_hash);
+  hash = lumenHash(hash, primitive.player_readable_cause_hash);
+  hash = lumenHash(hash, primitive.sound_surface_class_hash);
+  hash = lumenHash(hash, primitive.neural_irradiance_hash);
+  hash = lumenHash(center, hash);
+  hash = lumenHash(primitive.cell_residency, hash);
+  hash = lumenHash(primitive.world_ownership, hash);
+  hash = lumenHash(primitive.wetness_half_life_seconds, hash);
+  hash = lumenHash(primitive.material_half_life_seconds, hash);
+  hash = lumenHash(primitive.exposure_age_seconds, hash);
+  hash = lumenHash(primitive.streaming_cost, hash);
+  hash = lumenHash(primitive.material_stability, hash);
+  hash = lumenHash(primitive.contact_normal_history, hash);
+  hash = lumenHash(primitive.acoustic_occlusion_trust, hash);
+  hash = lumenHash(primitive.visual_occlusion_trust, hash);
+  hash = lumenHash(primitive.ai_cover_value, hash);
+  hash = lumenHash(primitive.traversal_affordance, hash);
+  hash = lumenHash(primitive.semantic_lod, hash);
+  mixLumenSignals(hash, primitive.signals);
+  hash = lumenHash(hash, static_cast<std::uint64_t>(primitive.active_cell_anchor_count));
+  hash = lumenHash(hash, static_cast<std::uint64_t>(primitive.active_surface_patch_count));
+  hash = lumenHash(hash, static_cast<std::uint64_t>(primitive.active_contact_zone_count));
+  hash = lumenHash(hash, static_cast<std::uint64_t>(primitive.active_residue_channel_count));
+  return hash;
+}
+
 [[nodiscard]] bool isCavePerceptualSurface(const std::string_view name) {
   return name == "Authored cave interior" || name == "Authored deep cave interior" ||
          name == "Walkable cave entrance threshold" ||
@@ -77,6 +127,35 @@ constexpr std::uint32_t kContinuityResourceState = 1u << 10u;
     max_corner.y = std::max(max_corner.y, p.y);
     max_corner.z = std::max(max_corner.z, p.z);
   }
+  return (min_corner + max_corner) * 0.5f;
+}
+
+[[nodiscard]] Vec3 renderObjectApproximatePerceptualCenter(const RenderObject &object) {
+  if (object.custom_mesh == nullptr || object.custom_mesh->vertices.empty()) {
+    return object.transform.position;
+  }
+  const std::size_t stride =
+      std::max<std::size_t>(1u, object.custom_mesh->vertices.size() / 48u);
+  Vec3 min_corner =
+      transformPoint(object.transform, object.custom_mesh->vertices.front().position);
+  Vec3 max_corner = min_corner;
+  for (std::size_t i = 0u; i < object.custom_mesh->vertices.size(); i += stride) {
+    const Vec3 p = transformPoint(object.transform, object.custom_mesh->vertices[i].position);
+    min_corner.x = std::min(min_corner.x, p.x);
+    min_corner.y = std::min(min_corner.y, p.y);
+    min_corner.z = std::min(min_corner.z, p.z);
+    max_corner.x = std::max(max_corner.x, p.x);
+    max_corner.y = std::max(max_corner.y, p.y);
+    max_corner.z = std::max(max_corner.z, p.z);
+  }
+  const Vec3 tail =
+      transformPoint(object.transform, object.custom_mesh->vertices.back().position);
+  min_corner.x = std::min(min_corner.x, tail.x);
+  min_corner.y = std::min(min_corner.y, tail.y);
+  min_corner.z = std::min(min_corner.z, tail.z);
+  max_corner.x = std::max(max_corner.x, tail.x);
+  max_corner.y = std::max(max_corner.y, tail.y);
+  max_corner.z = std::max(max_corner.z, tail.z);
   return (min_corner + max_corner) * 0.5f;
 }
 
@@ -494,7 +573,7 @@ void LumenRun::noteRenderExtraction(const std::uint64_t extraction_hash,
   world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(frame_cost_ms);
   refreshWorldPerceptualPrimitives();
   world_forensics_.belief_report = buildBeliefExtractionReport();
-  refreshWorldPerceptualPrimitives();
+  refreshWorldTruthAuditHash();
 }
 
 void LumenRun::resetWorldProof() {
@@ -921,10 +1000,16 @@ BeliefExtractionReport LumenRun::buildBeliefExtractionReport() const {
 std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives() {
   std::vector<WorldPerceptualPrimitive> primitives;
   primitives.reserve(1u + coal_ores_.size() + placed_rocks_.size() + scene_.objects().size());
-  primitives.push_back(makeWorldPerceptualPrimitiveFromRuntime(
-      "lumen.runtime.mine_ore_torch", "Lumen Run Mine Ore + Torch",
-      world_forensics_.perceptual_state, world_forensics_.perceptual_schedule,
-      world_forensics_.perception_ledger));
+  std::vector<bool> assigned_object_indices(scene_.objects().size(), false);
+  {
+    WorldPerceptualPrimitive runtime_primitive = makeWorldPerceptualPrimitiveFromRuntime(
+        "lumen.runtime.mine_ore_torch", "Lumen Run Mine Ore + Torch",
+        world_forensics_.perceptual_state, world_forensics_.perceptual_schedule,
+        world_forensics_.perception_ledger);
+    if (runtime_primitive.accepted) {
+      primitives.push_back(std::move(runtime_primitive));
+    }
+  }
 
   const PerceptualFrameState &state = world_forensics_.perceptual_state;
   const PerceptualWorldScheduleReport &schedule = world_forensics_.perceptual_schedule;
@@ -1035,7 +1120,11 @@ std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives()
                                     .player_readable_cause =
                                         std::max(state.player_readable_cause,
                                                  torch_exposure > 0.01f ? 0.82f : 0.52f)};
-      primitives.push_back(torch_exposure_field_.advance(observation));
+      WorldPerceptualPrimitive primitive = torch_exposure_field_.advance(observation);
+      assigned_object_indices[object_index] = primitive.accepted;
+      if (primitive.accepted) {
+        primitives.push_back(std::move(primitive));
+      }
     }
   }
 
@@ -1120,7 +1209,13 @@ std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives()
          .ecology_signal = desc.signals.ecology_pressure,
          .threat = schedule.threat_signal,
          .decision_impact = desc.signals.decision_impact});
-    primitives.push_back(evaluateWorldPerceptualPrimitive(desc));
+    WorldPerceptualPrimitive primitive = evaluateWorldPerceptualPrimitive(desc);
+    if (ore.object_index < assigned_object_indices.size()) {
+      assigned_object_indices[ore.object_index] = primitive.accepted;
+    }
+    if (primitive.accepted) {
+      primitives.push_back(std::move(primitive));
+    }
   }
 
   for (std::size_t index = 0u; index < placed_rocks_.size(); ++index) {
@@ -1183,18 +1278,98 @@ std::vector<WorldPerceptualPrimitive> LumenRun::buildWorldPerceptualPrimitives()
                                      .ecology_signal = desc.signals.ecology_pressure,
                                      .threat = desc.signals.threat_gradient,
                                      .decision_impact = desc.signals.decision_impact});
-    primitives.push_back(evaluateWorldPerceptualPrimitive(desc));
+    WorldPerceptualPrimitive primitive = evaluateWorldPerceptualPrimitive(desc);
+    if (rock.object_index < assigned_object_indices.size()) {
+      assigned_object_indices[rock.object_index] = primitive.accepted;
+    }
+    if (primitive.accepted) {
+      primitives.push_back(std::move(primitive));
+    }
+  }
+  for (std::size_t object_index = 0u; object_index < scene_.objects().size(); ++object_index) {
+    if (assigned_object_indices[object_index]) {
+      continue;
+    }
+    const RenderObject &object = scene_.objects()[object_index];
+    if (object.perceptual_truth_mode == RenderPerceptualTruthMode::Compatibility) {
+      continue;
+    }
+    const Vec3 center = renderObjectApproximatePerceptualCenter(object);
+    const Vec3 normal =
+        renderObjectPerceptualNormal(object, center, {0.0f, 1.0f, 0.0f});
+    std::uint64_t object_seed =
+        lumenHashString(object.name, lumenHash(static_cast<std::uint64_t>(object_index),
+                                               ledger.ledger_hash));
+    object_seed = lumenHash(object.transform.position, object_seed);
+    object_seed = lumenHash(object.transform.scale, object_seed);
+    WorldPerceptualPrimitive primitive;
+    primitive.primitive_id = "lumen.scene.object." + std::to_string(object_index);
+    primitive.object_name = object.name.empty() ? "Lumen world renderable" : object.name;
+    primitive.world_owner_hash =
+        ledger.region_id != 0u ? ledger.region_id : kLumenEntryRegionId;
+    primitive.template_hash = lumenHashString("lumen.scene.renderable", object_seed);
+    primitive.cell_hash = lumenHash(center, object_seed);
+    primitive.player_readable_cause_hash =
+        lumenHashString("lumen-world-renderable-presence", object_seed);
+    primitive.sound_surface_class_hash =
+        lumenHashString("lumen-world-surface-contact", object_seed);
+    primitive.cell_residency = ledger.streaming_semantic_lod_hash != 0u ? 1.0f : 0.66f;
+    primitive.world_ownership = 1.0f;
+    primitive.wetness_half_life_seconds = 20.0f;
+    primitive.material_half_life_seconds = 12.0f;
+    primitive.exposure_age_seconds = state.exposure_seconds;
+    primitive.streaming_cost =
+        std::clamp(1.0f - schedule.streaming_budget + 0.04f, 0.0f, 1.0f);
+    primitive.material_stability =
+        std::max(0.70f, 1.0f - schedule.interaction_debt * 0.24f);
+    primitive.contact_normal_history = normal;
+    primitive.acoustic_occlusion_trust = std::max(0.38f, state.render_budget.audio);
+    primitive.visual_occlusion_trust = std::max(0.42f, state.occlusion_trust);
+    primitive.ai_cover_value = std::max(schedule.threat_signal, state.occlusion_trust * 0.30f);
+    primitive.traversal_affordance = std::max(0.30f, state.traversal_pressure);
+    primitive.semantic_lod = std::max(0.58f, semantic_lod);
+    primitive.signals = {.belief_state = std::max(0.68f, schedule.belief_stability),
+                         .perceptual_debt = state.continuity_debt,
+                         .material_memory = std::max(0.48f, state.material_memory),
+                         .interaction_residue = std::max(0.24f, state.interaction_residue),
+                         .contact_field = std::max(0.54f, state.occlusion_trust),
+                         .light_history = std::max(0.52f, state.lighting_believability),
+                         .acoustic_occlusion = acoustic_occlusion,
+                         .ecology_pressure = std::max(0.34f, state.ecology_signal),
+                         .threat_gradient = schedule.threat_signal,
+                         .traversal_pressure = std::max(0.34f, state.traversal_pressure),
+                         .semantic_lod = primitive.semantic_lod,
+                         .decision_impact = std::max(0.36f, schedule.decision_impact_score),
+                         .player_readable_cause =
+                             std::max(0.58f, state.player_readable_cause)};
+    primitive.active_cell_anchor_count = 1u;
+    primitive.active_surface_patch_count = 1u;
+    primitive.active_contact_zone_count = 1u;
+    primitive.active_residue_channel_count = 1u;
+    primitive.accepted = true;
+    primitive.diagnostic = "lumen scene renderable primitive accepted";
+    primitive.truth_hash = lumenPrimitiveTruthHash(primitive, center, object_seed);
+    if (primitive.accepted) {
+      primitives.push_back(std::move(primitive));
+    }
   }
   return primitives;
 }
 
 void LumenRun::applyWorldPerceptualPrimitivesToScene() {
+  for (RenderObject &object : scene_.objects()) {
+    if (object.perceptual_truth_mode != RenderPerceptualTruthMode::Compatibility) {
+      object.perceptual_primitive = {};
+    }
+  }
+  std::unordered_map<std::string_view, const WorldPerceptualPrimitive *> primitives_by_id;
+  primitives_by_id.reserve(world_forensics_.perceptual_primitives.size());
+  for (const WorldPerceptualPrimitive &primitive : world_forensics_.perceptual_primitives) {
+    primitives_by_id.emplace(primitive.primitive_id, &primitive);
+  }
   auto find_primitive = [&](const std::string_view id) -> const WorldPerceptualPrimitive * {
-    const auto found = std::find_if(
-        world_forensics_.perceptual_primitives.begin(),
-        world_forensics_.perceptual_primitives.end(),
-        [id](const WorldPerceptualPrimitive &primitive) { return primitive.primitive_id == id; });
-    return found == world_forensics_.perceptual_primitives.end() ? nullptr : &*found;
+    const auto found = primitives_by_id.find(id);
+    return found == primitives_by_id.end() ? nullptr : found->second;
   };
   for (std::size_t index = 0u; index < coal_ores_.size(); ++index) {
     const CoalOreNode &ore = coal_ores_[index];
@@ -1226,12 +1401,21 @@ void LumenRun::applyWorldPerceptualPrimitivesToScene() {
       object.perceptual_primitive = *primitive;
     }
   }
+  for (std::size_t object_index = 0u; object_index < scene_.objects().size(); ++object_index) {
+    RenderObject &object = scene_.objects()[object_index];
+    if (object.perceptual_truth_mode == RenderPerceptualTruthMode::Compatibility ||
+        (object.perceptual_primitive.truth_hash != 0u &&
+         object.perceptual_primitive.accepted)) {
+      continue;
+    }
+    if (const WorldPerceptualPrimitive *primitive =
+            find_primitive("lumen.scene.object." + std::to_string(object_index))) {
+      object.perceptual_primitive = *primitive;
+    }
+  }
 }
 
-void LumenRun::refreshWorldPerceptualPrimitives() {
-  world_forensics_.perceptual_primitives = buildWorldPerceptualPrimitives();
-  world_forensics_.perceptual_primitive_summary =
-      summarizeWorldPerceptualPrimitives(world_forensics_.perceptual_primitives);
+void LumenRun::refreshWorldTruthAuditHash() {
   std::uint64_t audit_hash = lumenHashString("lumen.world-truth-audit.v1",
                                              world_forensics_.world_transition_hash);
   audit_hash = lumenHash(audit_hash, world_forensics_.epoch);
@@ -1249,6 +1433,13 @@ void LumenRun::refreshWorldPerceptualPrimitives() {
       lumenHash(audit_hash, world_forensics_.perceptual_primitive_summary.truth_hash);
   audit_hash = lumenHash(audit_hash, world_forensics_.belief_report.belief_contract_hash);
   world_forensics_.world_truth_audit_hash = audit_hash;
+}
+
+void LumenRun::refreshWorldPerceptualPrimitives() {
+  world_forensics_.perceptual_primitives = buildWorldPerceptualPrimitives();
+  world_forensics_.perceptual_primitive_summary =
+      summarizeWorldPerceptualPrimitives(world_forensics_.perceptual_primitives);
+  refreshWorldTruthAuditHash();
   applyWorldPerceptualPrimitivesToScene();
 }
 
@@ -1748,7 +1939,7 @@ void LumenRun::rebuildCaveWorldGate() {
   world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(0.0f);
   refreshWorldPerceptualPrimitives();
   world_forensics_.belief_report = buildBeliefExtractionReport();
-  refreshWorldPerceptualPrimitives();
+  refreshWorldTruthAuditHash();
 }
 
 void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const bool run_requested,
@@ -1827,7 +2018,7 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   advancePerceptualRuntime(step, move_axis, previous_player_position);
   refreshWorldPerceptualPrimitives();
   world_forensics_.belief_report = buildBeliefExtractionReport();
-  refreshWorldPerceptualPrimitives();
+  refreshWorldTruthAuditHash();
 
   const WorldTickResult tick =
       world_state_.tick({.tick = next_world_epoch_++,
@@ -1872,7 +2063,7 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(0.0f);
   refreshWorldPerceptualPrimitives();
   world_forensics_.belief_report = buildBeliefExtractionReport();
-  refreshWorldPerceptualPrimitives();
+  refreshWorldTruthAuditHash();
 }
 
 Vec3 LumenRun::playerPosition() const {

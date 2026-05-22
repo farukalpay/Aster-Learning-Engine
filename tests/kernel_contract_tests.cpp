@@ -165,6 +165,9 @@ static_assert(offsetof(AsterEngineDesc, application_name) > offsetof(AsterEngine
 static_assert(offsetof(AsterEngineDesc, flags) > offsetof(AsterEngineDesc, application_name));
 static_assert(ASTER_KERNEL_RENDER_QUALITY_PRODUCTION == 0u);
 static_assert(ASTER_KERNEL_TONE_MAPPER_PBR_NEUTRAL == 0u);
+static_assert(ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_COMPATIBILITY == 0u);
+static_assert(ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_WARN == 1u);
+static_assert(ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_STRICT == 2u);
 static_assert(ASTER_KERNEL_RENDER_PASS_SURFACE_OCCLUSION !=
               ASTER_KERNEL_RENDER_PASS_CONTACT_SHADOW);
 static_assert(ASTER_KERNEL_RENDER_RESOURCE_SURFACE_ATTRIBUTES !=
@@ -180,6 +183,8 @@ static_assert(offsetof(AsterRendererSettings, quality_tier) >
               offsetof(AsterRendererSettings, render_target));
 static_assert(offsetof(AsterRendererSettings, perceptual_world_schedule) >
               offsetof(AsterRendererSettings, perceptual_continuity_budget));
+static_assert(offsetof(AsterRendererSettings, perceptual_truth_mode) >
+              offsetof(AsterRendererSettings, perceptual_world_truth));
 
 struct LegacyCameraDesc {
   size_t size;
@@ -205,8 +210,23 @@ struct LegacyRendererSettings {
   AsterRenderTargetHandle render_target;
 };
 
+struct LegacySceneObjectDesc {
+  size_t size;
+  uint32_t version;
+  AsterMeshHandle mesh;
+  AsterMaterialHandle material;
+  AsterRenderPipelineHandle pipeline;
+  AsterKernelMeshPrimitive primitive;
+  AsterVec3 position;
+  AsterVec3 rotation;
+  AsterVec3 scale;
+  AsterStringView debug_label;
+};
+
 static_assert(sizeof(LegacyCameraDesc) == offsetof(AsterCameraDesc, focal_length_mm));
 static_assert(sizeof(LegacyRendererSettings) == offsetof(AsterRendererSettings, quality_tier));
+static_assert(sizeof(LegacySceneObjectDesc) ==
+              offsetof(AsterSceneObjectDesc, perceptual_truth_mode));
 
 std::string readFile(const std::string &path) {
   std::ifstream input(path);
@@ -684,6 +704,42 @@ void testRendererAbi5Lifecycle() {
   assert(aster_kernel_material_create(engine, &material_desc, &material).code ==
          ASTER_STATUS_OK);
 
+  const AsterWorldPerceptualPrimitiveInfo scene_primitive{
+      sizeof(AsterWorldPerceptualPrimitiveInfo),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      1u,
+      {"primitive.kernel.box", 20u},
+      {"kernel box", 10u},
+      0u,
+      0xA57E00000000E001ull,
+      0xA57E00000000E002ull,
+      0xA57E00000000E003ull,
+      0xA57E00000000E004ull,
+      0xA57E00000000E005ull,
+      1.0f,
+      2.0f,
+      12.0f,
+      0.18f,
+      0.86f,
+      {0.0f, 1.0f, 0.0f},
+      0.62f,
+      0.74f,
+      0.68f,
+      0.80f,
+      0.66f,
+      0.44f,
+      0.72f,
+      0.68f,
+      0.24f,
+      0.42f,
+      0.18f,
+      0.56f,
+      0.62f,
+      0.82f,
+      1u,
+      1u,
+      1u,
+      1u};
   const AsterSceneObjectDesc object_desc{sizeof(AsterSceneObjectDesc),
                                          ASTER_KERNEL_STRUCT_VERSION_1,
                                          mesh,
@@ -693,8 +749,28 @@ void testRendererAbi5Lifecycle() {
                                          {0.0f, 0.0f, 0.0f},
                                          {0.0f, 0.0f, 0.0f},
                                          {1.0f, 1.0f, 1.0f},
-                                         {"box", 3u}};
+                                         {"box", 3u},
+                                         ASTER_KERNEL_RENDER_PERCEPTUAL_TRUTH_WARN,
+                                         scene_primitive};
   assert(aster_kernel_scene_add_object(scene, &object_desc).code == ASTER_STATUS_OK);
+  AsterSceneObjectDesc missing_truth_object = object_desc;
+  missing_truth_object.debug_label = {"warn-box-missing-truth", 22u};
+  missing_truth_object.position = {1.25f, 0.0f, 0.0f};
+  missing_truth_object.perceptual_primitive = {};
+  assert(aster_kernel_scene_add_object(scene, &missing_truth_object).code == ASTER_STATUS_OK);
+  const LegacySceneObjectDesc legacy_object_desc{sizeof(LegacySceneObjectDesc),
+                                                 ASTER_KERNEL_STRUCT_VERSION_1,
+                                                 mesh,
+                                                 material,
+                                                 nullptr,
+                                                 ASTER_KERNEL_MESH_PRIMITIVE_BOX,
+                                                 {-1.25f, 0.0f, 0.0f},
+                                                 {0.0f, 0.0f, 0.0f},
+                                                 {1.0f, 1.0f, 1.0f},
+                                                 {"legacy-box", 10u}};
+  assert(aster_kernel_scene_add_object(
+             scene, reinterpret_cast<const AsterSceneObjectDesc *>(&legacy_object_desc))
+             .code == ASTER_STATUS_OK);
 
   const AsterCameraDesc camera{sizeof(AsterCameraDesc),
                                ASTER_KERNEL_STRUCT_VERSION_1,
@@ -965,7 +1041,20 @@ void testRendererAbi5Lifecycle() {
   assert(detail_counts.perceptual_world_truth.truth_hash ==
          presentation_settings.perceptual_world_truth.truth_hash);
   assert(detail_counts.perceptual_world_truth.primitive_count == 2u);
+  assert(detail_counts.perceptual_primitive_trace_count == 1u);
+  assert(detail_counts.perceptual_truth_expected_count == 2u);
+  assert(detail_counts.perceptual_truth_observed_count == 1u);
+  assert(detail_counts.perceptual_truth_missing_count == 1u);
+  assert(detail_counts.perceptual_truth_policy_hash != 0u);
   assert(detail_counts.world_truth_audit_hash != 0u);
+  AsterWorldPerceptualPrimitiveInfo frame_primitive{
+      sizeof(AsterWorldPerceptualPrimitiveInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_perceptual_primitive(renderer, 0u, &frame_primitive).code ==
+         ASTER_STATUS_OK);
+  assert(frame_primitive.primitive_hash == scene_primitive.primitive_hash);
+  assert(frame_primitive.primitive_id.size > 0u);
+  assert(aster_kernel_renderer_frame_perceptual_primitive(renderer, 1u, &frame_primitive).code ==
+         ASTER_STATUS_INVALID_ARGUMENT);
   AsterPerceptualWorldScheduleInfo frame_schedule{
       sizeof(AsterPerceptualWorldScheduleInfo), ASTER_KERNEL_STRUCT_VERSION_1};
   assert(aster_kernel_renderer_frame_perceptual_world_schedule(renderer, &frame_schedule).code ==

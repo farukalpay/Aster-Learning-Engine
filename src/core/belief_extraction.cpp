@@ -362,7 +362,7 @@ BeliefExtractionReport extractBeliefContract(const BeliefExtractionDesc &desc) {
   const float world_sync = worldStateSyncScore(desc);
   const bool has_primitive_summary = desc.perceptual_primitive_summary.primitive_count > 0u;
   const float primitive_coverage =
-      has_primitive_summary && desc.visible_object_count > 0u
+      desc.visible_object_count > 0u
           ? clamp01(static_cast<float>(desc.perceptual_primitive_summary.primitive_count) /
                     static_cast<float>(desc.visible_object_count))
           : 1.0f;

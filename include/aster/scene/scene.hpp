@@ -22,7 +22,8 @@ struct RenderObject;
 
 enum class RenderPerceptualTruthMode : std::uint32_t {
   Compatibility = 0,
-  Strict = 1,
+  Warn = 1,
+  Strict = 2,
 };
 
 enum class MeshPrimitive {

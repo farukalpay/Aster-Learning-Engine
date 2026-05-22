@@ -252,6 +252,9 @@ authoredFixturePlacements(const LumenAuthoringData &authoring, const std::string
 
 // Scene construction and physics world rebuilds.
 std::size_t LumenRun::appendObject(RenderObject object) {
+  if (object.perceptual_truth_mode == RenderPerceptualTruthMode::Compatibility) {
+    object.perceptual_truth_mode = RenderPerceptualTruthMode::Warn;
+  }
   scene_.objects().push_back(std::move(object));
   return scene_.objects().size() - 1;
 }
@@ -753,6 +756,7 @@ void LumenRun::rebuildScene() {
       object.auto_contact_shadow = false;
       object.casts_contact_shadow = false;
       object.camera_occlusion_fade = false;
+      object.perceptual_truth_mode = RenderPerceptualTruthMode::Compatibility;
     }
     cave_debug_overlay_objects_.push_back(
         {index, layer, scale, visible_opacity, visible_emission});
@@ -1160,6 +1164,7 @@ void LumenRun::rebuildScene() {
   for (const std::size_t object_index : player_avatar_instance_.object_indices) {
     if (object_index < scene_.objects().size()) {
       scene_.objects()[object_index].camera_occlusion_fade = false;
+      scene_.objects()[object_index].perceptual_truth_mode = RenderPerceptualTruthMode::Warn;
       enableContactShadow(object_index, 0.42f, 0.92f);
     }
   }

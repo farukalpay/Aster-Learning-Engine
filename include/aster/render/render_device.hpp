@@ -379,6 +379,9 @@ struct RendererSettings {
   RendererForensicsSettings forensics{};
   RenderStyleProfile style{};
   MaterialDebugView material_debug_view = MaterialDebugView::Beauty;
+  RenderPerceptualTruthMode perceptual_truth_mode = RenderPerceptualTruthMode::Compatibility;
+  std::size_t perceptual_truth_expected_count = 0u;
+  std::uint64_t perceptual_truth_policy_hash = 0u;
 };
 
 struct FrameStats {
@@ -883,6 +886,10 @@ struct FrameForensics {
   float perceptual_scheduler_frame_cost_ms = 0.0f;
   bool perceptual_scheduler_accepted = false;
   WorldPerceptualPrimitiveSummary perceptual_primitive_summary;
+  std::size_t perceptual_truth_expected_count = 0u;
+  std::size_t perceptual_truth_observed_count = 0u;
+  std::size_t perceptual_truth_missing_count = 0u;
+  std::uint64_t perceptual_truth_policy_hash = 0u;
   std::uint64_t neural_irradiance_hash = 0u;
   Vec3 neural_irradiance_diffuse{};
   float neural_irradiance_confidence = 0.0f;

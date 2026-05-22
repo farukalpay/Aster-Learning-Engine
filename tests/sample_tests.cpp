@@ -150,6 +150,34 @@ void testLumenCoalMiningReactionContinuity() {
   assert(run.worldForensics().perceptual_schedule.decision_impact_score > 0.0f);
 }
 
+void testLumenWorldRenderablePerceptualCoverage() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  run.update(1.0f / 60.0f, {}, false, false);
+
+  std::size_t expected = 0u;
+  std::size_t observed = 0u;
+  for (const aster::RenderObject &object : run.scene().objects()) {
+    if (object.perceptual_truth_mode == aster::RenderPerceptualTruthMode::Compatibility) {
+      continue;
+    }
+    ++expected;
+    if (object.perceptual_primitive.truth_hash != 0u && object.perceptual_primitive.accepted) {
+      ++observed;
+    }
+  }
+
+  const aster::LumenWorldForensics &world = run.worldForensics();
+  assert(expected > 0u);
+  assert(observed == expected);
+  assert(world.perceptual_primitive_summary.accepted);
+  assert(world.perceptual_primitive_summary.primitive_count >= observed);
+  assert(std::any_of(world.perceptual_primitives.begin(), world.perceptual_primitives.end(),
+                     [](const aster::WorldPerceptualPrimitive &primitive) {
+                       return primitive.primitive_id.find("lumen.scene.object.") == 0u &&
+                              primitive.accepted;
+                     }));
+}
+
 struct LumenMineOreTorchReplayHashes {
   std::uint64_t world_hash = 0u;
   std::uint64_t primitive_truth_hash = 0u;
@@ -1207,6 +1235,7 @@ int main() {
   testLumenSceneCoherenceReport();
   testLumenWorldForensicsContract();
   testLumenCoalMiningReactionContinuity();
+  testLumenWorldRenderablePerceptualCoverage();
   testLumenMineOreTorchDeterministicPerceptualReplay();
   testLumenPerceptualWorldRuntimeExposure();
   testLumenCameraCollisionCanBeatComfortRadius();
