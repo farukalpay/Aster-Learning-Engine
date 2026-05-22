@@ -1950,6 +1950,172 @@ LoadResult<InputMapDocument> parseInputMapDocument(std::string_view source_text,
   return result;
 }
 
+LoadResult<CaveWorldGateReportDocument>
+parseCaveWorldGateReportDocument(std::string_view source_text,
+                                 std::filesystem::path source_path) {
+  LoadResult<CaveWorldGateReportDocument> result;
+  try {
+    const Json root = JsonParser(source_text).parse();
+    if (!expectObject(root, result.diagnostics, source_path, "$")) {
+      return result;
+    }
+    result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
+    result.value.kind = readStringOr(root, "kind", result.diagnostics, source_path, "$", {});
+    result.value.id = readStringOr(root, "id", result.diagnostics, source_path, "$", {});
+    result.value.verdict = readStringOr(root, "verdict", result.diagnostics, source_path, "$", {});
+    result.value.region_id =
+        readStringOr(root, "region_id", result.diagnostics, source_path, "$", {});
+    result.value.world_transition_hash =
+        readStringOr(root, "world_transition_hash", result.diagnostics, source_path, "$", {});
+    result.value.extraction_hash =
+        readStringOr(root, "extraction_hash", result.diagnostics, source_path, "$", {});
+    result.value.belief_contract_hash =
+        readStringOr(root, "belief_contract_hash", result.diagnostics, source_path, "$", {});
+
+    if (const Json *navigation = member(root, "navigation")) {
+      if (expectObject(*navigation, result.diagnostics, source_path, "$.navigation")) {
+        result.value.navigation_valid =
+            readBoolOr(*navigation, "valid", result.diagnostics, source_path, "$.navigation",
+                       false);
+      }
+    }
+    if (const Json *runtime = member(root, "perceptual_runtime")) {
+      if (expectObject(*runtime, result.diagnostics, source_path, "$.perceptual_runtime")) {
+        result.value.perceptual_runtime_accepted =
+            readBoolOr(*runtime, "accepted", result.diagnostics, source_path,
+                       "$.perceptual_runtime", false);
+      }
+    }
+    if (const Json *scheduler = member(root, "perceptual_world_scheduler")) {
+      if (expectObject(*scheduler, result.diagnostics, source_path,
+                       "$.perceptual_world_scheduler")) {
+        CavePerceptualWorldSchedulerReport report;
+        report.accepted =
+            readBoolOr(*scheduler, "accepted", result.diagnostics, source_path,
+                       "$.perceptual_world_scheduler", false);
+        report.scheduler_hash =
+            readStringOr(*scheduler, "scheduler_hash", result.diagnostics, source_path,
+                         "$.perceptual_world_scheduler", {});
+        report.memory_residue_hash =
+            readStringOr(*scheduler, "memory_residue_hash", result.diagnostics, source_path,
+                         "$.perceptual_world_scheduler", {});
+        report.threat_signal_hash =
+            readStringOr(*scheduler, "threat_signal_hash", result.diagnostics, source_path,
+                         "$.perceptual_world_scheduler", {});
+        report.material_age_hash =
+            readStringOr(*scheduler, "material_age_hash", result.diagnostics, source_path,
+                         "$.perceptual_world_scheduler", {});
+        report.interaction_debt_hash =
+            readStringOr(*scheduler, "interaction_debt_hash", result.diagnostics, source_path,
+                         "$.perceptual_world_scheduler", {});
+        report.perceptual_priority_hash =
+            readStringOr(*scheduler, "perceptual_priority_hash", result.diagnostics, source_path,
+                         "$.perceptual_world_scheduler", {});
+        report.streaming_budget_hash =
+            readStringOr(*scheduler, "streaming_budget_hash", result.diagnostics, source_path,
+                         "$.perceptual_world_scheduler", {});
+        report.memory_residue =
+            readFloatOr(*scheduler, "memory_residue", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.threat_signal =
+            readFloatOr(*scheduler, "threat_signal", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.material_age =
+            readFloatOr(*scheduler, "material_age", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.interaction_debt =
+            readFloatOr(*scheduler, "interaction_debt", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.perceptual_priority =
+            readFloatOr(*scheduler, "perceptual_priority", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.streaming_budget =
+            readFloatOr(*scheduler, "streaming_budget", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.belief_stability =
+            readFloatOr(*scheduler, "belief_stability", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.decision_impact_score =
+            readFloatOr(*scheduler, "decision_impact_score", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.diagnostic =
+            readStringOr(*scheduler, "diagnostic", result.diagnostics, source_path,
+                         "$.perceptual_world_scheduler", {});
+        result.value.perceptual_world_scheduler = std::move(report);
+      }
+    }
+    if (const Json *falseness = member(root, "falseness_report")) {
+      if (expectObject(*falseness, result.diagnostics, source_path, "$.falseness_report")) {
+        CaveBeliefFalsenessReport report;
+        report.accepted =
+            readBoolOr(*falseness, "accepted", result.diagnostics, source_path,
+                       "$.falseness_report", false);
+        report.score =
+            readFloatOr(*falseness, "score", result.diagnostics, source_path,
+                        "$.falseness_report", 0.0f);
+        report.minimum_score =
+            readFloatOr(*falseness, "minimum_score", result.diagnostics, source_path,
+                        "$.falseness_report", 0.70f);
+        report.world_transition_hash =
+            readStringOr(*falseness, "world_transition_hash", result.diagnostics, source_path,
+                         "$.falseness_report", {});
+        report.extraction_hash =
+            readStringOr(*falseness, "extraction_hash", result.diagnostics, source_path,
+                         "$.falseness_report", {});
+        report.belief_contract_hash =
+            readStringOr(*falseness, "belief_contract_hash", result.diagnostics, source_path,
+                         "$.falseness_report", {});
+        report.readability_audit_hash =
+            readStringOr(*falseness, "readability_audit_hash", result.diagnostics, source_path,
+                         "$.falseness_report", {});
+        report.perceptual_scheduler_hash =
+            readStringOr(*falseness, "perceptual_scheduler_hash", result.diagnostics,
+                         source_path, "$.falseness_report", {});
+        report.decision_impact_score =
+            readFloatOr(*falseness, "decision_impact_score", result.diagnostics, source_path,
+                        "$.falseness_report", 0.0f);
+        if (const Json *findings = member(*falseness, "findings")) {
+          if (findings->kind != Json::Kind::Array) {
+            addDiagnostic(result.diagnostics, source_path, "$.falseness_report.findings",
+                          "expected findings array");
+          } else {
+            for (std::size_t i = 0u; i < findings->array.size(); ++i) {
+              const Json &finding_json = findings->array[i];
+              const std::string path = indexPath("$.falseness_report.findings", i);
+              if (!expectObject(finding_json, result.diagnostics, source_path, path)) {
+                continue;
+              }
+              CaveBeliefFindingReport finding;
+              finding.kind =
+                  readStringOr(finding_json, "kind", result.diagnostics, source_path, path, {});
+              finding.severity =
+                  readStringOr(finding_json, "severity", result.diagnostics, source_path, path, {});
+              finding.subject =
+                  readStringOr(finding_json, "subject", result.diagnostics, source_path, path, {});
+              finding.score =
+                  readFloatOr(finding_json, "score", result.diagnostics, source_path, path, 0.0f);
+              finding.threshold = readFloatOr(finding_json, "threshold", result.diagnostics,
+                                              source_path, path, 0.0f);
+              finding.evidence_hash =
+                  readStringOr(finding_json, "evidence_hash", result.diagnostics, source_path,
+                               path, {});
+              finding.source =
+                  readStringOr(finding_json, "source", result.diagnostics, source_path, path, {});
+              finding.message =
+                  readStringOr(finding_json, "message", result.diagnostics, source_path, path, {});
+              report.findings.push_back(std::move(finding));
+            }
+          }
+        }
+        result.value.falseness_report = std::move(report);
+      }
+    }
+  } catch (const std::exception &error) {
+    addDiagnostic(result.diagnostics, source_path, "$", error.what());
+  }
+  return result;
+}
+
 LoadResult<ProjectDocument> loadProjectDocument(const std::filesystem::path &path) {
   return loadDocument<ProjectDocument>(path, parseProjectDocument);
 }
@@ -1980,6 +2146,11 @@ LoadResult<ActionGraphDocument> loadActionGraphDocument(const std::filesystem::p
 
 LoadResult<InputMapDocument> loadInputMapDocument(const std::filesystem::path &path) {
   return loadDocument<InputMapDocument>(path, parseInputMapDocument);
+}
+
+LoadResult<CaveWorldGateReportDocument>
+loadCaveWorldGateReportDocument(const std::filesystem::path &path) {
+  return loadDocument<CaveWorldGateReportDocument>(path, parseCaveWorldGateReportDocument);
 }
 
 void World::clear() {
@@ -2484,7 +2655,8 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
            check == "material_response_instability" ||
            check == "lod_transition_visibility" ||
            check == "asset_scale_incoherence" ||
-           check == "environmental_entropy_deficit";
+           check == "environmental_entropy_deficit" ||
+           check == "backend_visual_truth_gap";
   };
   if (cave.validation.belief_contract.has_value()) {
     const CaveBeliefContractDocument &belief = *cave.validation.belief_contract;

@@ -75,6 +75,54 @@ struct PerceptualFrameState {
   PerceptualRenderBudget render_budget;
 };
 
+struct PerceptualWorldScheduleDesc {
+  std::uint64_t region_id = 0u;
+  std::uint64_t world_transition_hash = 0u;
+  std::uint64_t actor_state_delta_hash = 0u;
+  std::uint64_t sensory_event_hash = 0u;
+  std::uint64_t visibility_set_hash = 0u;
+  bool navigation_valid = false;
+  float perceptual_salience_score = 0.0f;
+  float encounter_pressure = 0.0f;
+  float resource_pressure = 0.0f;
+  float frame_cost_ms = 0.0f;
+  WorldPerceptionLedgerReport ledger;
+  PerceptualFrameState perceptual_state;
+  std::uint64_t reaction_package_hash = 0u;
+  std::uint64_t material_memory_hash = 0u;
+  std::uint64_t contact_history_hash = 0u;
+  std::uint64_t lighting_atmosphere_hash = 0u;
+  std::uint64_t wear_continuity_hash = 0u;
+  std::uint64_t ai_attention_hash = 0u;
+  std::uint64_t streaming_residency_lod_hash = 0u;
+  std::uint64_t resource_state_hash = 0u;
+  std::uint64_t event_residue_hash = 0u;
+  std::uint64_t audio_visual_cue_budget_hash = 0u;
+  std::uint64_t readability_audit_hash = 0u;
+  float minimum_belief_stability = 0.58f;
+};
+
+struct PerceptualWorldScheduleReport {
+  bool accepted = false;
+  std::uint64_t scheduler_hash = 0u;
+  std::uint64_t memory_residue_hash = 0u;
+  std::uint64_t threat_signal_hash = 0u;
+  std::uint64_t material_age_hash = 0u;
+  std::uint64_t interaction_debt_hash = 0u;
+  std::uint64_t perceptual_priority_hash = 0u;
+  std::uint64_t streaming_budget_hash = 0u;
+  float memory_residue = 0.0f;
+  float threat_signal = 0.0f;
+  float material_age = 0.0f;
+  float interaction_debt = 0.0f;
+  float perceptual_priority = 0.0f;
+  float streaming_budget = 0.0f;
+  float belief_stability = 0.0f;
+  float decision_impact_score = 0.0f;
+  float frame_cost_ms = 0.0f;
+  std::string diagnostic = "perceptual world scheduler has not run";
+};
+
 class PerceptualWorldRuntime {
 public:
   PerceptualWorldRuntime() = default;
@@ -95,5 +143,8 @@ private:
 
 [[nodiscard]] PerceptualWorldObservation
 makePerceptualWorldObservation(const WorldPerceptionLedgerReport &ledger);
+
+[[nodiscard]] PerceptualWorldScheduleReport
+schedulePerceptualWorld(const PerceptualWorldScheduleDesc &desc);
 
 } // namespace aster

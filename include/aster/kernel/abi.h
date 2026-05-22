@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 6u
-#define ASTER_KERNEL_ABI_MINOR 3u
+#define ASTER_KERNEL_ABI_MINOR 4u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -301,6 +301,67 @@ typedef enum AsterKernelFrameDiagnosticKind {
   ASTER_KERNEL_FRAME_DIAGNOSTIC_CAVE_LIGHT_EXPOSURE_UNDERFLOW = 26,
   ASTER_KERNEL_FRAME_DIAGNOSTIC_CAVE_LIGHT_EXPOSURE_OVERFLOW = 27
 } AsterKernelFrameDiagnosticKind;
+
+typedef enum AsterBeliefFindingKind {
+  ASTER_BELIEF_FINDING_UNKNOWN = 0,
+  ASTER_BELIEF_FINDING_MATERIAL_FAMILY_COLLAPSE = 1,
+  ASTER_BELIEF_FINDING_CONTEXTUAL_GROUNDING_FAILURE = 2,
+  ASTER_BELIEF_FINDING_CONTACT_SHADOW_CREDIBILITY_FAILURE = 3,
+  ASTER_BELIEF_FINDING_VOLUMETRIC_SCENE_COUPLING_FAILURE = 4,
+  ASTER_BELIEF_FINDING_MATERIAL_RESPONSE_INSTABILITY = 5,
+  ASTER_BELIEF_FINDING_LOD_TRANSITION_VISIBILITY = 6,
+  ASTER_BELIEF_FINDING_ASSET_SCALE_INCOHERENCE = 7,
+  ASTER_BELIEF_FINDING_ENVIRONMENTAL_ENTROPY_DEFICIT = 8,
+  ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP = 9
+} AsterBeliefFindingKind;
+
+typedef struct AsterBeliefFindingInfo {
+  size_t size;
+  uint32_t version;
+  AsterBeliefFindingKind kind;
+  AsterKernelFrameDiagnosticSeverity severity;
+  AsterStringView subject;
+  float score;
+  float threshold;
+  uint64_t evidence_hash;
+  AsterStringView source;
+  AsterStringView message;
+} AsterBeliefFindingInfo;
+
+typedef struct AsterBeliefReportInfo {
+  size_t size;
+  uint32_t version;
+  uint32_t accepted;
+  float score;
+  float minimum_score;
+  uint64_t world_transition_hash;
+  uint64_t extraction_hash;
+  uint64_t belief_contract_hash;
+  uint64_t readability_audit_hash;
+  uint32_t finding_count;
+} AsterBeliefReportInfo;
+
+typedef struct AsterPerceptualWorldScheduleInfo {
+  size_t size;
+  uint32_t version;
+  uint32_t accepted;
+  uint64_t scheduler_hash;
+  uint64_t memory_residue_hash;
+  uint64_t threat_signal_hash;
+  uint64_t material_age_hash;
+  uint64_t interaction_debt_hash;
+  uint64_t perceptual_priority_hash;
+  uint64_t streaming_budget_hash;
+  float memory_residue;
+  float threat_signal;
+  float material_age;
+  float interaction_debt;
+  float perceptual_priority;
+  float streaming_budget;
+  float belief_stability;
+  float decision_impact_score;
+  float frame_cost_ms;
+} AsterPerceptualWorldScheduleInfo;
 
 typedef enum AsterValidationKind {
   ASTER_VALIDATION_UNKNOWN = 0,
@@ -1213,6 +1274,9 @@ typedef struct AsterRendererSettings {
   uint64_t sensory_event_hash;
   uint64_t visibility_set_hash;
   AsterPerceptualContinuityBudget perceptual_continuity_budget;
+  AsterPerceptualWorldScheduleInfo perceptual_world_schedule;
+  AsterBeliefReportInfo belief_falseness_report;
+  AsterSpan belief_falseness_findings;
 } AsterRendererSettings;
 
 typedef struct AsterSystemEntityHandle {
@@ -1348,6 +1412,9 @@ typedef struct AsterWorldRegionGateReport {
   AsterPerceptualBudget perceptual_budget;
   AsterStringView diagnostic;
   AsterPerceptualContinuityBudget perceptual_continuity_budget;
+  AsterPerceptualWorldScheduleInfo perceptual_world_schedule;
+  AsterBeliefReportInfo belief_report;
+  AsterSpan belief_findings;
 } AsterWorldRegionGateReport;
 
 typedef struct AsterWorldRenderExtractionDesc {
@@ -1936,6 +2003,10 @@ ASTER_KERNEL_API AsterStatus aster_kernel_world_extract_render(
     AsterWorldRenderExtraction *out_extraction);
 ASTER_KERNEL_API AsterStatus aster_kernel_world_forensics(
     AsterWorldHandle world, AsterWorldForensics *out_forensics);
+ASTER_KERNEL_API AsterStatus aster_kernel_world_belief_report(
+    AsterWorldHandle world, AsterBeliefReportInfo *out_report);
+ASTER_KERNEL_API AsterStatus aster_kernel_world_belief_finding(
+    AsterWorldHandle world, uint32_t index, AsterBeliefFindingInfo *out_finding);
 ASTER_KERNEL_API AsterStatus aster_kernel_world_destroy(AsterWorldHandle world);
 
 ASTER_KERNEL_API AsterStatus aster_kernel_system_world_create(
@@ -2043,6 +2114,12 @@ aster_kernel_renderer_frame_pass_stats(AsterRendererHandle renderer, size_t inde
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_frame_diagnostic(AsterRendererHandle renderer, size_t index,
                                        AsterFrameDiagnosticEvent *out_event);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_falseness_report(
+    AsterRendererHandle renderer, AsterBeliefReportInfo *out_report);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_falseness_finding(
+    AsterRendererHandle renderer, uint32_t index, AsterBeliefFindingInfo *out_finding);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_perceptual_world_schedule(
+    AsterRendererHandle renderer, AsterPerceptualWorldScheduleInfo *out_schedule);
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_debug_capture_info(AsterRendererHandle renderer, size_t index,
                                          AsterFrameDebugCaptureInfo *out_capture);

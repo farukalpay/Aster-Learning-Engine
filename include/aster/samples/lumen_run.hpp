@@ -189,6 +189,7 @@ struct LumenWorldForensics {
   LumenReactionPackageReport coal_mining_reaction;
   WorldPerceptionLedgerReport perception_ledger;
   PerceptualFrameState perceptual_state;
+  PerceptualWorldScheduleReport perceptual_schedule;
   BeliefExtractionReport belief_report;
   std::vector<WorldPerceptionObjectTrace> perception_object_traces;
   bool render_extraction_ready = false;
@@ -226,7 +227,8 @@ public:
   void setAvatarPointTarget(Vec3 target);
   bool pointAvatarAtRay(Vec3 origin, Vec3 direction, float max_distance = 90.0f);
   void clearAvatarPointTarget();
-  void noteRenderExtraction(std::uint64_t extraction_hash, std::uint64_t frame_submission_hash);
+  void noteRenderExtraction(std::uint64_t extraction_hash, std::uint64_t frame_submission_hash,
+                            float frame_cost_ms = 0.0f);
   void updateInteractionFocus(Vec3 ray_origin, Vec3 ray_direction, float dt);
   void interactFocused();
   void secondaryInteractFocused(Vec3 ray_origin, Vec3 ray_direction);
@@ -464,6 +466,8 @@ private:
   buildPerceptionObjectTraces(const WorldPerceptionLedgerReport &ledger) const;
   [[nodiscard]] PerceptualWorldObservation
   makePerceptualObservation(float dt, Vec2 move_axis, Vec3 previous_player_position) const;
+  [[nodiscard]] PerceptualWorldScheduleReport
+  buildPerceptualScheduleReport(float frame_cost_ms) const;
   [[nodiscard]] BeliefExtractionReport buildBeliefExtractionReport() const;
   void advancePerceptualRuntime(float dt, Vec2 move_axis, Vec3 previous_player_position);
   void advanceWorldProof(float dt, Vec2 move_axis, bool run_requested, bool jump_requested,

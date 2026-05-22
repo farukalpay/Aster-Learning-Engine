@@ -439,6 +439,7 @@ void LumenRun::updateCaveVisuals(const float dt) {
   auto &objects = scene_.objects();
   CaveInteriorSample player_cave_sample{};
   (void)caveSectionAt(player_position_, &player_cave_sample);
+  const PerceptualWorldScheduleReport &schedule = world_forensics_.perceptual_schedule;
   const float exterior_opacity = player_cave_sample.interior > 0.08f ? 0.0f : 1.0f;
   const Vec3 exterior_scale = exterior_opacity <= 0.0f ? Vec3{0.001f, 0.001f, 0.001f}
                                                        : Vec3{1.0f, 1.0f, 1.0f};
@@ -467,7 +468,11 @@ void LumenRun::updateCaveVisuals(const float dt) {
     object.transform.position = ore.position + ore.normal * (ore.hit_flash * 0.018f);
     object.transform.scale = ore.scale * (1.0f + pulse);
     object.material.emission_strength = 0.115f + ore.hit_flash * 0.120f + damage * 0.030f;
-    object.material.edge_wear = 0.18f + damage * 0.38f;
+    object.material.edge_wear = 0.18f + damage * 0.38f + schedule.material_age * 0.10f;
+    object.material.procedural.wetness =
+        std::max(object.material.procedural.wetness, schedule.material_age * 0.08f);
+    object.material.pattern_contrast =
+        std::max(object.material.pattern_contrast, 0.18f + schedule.memory_residue * 0.18f);
   }
   for (CaveWebObstacle &web : cave_webs_) {
     if (web.object_index >= objects.size()) {
@@ -481,6 +486,7 @@ void LumenRun::updateCaveVisuals(const float dt) {
     web.hit_flash = std::max(0.0f, web.hit_flash - dt * 4.4f);
     object.material.emission_strength = 0.035f + web.hit_flash * 0.18f;
     object.material.opacity = 0.74f + web.hit_flash * 0.10f;
+    object.material.edge_wear = std::max(object.material.edge_wear, schedule.interaction_debt * 0.16f);
   }
 }
 

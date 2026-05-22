@@ -442,6 +442,65 @@ struct CaveBeliefContractDocument {
   std::vector<std::string> required_checks;
 };
 
+struct CavePerceptualWorldSchedulerReport {
+  bool accepted = false;
+  std::string scheduler_hash;
+  std::string memory_residue_hash;
+  std::string threat_signal_hash;
+  std::string material_age_hash;
+  std::string interaction_debt_hash;
+  std::string perceptual_priority_hash;
+  std::string streaming_budget_hash;
+  float memory_residue = 0.0f;
+  float threat_signal = 0.0f;
+  float material_age = 0.0f;
+  float interaction_debt = 0.0f;
+  float perceptual_priority = 0.0f;
+  float streaming_budget = 0.0f;
+  float belief_stability = 0.0f;
+  float decision_impact_score = 0.0f;
+  std::string diagnostic;
+};
+
+struct CaveBeliefFindingReport {
+  std::string kind;
+  std::string severity;
+  std::string subject;
+  float score = 0.0f;
+  float threshold = 0.0f;
+  std::string evidence_hash;
+  std::string source;
+  std::string message;
+};
+
+struct CaveBeliefFalsenessReport {
+  bool accepted = false;
+  float score = 0.0f;
+  float minimum_score = 0.70f;
+  std::string world_transition_hash;
+  std::string extraction_hash;
+  std::string belief_contract_hash;
+  std::string readability_audit_hash;
+  std::string perceptual_scheduler_hash;
+  float decision_impact_score = 0.0f;
+  std::vector<CaveBeliefFindingReport> findings;
+};
+
+struct CaveWorldGateReportDocument {
+  std::uint32_t schema_version = 0u;
+  std::string kind;
+  AssetId id;
+  std::string verdict;
+  std::string region_id;
+  std::string world_transition_hash;
+  std::string extraction_hash;
+  std::string belief_contract_hash;
+  bool navigation_valid = false;
+  bool perceptual_runtime_accepted = false;
+  CavePerceptualWorldSchedulerReport perceptual_world_scheduler;
+  CaveBeliefFalsenessReport falseness_report;
+};
+
 struct CaveValidationDocument {
   std::vector<CaveRouteValidationDocument> walkable_routes;
   std::vector<CaveVolumeValidationDocument> spawn_volumes;
@@ -632,6 +691,9 @@ parseMaterialDocument(std::string_view source, std::filesystem::path source_path
 parseActionGraphDocument(std::string_view source, std::filesystem::path source_path = {});
 [[nodiscard]] LoadResult<InputMapDocument>
 parseInputMapDocument(std::string_view source, std::filesystem::path source_path = {});
+[[nodiscard]] LoadResult<CaveWorldGateReportDocument>
+parseCaveWorldGateReportDocument(std::string_view source,
+                                 std::filesystem::path source_path = {});
 
 [[nodiscard]] LoadResult<ProjectDocument> loadProjectDocument(const std::filesystem::path &path);
 [[nodiscard]] LoadResult<SceneDocument> loadSceneDocument(const std::filesystem::path &path);
@@ -642,6 +704,8 @@ parseInputMapDocument(std::string_view source, std::filesystem::path source_path
 [[nodiscard]] LoadResult<ActionGraphDocument>
 loadActionGraphDocument(const std::filesystem::path &path);
 [[nodiscard]] LoadResult<InputMapDocument> loadInputMapDocument(const std::filesystem::path &path);
+[[nodiscard]] LoadResult<CaveWorldGateReportDocument>
+loadCaveWorldGateReportDocument(const std::filesystem::path &path);
 
 [[nodiscard]] std::uint64_t actionGraphContractStamp(const ActionGraphDocument &graph);
 [[nodiscard]] std::uint64_t inputMapContractStamp(const InputMapDocument &input_map);

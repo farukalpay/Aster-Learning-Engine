@@ -386,7 +386,8 @@
         "material_response_instability",
         "lod_transition_visibility",
         "asset_scale_incoherence",
-        "environmental_entropy_deficit"
+        "environmental_entropy_deficit",
+        "backend_visual_truth_gap"
       ]
     }
   }

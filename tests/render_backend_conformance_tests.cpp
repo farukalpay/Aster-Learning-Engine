@@ -4,6 +4,7 @@
 #include "test_support.hpp"
 
 #include "aster/core/config.hpp"
+#include "aster/core/belief_extraction.hpp"
 #include "aster/platform/window.hpp"
 #include "aster/render/frame_capture.hpp"
 #include "aster/render/render_device.hpp"
@@ -1507,6 +1508,29 @@ void writeGoldenBaselines() {
   std::cout << "wrote " << cave_path << '\n';
 }
 
+void testBackendVisualTruthGapIsReported() {
+  aster::BeliefExtractionDesc desc;
+  desc.subject = "backend.visual.truth.table";
+  desc.minimum_score = 0.70f;
+  desc.contact_shadow_required = false;
+  desc.backend_visual_truth_required = true;
+  desc.backend_hdr_equivalent = false;
+  desc.backend_msaa_equivalent = false;
+  desc.backend_timestamp_equivalent = false;
+  desc.backend_swapchain_equivalent = false;
+  desc.backend_fog_probe_shadow_equivalent = false;
+  desc.backend_visual_truth_score = 0.0f;
+
+  const aster::BeliefExtractionReport report = aster::extractBeliefContract(desc);
+  assert(!report.accepted);
+  assert(std::any_of(report.findings.begin(), report.findings.end(),
+                     [](const aster::BeliefExtractionFinding &finding) {
+                       return finding.kind == aster::BeliefFindingKind::BackendVisualTruthGap &&
+                              finding.source == "backend-visual-truth" &&
+                              finding.score < finding.threshold;
+                     }));
+}
+
 struct TestCase {
   const char *name = "";
   void (*run)() = nullptr;
@@ -1516,6 +1540,7 @@ constexpr TestCase kTestCases[] = {
     {"software_deterministic_hash_and_forensics", testSoftwareDeterministicHashAndForensics},
     {"native_backend_conforms_when_available", testNativeBackendConformsWhenAvailable},
     {"backend_capability_table_contracts", testBackendCapabilityTableContracts},
+    {"backend_visual_truth_gap_is_reported", testBackendVisualTruthGapIsReported},
     {"golden_lab_scenes", testGoldenLabScenes},
     {"cave_conformance_software_golden", testCaveConformanceSoftwareGolden},
     {"surface_coupling_affects_presentation_captures",

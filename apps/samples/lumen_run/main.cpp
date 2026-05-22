@@ -2245,7 +2245,8 @@ int main(int argc, char **argv) {
       const std::uint64_t frame_submission_hash =
           lumenFrameProofHash(game.worldForensics(), render_stats, width, height, rendered_frames,
                               render_extraction_hash);
-      game.noteRenderExtraction(render_extraction_hash, frame_submission_hash);
+      game.noteRenderExtraction(render_extraction_hash, frame_submission_hash,
+                                static_cast<float>(render_stats.frame_seconds * 1000.0));
       const aster::LumenWorldForensics &world_forensics = game.worldForensics();
       renderer.stampLastFrameCausalTrace(
           world_forensics.trace_hash, world_forensics.epoch,
@@ -2272,6 +2273,8 @@ int main(int argc, char **argv) {
       renderer.stampLastFramePerceptionLedger(world_forensics.perception_ledger,
                                               world_forensics.perception_object_traces);
       renderer.stampLastFramePerceptualState(world_forensics.perceptual_state);
+      renderer.stampLastFramePerceptualSchedule(world_forensics.perceptual_schedule);
+      renderer.stampLastFrameBeliefReport(world_forensics.belief_report);
       if (collect_frame_sample) {
         render_times.addSample(clock.now() - render_start);
         ++render_counter_samples;

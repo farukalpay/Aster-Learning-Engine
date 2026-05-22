@@ -842,6 +842,34 @@ void testFrameDebuggerPerceptionLedgerTrace() {
   observation.traversal_speed = 1.0f;
   const aster::PerceptualFrameState perceptual_state = runtime.advance(observation);
   renderer.stampLastFramePerceptualState(perceptual_state);
+  aster::PerceptualWorldScheduleDesc schedule_desc;
+  schedule_desc.region_id = ledger.region_id;
+  schedule_desc.world_transition_hash = 0xA57E101u;
+  schedule_desc.actor_state_delta_hash = 0xA57E102u;
+  schedule_desc.sensory_event_hash = 0xA57E103u;
+  schedule_desc.visibility_set_hash = observation.visibility_set_hash;
+  schedule_desc.navigation_valid = true;
+  schedule_desc.perceptual_salience_score = 1.0f;
+  schedule_desc.encounter_pressure = 0.55f;
+  schedule_desc.resource_pressure = 0.35f;
+  schedule_desc.frame_cost_ms = 12.0f;
+  schedule_desc.ledger = ledger;
+  schedule_desc.perceptual_state = perceptual_state;
+  schedule_desc.reaction_package_hash = 0xA57E201u;
+  schedule_desc.material_memory_hash = 0xA57E202u;
+  schedule_desc.contact_history_hash = 0xA57E203u;
+  schedule_desc.lighting_atmosphere_hash = 0xA57E204u;
+  schedule_desc.wear_continuity_hash = 0xA57E205u;
+  schedule_desc.ai_attention_hash = 0xA57E206u;
+  schedule_desc.streaming_residency_lod_hash = 0xA57E207u;
+  schedule_desc.resource_state_hash = 0xA57E208u;
+  schedule_desc.event_residue_hash = 0xA57E209u;
+  schedule_desc.audio_visual_cue_budget_hash = 0xA57E20Au;
+  schedule_desc.readability_audit_hash = 0xA57E20Bu;
+  schedule_desc.minimum_belief_stability = 0.20f;
+  const aster::PerceptualWorldScheduleReport schedule =
+      aster::schedulePerceptualWorld(schedule_desc);
+  renderer.stampLastFramePerceptualSchedule(schedule);
   aster::BeliefExtractionDesc belief_desc;
   belief_desc.subject = object.name;
   belief_desc.minimum_score = 0.70f;
@@ -854,6 +882,13 @@ void testFrameDebuggerPerceptionLedgerTrace() {
   belief_desc.lod_transition_invisibility = 0.90f;
   belief_desc.asset_scale_coherence = 0.90f;
   belief_desc.environmental_entropy = 0.90f;
+  belief_desc.backend_visual_truth_required = true;
+  belief_desc.backend_hdr_equivalent = false;
+  belief_desc.backend_msaa_equivalent = false;
+  belief_desc.backend_timestamp_equivalent = false;
+  belief_desc.backend_swapchain_equivalent = false;
+  belief_desc.backend_fog_probe_shadow_equivalent = false;
+  belief_desc.backend_visual_truth_score = 0.0f;
   const aster::BeliefExtractionReport belief_report =
       aster::extractBeliefContract(belief_desc);
   renderer.stampLastFrameBeliefReport(belief_report);
@@ -870,6 +905,14 @@ void testFrameDebuggerPerceptionLedgerTrace() {
   assert(forensics.perceptual_semantic_budget_hash == perceptual_state.semantic_budget_hash);
   assert(forensics.perceptual_material_memory > 0.0f);
   assert(forensics.perceptual_occlusion_trust > 0.0f);
+  assert(forensics.perceptual_scheduler_hash == schedule.scheduler_hash);
+  assert(forensics.perceptual_scheduler_accepted == schedule.accepted);
+  assert(forensics.perceptual_memory_residue_hash == schedule.memory_residue_hash);
+  assert(forensics.perceptual_threat_signal_hash == schedule.threat_signal_hash);
+  assert(forensics.perceptual_material_age_hash == schedule.material_age_hash);
+  assert(forensics.perceptual_streaming_budget_hash == schedule.streaming_budget_hash);
+  assert(forensics.perceptual_decision_impact_score > 0.0f);
+  assert(forensics.perceptual_scheduler_frame_cost_ms >= 12.0f);
   assert(forensics.belief_falseness_report.belief_contract_hash ==
          belief_report.belief_contract_hash);
   assert(!forensics.belief_falseness_report.findings.empty());
@@ -877,8 +920,14 @@ void testFrameDebuggerPerceptionLedgerTrace() {
                      [](const aster::FrameDiagnosticEvent &event) {
                        return event.pass == "belief-extraction" &&
                               event.label == "belief.material_family_collapse" &&
-                              event.kind ==
-                                  aster::FrameDiagnosticKind::MaterialVariantFallback;
+	                              event.kind ==
+	                                  aster::FrameDiagnosticKind::MaterialVariantFallback;
+	                     }));
+  assert(std::any_of(forensics.events.begin(), forensics.events.end(),
+                     [](const aster::FrameDiagnosticEvent &event) {
+                       return event.pass == "belief-extraction" &&
+                              event.label == "belief.backend_visual_truth_gap" &&
+                              event.kind == aster::FrameDiagnosticKind::CapabilityMismatch;
                      }));
 
   setEnvFlag("ASTER_FORCE_SOFTWARE_RENDERER", false);

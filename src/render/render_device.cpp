@@ -6328,6 +6328,27 @@ void RenderDevice::stampLastFramePerceptualState(const PerceptualFrameState &sta
   last_forensics_.perceptual_state_accepted = state.accepted;
 }
 
+void RenderDevice::stampLastFramePerceptualSchedule(
+    const PerceptualWorldScheduleReport &schedule) {
+  last_forensics_.perceptual_scheduler_hash = schedule.scheduler_hash;
+  last_forensics_.perceptual_memory_residue_hash = schedule.memory_residue_hash;
+  last_forensics_.perceptual_threat_signal_hash = schedule.threat_signal_hash;
+  last_forensics_.perceptual_material_age_hash = schedule.material_age_hash;
+  last_forensics_.perceptual_interaction_debt_hash = schedule.interaction_debt_hash;
+  last_forensics_.perceptual_priority_hash = schedule.perceptual_priority_hash;
+  last_forensics_.perceptual_streaming_budget_hash = schedule.streaming_budget_hash;
+  last_forensics_.perceptual_memory_residue = schedule.memory_residue;
+  last_forensics_.perceptual_threat_signal = schedule.threat_signal;
+  last_forensics_.perceptual_material_age = schedule.material_age;
+  last_forensics_.perceptual_interaction_debt = schedule.interaction_debt;
+  last_forensics_.perceptual_priority = schedule.perceptual_priority;
+  last_forensics_.perceptual_streaming_budget = schedule.streaming_budget;
+  last_forensics_.perceptual_belief_stability = schedule.belief_stability;
+  last_forensics_.perceptual_decision_impact_score = schedule.decision_impact_score;
+  last_forensics_.perceptual_scheduler_frame_cost_ms = schedule.frame_cost_ms;
+  last_forensics_.perceptual_scheduler_accepted = schedule.accepted;
+}
+
 void RenderDevice::stampLastFrameBeliefReport(const BeliefExtractionReport &report) {
   last_forensics_.belief_falseness_report = report;
   for (const BeliefExtractionFinding &finding : report.findings) {
@@ -6341,6 +6362,9 @@ void RenderDevice::stampLastFrameBeliefReport(const BeliefExtractionReport &repo
     case BeliefFindingKind::VolumetricSceneCouplingFailure:
     case BeliefFindingKind::EnvironmentalEntropyDeficit:
       event_kind = FrameDiagnosticKind::SurfacePresentationWarning;
+      break;
+    case BeliefFindingKind::BackendVisualTruthGap:
+      event_kind = FrameDiagnosticKind::CapabilityMismatch;
       break;
     case BeliefFindingKind::MaterialResponseInstability:
       event_kind = FrameDiagnosticKind::TextureRoleDegraded;

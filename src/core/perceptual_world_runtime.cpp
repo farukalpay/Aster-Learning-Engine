@@ -88,6 +88,23 @@ constexpr std::uint64_t kPerceptualRuntimeSeed = 0xA57E9E9CE975E001ull;
   return budget;
 }
 
+[[nodiscard]] std::uint64_t hashScheduleChannel(const std::string_view label,
+                                                const PerceptualWorldScheduleDesc &desc,
+                                                const float score,
+                                                const std::uint64_t evidence_hash) {
+  std::uint64_t hash = mixString(kPerceptualRuntimeSeed, "aster.perceptual.scheduler.channel.v1");
+  hash = mixString(hash, label);
+  hash = mix(hash, desc.region_id);
+  hash = mix(hash, desc.world_transition_hash);
+  hash = mix(hash, desc.actor_state_delta_hash);
+  hash = mix(hash, desc.sensory_event_hash);
+  hash = mix(hash, desc.visibility_set_hash);
+  hash = mix(hash, desc.ledger.ledger_hash);
+  hash = mix(hash, desc.perceptual_state.perceptual_state_hash);
+  hash = mix(hash, evidence_hash);
+  return mix(hash, score);
+}
+
 [[nodiscard]] std::uint64_t hashFrameState(const PerceptualWorldRuntimeOptions &options,
                                            const PerceptualWorldObservation &observation,
                                            const PerceptualFrameState &state) {
@@ -282,6 +299,106 @@ makePerceptualWorldObservation(const WorldPerceptionLedgerReport &ledger) {
   observation.ledger = ledger;
   observation.perceptual_salience_score = ledger.score;
   return observation;
+}
+
+PerceptualWorldScheduleReport
+schedulePerceptualWorld(const PerceptualWorldScheduleDesc &desc) {
+  PerceptualWorldScheduleReport report;
+  report.frame_cost_ms = std::max(desc.frame_cost_ms, 0.0f);
+
+  const WorldPerceptionLedgerReport &ledger = desc.ledger;
+  const PerceptualFrameState &state = desc.perceptual_state;
+  const float salience = clamp01(std::max(desc.perceptual_salience_score, ledger.score));
+  const float resource = clamp01(desc.resource_pressure);
+  const float encounter = clamp01(desc.encounter_pressure);
+  const float frame_pressure = clamp01(report.frame_cost_ms / 33.333f);
+
+  report.memory_residue =
+      clamp01(signal(ledger.contact_history_hash != 0u) * 0.16f +
+              signal(ledger.wear_continuity_hash != 0u) * 0.16f +
+              signal(desc.event_residue_hash != 0u) * 0.24f +
+              signal(desc.reaction_package_hash != 0u) * 0.18f +
+              signal(desc.audio_visual_cue_budget_hash != 0u) * 0.10f +
+              state.interaction_residue * 0.16f);
+  report.threat_signal =
+      clamp01(encounter * 0.28f + signal(desc.ai_attention_hash != 0u) * 0.20f +
+              signal(ledger.occlusion_role_hash != 0u) * 0.18f +
+              signal(desc.visibility_set_hash != 0u) * 0.12f +
+              state.occlusion_trust * 0.10f + salience * 0.12f);
+  report.material_age =
+      clamp01(signal(ledger.material_memory_hash != 0u) * 0.18f +
+              signal(ledger.wear_continuity_hash != 0u) * 0.24f +
+              signal(desc.material_memory_hash != 0u) * 0.16f +
+              signal(desc.wear_continuity_hash != 0u) * 0.18f + resource * 0.10f +
+              state.material_memory * 0.14f);
+  report.interaction_debt =
+      clamp01((1.0f - state.player_readable_cause) * 0.22f +
+              (1.0f - state.continuity_score) * 0.18f + report.memory_residue * 0.20f +
+              report.threat_signal * 0.18f + resource * 0.10f +
+              signal(desc.readability_audit_hash == 0u) * 0.12f);
+  report.perceptual_priority =
+      clamp01(report.threat_signal * 0.30f + report.interaction_debt * 0.24f +
+              report.memory_residue * 0.18f + salience * 0.16f +
+              (1.0f - state.continuity_debt) * 0.12f);
+  report.streaming_budget =
+      clamp01(signal(ledger.streaming_semantic_lod_hash != 0u ||
+                     desc.streaming_residency_lod_hash != 0u) *
+                  0.30f +
+              report.perceptual_priority * 0.28f + state.render_budget.lod_bias * 0.18f +
+              (1.0f - frame_pressure) * 0.14f + signal(desc.navigation_valid) * 0.10f);
+  report.belief_stability =
+      clamp01(ledger.score * 0.20f + state.continuity_score * 0.24f +
+              state.occlusion_trust * 0.14f + state.lighting_believability * 0.14f +
+              state.player_readable_cause * 0.14f + (1.0f - report.interaction_debt) * 0.14f);
+  report.decision_impact_score =
+      clamp01(report.perceptual_priority * 0.28f + report.threat_signal * 0.18f +
+              report.material_age * 0.16f + report.memory_residue * 0.16f +
+              state.player_readable_cause * 0.12f + report.streaming_budget * 0.10f);
+
+  report.memory_residue_hash =
+      hashScheduleChannel("memory_residue", desc, report.memory_residue, desc.event_residue_hash);
+  report.threat_signal_hash =
+      hashScheduleChannel("threat_signal", desc, report.threat_signal, desc.ai_attention_hash);
+  report.material_age_hash =
+      hashScheduleChannel("material_age", desc, report.material_age, desc.wear_continuity_hash);
+  report.interaction_debt_hash = hashScheduleChannel(
+      "interaction_debt", desc, report.interaction_debt, desc.reaction_package_hash);
+  report.perceptual_priority_hash = hashScheduleChannel(
+      "perceptual_priority", desc, report.perceptual_priority, state.semantic_budget_hash);
+  report.streaming_budget_hash = hashScheduleChannel(
+      "streaming_budget", desc, report.streaming_budget, desc.streaming_residency_lod_hash);
+
+  std::uint64_t hash =
+      mixString(kPerceptualRuntimeSeed, "aster.perceptual.world-scheduler.v1");
+  hash = mix(hash, desc.region_id);
+  hash = mix(hash, desc.world_transition_hash);
+  hash = mix(hash, desc.actor_state_delta_hash);
+  hash = mix(hash, desc.sensory_event_hash);
+  hash = mix(hash, desc.visibility_set_hash);
+  hash = mix(hash, desc.navigation_valid);
+  hash = mix(hash, salience);
+  hash = mix(hash, encounter);
+  hash = mix(hash, resource);
+  hash = mix(hash, report.frame_cost_ms);
+  hash = mix(hash, ledger.ledger_hash);
+  hash = mix(hash, state.perceptual_state_hash);
+  hash = mix(hash, report.memory_residue_hash);
+  hash = mix(hash, report.threat_signal_hash);
+  hash = mix(hash, report.material_age_hash);
+  hash = mix(hash, report.interaction_debt_hash);
+  hash = mix(hash, report.perceptual_priority_hash);
+  hash = mix(hash, report.streaming_budget_hash);
+  hash = mix(hash, report.belief_stability);
+  hash = mix(hash, report.decision_impact_score);
+  report.scheduler_hash = hash;
+
+  const float minimum_stability = clamp01(desc.minimum_belief_stability);
+  report.accepted = report.belief_stability + 0.0001f >= minimum_stability &&
+                    report.streaming_budget > 0.0f && desc.navigation_valid;
+  report.diagnostic =
+      report.accepted ? "perceptual world scheduler accepted"
+                      : "perceptual world scheduler reports degraded belief stability";
+  return report;
 }
 
 } // namespace aster

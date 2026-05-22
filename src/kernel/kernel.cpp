@@ -3,6 +3,7 @@
 
 #include "aster/kernel/abi.h"
 
+#include "aster/core/belief_extraction.hpp"
 #include "aster/core/config.hpp"
 #include "aster/core/world_state.hpp"
 #include "aster/game_sdk/game_sdk.hpp"
@@ -265,6 +266,10 @@ struct AsterWorldHandle__ {
   std::uint64_t event_residue_hash = 0u;
   std::uint64_t readability_audit_hash = 0u;
   std::string perceptual_continuity_diagnostic;
+  aster::PerceptualWorldScheduleReport perceptual_world_schedule;
+  aster::BeliefExtractionReport belief_report;
+  std::uint64_t belief_world_transition_hash = 0u;
+  std::uint64_t belief_extraction_hash = 0u;
   std::string diagnostic;
 
   AsterWorldHandle__(AsterEngineHandle engine, aster::WorldStateConfig config)
@@ -392,6 +397,294 @@ std::string stringFromView(const AsterStringView view) {
     return {};
   }
   return std::string(view.data, view.size);
+}
+
+bool hasPerceptualWorldScheduleInfo(const AsterPerceptualWorldScheduleInfo &schedule) {
+  return schedule.size != 0u;
+}
+
+bool validPerceptualWorldScheduleInfo(const AsterPerceptualWorldScheduleInfo &schedule) {
+  return !hasPerceptualWorldScheduleInfo(schedule) ||
+         (schedule.size >= sizeof(AsterPerceptualWorldScheduleInfo) &&
+          schedule.version == ASTER_KERNEL_STRUCT_VERSION_1);
+}
+
+bool hasBeliefReportInfo(const AsterBeliefReportInfo &report) {
+  return report.size != 0u;
+}
+
+bool validBeliefReportInfo(const AsterBeliefReportInfo &report) {
+  return !hasBeliefReportInfo(report) ||
+         (report.size >= sizeof(AsterBeliefReportInfo) &&
+          report.version == ASTER_KERNEL_STRUCT_VERSION_1);
+}
+
+bool validBeliefFindingKind(const AsterBeliefFindingKind kind) {
+  switch (kind) {
+  case ASTER_BELIEF_FINDING_MATERIAL_FAMILY_COLLAPSE:
+  case ASTER_BELIEF_FINDING_CONTEXTUAL_GROUNDING_FAILURE:
+  case ASTER_BELIEF_FINDING_CONTACT_SHADOW_CREDIBILITY_FAILURE:
+  case ASTER_BELIEF_FINDING_VOLUMETRIC_SCENE_COUPLING_FAILURE:
+  case ASTER_BELIEF_FINDING_MATERIAL_RESPONSE_INSTABILITY:
+  case ASTER_BELIEF_FINDING_LOD_TRANSITION_VISIBILITY:
+  case ASTER_BELIEF_FINDING_ASSET_SCALE_INCOHERENCE:
+  case ASTER_BELIEF_FINDING_ENVIRONMENTAL_ENTROPY_DEFICIT:
+  case ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP:
+    return true;
+  case ASTER_BELIEF_FINDING_UNKNOWN:
+  default:
+    return false;
+  }
+}
+
+bool validBeliefFindingSeverity(const AsterKernelFrameDiagnosticSeverity severity) {
+  switch (severity) {
+  case ASTER_KERNEL_FRAME_DIAGNOSTIC_INFO:
+  case ASTER_KERNEL_FRAME_DIAGNOSTIC_WARNING:
+  case ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR:
+    return true;
+  default:
+    return false;
+  }
+}
+
+AsterBeliefFindingKind abiBeliefFindingKind(const aster::BeliefFindingKind kind) {
+  switch (kind) {
+  case aster::BeliefFindingKind::ContextualGroundingFailure:
+    return ASTER_BELIEF_FINDING_CONTEXTUAL_GROUNDING_FAILURE;
+  case aster::BeliefFindingKind::ContactShadowCredibilityFailure:
+    return ASTER_BELIEF_FINDING_CONTACT_SHADOW_CREDIBILITY_FAILURE;
+  case aster::BeliefFindingKind::VolumetricSceneCouplingFailure:
+    return ASTER_BELIEF_FINDING_VOLUMETRIC_SCENE_COUPLING_FAILURE;
+  case aster::BeliefFindingKind::MaterialResponseInstability:
+    return ASTER_BELIEF_FINDING_MATERIAL_RESPONSE_INSTABILITY;
+  case aster::BeliefFindingKind::LodTransitionVisibility:
+    return ASTER_BELIEF_FINDING_LOD_TRANSITION_VISIBILITY;
+  case aster::BeliefFindingKind::AssetScaleIncoherence:
+    return ASTER_BELIEF_FINDING_ASSET_SCALE_INCOHERENCE;
+  case aster::BeliefFindingKind::EnvironmentalEntropyDeficit:
+    return ASTER_BELIEF_FINDING_ENVIRONMENTAL_ENTROPY_DEFICIT;
+  case aster::BeliefFindingKind::BackendVisualTruthGap:
+    return ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP;
+  case aster::BeliefFindingKind::MaterialFamilyCollapse:
+  default:
+    return ASTER_BELIEF_FINDING_MATERIAL_FAMILY_COLLAPSE;
+  }
+}
+
+aster::BeliefFindingKind beliefFindingKindFromAbi(const AsterBeliefFindingKind kind) {
+  switch (kind) {
+  case ASTER_BELIEF_FINDING_CONTEXTUAL_GROUNDING_FAILURE:
+    return aster::BeliefFindingKind::ContextualGroundingFailure;
+  case ASTER_BELIEF_FINDING_CONTACT_SHADOW_CREDIBILITY_FAILURE:
+    return aster::BeliefFindingKind::ContactShadowCredibilityFailure;
+  case ASTER_BELIEF_FINDING_VOLUMETRIC_SCENE_COUPLING_FAILURE:
+    return aster::BeliefFindingKind::VolumetricSceneCouplingFailure;
+  case ASTER_BELIEF_FINDING_MATERIAL_RESPONSE_INSTABILITY:
+    return aster::BeliefFindingKind::MaterialResponseInstability;
+  case ASTER_BELIEF_FINDING_LOD_TRANSITION_VISIBILITY:
+    return aster::BeliefFindingKind::LodTransitionVisibility;
+  case ASTER_BELIEF_FINDING_ASSET_SCALE_INCOHERENCE:
+    return aster::BeliefFindingKind::AssetScaleIncoherence;
+  case ASTER_BELIEF_FINDING_ENVIRONMENTAL_ENTROPY_DEFICIT:
+    return aster::BeliefFindingKind::EnvironmentalEntropyDeficit;
+  case ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP:
+    return aster::BeliefFindingKind::BackendVisualTruthGap;
+  case ASTER_BELIEF_FINDING_MATERIAL_FAMILY_COLLAPSE:
+  default:
+    return aster::BeliefFindingKind::MaterialFamilyCollapse;
+  }
+}
+
+AsterKernelFrameDiagnosticSeverity abiBeliefFindingSeverity(
+    const aster::BeliefFindingSeverity severity) {
+  switch (severity) {
+  case aster::BeliefFindingSeverity::Info:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_INFO;
+  case aster::BeliefFindingSeverity::Error:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR;
+  case aster::BeliefFindingSeverity::Warning:
+  default:
+    return ASTER_KERNEL_FRAME_DIAGNOSTIC_WARNING;
+  }
+}
+
+aster::BeliefFindingSeverity beliefFindingSeverityFromAbi(
+    const AsterKernelFrameDiagnosticSeverity severity) {
+  switch (severity) {
+  case ASTER_KERNEL_FRAME_DIAGNOSTIC_INFO:
+    return aster::BeliefFindingSeverity::Info;
+  case ASTER_KERNEL_FRAME_DIAGNOSTIC_ERROR:
+    return aster::BeliefFindingSeverity::Error;
+  case ASTER_KERNEL_FRAME_DIAGNOSTIC_WARNING:
+  default:
+    return aster::BeliefFindingSeverity::Warning;
+  }
+}
+
+bool validBeliefFindingInfo(const AsterBeliefFindingInfo &finding) {
+  return finding.size >= sizeof(AsterBeliefFindingInfo) &&
+         finding.version == ASTER_KERNEL_STRUCT_VERSION_1 &&
+         validBeliefFindingKind(finding.kind) &&
+         validBeliefFindingSeverity(finding.severity) && validStringView(finding.subject) &&
+         validStringView(finding.source) && validStringView(finding.message);
+}
+
+std::uint64_t beliefReportEvidenceHash(const AsterBeliefReportInfo &report,
+                                       const AsterSpan findings) {
+  if (!hasBeliefReportInfo(report)) {
+    return 0u;
+  }
+  std::uint64_t hash = mixWorldEvidence(report.belief_contract_hash,
+                                        report.readability_audit_hash);
+  hash = mixWorldEvidence(hash, report.world_transition_hash);
+  hash = mixWorldEvidence(hash, report.extraction_hash);
+  hash = mixWorldEvidence(hash, report.accepted);
+  hash = mixWorldEvidence(hash, static_cast<std::uint64_t>(
+                                    std::max(report.score, 0.0f) * 1000000.0f));
+  hash = mixWorldEvidence(hash, static_cast<std::uint64_t>(
+                                    std::max(report.minimum_score, 0.0f) * 1000000.0f));
+  const auto *data = static_cast<const unsigned char *>(findings.data);
+  const std::size_t count =
+      std::min<std::size_t>(findings.size, static_cast<std::size_t>(report.finding_count));
+  for (std::size_t index = 0u; data != nullptr && index < count; ++index) {
+    const auto *finding =
+        reinterpret_cast<const AsterBeliefFindingInfo *>(data + index * findings.stride);
+    hash = mixWorldEvidence(hash, finding->evidence_hash);
+  }
+  return hash;
+}
+
+aster::PerceptualWorldScheduleReport perceptualScheduleFromAbi(
+    const AsterPerceptualWorldScheduleInfo &schedule) {
+  aster::PerceptualWorldScheduleReport out;
+  if (!hasPerceptualWorldScheduleInfo(schedule)) {
+    return out;
+  }
+  out.accepted = schedule.accepted != 0u;
+  out.scheduler_hash = schedule.scheduler_hash;
+  out.memory_residue_hash = schedule.memory_residue_hash;
+  out.threat_signal_hash = schedule.threat_signal_hash;
+  out.material_age_hash = schedule.material_age_hash;
+  out.interaction_debt_hash = schedule.interaction_debt_hash;
+  out.perceptual_priority_hash = schedule.perceptual_priority_hash;
+  out.streaming_budget_hash = schedule.streaming_budget_hash;
+  out.memory_residue = schedule.memory_residue;
+  out.threat_signal = schedule.threat_signal;
+  out.material_age = schedule.material_age;
+  out.interaction_debt = schedule.interaction_debt;
+  out.perceptual_priority = schedule.perceptual_priority;
+  out.streaming_budget = schedule.streaming_budget;
+  out.belief_stability = schedule.belief_stability;
+  out.decision_impact_score = schedule.decision_impact_score;
+  out.frame_cost_ms = schedule.frame_cost_ms;
+  out.diagnostic = out.accepted ? "perceptual world scheduler accepted"
+                                : "perceptual world scheduler reports degraded belief stability";
+  return out;
+}
+
+void fillPerceptualScheduleInfo(const aster::PerceptualWorldScheduleReport &schedule,
+                                AsterPerceptualWorldScheduleInfo *out_schedule) {
+  out_schedule->accepted = schedule.accepted ? 1u : 0u;
+  out_schedule->scheduler_hash = schedule.scheduler_hash;
+  out_schedule->memory_residue_hash = schedule.memory_residue_hash;
+  out_schedule->threat_signal_hash = schedule.threat_signal_hash;
+  out_schedule->material_age_hash = schedule.material_age_hash;
+  out_schedule->interaction_debt_hash = schedule.interaction_debt_hash;
+  out_schedule->perceptual_priority_hash = schedule.perceptual_priority_hash;
+  out_schedule->streaming_budget_hash = schedule.streaming_budget_hash;
+  out_schedule->memory_residue = schedule.memory_residue;
+  out_schedule->threat_signal = schedule.threat_signal;
+  out_schedule->material_age = schedule.material_age;
+  out_schedule->interaction_debt = schedule.interaction_debt;
+  out_schedule->perceptual_priority = schedule.perceptual_priority;
+  out_schedule->streaming_budget = schedule.streaming_budget;
+  out_schedule->belief_stability = schedule.belief_stability;
+  out_schedule->decision_impact_score = schedule.decision_impact_score;
+  out_schedule->frame_cost_ms = schedule.frame_cost_ms;
+}
+
+aster::BeliefExtractionReport beliefReportFromAbi(const AsterBeliefReportInfo &report,
+                                                  const AsterSpan findings,
+                                                  AsterStatus *status) {
+  aster::BeliefExtractionReport out;
+  if (status != nullptr) {
+    *status = aster_kernel_status_ok();
+  }
+  if (!hasBeliefReportInfo(report)) {
+    return out;
+  }
+  if (!validBeliefReportInfo(report)) {
+    if (status != nullptr) {
+      *status = makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                           "belief report struct version is not supported");
+    }
+    return out;
+  }
+  if (report.finding_count > 0u &&
+      (findings.data == nullptr || findings.size < report.finding_count ||
+       findings.stride < sizeof(AsterBeliefFindingInfo))) {
+    if (status != nullptr) {
+      *status = makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "belief finding span is invalid");
+    }
+    return out;
+  }
+
+  out.accepted = report.accepted != 0u;
+  out.score = report.score;
+  out.minimum_score = report.minimum_score;
+  out.belief_contract_hash = report.belief_contract_hash;
+  out.readability_audit_hash = report.readability_audit_hash;
+  const auto *data = static_cast<const unsigned char *>(findings.data);
+  out.findings.reserve(report.finding_count);
+  for (std::uint32_t index = 0u; index < report.finding_count; ++index) {
+    const auto *finding =
+        reinterpret_cast<const AsterBeliefFindingInfo *>(data + index * findings.stride);
+    if (!validBeliefFindingInfo(*finding)) {
+      if (status != nullptr) {
+        *status = makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                             "belief finding struct version is not supported");
+      }
+      out.findings.clear();
+      return out;
+    }
+    out.findings.push_back(
+        {.kind = beliefFindingKindFromAbi(finding->kind),
+         .severity = beliefFindingSeverityFromAbi(finding->severity),
+         .subject = stringFromView(finding->subject),
+         .score = finding->score,
+         .threshold = finding->threshold,
+         .evidence_hash = finding->evidence_hash,
+         .source = stringFromView(finding->source),
+         .message = stringFromView(finding->message)});
+  }
+  return out;
+}
+
+void fillBeliefReportInfo(const aster::BeliefExtractionReport &report,
+                          const std::uint64_t world_transition_hash,
+                          const std::uint64_t extraction_hash,
+                          AsterBeliefReportInfo *out_report) {
+  out_report->accepted = report.accepted ? 1u : 0u;
+  out_report->score = report.score;
+  out_report->minimum_score = report.minimum_score;
+  out_report->world_transition_hash = world_transition_hash;
+  out_report->extraction_hash = extraction_hash;
+  out_report->belief_contract_hash = report.belief_contract_hash;
+  out_report->readability_audit_hash = report.readability_audit_hash;
+  out_report->finding_count = static_cast<std::uint32_t>(report.findings.size());
+}
+
+void fillBeliefFindingInfo(const aster::BeliefExtractionFinding &finding,
+                           AsterBeliefFindingInfo *out_finding) {
+  out_finding->kind = abiBeliefFindingKind(finding.kind);
+  out_finding->severity = abiBeliefFindingSeverity(finding.severity);
+  out_finding->subject = {finding.subject.data(), finding.subject.size()};
+  out_finding->score = finding.score;
+  out_finding->threshold = finding.threshold;
+  out_finding->evidence_hash = finding.evidence_hash;
+  out_finding->source = {finding.source.data(), finding.source.size()};
+  out_finding->message = {finding.message.data(), finding.message.size()};
 }
 
 std::uint64_t continuityBudgetEvidenceHash(const AsterPerceptualContinuityBudget &budget) {
@@ -2311,10 +2604,27 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
                         offsetof(AsterWorldRegionGateReport, perceptual_continuity_budget),
                         sizeof(report->perceptual_continuity_budget)) &&
       hasPerceptualContinuityBudget(report->perceptual_continuity_budget);
+  const bool has_perceptual_schedule =
+      abiStructHasField(report->size,
+                        offsetof(AsterWorldRegionGateReport, perceptual_world_schedule),
+                        sizeof(report->perceptual_world_schedule)) &&
+      hasPerceptualWorldScheduleInfo(report->perceptual_world_schedule);
+  const bool has_belief_report =
+      abiStructHasField(report->size, offsetof(AsterWorldRegionGateReport, belief_report),
+                        sizeof(report->belief_report)) &&
+      hasBeliefReportInfo(report->belief_report);
+  const bool has_belief_findings_field =
+      abiStructHasField(report->size, offsetof(AsterWorldRegionGateReport, belief_findings),
+                        sizeof(report->belief_findings));
   if (has_continuity_budget &&
       !validPerceptualContinuityBudget(report->perceptual_continuity_budget)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
                       "world region gate continuity budget version is not supported");
+  }
+  if (has_perceptual_schedule &&
+      !validPerceptualWorldScheduleInfo(report->perceptual_world_schedule)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "world perceptual schedule version is not supported");
   }
   if (!validStringView(report->diagnostic) || !validStringView(report->navigation.diagnostic) ||
       !validStringView(report->perceptual_budget.diagnostic) ||
@@ -2322,6 +2632,15 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
        !validStringView(report->perceptual_continuity_budget.diagnostic))) {
     return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
                       "world region gate diagnostics have a size but no data");
+  }
+  AsterStatus belief_status = aster_kernel_status_ok();
+  const AsterSpan belief_findings =
+      has_belief_findings_field ? report->belief_findings : AsterSpan{};
+  aster::BeliefExtractionReport belief_report =
+      beliefReportFromAbi(has_belief_report ? report->belief_report : AsterBeliefReportInfo{},
+                          belief_findings, &belief_status);
+  if (belief_status.code != ASTER_STATUS_OK) {
+    return belief_status;
   }
 
   std::uint64_t report_hash = mixWorldEvidence(report->probe_trace_hash, report->region_id);
@@ -2334,11 +2653,22 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
         mixWorldEvidence(report_hash,
                          continuityBudgetEvidenceHash(report->perceptual_continuity_budget));
   }
+  if (has_perceptual_schedule) {
+    report_hash =
+        mixWorldEvidence(report_hash, report->perceptual_world_schedule.scheduler_hash);
+  }
+  if (has_belief_report) {
+    report_hash = mixWorldEvidence(
+        report_hash, beliefReportEvidenceHash(report->belief_report, belief_findings));
+  }
   const bool accepted = report->verdict == ASTER_WORLD_REGION_GATE_ACCEPTED &&
                         report->navigation.valid != 0u &&
                         report->perceptual_budget.accepted != 0u &&
                         (!has_continuity_budget ||
-                         report->perceptual_continuity_budget.accepted != 0u);
+                         report->perceptual_continuity_budget.accepted != 0u) &&
+                        (!has_perceptual_schedule ||
+                         report->perceptual_world_schedule.accepted != 0u) &&
+                        (!has_belief_report || report->belief_report.accepted != 0u);
   world->world.noteRegionGate(report->region_id, accepted, report_hash,
                               stringFromView(report->diagnostic));
   world->gate_verdict =
@@ -2358,6 +2688,15 @@ AsterStatus aster_kernel_world_record_region_gate(const AsterWorldHandle world,
   world->perceptual_diagnostic = stringFromView(report->perceptual_budget.diagnostic);
   if (has_continuity_budget) {
     storeContinuityBudget(*world, report->perceptual_continuity_budget);
+  }
+  if (has_perceptual_schedule) {
+    world->perceptual_world_schedule =
+        perceptualScheduleFromAbi(report->perceptual_world_schedule);
+  }
+  if (has_belief_report) {
+    world->belief_report = std::move(belief_report);
+    world->belief_world_transition_hash = report->belief_report.world_transition_hash;
+    world->belief_extraction_hash = report->belief_report.extraction_hash;
   }
   world->diagnostic = stringFromView(report->diagnostic);
   world->world_transition_hash =
@@ -2458,6 +2797,37 @@ AsterStatus aster_kernel_world_forensics(const AsterWorldHandle world,
         .readability_audit_hash = world->readability_audit_hash,
         .diagnostic = worldScratch(world, world->perceptual_continuity_diagnostic)};
   }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_world_belief_report(const AsterWorldHandle world,
+                                             AsterBeliefReportInfo *out_report) {
+  if (!validWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
+  }
+  if (!validStruct(out_report)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "world belief report struct version is not supported");
+  }
+  fillBeliefReportInfo(world->belief_report, world->belief_world_transition_hash,
+                       world->belief_extraction_hash, out_report);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_world_belief_finding(const AsterWorldHandle world,
+                                              const std::uint32_t index,
+                                              AsterBeliefFindingInfo *out_finding) {
+  if (!validWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world handle is invalid");
+  }
+  if (!validStruct(out_finding)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "world belief finding struct version is not supported");
+  }
+  if (index >= world->belief_report.findings.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "world belief finding index is out of range");
+  }
+  fillBeliefFindingInfo(world->belief_report.findings[index], out_finding);
   return aster_kernel_status_ok();
 }
 
@@ -3042,10 +3412,38 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
                         offsetof(AsterRendererSettings, perceptual_continuity_budget),
                         sizeof(settings_desc.perceptual_continuity_budget)) &&
       hasPerceptualContinuityBudget(settings_desc.perceptual_continuity_budget);
+  const bool has_perceptual_schedule =
+      abiStructHasField(settings->size,
+                        offsetof(AsterRendererSettings, perceptual_world_schedule),
+                        sizeof(settings_desc.perceptual_world_schedule)) &&
+      hasPerceptualWorldScheduleInfo(settings_desc.perceptual_world_schedule);
+  const bool has_belief_report =
+      abiStructHasField(settings->size,
+                        offsetof(AsterRendererSettings, belief_falseness_report),
+                        sizeof(settings_desc.belief_falseness_report)) &&
+      hasBeliefReportInfo(settings_desc.belief_falseness_report);
+  const bool has_belief_findings_field =
+      abiStructHasField(settings->size,
+                        offsetof(AsterRendererSettings, belief_falseness_findings),
+                        sizeof(settings_desc.belief_falseness_findings));
   if (has_continuity_budget &&
       !validPerceptualContinuityBudget(settings_desc.perceptual_continuity_budget)) {
     return makeStatus(ASTER_STATUS_ABI_MISMATCH,
                       "renderer perceptual continuity budget version is not supported");
+  }
+  if (has_perceptual_schedule &&
+      !validPerceptualWorldScheduleInfo(settings_desc.perceptual_world_schedule)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "renderer perceptual schedule version is not supported");
+  }
+  AsterStatus belief_status = aster_kernel_status_ok();
+  const AsterSpan belief_findings =
+      has_belief_findings_field ? settings_desc.belief_falseness_findings : AsterSpan{};
+  aster::BeliefExtractionReport belief_report = beliefReportFromAbi(
+      has_belief_report ? settings_desc.belief_falseness_report : AsterBeliefReportInfo{},
+      belief_findings, &belief_status);
+  if (belief_status.code != ASTER_STATUS_OK) {
+    return belief_status;
   }
   if (settings_desc.render_target != nullptr) {
     return aster_kernel_renderer_render_frame_to_target(renderer, scene, settings_desc.render_target,
@@ -3136,6 +3534,13 @@ AsterStatus aster_kernel_renderer_render_frame(const AsterRendererHandle rendere
                                                       .event_residue_hash,
                                                   settings_desc.perceptual_continuity_budget
                                                       .readability_audit_hash);
+    if (has_perceptual_schedule) {
+      renderer->renderer->stampLastFramePerceptualSchedule(
+          perceptualScheduleFromAbi(settings_desc.perceptual_world_schedule));
+    }
+    if (has_belief_report) {
+      renderer->renderer->stampLastFrameBeliefReport(belief_report);
+    }
     renderer->last_stats = abiFrameStats(stats);
     renderer->active_target = nullptr;
     renderer->has_rendered_frame = true;
@@ -4136,6 +4541,72 @@ AsterStatus aster_kernel_renderer_frame_diagnostic(
   out_event->label = viewFromString(event.label);
   out_event->message = viewFromString(event.message);
   out_event->value = event.value;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_frame_falseness_report(
+    const AsterRendererHandle renderer, AsterBeliefReportInfo *out_report) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_report)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame falseness report struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  fillBeliefReportInfo(forensics.belief_falseness_report, forensics.world_transition_hash,
+                       forensics.extraction_hash, out_report);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_frame_falseness_finding(
+    const AsterRendererHandle renderer, const std::uint32_t index,
+    AsterBeliefFindingInfo *out_finding) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_finding)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame falseness finding struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.belief_falseness_report.findings.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame falseness finding index is out of range");
+  }
+  fillBeliefFindingInfo(forensics.belief_falseness_report.findings[index], out_finding);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_frame_perceptual_world_schedule(
+    const AsterRendererHandle renderer, AsterPerceptualWorldScheduleInfo *out_schedule) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_schedule)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame perceptual schedule struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  aster::PerceptualWorldScheduleReport schedule;
+  schedule.accepted = forensics.perceptual_scheduler_accepted;
+  schedule.scheduler_hash = forensics.perceptual_scheduler_hash;
+  schedule.memory_residue_hash = forensics.perceptual_memory_residue_hash;
+  schedule.threat_signal_hash = forensics.perceptual_threat_signal_hash;
+  schedule.material_age_hash = forensics.perceptual_material_age_hash;
+  schedule.interaction_debt_hash = forensics.perceptual_interaction_debt_hash;
+  schedule.perceptual_priority_hash = forensics.perceptual_priority_hash;
+  schedule.streaming_budget_hash = forensics.perceptual_streaming_budget_hash;
+  schedule.memory_residue = forensics.perceptual_memory_residue;
+  schedule.threat_signal = forensics.perceptual_threat_signal;
+  schedule.material_age = forensics.perceptual_material_age;
+  schedule.interaction_debt = forensics.perceptual_interaction_debt;
+  schedule.perceptual_priority = forensics.perceptual_priority;
+  schedule.streaming_budget = forensics.perceptual_streaming_budget;
+  schedule.belief_stability = forensics.perceptual_belief_stability;
+  schedule.decision_impact_score = forensics.perceptual_decision_impact_score;
+  schedule.frame_cost_ms = forensics.perceptual_scheduler_frame_cost_ms;
+  fillPerceptualScheduleInfo(schedule, out_schedule);
   return aster_kernel_status_ok();
 }
 

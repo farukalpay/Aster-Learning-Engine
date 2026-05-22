@@ -435,13 +435,16 @@ bool LumenRun::caveWorldGateAccepted() const {
 }
 
 void LumenRun::noteRenderExtraction(const std::uint64_t extraction_hash,
-                                    const std::uint64_t frame_submission_hash) {
+                                    const std::uint64_t frame_submission_hash,
+                                    const float frame_cost_ms) {
   world_state_.noteRenderableExtraction(extraction_hash, frame_submission_hash);
   world_forensics_.render_extraction_hash = extraction_hash;
   world_forensics_.frame_submission_hash = frame_submission_hash;
   world_forensics_.render_extraction_ready = extraction_hash != 0u && frame_submission_hash != 0u;
   world_forensics_.world_hash = world_state_.worldHash();
   world_forensics_.trace_hash = world_state_.traceHash();
+  world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(frame_cost_ms);
+  world_forensics_.belief_report = buildBeliefExtractionReport();
 }
 
 void LumenRun::resetWorldProof() {
@@ -725,6 +728,61 @@ LumenRun::makePerceptualObservation(const float dt, const Vec2 move_axis,
   return observation;
 }
 
+PerceptualWorldScheduleReport
+LumenRun::buildPerceptualScheduleReport(const float frame_cost_ms) const {
+  std::size_t live_ores = 0u;
+  for (const CoalOreNode &ore : coal_ores_) {
+    if (!ore.collected) {
+      ++live_ores;
+    }
+  }
+  std::size_t alive_skitters = 0u;
+  for (const CaveSkitter &skitter : cave_skitters_) {
+    if (!skitter.dead && !skitter.state.dead) {
+      ++alive_skitters;
+    }
+  }
+
+  PerceptualWorldScheduleDesc desc;
+  desc.region_id = world_forensics_.streaming_region_id != 0u
+                       ? world_forensics_.streaming_region_id
+                       : world_forensics_.cave_gate.region_id;
+  desc.world_transition_hash = world_forensics_.world_transition_hash;
+  desc.actor_state_delta_hash = world_forensics_.actor_state_delta_hash;
+  desc.sensory_event_hash = world_forensics_.sensory_event_hash;
+  desc.visibility_set_hash = world_forensics_.visibility_set_hash;
+  desc.navigation_valid = world_forensics_.cave_gate.navigation_valid;
+  desc.perceptual_salience_score =
+      std::max(world_forensics_.cave_gate.perceptual_salience_score,
+               world_forensics_.perception_ledger.score);
+  desc.encounter_pressure =
+      std::clamp(static_cast<float>(alive_skitters) /
+                     static_cast<float>(std::max(kCaveSkitterEncounterCount, 1)),
+                 0.0f, 1.0f);
+  desc.resource_pressure = std::clamp(static_cast<float>(live_ores) / 8.0f, 0.0f, 1.0f);
+  desc.frame_cost_ms = frame_cost_ms;
+  desc.ledger = world_forensics_.perception_ledger;
+  desc.perceptual_state = world_forensics_.perceptual_state;
+  desc.reaction_package_hash = world_forensics_.coal_mining_reaction.reaction_package_hash;
+  desc.material_memory_hash = world_forensics_.coal_mining_reaction.material_memory_hash;
+  desc.contact_history_hash = world_forensics_.coal_mining_reaction.contact_history_hash;
+  desc.lighting_atmosphere_hash = world_forensics_.coal_mining_reaction.lighting_atmosphere_hash;
+  desc.wear_continuity_hash = world_forensics_.coal_mining_reaction.wear_continuity_hash;
+  desc.ai_attention_hash = world_forensics_.coal_mining_reaction.ai_attention_hash;
+  desc.streaming_residency_lod_hash =
+      world_forensics_.coal_mining_reaction.streaming_residency_lod_hash;
+  desc.resource_state_hash = world_forensics_.coal_mining_reaction.resource_state_hash;
+  desc.event_residue_hash = world_forensics_.coal_mining_reaction.event_residue_hash;
+  desc.audio_visual_cue_budget_hash =
+      world_forensics_.coal_mining_reaction.audio_visual_cue_budget_hash;
+  desc.readability_audit_hash = world_forensics_.coal_mining_reaction.readability_audit_hash;
+  if (authoring_.valid && authoring_.cave.validation.belief_contract.has_value()) {
+    desc.minimum_belief_stability =
+        std::min(authoring_.cave.validation.belief_contract->minimum_score, 0.92f);
+  }
+  return schedulePerceptualWorld(desc);
+}
+
 BeliefExtractionReport LumenRun::buildBeliefExtractionReport() const {
   BeliefExtractionDesc desc;
   desc.subject = "lumen_run.cave_entry";
@@ -771,9 +829,18 @@ BeliefExtractionReport LumenRun::buildBeliefExtractionReport() const {
   desc.volumetric_scene_coupling = desc.volumetric_scene_coupled ? 0.76f : 0.0f;
   desc.material_response_stability = has_material_memory && has_wear ? 0.80f : 0.40f;
   desc.lod_transition_invisibility =
-      world_forensics_.perception_ledger.streaming_semantic_lod_hash != 0u ? 0.84f : 0.25f;
-  desc.asset_scale_coherence = world_forensics_.cave_gate.navigation_valid ? 0.82f : 0.25f;
-  desc.environmental_entropy = has_material_memory && has_wear && has_affordance ? 0.78f : 0.35f;
+      std::max(world_forensics_.perception_ledger.streaming_semantic_lod_hash != 0u ? 0.84f
+                                                                                    : 0.25f,
+               world_forensics_.perceptual_schedule.streaming_budget);
+  desc.asset_scale_coherence = world_forensics_.cave_gate.navigation_valid
+                                   ? std::max(0.82f,
+                                              world_forensics_.perceptual_schedule
+                                                  .belief_stability)
+                                   : 0.25f;
+  desc.environmental_entropy =
+      std::max(has_material_memory && has_wear && has_affordance ? 0.78f : 0.35f,
+               world_forensics_.perceptual_schedule.memory_residue * 0.45f +
+                   world_forensics_.perceptual_schedule.material_age * 0.55f);
   return extractBeliefContract(desc);
 }
 
@@ -789,6 +856,7 @@ void LumenRun::advancePerceptualRuntime(const float dt, const Vec2 move_axis,
   }
   world_forensics_.perceptual_state =
       perceptual_runtime_.advance(makePerceptualObservation(dt, move_axis, previous_player_position));
+  world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(0.0f);
 }
 
 void LumenRun::recordCoalMiningReaction(const std::size_t ore_index,
@@ -1265,9 +1333,10 @@ void LumenRun::rebuildCaveWorldGate() {
   world_forensics_.perception_ledger = perception_ledger;
   world_forensics_.perception_object_traces =
       buildPerceptionObjectTraces(world_forensics_.perception_ledger);
-  world_forensics_.belief_report = buildBeliefExtractionReport();
   perceptual_runtime_.setOptions(perceptualRuntimeOptions(report.region_id));
   perceptual_runtime_.reset();
+  world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(0.0f);
+  world_forensics_.belief_report = buildBeliefExtractionReport();
 }
 
 void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const bool run_requested,
@@ -1381,8 +1450,13 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   transition_hash =
       lumenHash(transition_hash, world_forensics_.perceptual_state.perceptual_state_hash);
   transition_hash = lumenHash(transition_hash, world_forensics_.perceptual_state.semantic_budget_hash);
+  transition_hash = lumenHash(transition_hash, world_forensics_.perceptual_schedule.scheduler_hash);
+  transition_hash =
+      lumenHash(transition_hash, world_forensics_.perceptual_schedule.decision_impact_score);
   transition_hash = lumenHash(transition_hash, world_forensics_.belief_report.belief_contract_hash);
   world_forensics_.world_transition_hash = transition_hash;
+  world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(0.0f);
+  world_forensics_.belief_report = buildBeliefExtractionReport();
 }
 
 Vec3 LumenRun::playerPosition() const {

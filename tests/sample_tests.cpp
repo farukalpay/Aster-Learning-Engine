@@ -70,15 +70,23 @@ void testLumenWorldForensicsContract() {
   assert(world.perceptual_state.semantic_budget_hash != 0u);
   assert(world.perceptual_state.material_memory > 0.0f);
   assert(world.perceptual_state.occlusion_trust > 0.0f);
+  assert(world.perceptual_schedule.scheduler_hash != 0u);
+  assert(world.perceptual_schedule.memory_residue_hash != 0u);
+  assert(world.perceptual_schedule.threat_signal_hash != 0u);
+  assert(world.perceptual_schedule.material_age_hash != 0u);
+  assert(world.perceptual_schedule.streaming_budget_hash != 0u);
+  assert(world.perceptual_schedule.streaming_budget > 0.0f);
+  assert(world.perceptual_schedule.decision_impact_score > 0.0f);
   assert(world.belief_report.belief_contract_hash != 0u);
   assert(world.belief_report.readability_audit_hash != 0u);
   assert(world.belief_report.score >= 0.70f);
   assert(!world.perception_object_traces.empty());
 
-  run.noteRenderExtraction(0xA57E1001u, 0xA57E2002u);
+  run.noteRenderExtraction(0xA57E1001u, 0xA57E2002u, 12.5f);
   assert(run.worldForensics().render_extraction_ready);
   assert(run.worldForensics().render_extraction_hash == 0xA57E1001u);
   assert(run.worldForensics().frame_submission_hash == 0xA57E2002u);
+  assert(run.worldForensics().perceptual_schedule.frame_cost_ms >= 12.0f);
 }
 
 void testLumenCoalMiningReactionContinuity() {
@@ -109,6 +117,8 @@ void testLumenCoalMiningReactionContinuity() {
       run.worldForensics().coal_mining_reaction.reaction_package_hash;
   const std::uint64_t before_perceptual_hash =
       run.worldForensics().perceptual_state.perceptual_state_hash;
+  const std::uint64_t before_scheduler_hash =
+      run.worldForensics().perceptual_schedule.scheduler_hash;
   run.interactFocused();
   run.update(1.0f / 60.0f, {}, false, false);
   const aster::LumenReactionPackageReport &reaction =
@@ -131,6 +141,12 @@ void testLumenCoalMiningReactionContinuity() {
   assert(run.worldForensics().perceptual_state.perceptual_state_hash != before_perceptual_hash);
   assert(run.worldForensics().perceptual_state.interaction_residue > 0.0f);
   assert(run.worldForensics().perceptual_state.player_readable_cause > 0.0f);
+  assert(run.worldForensics().perceptual_schedule.scheduler_hash != 0u);
+  assert(run.worldForensics().perceptual_schedule.scheduler_hash != before_scheduler_hash);
+  assert(run.worldForensics().perceptual_schedule.memory_residue > 0.0f);
+  assert(run.worldForensics().perceptual_schedule.material_age > 0.0f);
+  assert(run.worldForensics().perceptual_schedule.interaction_debt > 0.0f);
+  assert(run.worldForensics().perceptual_schedule.decision_impact_score > 0.0f);
 }
 
 void testLumenPerceptualWorldRuntimeExposure() {
@@ -152,6 +168,12 @@ void testLumenPerceptualWorldRuntimeExposure() {
   assert(state.ecology_signal > 0.35f);
   assert(state.player_readable_cause > 0.45f);
   assert(state.semantic_budget_hash != 0u);
+  const aster::PerceptualWorldScheduleReport &schedule =
+      run.worldForensics().perceptual_schedule;
+  assert(schedule.accepted);
+  assert(schedule.belief_stability >= 0.70f);
+  assert(schedule.streaming_budget > 0.0f);
+  assert(schedule.decision_impact_score > 0.0f);
 }
 
 void testLumenCameraCollisionCanBeatComfortRadius() {

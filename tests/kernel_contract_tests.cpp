@@ -67,6 +67,9 @@ static_assert(std::is_standard_layout_v<AsterResourceNode>);
 static_assert(std::is_standard_layout_v<AsterNavValidityReport>);
 static_assert(std::is_standard_layout_v<AsterPerceptualBudget>);
 static_assert(std::is_standard_layout_v<AsterPerceptualContinuityBudget>);
+static_assert(std::is_standard_layout_v<AsterBeliefFindingInfo>);
+static_assert(std::is_standard_layout_v<AsterBeliefReportInfo>);
+static_assert(std::is_standard_layout_v<AsterPerceptualWorldScheduleInfo>);
 static_assert(std::is_standard_layout_v<AsterWorldDesc>);
 static_assert(std::is_standard_layout_v<AsterWorldAdvanceDesc>);
 static_assert(std::is_standard_layout_v<AsterWorldAdvanceResult>);
@@ -166,9 +169,13 @@ static_assert(ASTER_KERNEL_RENDER_RESOURCE_SURFACE_ATTRIBUTES !=
               ASTER_KERNEL_RENDER_RESOURCE_SCENE_COLOR);
 static_assert(ASTER_KERNEL_RENDER_RESOURCE_SURFACE_OCCLUSION !=
               ASTER_KERNEL_RENDER_RESOURCE_SHADOW_ATLAS);
+static_assert(ASTER_BELIEF_FINDING_MATERIAL_FAMILY_COLLAPSE == 1u);
+static_assert(ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP == 9u);
 static_assert(offsetof(AsterCameraDesc, focal_length_mm) > offsetof(AsterCameraDesc, far_plane));
 static_assert(offsetof(AsterRendererSettings, quality_tier) >
               offsetof(AsterRendererSettings, render_target));
+static_assert(offsetof(AsterRendererSettings, perceptual_world_schedule) >
+              offsetof(AsterRendererSettings, perceptual_continuity_budget));
 
 struct LegacyCameraDesc {
   size_t size;
@@ -296,7 +303,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 6u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 3u);
+  assert(version.minor == 4u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -849,6 +856,50 @@ void testRendererAbi5Lifecycle() {
   presentation_settings.navigation_valid = 1u;
   presentation_settings.streaming_region_id = 0xA57E000000000077ull;
   presentation_settings.perceptual_salience_score = 0.82f;
+  presentation_settings.perceptual_world_schedule = {
+      sizeof(AsterPerceptualWorldScheduleInfo),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      1u,
+      0xA57E0000000000A1ull,
+      0xA57E0000000000A2ull,
+      0xA57E0000000000A3ull,
+      0xA57E0000000000A4ull,
+      0xA57E0000000000A5ull,
+      0xA57E0000000000A6ull,
+      0xA57E0000000000A7ull,
+      0.61f,
+      0.42f,
+      0.58f,
+      0.27f,
+      0.52f,
+      0.73f,
+      0.81f,
+      0.57f,
+      12.5f};
+  const AsterBeliefFindingInfo renderer_belief_finding{
+      sizeof(AsterBeliefFindingInfo),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP,
+      ASTER_KERNEL_FRAME_DIAGNOSTIC_WARNING,
+      {"renderer.frame", 14u},
+      0.50f,
+      0.74f,
+      0xA57E0000000000B1ull,
+      {"backend-visual-truth", 20u},
+      {"backend proof is incomplete", 27u}};
+  presentation_settings.belief_falseness_report = {
+      sizeof(AsterBeliefReportInfo),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      0u,
+      0.66f,
+      0.70f,
+      presentation_settings.world_transition_hash,
+      presentation_settings.extraction_hash,
+      0xA57E0000000000C1ull,
+      0xA57E0000000000C2ull,
+      1u};
+  presentation_settings.belief_falseness_findings = {
+      &renderer_belief_finding, 1u, sizeof(AsterBeliefFindingInfo)};
   assert(aster_kernel_renderer_render_frame_to_target(renderer, scene, target, &physical_camera,
                                                       &presentation_settings)
              .code == ASTER_STATUS_OK);
@@ -884,6 +935,31 @@ void testRendererAbi5Lifecycle() {
   assert(detail_counts.streaming_region_id == presentation_settings.streaming_region_id);
   assert(detail_counts.perceptual_salience_score ==
          presentation_settings.perceptual_salience_score);
+  AsterPerceptualWorldScheduleInfo frame_schedule{
+      sizeof(AsterPerceptualWorldScheduleInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_perceptual_world_schedule(renderer, &frame_schedule).code ==
+         ASTER_STATUS_OK);
+  assert(frame_schedule.accepted == presentation_settings.perceptual_world_schedule.accepted);
+  assert(frame_schedule.scheduler_hash ==
+         presentation_settings.perceptual_world_schedule.scheduler_hash);
+  assert(frame_schedule.decision_impact_score ==
+         presentation_settings.perceptual_world_schedule.decision_impact_score);
+  AsterBeliefReportInfo frame_belief{sizeof(AsterBeliefReportInfo),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_falseness_report(renderer, &frame_belief).code ==
+         ASTER_STATUS_OK);
+  assert(frame_belief.accepted == 0u);
+  assert(frame_belief.belief_contract_hash ==
+         presentation_settings.belief_falseness_report.belief_contract_hash);
+  assert(frame_belief.finding_count == 1u);
+  AsterBeliefFindingInfo frame_belief_finding{sizeof(AsterBeliefFindingInfo),
+                                              ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_falseness_finding(renderer, 0u, &frame_belief_finding)
+             .code == ASTER_STATUS_OK);
+  assert(frame_belief_finding.kind == ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP);
+  assert(toString(frame_belief_finding.subject) == "renderer.frame");
+  assert(aster_kernel_renderer_frame_falseness_finding(renderer, 1u, &frame_belief_finding)
+             .code == ASTER_STATUS_INVALID_ARGUMENT);
   AsterFrameForensicsDetailCounts legacy_detail_counts{};
   legacy_detail_counts.size = offsetof(AsterFrameForensicsDetailCounts, world_trace_hash);
   legacy_detail_counts.version = ASTER_KERNEL_STRUCT_VERSION_1;
@@ -1766,6 +1842,111 @@ void testWorldRootAbi6Contracts() {
   assert(continuity_forensics.perceptual_continuity_budget.accepted == 0u);
   assert(continuity_forensics.perceptual_continuity_budget.missing_channel_mask ==
          ASTER_PERCEPTUAL_CONTINUITY_RESOURCE_STATE);
+
+  const AsterBeliefFindingInfo world_belief_finding{
+      sizeof(AsterBeliefFindingInfo),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      ASTER_BELIEF_FINDING_MATERIAL_RESPONSE_INSTABILITY,
+      ASTER_KERNEL_FRAME_DIAGNOSTIC_WARNING,
+      {"world.region", 12u},
+      0.44f,
+      0.62f,
+      0xA57E000000001001ull,
+      {"material-response", 17u},
+      {"material response is unstable", 29u}};
+  AsterWorldRegionGateReport belief_gate{};
+  belief_gate.size = sizeof(AsterWorldRegionGateReport);
+  belief_gate.version = ASTER_KERNEL_STRUCT_VERSION_1;
+  belief_gate.region_id = 0xA57E000000001100ull;
+  belief_gate.probe_trace_hash = 0xA57E000000001101ull;
+  belief_gate.verdict = ASTER_WORLD_REGION_GATE_ACCEPTED;
+  belief_gate.navigation = {sizeof(AsterNavValidityReport),
+                            ASTER_KERNEL_STRUCT_VERSION_1,
+                            1u,
+                            8u,
+                            0u,
+                            0xA57E000000001102ull,
+                            {"valid", 5u}};
+  belief_gate.encounter_budget_hash = 0xA57E000000001103ull;
+  belief_gate.resource_probe_hash = 0xA57E000000001104ull;
+  belief_gate.perceptual_budget = {sizeof(AsterPerceptualBudget),
+                                   ASTER_KERNEL_STRUCT_VERSION_1,
+                                   1u,
+                                   0.92f,
+                                   0.60f,
+                                   0xA57E000000001105ull,
+                                   {"readable", 8u}};
+  belief_gate.diagnostic = {"belief rejected", 15u};
+  belief_gate.perceptual_continuity_budget = {
+      sizeof(AsterPerceptualContinuityBudget),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      1u,
+      ASTER_PERCEPTUAL_CONTINUITY_MATERIAL_MEMORY |
+          ASTER_PERCEPTUAL_CONTINUITY_EVENT_RESIDUE,
+      ASTER_PERCEPTUAL_CONTINUITY_MATERIAL_MEMORY |
+          ASTER_PERCEPTUAL_CONTINUITY_EVENT_RESIDUE,
+      0u,
+      0.94f,
+      0.70f,
+      0xA57E000000001106ull,
+      0xA57E000000001107ull,
+      0xA57E000000001108ull,
+      0xA57E000000001109ull,
+      0xA57E00000000110Aull,
+      0xA57E00000000110Bull,
+      0xA57E00000000110Cull,
+      0xA57E00000000110Dull,
+      {"continuity accepted", 19u}};
+  belief_gate.perceptual_world_schedule = {
+      sizeof(AsterPerceptualWorldScheduleInfo),
+      ASTER_KERNEL_STRUCT_VERSION_1,
+      1u,
+      0xA57E000000001201ull,
+      0xA57E000000001202ull,
+      0xA57E000000001203ull,
+      0xA57E000000001204ull,
+      0xA57E000000001205ull,
+      0xA57E000000001206ull,
+      0xA57E000000001207ull,
+      0.62f,
+      0.40f,
+      0.59f,
+      0.31f,
+      0.56f,
+      0.74f,
+      0.84f,
+      0.60f,
+      11.0f};
+  belief_gate.belief_report = {sizeof(AsterBeliefReportInfo),
+                               ASTER_KERNEL_STRUCT_VERSION_1,
+                               0u,
+                               0.68f,
+                               0.70f,
+                               continuity_result.world_transition_hash,
+                               extraction_desc.extraction_hash,
+                               0xA57E000000001301ull,
+                               0xA57E000000001302ull,
+                               1u};
+  belief_gate.belief_findings = {&world_belief_finding, 1u, sizeof(AsterBeliefFindingInfo)};
+  assert(aster_kernel_world_record_region_gate(world, &belief_gate).code == ASTER_STATUS_OK);
+  AsterWorldForensics belief_forensics{sizeof(AsterWorldForensics),
+                                       ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_world_forensics(world, &belief_forensics).code == ASTER_STATUS_OK);
+  assert(belief_forensics.generated_region_gate == ASTER_WORLD_REGION_GATE_QUARANTINED);
+  AsterBeliefReportInfo world_belief{sizeof(AsterBeliefReportInfo),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_world_belief_report(world, &world_belief).code == ASTER_STATUS_OK);
+  assert(world_belief.accepted == 0u);
+  assert(world_belief.belief_contract_hash == belief_gate.belief_report.belief_contract_hash);
+  assert(world_belief.finding_count == 1u);
+  AsterBeliefFindingInfo round_trip_finding{sizeof(AsterBeliefFindingInfo),
+                                            ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_world_belief_finding(world, 0u, &round_trip_finding).code ==
+         ASTER_STATUS_OK);
+  assert(round_trip_finding.kind == ASTER_BELIEF_FINDING_MATERIAL_RESPONSE_INSTABILITY);
+  assert(toString(round_trip_finding.source) == "material-response");
+  assert(aster_kernel_world_belief_finding(world, 1u, &round_trip_finding).code ==
+         ASTER_STATUS_INVALID_ARGUMENT);
   assert(aster_kernel_world_destroy(world).code == ASTER_STATUS_OK);
   assert(aster_kernel_engine_destroy(engine).code == ASTER_STATUS_OK);
 }
@@ -1956,6 +2137,8 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_world_record_region_gate",
       "aster_kernel_world_extract_render",
       "aster_kernel_world_forensics",
+      "aster_kernel_world_belief_report",
+      "aster_kernel_world_belief_finding",
       "aster_kernel_world_destroy",
       "aster_kernel_system_world_create",
       "aster_kernel_system_world_tick",
@@ -2001,6 +2184,9 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_renderer_frame_forensics_detail_counts",
       "aster_kernel_renderer_frame_pass_stats",
       "aster_kernel_renderer_frame_diagnostic",
+      "aster_kernel_renderer_frame_falseness_report",
+      "aster_kernel_renderer_frame_falseness_finding",
+      "aster_kernel_renderer_frame_perceptual_world_schedule",
       "aster_kernel_renderer_debug_capture_info",
       "aster_kernel_renderer_pass_artifact_info",
       "aster_kernel_renderer_resource_transition",
@@ -2067,10 +2253,8 @@ void testManifestNamesMatchLinkedApi() {
   };
   const std::set<std::string> manifest = readManifest();
   assert(manifest == expected);
-  assert(std::none_of(manifest.begin(), manifest.end(), [](const std::string &symbol) {
-    return symbol.find("belief") != std::string::npos ||
-           symbol.find("falseness") != std::string::npos;
-  }));
+  assert(manifest.contains("aster_kernel_world_belief_report"));
+  assert(manifest.contains("aster_kernel_renderer_frame_falseness_report"));
 
   (void)&aster_kernel_abi_version;
   (void)&aster_kernel_status_ok;
@@ -2109,6 +2293,8 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_world_record_region_gate;
   (void)&aster_kernel_world_extract_render;
   (void)&aster_kernel_world_forensics;
+  (void)&aster_kernel_world_belief_report;
+  (void)&aster_kernel_world_belief_finding;
   (void)&aster_kernel_world_destroy;
   (void)&aster_kernel_system_world_create;
   (void)&aster_kernel_system_world_tick;
@@ -2154,6 +2340,9 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_renderer_frame_forensics_detail_counts;
   (void)&aster_kernel_renderer_frame_pass_stats;
   (void)&aster_kernel_renderer_frame_diagnostic;
+  (void)&aster_kernel_renderer_frame_falseness_report;
+  (void)&aster_kernel_renderer_frame_falseness_finding;
+  (void)&aster_kernel_renderer_frame_perceptual_world_schedule;
   (void)&aster_kernel_renderer_debug_capture_info;
   (void)&aster_kernel_renderer_pass_artifact_info;
   (void)&aster_kernel_renderer_resource_transition;

@@ -1505,6 +1505,43 @@ void drawRegressionGalleryPanel(aster::UiCanvas &canvas, std::size_t &selected_e
           visible_top, visible_bottom);
 }
 
+void drawWorldBelievabilityPanel(aster::UiCanvas &canvas,
+                                 const aster::FrameForensics *forensics, const float x,
+                                 float &y, const float width, const float visible_top,
+                                 const float visible_bottom) {
+  section(canvas, "World Believability", x, y, width);
+  if (forensics == nullptr || forensics->perceptual_scheduler_hash == 0u) {
+    textRow(canvas, "Scheduler", "no world-linked belief report", x, y, width, visible_top,
+            visible_bottom);
+    return;
+  }
+  textRow(canvas, "Accepted", yesNo(forensics->perceptual_scheduler_accepted), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Scheduler", hexU64(forensics->perceptual_scheduler_hash), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Nav tension", forensics->navigation_valid ? "valid" : "blocked", x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Visibility cut", hexU64(forensics->visibility_set_hash), x, y, width,
+          visible_top, visible_bottom);
+  textRow(canvas, "Fog/light", std::to_string(forensics->perceptual_lighting_believability), x,
+          y, width, visible_top, visible_bottom);
+  textRow(canvas, "Wetness/age", std::to_string(forensics->perceptual_material_age), x, y,
+          width, visible_top, visible_bottom);
+  textRow(canvas, "Echo/cues", hexU64(forensics->event_residue_hash), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Loot/risk",
+          std::to_string(forensics->perceptual_threat_signal) + " / " +
+              std::to_string(forensics->perceptual_decision_impact_score),
+          x, y, width, visible_top, visible_bottom);
+  textRow(canvas, "AI cover", hexU64(forensics->ai_attention_hash), x, y, width, visible_top,
+          visible_bottom);
+  textRow(canvas, "Frame cost", std::to_string(forensics->perceptual_scheduler_frame_cost_ms), x,
+          y, width, visible_top, visible_bottom);
+  textRow(canvas, "Belief risk",
+          std::to_string(1.0f - std::clamp(forensics->perceptual_belief_stability, 0.0f, 1.0f)),
+          x, y, width, visible_top, visible_bottom);
+}
+
 void drawFramePanel(aster::UiCanvas &canvas, const aster::UiRect panel,
                     const aster::FrameStats &stats) {
   drawPanelTexture(canvas, panel);
@@ -1674,6 +1711,9 @@ void EditorUi::draw(Scene &scene, OrbitCamera &camera, RendererSettings &setting
                        material_lab_diagnostics_, xpbd_settings_, xpbd_session_,
                        xpbd_loaded_asset_id_, xpbd_source_path_, xpbd_diagnostics_,
                        xpbd_preview_ready_, runtime, x, y, width, visible_top, panel_bottom);
+  y += 8.0f;
+  drawWorldBelievabilityPanel(canvas_, runtime.frame_forensics, x, y, width, visible_top,
+                              panel_bottom);
   y += 8.0f;
   drawObjectFatePanel(canvas_, selected_object_fate_, runtime.frame_forensics, x, y, width,
                       visible_top, panel_bottom);

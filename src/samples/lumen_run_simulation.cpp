@@ -620,7 +620,10 @@ void LumenRun::updateCaveSkitters(const float dt) {
   const bool player_inside_web_volume =
       player_plane_distance <= std::max(web->thickness * 1.15f, 0.01f) &&
       player_web_x * player_web_x + player_web_y * player_web_y <= 1.0f;
-  bool skitters_awake = web->broken || player_inside_web_volume;
+  const float scheduled_threat = world_forensics_.perceptual_schedule.threat_signal;
+  bool skitters_awake =
+      web->broken || player_inside_web_volume || scheduled_threat > 0.42f ||
+      world_forensics_.perceptual_schedule.interaction_debt > 0.48f;
   for (const CaveSkitter &skitter : cave_skitters_) {
     skitters_awake = skitters_awake || skitter.hit_flash > 0.0f || skitter.health < skitter.max_health;
   }
@@ -644,8 +647,9 @@ void LumenRun::updateCaveSkitters(const float dt) {
        .max_speed = 1.05f,
        .max_force = 5.4f,
        .patrol_speed_scale = 0.54f,
-       .aggro_radius = skitters_awake ? 3.15f : 0.0f,
-       .strike_radius = skitters_awake ? tuning_.player_radius + 0.34f : 0.0f,
+       .aggro_radius = skitters_awake ? 3.15f + scheduled_threat * 1.10f : 0.0f,
+       .strike_radius =
+           skitters_awake ? tuning_.player_radius + 0.34f + scheduled_threat * 0.12f : 0.0f,
        .bite_cooldown = 1.40f,
        .separation_radius = 0.34f,
        .cohesion_radius = 0.95f,

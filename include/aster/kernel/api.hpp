@@ -277,6 +277,26 @@ public:
     return Result<AsterWorldForensics>(std::move(result));
   }
 
+  [[nodiscard]] Result<AsterBeliefReportInfo> beliefReport() const noexcept {
+    AsterBeliefReportInfo report{sizeof(AsterBeliefReportInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_world_belief_report(handle_, &report));
+    if (!status) {
+      return Result<AsterBeliefReportInfo>(status);
+    }
+    return Result<AsterBeliefReportInfo>(std::move(report));
+  }
+
+  [[nodiscard]] Result<AsterBeliefFindingInfo> beliefFinding(
+      const std::uint32_t index) const noexcept {
+    AsterBeliefFindingInfo finding{sizeof(AsterBeliefFindingInfo),
+                                   ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_world_belief_finding(handle_, index, &finding));
+    if (!status) {
+      return Result<AsterBeliefFindingInfo>(status);
+    }
+    return Result<AsterBeliefFindingInfo>(std::move(finding));
+  }
+
   void reset() noexcept {
     if (handle_ != nullptr) {
       (void)aster_kernel_world_destroy(handle_);
@@ -1393,6 +1413,38 @@ public:
       return Result<AsterFrameDiagnosticEvent>(status);
     }
     return Result<AsterFrameDiagnosticEvent>(std::move(event));
+  }
+
+  [[nodiscard]] Result<AsterBeliefReportInfo> frameFalsenessReport() const noexcept {
+    AsterBeliefReportInfo report{sizeof(AsterBeliefReportInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_frame_falseness_report(handle_, &report));
+    if (!status) {
+      return Result<AsterBeliefReportInfo>(status);
+    }
+    return Result<AsterBeliefReportInfo>(std::move(report));
+  }
+
+  [[nodiscard]] Result<AsterBeliefFindingInfo> frameFalsenessFinding(
+      const std::uint32_t index) const noexcept {
+    AsterBeliefFindingInfo finding{sizeof(AsterBeliefFindingInfo),
+                                   ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_frame_falseness_finding(handle_, index, &finding));
+    if (!status) {
+      return Result<AsterBeliefFindingInfo>(status);
+    }
+    return Result<AsterBeliefFindingInfo>(std::move(finding));
+  }
+
+  [[nodiscard]] Result<AsterPerceptualWorldScheduleInfo>
+  framePerceptualWorldSchedule() const noexcept {
+    AsterPerceptualWorldScheduleInfo schedule{sizeof(AsterPerceptualWorldScheduleInfo),
+                                              ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_renderer_frame_perceptual_world_schedule(handle_, &schedule));
+    if (!status) {
+      return Result<AsterPerceptualWorldScheduleInfo>(status);
+    }
+    return Result<AsterPerceptualWorldScheduleInfo>(std::move(schedule));
   }
 
   [[nodiscard]] Result<AsterFrameDebugCaptureInfo> debugCaptureInfo(

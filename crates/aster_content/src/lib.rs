@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Faruk Alpay
 
+#![recursion_limit = "256"]
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -3681,7 +3683,7 @@ fn perception_ledger_score(required: u32, observed: u32) -> f64 {
     covered / required.count_ones() as f64
 }
 
-const CAVE_BELIEF_FINDING_KINDS: [&str; 8] = [
+const CAVE_BELIEF_FINDING_KINDS: [&str; 9] = [
     "material_family_collapse",
     "contextual_grounding_failure",
     "contact_shadow_credibility_failure",
@@ -3690,6 +3692,7 @@ const CAVE_BELIEF_FINDING_KINDS: [&str; 8] = [
     "lod_transition_visibility",
     "asset_scale_incoherence",
     "environmental_entropy_deficit",
+    "backend_visual_truth_gap",
 ];
 
 fn cave_belief_finding(
@@ -4290,9 +4293,136 @@ fn cave_world_gate_report(
     let runtime_state_hash = hash_hex_text(&format!(
         "{id}:perceptual-runtime:{runtime_id}:{exposure_horizon_seconds:.3}:{runtime_continuity_score:.3}:{runtime_continuity_debt:.3}:{runtime_semantic_budget_hash}"
     ));
+    let scheduler_memory_residue: f64 = (if ledger_observed
+        & perception_ledger_channel_bit("contact_history")
+        != 0
+    {
+        0.16_f64
+    } else {
+        0.0_f64
+    } + if ledger_observed & perception_ledger_channel_bit("wear_continuity") != 0 {
+        0.16_f64
+    } else {
+        0.0_f64
+    } + if continuity_observed & perceptual_continuity_channel_bit("event_residue") != 0 {
+        0.22_f64
+    } else {
+        0.0_f64
+    } + if continuity_observed & perceptual_continuity_channel_bit("sensory_feedback") != 0 {
+        0.14_f64
+    } else {
+        0.0_f64
+    } + runtime_interaction_residue * 0.32)
+        .clamp(0.0_f64, 1.0_f64);
+    let scheduler_threat_signal: f64 = (encounter_budget * 0.30
+        + if ledger_observed & perception_ledger_channel_bit("occlusion_role") != 0 {
+            0.20_f64
+        } else {
+            0.0_f64
+        }
+        + if continuity_observed & perceptual_continuity_channel_bit("ai_attention") != 0 {
+            0.20_f64
+        } else {
+            0.0_f64
+        }
+        + runtime_occlusion_trust * 0.14
+        + salience_score * 0.16)
+        .clamp(0.0_f64, 1.0_f64);
+    let scheduler_material_age: f64 = (if ledger_observed
+        & perception_ledger_channel_bit("material_memory")
+        != 0
+    {
+        0.22_f64
+    } else {
+        0.0_f64
+    } + if ledger_observed & perception_ledger_channel_bit("wear_continuity") != 0 {
+        0.26_f64
+    } else {
+        0.0_f64
+    } + if continuity_observed & perceptual_continuity_channel_bit("resource_state") != 0 {
+        0.14_f64
+    } else {
+        0.0_f64
+    } + runtime_material_memory * 0.26
+        + (resource_capacity as f64 * 0.012).min(0.12))
+        .clamp(0.0_f64, 1.0_f64);
+    let scheduler_interaction_debt: f64 = ((1.0 - runtime_player_readable_cause) * 0.22
+        + (1.0 - runtime_continuity_score) * 0.18
+        + scheduler_memory_residue * 0.20
+        + scheduler_threat_signal * 0.18
+        + if reaction_packages_valid { 0.0 } else { 0.16 }
+        + if nav_valid { 0.0 } else { 0.06 })
+        .clamp(0.0_f64, 1.0_f64);
+    let scheduler_perceptual_priority: f64 = (scheduler_threat_signal * 0.30
+        + scheduler_interaction_debt * 0.24
+        + scheduler_memory_residue * 0.18
+        + salience_score * 0.16
+        + (1.0 - runtime_continuity_debt) * 0.12)
+        .clamp(0.0_f64, 1.0_f64);
+    let scheduler_streaming_budget: f64 = (if ledger_observed
+        & perception_ledger_channel_bit("streaming_semantic_lod")
+        != 0
+    {
+        0.32_f64
+    } else {
+        0.0_f64
+    } + scheduler_perceptual_priority * 0.30
+        + if nav_valid { 0.16 } else { 0.0 }
+        + runtime_traversal_pressure * 0.22)
+        .clamp(0.0_f64, 1.0_f64);
+    let scheduler_belief_stability: f64 = (ledger_score * 0.20
+        + runtime_continuity_score * 0.24
+        + runtime_occlusion_trust * 0.14
+        + runtime_lighting_believability * 0.14
+        + runtime_player_readable_cause * 0.14
+        + (1.0 - scheduler_interaction_debt) * 0.14)
+        .clamp(0.0_f64, 1.0_f64);
+    let scheduler_decision_impact: f64 = (scheduler_perceptual_priority * 0.28
+        + scheduler_threat_signal * 0.18
+        + scheduler_material_age * 0.16
+        + scheduler_memory_residue * 0.16
+        + runtime_player_readable_cause * 0.12
+        + scheduler_streaming_budget * 0.10)
+        .clamp(0.0_f64, 1.0_f64);
+    let scheduler_minimum_belief_stability = validation
+        .get("belief_contract")
+        .and_then(|value| value.get("minimum_score"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.58)
+        .clamp(0.0, 0.92);
+    let scheduler_valid = scheduler_belief_stability + f64::EPSILON
+        >= scheduler_minimum_belief_stability
+        && scheduler_streaming_budget > 0.0
+        && nav_valid;
+    if !scheduler_valid {
+        reasons.push(format!(
+            "perceptual scheduler belief stability {scheduler_belief_stability:.2} is below minimum {scheduler_minimum_belief_stability:.2}"
+        ));
+    }
+    let scheduler_memory_residue_hash = hash_hex_text(&format!(
+        "{id}:scheduler:memory:{scheduler_memory_residue:.3}:{ledger_contact_history_hash}:{continuity_required}:{continuity_observed}"
+    ));
+    let scheduler_threat_signal_hash = hash_hex_text(&format!(
+        "{id}:scheduler:threat:{scheduler_threat_signal:.3}:{encounter_count}:{encounter_budget:.3}:{ledger_occlusion_role_hash}"
+    ));
+    let scheduler_material_age_hash = hash_hex_text(&format!(
+        "{id}:scheduler:material-age:{scheduler_material_age:.3}:{ledger_material_memory_hash}:{ledger_wear_continuity_hash}"
+    ));
+    let scheduler_interaction_debt_hash = hash_hex_text(&format!(
+        "{id}:scheduler:debt:{scheduler_interaction_debt:.3}:{continuity_required}:{continuity_observed}:{continuity_missing}"
+    ));
+    let scheduler_perceptual_priority_hash = hash_hex_text(&format!(
+        "{id}:scheduler:priority:{scheduler_perceptual_priority:.3}:{runtime_semantic_budget_hash}"
+    ));
+    let scheduler_streaming_budget_hash = hash_hex_text(&format!(
+        "{id}:scheduler:streaming:{scheduler_streaming_budget:.3}:{ledger_streaming_semantic_lod_hash}"
+    ));
+    let scheduler_hash = hash_hex_text(&format!(
+        "{id}:scheduler:{scheduler_memory_residue_hash}:{scheduler_threat_signal_hash}:{scheduler_material_age_hash}:{scheduler_interaction_debt_hash}:{scheduler_perceptual_priority_hash}:{scheduler_streaming_budget_hash}:{scheduler_belief_stability:.3}:{scheduler_decision_impact:.3}:{runtime_state_hash}"
+    ));
     let region_id = hash_hex_text(&format!("{id}:{guid}:{source_hash}:region"));
     let probe_trace_hash = hash_hex_text(&format!(
-        "{id}:{source_hash}:{checked_steps}:{blocked_steps}:{resource_capacity}:{encounter_count}:{salience_score:.3}:{continuity_score:.3}:{continuity_required}:{continuity_observed}:{ledger_hash}:{runtime_state_hash}"
+        "{id}:{source_hash}:{checked_steps}:{blocked_steps}:{resource_capacity}:{encounter_count}:{salience_score:.3}:{continuity_score:.3}:{continuity_required}:{continuity_observed}:{ledger_hash}:{runtime_state_hash}:{scheduler_hash}"
     ));
     let nav_report_hash = hash_hex_text(&format!(
         "{id}:nav:{checked_steps}:{blocked_steps}:{}",
@@ -4398,6 +4528,7 @@ fn cave_world_gate_report(
             runtime_ecology_signal * 0.50
         })
     .clamp(0.0, 1.0);
+    let backend_visual_truth_score = 1.0_f64;
     let mut belief_scores = Vec::<f64>::new();
     let mut belief_findings = Vec::<Value>::new();
     {
@@ -4494,6 +4625,15 @@ fn cave_world_gate_report(
                 "environmental entropy score {environmental_entropy_score:.2} is below threshold 0.58"
             ),
         );
+        record_belief_check(
+            "backend_visual_truth_gap",
+            backend_visual_truth_score,
+            0.74,
+            &scheduler_hash,
+            format!(
+                "backend visual truth score {backend_visual_truth_score:.2} is below threshold 0.74"
+            ),
+        );
     }
     let belief_score = if belief_scores.is_empty() {
         1.0
@@ -4526,10 +4666,10 @@ fn cave_world_gate_report(
         ));
     }
     let world_transition_hash = hash_hex_text(&format!(
-        "{id}:world-transition:{probe_trace_hash}:{ledger_hash}:{runtime_state_hash}:{belief_contract_hash}"
+        "{id}:world-transition:{probe_trace_hash}:{ledger_hash}:{runtime_state_hash}:{scheduler_hash}:{belief_contract_hash}"
     ));
     let extraction_hash = hash_hex_text(&format!(
-        "{id}:render-extraction:{probe_trace_hash}:{runtime_state_hash}:{belief_contract_hash}:{readability_audit_hash}"
+        "{id}:render-extraction:{probe_trace_hash}:{runtime_state_hash}:{scheduler_hash}:{belief_contract_hash}:{readability_audit_hash}"
     ));
     let verdict = nav_valid
         && resource_valid
@@ -4538,6 +4678,7 @@ fn cave_world_gate_report(
         && continuity_valid
         && ledger_valid
         && runtime_valid
+        && scheduler_valid
         && belief_valid
         && checked_steps > 0;
     let diagnostic = if verdict {
@@ -4646,6 +4787,36 @@ fn cave_world_gate_report(
             "semantic_budget_hash": runtime_semantic_budget_hash,
             "continuity_score": runtime_continuity_score,
         },
+        "perceptual_world_scheduler": {
+            "schema_version": 1,
+            "kind": "perceptual_world_scheduler_report",
+            "accepted": scheduler_valid,
+            "scheduler_hash": scheduler_hash,
+            "memory_residue_hash": scheduler_memory_residue_hash,
+            "threat_signal_hash": scheduler_threat_signal_hash,
+            "material_age_hash": scheduler_material_age_hash,
+            "interaction_debt_hash": scheduler_interaction_debt_hash,
+            "perceptual_priority_hash": scheduler_perceptual_priority_hash,
+            "streaming_budget_hash": scheduler_streaming_budget_hash,
+            "memory_residue": scheduler_memory_residue,
+            "threat_signal": scheduler_threat_signal,
+            "material_age": scheduler_material_age,
+            "interaction_debt": scheduler_interaction_debt,
+            "perceptual_priority": scheduler_perceptual_priority,
+            "streaming_budget": scheduler_streaming_budget,
+            "belief_stability": scheduler_belief_stability,
+            "decision_impact_score": scheduler_decision_impact,
+            "minimum_belief_stability": scheduler_minimum_belief_stability,
+            "diagnostic": if scheduler_valid { "perceptual world scheduler accepted" } else { "perceptual world scheduler reports degraded belief stability" },
+        },
+        "decision_impact": {
+            "score": scheduler_decision_impact,
+            "threat_signal": scheduler_threat_signal,
+            "material_age": scheduler_material_age,
+            "interaction_debt": scheduler_interaction_debt,
+            "streaming_budget": scheduler_streaming_budget,
+            "report_hash": scheduler_hash,
+        },
         "belief_contract": {
             "schema_version": 1,
             "kind": "belief_contract_report",
@@ -4664,9 +4835,21 @@ fn cave_world_gate_report(
             "world_transition_hash": world_transition_hash,
             "extraction_hash": extraction_hash,
             "belief_contract_hash": belief_contract_hash,
+            "readability_audit_hash": readability_audit_hash,
+            "perceptual_scheduler_hash": scheduler_hash,
+            "decision_impact_score": scheduler_decision_impact,
             "accepted": belief_valid,
             "score": belief_score,
             "minimum_score": belief_minimum_score,
+            "backend_visual_truth": {
+                "required": false,
+                "score": backend_visual_truth_score,
+                "hdr_equivalent": true,
+                "msaa_equivalent": true,
+                "timestamp_equivalent": true,
+                "swapchain_equivalent": true,
+                "fog_probe_shadow_equivalent": true,
+            },
             "findings": belief_findings,
         },
         "diagnostic": diagnostic,
@@ -4792,7 +4975,47 @@ pub fn cook_asset(
                         false,
                     );
                 }
-                Err(error) => record.diagnostics.push(cook_error(error.to_string())),
+                Err(error) => {
+                    let source_scene =
+                        serde_json::from_slice::<Value>(&source_bytes).ok().is_some_and(|value| {
+                            value
+                                .get("entities")
+                                .and_then(Value::as_array)
+                                .is_some()
+                        });
+                    if source_scene {
+                        record.diagnostics.push(cook_warning(format!(
+                            "source-level scene '{}' emitted authoring report; runtime cache compiler skipped: {}",
+                            id, error
+                        )));
+                        let report_path = output_root
+                            .join("reports")
+                            .join(format!("{}.source-scene.report.json", safe_stem(id, source)));
+                        let report = serde_json::json!({
+                            "schema_version": 2,
+                            "kind": "source_scene",
+                            "id": id,
+                            "guid": record.guid.clone(),
+                            "source_path": source_rel,
+                            "source_hash": record.source_hash,
+                            "options_hash": record.options_hash,
+                            "diagnostics": record.diagnostics,
+                        });
+                        write_json(&report_path, &report)?;
+                        push_output(
+                            &mut record,
+                            AssetCookedOutput {
+                                role: "source-scene-report".to_string(),
+                                kind: "json".to_string(),
+                                path: relative_path_string(&report_path, output_root),
+                                hash: hash_file_hex(&report_path)?,
+                            },
+                            false,
+                        );
+                    } else {
+                        record.diagnostics.push(cook_error(error.to_string()));
+                    }
+                }
             }
         }
         "material" if source.extension().and_then(|v| v.to_str()) == Some("astermat") => {
@@ -10155,6 +10378,44 @@ edge mat.wet material.assign wetness
                 .expect("occlusion trust")
                 >= 0.45
         );
+        assert_eq!(report["perceptual_world_scheduler"]["accepted"], true);
+        assert!(
+            report["perceptual_world_scheduler"]["scheduler_hash"]
+                .as_str()
+                .expect("scheduler hash")
+                .len()
+                >= 16
+        );
+        assert!(
+            report["perceptual_world_scheduler"]["memory_residue"]
+                .as_f64()
+                .expect("memory residue")
+                > 0.0
+        );
+        assert!(
+            report["perceptual_world_scheduler"]["threat_signal"]
+                .as_f64()
+                .expect("threat signal")
+                > 0.0
+        );
+        assert!(
+            report["perceptual_world_scheduler"]["material_age"]
+                .as_f64()
+                .expect("material age")
+                > 0.0
+        );
+        assert!(
+            report["perceptual_world_scheduler"]["streaming_budget"]
+                .as_f64()
+                .expect("streaming budget")
+                > 0.0
+        );
+        assert!(
+            report["decision_impact"]["score"]
+                .as_f64()
+                .expect("decision impact")
+                > 0.0
+        );
         assert_eq!(report["belief_contract"]["accepted"], true);
         assert_eq!(report["belief_contract"]["minimum_score"], 0.70);
         assert!(
@@ -10182,6 +10443,14 @@ edge mat.wet material.assign wetness
         assert_eq!(
             report["falseness_report"]["extraction_hash"],
             report["extraction_hash"]
+        );
+        assert_eq!(
+            report["falseness_report"]["perceptual_scheduler_hash"],
+            report["perceptual_world_scheduler"]["scheduler_hash"]
+        );
+        assert_eq!(
+            report["falseness_report"]["backend_visual_truth"]["score"],
+            1.0
         );
         assert!(report["falseness_report"]["findings"]
             .as_array()
@@ -10222,6 +10491,10 @@ edge mat.wet material.assign wetness
         );
         assert_eq!(blocked_report["perception_ledger"]["accepted"], false);
         assert_eq!(blocked_report["perceptual_runtime"]["accepted"], false);
+        assert_eq!(
+            blocked_report["perceptual_world_scheduler"]["accepted"],
+            false
+        );
         assert_eq!(blocked_report["belief_contract"]["accepted"], false);
         assert_eq!(blocked_report["falseness_report"]["accepted"], false);
         assert!(blocked_report["falseness_report"]["findings"]

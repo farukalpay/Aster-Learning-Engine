@@ -21,6 +21,10 @@ constexpr std::uint64_t kBeliefSeed = 0xA57EBE11EF000001ull;
   return std::clamp(value, 0.0f, 1.0f);
 }
 
+[[nodiscard]] float signal(const bool present) {
+  return present ? 1.0f : 0.0f;
+}
+
 [[nodiscard]] std::uint64_t mix(std::uint64_t hash, const std::uint64_t value) {
   return hashCombine64(hash == 0u ? kBeliefSeed : hash, value);
 }
@@ -116,6 +120,23 @@ constexpr std::uint64_t kBeliefSeed = 0xA57EBE11EF000001ull;
   return score;
 }
 
+[[nodiscard]] float backendVisualTruthScore(const BeliefExtractionDesc &desc) {
+  if (!desc.backend_visual_truth_required) {
+    return 1.0f;
+  }
+  const std::array<float, 6> scores{scoreWithDefault(desc.backend_visual_truth_score),
+                                   signal(desc.backend_hdr_equivalent),
+                                   signal(desc.backend_msaa_equivalent),
+                                   signal(desc.backend_timestamp_equivalent),
+                                   signal(desc.backend_swapchain_equivalent),
+                                   signal(desc.backend_fog_probe_shadow_equivalent)};
+  float total = 0.0f;
+  for (const float score : scores) {
+    total += score;
+  }
+  return clamp01(total / static_cast<float>(scores.size()));
+}
+
 [[nodiscard]] std::uint64_t findingEvidenceHash(const BeliefExtractionDesc &desc,
                                                 const BeliefFindingKind kind,
                                                 const float score,
@@ -190,6 +211,8 @@ std::string_view beliefFindingKindName(const BeliefFindingKind kind) noexcept {
     return "asset_scale_incoherence";
   case BeliefFindingKind::EnvironmentalEntropyDeficit:
     return "environmental_entropy_deficit";
+  case BeliefFindingKind::BackendVisualTruthGap:
+    return "backend_visual_truth_gap";
   }
   return "material_family_collapse";
 }
@@ -218,6 +241,7 @@ BeliefExtractionReport extractBeliefContract(const BeliefExtractionDesc &desc) {
   constexpr float kLodThreshold = 0.70f;
   constexpr float kScaleThreshold = 0.70f;
   constexpr float kEntropyThreshold = 0.58f;
+  constexpr float kBackendTruthThreshold = 0.74f;
 
   const float material_family = materialFamilyUniqueness(desc);
   const float grounding = contextualGroundingScore(desc);
@@ -227,6 +251,7 @@ BeliefExtractionReport extractBeliefContract(const BeliefExtractionDesc &desc) {
   const float lod = scoreWithDefault(desc.lod_transition_invisibility);
   const float scale = scoreWithDefault(desc.asset_scale_coherence);
   const float entropy = environmentalEntropyScore(desc);
+  const float backend_truth = backendVisualTruthScore(desc);
 
   addFinding(report.findings, desc, BeliefFindingKind::MaterialFamilyCollapse,
              material_family, kMaterialFamilyThreshold, "material-family",
@@ -252,9 +277,14 @@ BeliefExtractionReport extractBeliefContract(const BeliefExtractionDesc &desc) {
   addFinding(report.findings, desc, BeliefFindingKind::EnvironmentalEntropyDeficit,
              entropy, kEntropyThreshold, "environment-history",
              "environment evidence is too uniform or clean to read as occupied over time");
+  addFinding(report.findings, desc, BeliefFindingKind::BackendVisualTruthGap,
+             backend_truth, kBackendTruthThreshold, "backend-visual-truth",
+             "backend proof does not establish equivalent HDR, MSAA, timestamp, swapchain, fog, "
+             "probe, and shadow truth");
 
-  const std::array<float, 8> scores{
-      material_family, grounding, contact, volumetric, material_response, lod, scale, entropy};
+  const std::array<float, 9> scores{material_family, grounding, contact, volumetric,
+                                    material_response, lod,       scale,   entropy,
+                                    backend_truth};
   float total = 0.0f;
   for (const float score : scores) {
     total += score;

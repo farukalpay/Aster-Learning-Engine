@@ -67,7 +67,7 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(cave.value.validation.belief_contract.has_value());
   assert(cave.value.validation.belief_contract->id == "entry_belief_contract");
   assert(cave.value.validation.belief_contract->minimum_score >= 0.70f);
-  assert(cave.value.validation.belief_contract->required_checks.size() == 8u);
+  assert(cave.value.validation.belief_contract->required_checks.size() == 9u);
   const std::vector<aster::sdk::Diagnostic> cave_diagnostics =
       aster::sdk::validateCaveDocument(cave.value, &project.value, &scene.value,
                                        project_root / "caves" / "cave_entry.cave");
@@ -459,6 +459,74 @@ void testAgentAssetBriefReviewGate() {
   assert(aster::sdk::asterAgentAssetReviewStatusName(strong_review.status) == "passed");
 }
 
+void testCaveWorldGateReportDocumentParse() {
+  const auto report = aster::sdk::parseCaveWorldGateReportDocument(R"json({
+    "schema_version": 1,
+    "kind": "cave_world_gate_report",
+    "id": "cave.lumen_entry",
+    "verdict": "accepted",
+    "region_id": "a57e",
+    "world_transition_hash": "1111222233334444",
+    "extraction_hash": "5555666677778888",
+    "belief_contract_hash": "9999aaaabbbbcccc",
+    "navigation": { "valid": true },
+    "perceptual_runtime": { "accepted": true },
+    "perceptual_world_scheduler": {
+      "accepted": true,
+      "scheduler_hash": "abcd000000000001",
+      "memory_residue_hash": "abcd000000000002",
+      "threat_signal_hash": "abcd000000000003",
+      "material_age_hash": "abcd000000000004",
+      "interaction_debt_hash": "abcd000000000005",
+      "perceptual_priority_hash": "abcd000000000006",
+      "streaming_budget_hash": "abcd000000000007",
+      "memory_residue": 0.61,
+      "threat_signal": 0.42,
+      "material_age": 0.58,
+      "interaction_debt": 0.27,
+      "perceptual_priority": 0.52,
+      "streaming_budget": 0.73,
+      "belief_stability": 0.81,
+      "decision_impact_score": 0.57,
+      "diagnostic": "perceptual world scheduler accepted"
+    },
+    "falseness_report": {
+      "accepted": false,
+      "score": 0.66,
+      "minimum_score": 0.70,
+      "world_transition_hash": "1111222233334444",
+      "extraction_hash": "5555666677778888",
+      "belief_contract_hash": "9999aaaabbbbcccc",
+      "readability_audit_hash": "dddd000000000001",
+      "perceptual_scheduler_hash": "abcd000000000001",
+      "decision_impact_score": 0.57,
+      "findings": [
+        {
+          "kind": "backend_visual_truth_gap",
+          "severity": "warning",
+          "subject": "cave.lumen_entry",
+          "score": 0.50,
+          "threshold": 0.74,
+          "evidence_hash": "eeee000000000001",
+          "source": "backend-visual-truth",
+          "message": "backend proof is incomplete"
+        }
+      ]
+    }
+  })json");
+  assert(report.ok());
+  assert(report.value.kind == "cave_world_gate_report");
+  assert(report.value.navigation_valid);
+  assert(report.value.perceptual_runtime_accepted);
+  assert(report.value.perceptual_world_scheduler.accepted);
+  assert(report.value.perceptual_world_scheduler.scheduler_hash == "abcd000000000001");
+  assert(report.value.perceptual_world_scheduler.decision_impact_score > 0.50f);
+  assert(report.value.falseness_report.perceptual_scheduler_hash ==
+         report.value.perceptual_world_scheduler.scheduler_hash);
+  assert(report.value.falseness_report.findings.size() == 1u);
+  assert(report.value.falseness_report.findings[0].kind == "backend_visual_truth_gap");
+}
+
 } // namespace
 
 int main() {
@@ -469,6 +537,7 @@ int main() {
   testAgentWorkspacePlanning();
   testAgentRunbookInstructionsAndCommandPolicy();
   testAgentAssetBriefReviewGate();
+  testCaveWorldGateReportDocumentParse();
   std::cout << "game_sdk_public_consumer passed.\n";
   return 0;
 }

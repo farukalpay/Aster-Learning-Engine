@@ -24,6 +24,7 @@ enum class BeliefFindingKind {
   LodTransitionVisibility,
   AssetScaleIncoherence,
   EnvironmentalEntropyDeficit,
+  BackendVisualTruthGap,
 };
 
 enum class BeliefFindingSeverity {
@@ -65,6 +66,13 @@ struct BeliefExtractionDesc {
   float lod_transition_invisibility = 1.0f;
   float asset_scale_coherence = 1.0f;
   float environmental_entropy = 1.0f;
+  bool backend_visual_truth_required = false;
+  bool backend_hdr_equivalent = true;
+  bool backend_msaa_equivalent = true;
+  bool backend_timestamp_equivalent = true;
+  bool backend_swapchain_equivalent = true;
+  bool backend_fog_probe_shadow_equivalent = true;
+  float backend_visual_truth_score = 1.0f;
 };
 
 struct BeliefExtractionReport {

@@ -44,7 +44,7 @@ include(CheckIncludeFileCXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-set(ASTER_KERNEL_PACKAGE_VERSION "6.3.0")
+set(ASTER_KERNEL_PACKAGE_VERSION "6.4.0")
 
 if(WIN32 AND NOT MINGW)
   set(ASTER_RUST_STATICLIB_NAME "aster_runtime.lib")
@@ -896,6 +896,7 @@ if(ASTER_BUILD_TESTS)
       software_deterministic_hash_and_forensics
       native_backend_conforms_when_available
       backend_capability_table_contracts
+      backend_visual_truth_gap_is_reported
       golden_lab_scenes
       cave_conformance_software_golden
       resource_capability_mismatch_requires_resource_mask

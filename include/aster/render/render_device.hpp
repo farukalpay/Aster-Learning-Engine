@@ -821,6 +821,23 @@ struct FrameForensics {
   float perceptual_player_readable_cause = 0.0f;
   std::uint64_t perceptual_semantic_budget_hash = 0u;
   bool perceptual_state_accepted = false;
+  std::uint64_t perceptual_scheduler_hash = 0u;
+  std::uint64_t perceptual_memory_residue_hash = 0u;
+  std::uint64_t perceptual_threat_signal_hash = 0u;
+  std::uint64_t perceptual_material_age_hash = 0u;
+  std::uint64_t perceptual_interaction_debt_hash = 0u;
+  std::uint64_t perceptual_priority_hash = 0u;
+  std::uint64_t perceptual_streaming_budget_hash = 0u;
+  float perceptual_memory_residue = 0.0f;
+  float perceptual_threat_signal = 0.0f;
+  float perceptual_material_age = 0.0f;
+  float perceptual_interaction_debt = 0.0f;
+  float perceptual_priority = 0.0f;
+  float perceptual_streaming_budget = 0.0f;
+  float perceptual_belief_stability = 0.0f;
+  float perceptual_decision_impact_score = 0.0f;
+  float perceptual_scheduler_frame_cost_ms = 0.0f;
+  bool perceptual_scheduler_accepted = false;
   BeliefExtractionReport belief_falseness_report;
   std::vector<WorldPerceptionObjectTrace> perception_object_traces;
   std::vector<FramePassStats> passes;
@@ -1044,6 +1061,7 @@ public:
   void stampLastFramePerceptionLedger(const WorldPerceptionLedgerReport &ledger,
                                       std::vector<WorldPerceptionObjectTrace> object_traces);
   void stampLastFramePerceptualState(const PerceptualFrameState &state);
+  void stampLastFramePerceptualSchedule(const PerceptualWorldScheduleReport &schedule);
   void stampLastFrameBeliefReport(const BeliefExtractionReport &report);
   [[nodiscard]] const std::shared_ptr<const MaterialResourceLibrary> &materialResourceLibrary()
       const noexcept;
