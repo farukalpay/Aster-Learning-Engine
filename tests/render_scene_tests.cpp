@@ -266,6 +266,7 @@ void testShowcaseLabSceneContracts() {
   assert(mesh_lab.objects().size() >= 5u);
   assert(lighting_lab.objects().size() >= 7u);
   assert(scene_lab.objects().size() >= 20u);
+  assert(material_lab.reflectionProbes().size() >= 3u);
 
   std::size_t custom_meshes = 0u;
   for (const aster::RenderObject &object : mesh_lab.objects()) {
@@ -286,6 +287,9 @@ void testShowcaseLabSceneContracts() {
   bool has_stratified_normal_response = false;
   bool has_mineral_clearcoat_response = false;
   bool has_ceramic_resin_response = false;
+  bool has_contact_irradiance_floor = false;
+  bool has_jade_volume_response = false;
+  bool has_porcelain_cavity_response = false;
   for (const aster::RenderObject &object : material_lab.objects()) {
     const aster::MaterialSurfaceProfile profile = aster::resolveMaterialSurfaceProfile(object.material);
     terrain_layers += profile == aster::MaterialSurfaceProfile::TerrainLayer ? 1u : 0u;
@@ -294,6 +298,13 @@ void testShowcaseLabSceneContracts() {
     stratified_rocks += profile == aster::MaterialSurfaceProfile::StratifiedRock ? 1u : 0u;
     resins += profile == aster::MaterialSurfaceProfile::Resin ? 1u : 0u;
     contact_casters += object.casts_contact_shadow ? 1u : 0u;
+    has_contact_irradiance_floor =
+        has_contact_irradiance_floor ||
+        (profile == aster::MaterialSurfaceProfile::TerrainLayer &&
+         object.material.render_role == aster::MaterialRenderRole::SupportSurface &&
+         object.material.roughness > 0.95f &&
+         object.material.procedural.height_shading > 0.50f &&
+         object.material.procedural.roughness_height_coupling > 0.90f);
     if (object.name.find("material sphere") != std::string::npos) {
       ++material_spheres;
       roughness_buckets.insert(static_cast<int>(std::round(object.material.roughness * 20.0f)));
@@ -316,10 +327,24 @@ void testShowcaseLabSceneContracts() {
           has_mineral_clearcoat_response ||
           (profile == aster::MaterialSurfaceProfile::MineralVein &&
            object.material.coat_strength > 0.35f && object.material.dielectric_reflectance > 0.65f);
+      has_jade_volume_response =
+          has_jade_volume_response ||
+          (profile == aster::MaterialSurfaceProfile::MineralVein &&
+           object.material.edge_sheen_color.y > 0.18f && object.material.coat_strength > 0.45f &&
+           object.material.procedural.height_normal_coupling > 0.35f &&
+           object.material.procedural.roughness_height_coupling > 0.45f &&
+           object.material.roughness < 0.32f);
       has_ceramic_resin_response =
           has_ceramic_resin_response ||
           (profile == aster::MaterialSurfaceProfile::Resin &&
-           object.material.coat_strength > 0.35f && object.material.pattern_contrast > 0.55f);
+           object.material.coat_strength > 0.25f && object.material.pattern_contrast > 0.70f);
+      has_porcelain_cavity_response =
+          has_porcelain_cavity_response ||
+          (profile == aster::MaterialSurfaceProfile::Resin &&
+           object.material.base_color.value.x > 0.70f && object.material.base_color.value.y > 0.64f &&
+           object.material.pattern_contrast > 0.70f &&
+           object.material.procedural.height_shading > 0.20f &&
+           object.material.coat_roughness > 0.18f);
     }
   }
   assert(terrain_layers >= 1u);
@@ -335,6 +360,9 @@ void testShowcaseLabSceneContracts() {
   assert(has_stratified_normal_response);
   assert(has_mineral_clearcoat_response);
   assert(has_ceramic_resin_response);
+  assert(has_contact_irradiance_floor);
+  assert(has_jade_volume_response);
+  assert(has_porcelain_cavity_response);
 }
 
 void testSoftwarePreviewRendererProducesImage() {
@@ -1963,7 +1991,7 @@ void testGraphicsCore7SoftwareReferenceTruthAccepted() {
   settings.atmosphere.fog_color = {0.10f, 0.13f, 0.16f};
   settings.atmosphere.fog_start = 1.5f;
   settings.atmosphere.fog_end = 8.0f;
-  settings.atmosphere.fog_strength = 0.38f;
+  settings.atmosphere.fog_strength = 0.30f;
   settings.reflections.enabled = true;
   settings.reflections.static_local_probes = true;
   settings.reflections.probe_resolution = 16u;
@@ -2224,59 +2252,81 @@ aster::OrbitCamera materialLabContractCamera() {
 
 aster::RendererSettings materialLabContractSettings() {
   aster::RendererSettings settings;
-  settings.exposure = 1.08f;
-  settings.ambient_strength = 0.24f;
-  settings.ambient_floor = 0.012f;
-  settings.indirect_albedo_floor = 0.012f;
+  settings.exposure = 1.10f;
+  settings.ambient_strength = 0.30f;
+  settings.ambient_floor = 0.016f;
+  settings.indirect_albedo_floor = 0.022f;
   settings.use_aces_tonemap = true;
   settings.procedural_surface_normals = true;
   settings.sun_light.enabled = true;
   settings.sun_light.direction_to_light = {-0.52f, 0.80f, 0.30f};
   settings.sun_light.color = {1.0f, 0.90f, 0.74f};
-  settings.sun_light.intensity = 4.65f;
-  settings.pipeline.clear_color = {0.020f, 0.036f, 0.062f};
-  settings.sky_ambient_color = {0.50f, 0.66f, 0.92f};
-  settings.ground_ambient_color = {0.165f, 0.118f, 0.074f};
+  settings.sun_light.intensity = 4.35f;
+  settings.pipeline.clear_color = {0.030f, 0.046f, 0.074f};
+  settings.sky_ambient_color = {0.56f, 0.70f, 0.98f};
+  settings.ground_ambient_color = {0.230f, 0.160f, 0.096f};
   settings.atmosphere.enabled = true;
-  settings.atmosphere.fog_color = {0.128f, 0.160f, 0.205f};
-  settings.atmosphere.fog_start = 3.8f;
-  settings.atmosphere.fog_end = 16.0f;
-  settings.atmosphere.fog_strength = 0.50f;
+  settings.atmosphere.fog_color = {0.150f, 0.184f, 0.245f};
+  settings.atmosphere.fog_start = 5.0f;
+  settings.atmosphere.fog_end = 24.0f;
+  settings.atmosphere.fog_strength = 0.12f;
   settings.atmosphere.fog_falloff = aster::AtmosphereFogFalloff::Exponential;
   settings.atmosphere.fog_power = 1.55f;
-  settings.atmosphere.saturation = 1.22f;
-  settings.atmosphere.contrast = 1.08f;
+  settings.atmosphere.local_light_scattering = 0.18f;
+  settings.atmosphere.local_light_extinction = 0.034f;
+  settings.atmosphere.source_glow_strength = 0.28f;
+  settings.atmosphere.source_glow_radius_scale = 1.05f;
+  settings.atmosphere.phase_anisotropy = 0.26f;
+  settings.atmosphere.volumetric_light_steps = 6u;
+  settings.atmosphere.saturation = 1.16f;
+  settings.atmosphere.contrast = 1.03f;
+  settings.atmosphere.shadow_tint = {0.68f, 0.76f, 0.90f};
+  settings.atmosphere.shadow_tint_strength = 0.06f;
+  settings.atmosphere.highlight_tint = {1.08f, 0.98f, 0.82f};
+  settings.atmosphere.highlight_tint_strength = 0.09f;
   settings.grounding.enabled = true;
   settings.grounding.contact_shadows = true;
   settings.grounding.auto_contact_shadows = true;
-  settings.grounding.contact_shadow_strength = 0.84f;
-  settings.grounding.contact_shadow_radius_scale = 1.26f;
-  settings.grounding.contact_shadow_max_radius = 1.58f;
+  settings.grounding.contact_shadow_strength = 0.62f;
+  settings.grounding.contact_shadow_radius_scale = 1.10f;
+  settings.grounding.contact_shadow_max_radius = 1.34f;
+  settings.grounding.contact_shadow_receiver_height = 1.36f;
   settings.occlusion.enabled = true;
-  settings.occlusion.radius = 1.28f;
-  settings.occlusion.strength = 0.54f;
+  settings.occlusion.radius = 1.16f;
+  settings.occlusion.thickness = 0.14f;
+  settings.occlusion.strength = 0.46f;
+  settings.occlusion.distance_falloff = 1.35f;
   settings.occlusion.sample_count = 16u;
-  settings.occlusion.contact_hardening = 0.36f;
+  settings.occlusion.contact_hardening = 0.32f;
+  settings.occlusion.micro_shadowing = 0.22f;
   settings.shadows.enabled = true;
   settings.shadows.cascaded_directional = true;
   settings.shadows.directional_cascades = 2u;
-  settings.shadows.atlas_size = 160u;
+  settings.shadows.atlas_size = 192u;
   settings.shadows.max_distance = 16.0f;
-  settings.shadows.pcf_radius = 0.42f;
+  settings.shadows.pcf_radius = 0.36f;
   settings.reflections.enabled = true;
   settings.reflections.static_local_probes = true;
   settings.reflections.probe_resolution = 16u;
-  settings.reflections.max_active_probes = 1u;
-  settings.reflections.fallback_intensity = 1.42f;
-  settings.surface_scale.physical_texel_density = 1024.0f;
-  settings.surface_scale.height_normal_coupling = 0.94f;
-  settings.surface_scale.roughness_height_coupling = 0.72f;
-  settings.surface_scale.macro_frequency_breakup = 0.58f;
-  settings.surface_scale.micro_frequency_breakup = 0.82f;
+  settings.reflections.max_active_probes = 3u;
+  settings.reflections.fallback_intensity = 1.75f;
+  settings.post.bloom = true;
+  settings.post.fxaa = true;
+  settings.post.bloom_threshold = 1.75f;
+  settings.post.bloom_intensity = 0.09f;
+  settings.surface_scale.physical_texel_density = 960.0f;
+  settings.surface_scale.height_normal_coupling = 1.25f;
+  settings.surface_scale.roughness_height_coupling = 0.95f;
+  settings.surface_scale.macro_frequency_breakup = 0.52f;
+  settings.surface_scale.micro_frequency_breakup = 0.78f;
+  settings.presentation.focal_length_mm = 50.0f;
+  settings.presentation.composition_weight = 0.72f;
+  settings.presentation.vignette_strength = 0.06f;
+  settings.presentation.shoulder_strength = 0.26f;
   settings.light_rig = {
-      aster::Light{{-3.6f, 3.7f, 1.8f}, {9.5f, 7.2f, 5.0f}, 1.0f, 0.82f},
-      aster::Light{{2.9f, 1.9f, 1.5f}, {1.6f, 2.7f, 5.8f}, 1.0f, 1.05f},
-      aster::Light{{0.4f, 2.9f, -3.0f}, {3.2f, 4.3f, 6.4f}, 1.0f, 1.22f},
+      aster::Light{{-3.6f, 3.7f, 1.8f}, {8.2f, 6.4f, 4.5f}, 1.0f, 0.82f},
+      aster::Light{{2.9f, 1.9f, 1.5f}, {2.0f, 3.4f, 6.0f}, 1.0f, 1.05f},
+      aster::Light{{0.4f, 2.9f, -3.0f}, {3.4f, 4.4f, 6.4f}, 1.0f, 1.22f},
   };
   return settings;
 }
@@ -2367,6 +2417,15 @@ void testShowcaseLabScenesDebugViewResponse() {
   const aster::OrbitCamera camera = materialLabContractCamera();
   aster::RendererSettings settings = materialLabContractSettings();
 
+  settings.material_debug_view = aster::MaterialDebugView::BaseColor;
+  const aster::SoftwareFrameBuffer base_color =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 84,
+                                    .height = 52,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = settings});
+
   settings.material_debug_view = aster::MaterialDebugView::Roughness;
   const aster::SoftwareFrameBuffer roughness =
       aster::renderSoftwarePreview(scene, camera,
@@ -2385,11 +2444,29 @@ void testShowcaseLabScenesDebugViewResponse() {
                                     .frame_seconds = 0.0,
                                     .settings = settings});
 
+  settings.material_debug_view = aster::MaterialDebugView::AmbientOcclusion;
+  const aster::SoftwareFrameBuffer ambient_occlusion =
+      aster::renderSoftwarePreview(scene, camera,
+                                   {.width = 84,
+                                    .height = 52,
+                                    .samples_per_axis = 1,
+                                    .frame_seconds = 0.0,
+                                    .settings = settings});
+
+  const PixelStats base_stats = measurePixels(base_color);
   const PixelStats roughness_stats = measurePixels(roughness);
   const PixelStats normal_stats = measurePixels(normal);
+  const PixelStats ao_stats = measurePixels(ambient_occlusion);
+  assert(base_stats.unique_rgb > 24u);
   assert(roughness_stats.unique_rgb > 18u);
   assert(normal_stats.unique_rgb > roughness_stats.unique_rgb);
   assert(std::abs(roughness_stats.mean_luma - normal_stats.mean_luma) > 0.030);
+  assert(std::abs(base_stats.mean_luma - roughness_stats.mean_luma) > 0.020);
+  assert(std::abs(ao_stats.mean_luma - roughness_stats.mean_luma) > 0.010);
+  assert(!std::equal(base_color.rgba8().begin(), base_color.rgba8().end(),
+                     roughness.rgba8().begin(), roughness.rgba8().end()));
+  assert(!std::equal(ambient_occlusion.rgba8().begin(), ambient_occlusion.rgba8().end(),
+                     roughness.rgba8().begin(), roughness.rgba8().end()));
   assert(!std::equal(roughness.rgba8().begin(), roughness.rgba8().end(), normal.rgba8().begin(),
                      normal.rgba8().end()));
 }

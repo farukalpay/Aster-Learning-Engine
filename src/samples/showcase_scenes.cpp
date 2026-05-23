@@ -127,8 +127,8 @@ std::shared_ptr<const CpuMesh> labSoilPatchMesh() {
     CpuMesh soil;
     constexpr int columns = 60;
     constexpr int rows = 44;
-    constexpr float width = 900.0f;
-    constexpr float depth = 1100.0f;
+    constexpr float width = 20000.0f;
+    constexpr float depth = 24000.0f;
     constexpr float side_drop = 0.42f;
     soil.vertices.reserve(static_cast<std::size_t>(columns * rows + columns * 4 + rows * 4));
     for (int z = 0; z < rows; ++z) {
@@ -432,20 +432,39 @@ Scene makeMaterialLabShowcaseScene() {
                                       {1.12f, 1.08f, 0.98f},
                                       1.38f,
                                       {}});
+  scene.reflectionProbes().push_back({"material lab contact irradiance probe",
+                                      {0.0f, 0.38f, 1.25f},
+                                      4.20f,
+                                      {0.30f, 0.38f, 0.52f},
+                                      {0.34f, 0.22f, 0.12f},
+                                      {1.05f, 0.94f, 0.78f},
+                                      0.72f,
+                                      {}});
+  scene.reflectionProbes().push_back({"material lab grazing rim probe",
+                                      {-2.30f, 2.10f, -2.0f},
+                                      6.50f,
+                                      {0.52f, 0.70f, 1.0f},
+                                      {0.12f, 0.10f, 0.085f},
+                                      {0.86f, 0.96f, 1.18f},
+                                      0.62f,
+                                      {}});
 
   Material soil_surface =
-      material({0.118f, 0.095f, 0.066f}, {}, 0.96f, 0.0f, 0.0f, 0.94f, 3.6f, 0.12f,
-               0.72f, SurfacePattern::TerrainBlend, {5.6f, 6.8f}, 0.30f, 0.74f, 0.052f,
-               {.macro_variation = 0.88f,
-                .micro_normal_strength = 0.62f,
-                .roughness_variation = 0.46f,
-                .physical_texel_density = 1080.0f,
-                .height_normal_coupling = 1.04f,
-                .roughness_height_coupling = 0.84f,
-                .macro_frequency_breakup = 0.92f,
-                .micro_frequency_breakup = 1.02f,
-                .wetness = 0.035f,
-                .height_shading = 0.46f});
+      material({0.135f, 0.104f, 0.070f}, {}, 0.98f, 0.0f, 0.0f, 0.88f, 3.2f, 0.10f,
+               0.97f, SurfacePattern::TerrainBlend, {5.6f, 6.8f}, 0.34f, 0.78f, 0.052f,
+               {.macro_variation = 0.78f,
+                .micro_normal_strength = 0.50f,
+                .roughness_variation = 0.38f,
+                .physical_texel_density = 940.0f,
+                .height_normal_coupling = 1.12f,
+                .roughness_height_coupling = 0.96f,
+                .macro_frequency_breakup = 0.70f,
+                .micro_frequency_breakup = 0.72f,
+                .wetness = 0.025f,
+                .height_shading = 0.58f,
+                .pitting_density = 0.22f,
+                .pitting_depth = 0.18f,
+                .cavity_grime = 0.18f});
   soil_surface.edge_sheen_color = {0.026f, 0.022f, 0.017f};
   soil_surface.edge_sheen_roughness = 0.72f;
   const Material floor_material = makeSupportSurfaceMaterial(soil_surface);
@@ -460,37 +479,39 @@ Scene makeMaterialLabShowcaseScene() {
   scene.objects().push_back(floor);
 
   Material brushed_aluminium =
-      material({0.62f, 0.66f, 0.66f}, {0.004f, 0.006f, 0.008f}, 0.26f, 0.98f, 0.0f,
-               0.58f, 30.0f, 0.12f, 0.88f, SurfacePattern::FiberStrands,
-               {32.0f, 1.15f}, 0.11f, 0.36f, 0.04f,
+      material({0.60f, 0.62f, 0.61f}, {0.002f, 0.003f, 0.003f}, 0.22f, 0.98f, 0.0f,
+               0.62f, 36.0f, 0.10f, 0.90f, SurfacePattern::FiberStrands,
+               {38.0f, 1.08f}, 0.09f, 0.42f, 0.04f,
                {.macro_variation = 0.26f,
-                .micro_normal_strength = 0.19f,
-                .roughness_variation = 0.28f,
+                .micro_normal_strength = 0.16f,
+                .roughness_variation = 0.22f,
                 .physical_texel_density = 1152.0f,
-                .height_normal_coupling = 0.78f,
-                .roughness_height_coupling = 0.62f,
+                .height_normal_coupling = 0.70f,
+                .roughness_height_coupling = 0.54f,
                 .macro_frequency_breakup = 0.36f,
                 .micro_frequency_breakup = 1.02f,
                 .wetness = 0.01f,
-                .height_shading = 0.12f});
+                .height_shading = 0.12f,
+                .edge_polish = 0.40f,
+                .axial_scratches = 0.55f});
   brushed_aluminium.dielectric_reflectance = 0.64f;
   brushed_aluminium.coat_strength = 0.08f;
   brushed_aluminium.coat_roughness = 0.18f;
   brushed_aluminium.tangent_anisotropy = 0.92f;
 
   Material honed_slate =
-      material({0.155f, 0.180f, 0.190f}, {}, 0.64f, 0.01f, 0.0f, 0.82f, 7.5f, 0.30f,
-               0.70f, SurfacePattern::CaveRock, {3.6f, 4.6f}, 0.34f, 0.68f, 0.052f,
+      material({0.210f, 0.220f, 0.218f}, {}, 0.72f, 0.01f, 0.0f, 0.68f, 6.2f, 0.18f,
+               0.92f, SurfacePattern::CaveRock, {3.2f, 4.2f}, 0.22f, 0.38f, 0.052f,
                {.macro_variation = 0.72f,
-                .micro_normal_strength = 0.58f,
-                .roughness_variation = 0.42f,
+                .micro_normal_strength = 0.64f,
+                .roughness_variation = 0.36f,
                 .physical_texel_density = 960.0f,
-                .height_normal_coupling = 0.88f,
-                .roughness_height_coupling = 0.70f,
+                .height_normal_coupling = 0.92f,
+                .roughness_height_coupling = 0.78f,
                 .macro_frequency_breakup = 0.54f,
                 .micro_frequency_breakup = 0.66f,
-                .wetness = 0.28f,
-                .height_shading = 0.34f});
+                .wetness = 0.08f,
+                .height_shading = 0.44f});
   honed_slate.dielectric_reflectance = 0.42f;
   honed_slate.coat_strength = 0.08f;
   honed_slate.coat_roughness = 0.26f;
@@ -498,42 +519,43 @@ Scene makeMaterialLabShowcaseScene() {
   honed_slate.edge_sheen_roughness = 0.64f;
 
   Material green_marble =
-      material({0.070f, 0.245f, 0.185f}, {0.004f, 0.007f, 0.005f}, 0.28f, 0.0f, 0.0f,
-               0.86f, 10.2f, 0.06f, 0.90f, SurfacePattern::CoalVein, {5.8f, 7.6f},
-               0.20f, 0.74f, 0.045f,
+      material({0.055f, 0.255f, 0.190f}, {0.004f, 0.008f, 0.005f}, 0.24f, 0.0f, 0.0f,
+               0.90f, 10.8f, 0.05f, 0.92f, SurfacePattern::CoalVein, {5.8f, 7.6f},
+               0.24f, 0.82f, 0.045f,
                {.macro_variation = 0.50f,
-                .micro_normal_strength = 0.22f,
-                .roughness_variation = 0.34f,
+                .micro_normal_strength = 0.16f,
+                .roughness_variation = 0.28f,
                 .physical_texel_density = 864.0f,
-                .height_normal_coupling = 0.54f,
-                .roughness_height_coupling = 0.56f,
+                .height_normal_coupling = 0.42f,
+                .roughness_height_coupling = 0.52f,
                 .macro_frequency_breakup = 0.60f,
                 .micro_frequency_breakup = 0.54f,
                 .wetness = 0.04f,
-                .height_shading = 0.12f});
-  green_marble.dielectric_reflectance = 0.74f;
-  green_marble.coat_strength = 0.46f;
-  green_marble.coat_roughness = 0.13f;
-  green_marble.edge_sheen_color = {0.070f, 0.120f, 0.085f};
-  green_marble.edge_sheen_roughness = 0.34f;
+                .height_shading = 0.16f});
+  green_marble.dielectric_reflectance = 0.80f;
+  green_marble.coat_strength = 0.52f;
+  green_marble.coat_roughness = 0.16f;
+  green_marble.edge_sheen_color = {0.10f, 0.22f, 0.16f};
+  green_marble.edge_sheen_roughness = 0.28f;
 
   Material crackle_ceramic =
-      material({0.72f, 0.66f, 0.56f}, {0.006f, 0.004f, 0.002f}, 0.34f, 0.0f, 0.0f,
-               0.76f, 7.2f, 0.04f, 0.92f, SurfacePattern::AmberResin,
-               {7.4f, 5.8f}, 0.12f, 0.66f, 0.04f,
+      material({0.78f, 0.72f, 0.62f}, {0.005f, 0.004f, 0.002f}, 0.42f, 0.0f, 0.0f,
+               0.82f, 7.2f, 0.04f, 0.90f, SurfacePattern::AmberResin,
+               {7.4f, 5.8f}, 0.18f, 0.78f, 0.04f,
                {.macro_variation = 0.40f,
-                .micro_normal_strength = 0.18f,
-                .roughness_variation = 0.30f,
+                .micro_normal_strength = 0.24f,
+                .roughness_variation = 0.38f,
                 .physical_texel_density = 980.0f,
-                .height_normal_coupling = 0.44f,
-                .roughness_height_coupling = 0.48f,
+                .height_normal_coupling = 0.58f,
+                .roughness_height_coupling = 0.62f,
                 .macro_frequency_breakup = 0.52f,
                 .micro_frequency_breakup = 0.64f,
                 .wetness = 0.02f,
-                .height_shading = 0.10f});
-  crackle_ceramic.dielectric_reflectance = 0.56f;
-  crackle_ceramic.coat_strength = 0.42f;
-  crackle_ceramic.coat_roughness = 0.18f;
+                .height_shading = 0.24f,
+                .cavity_grime = 0.10f});
+  crackle_ceramic.dielectric_reflectance = 0.58f;
+  crackle_ceramic.coat_strength = 0.30f;
+  crackle_ceramic.coat_roughness = 0.24f;
   crackle_ceramic.edge_sheen_color = {0.090f, 0.078f, 0.055f};
   crackle_ceramic.edge_sheen_roughness = 0.52f;
 
@@ -548,13 +570,13 @@ Scene makeMaterialLabShowcaseScene() {
     object.name = names[i];
     object.primitive = MeshPrimitive::Sphere;
     object.transform.position = {sphere_x[i],
-                                 labSoilHeightAt(sphere_x[i], sphere_z[i]) + sphere_radius - 0.010f,
+                                 labSoilHeightAt(sphere_x[i], sphere_z[i]) + sphere_radius - 0.070f,
                                  sphere_z[i]};
     object.transform.scale = {sphere_radius, sphere_radius, sphere_radius};
     object.material = materials[i];
     object.casts_contact_shadow = true;
-    object.contact_shadow_strength = 1.0f;
-    object.contact_shadow_radius_scale = 1.22f;
+    object.contact_shadow_strength = i == 2u ? 0.88f : 1.00f;
+    object.contact_shadow_radius_scale = i == 3u ? 1.26f : 1.18f;
     scene.objects().push_back(object);
   }
 
