@@ -4,7 +4,7 @@
 #include "test_support.hpp"
 
 #include "aster/asset/asset_io.hpp"
-#include "aster/asset/asset_factory.hpp"
+#include "aster/asset/asset_foundry.hpp"
 #include "aster/asset/asset_library.hpp"
 #include "aster/asset/asset_modifier_stack.hpp"
 #include "aster/asset/asset_registry.hpp"
@@ -443,6 +443,11 @@ void assertMeshIo() {
       aster::importMeshAsset(dir / "not_vendored.fbx", aster::AssetMeshFormat::Fbx);
   assert(!unsupported.report.ok);
   assert(!unsupported.report.diagnostics.empty());
+  const aster::AssetMeshImportResult unsupported_gltf =
+      aster::importMeshAsset(dir / "not_vendored.glb", aster::AssetMeshFormat::Gltf);
+  assert(!unsupported_gltf.report.ok);
+  assert(unsupported_gltf.report.diagnostics.front().find("not vendored") !=
+         std::string::npos);
 }
 
 void assertProceduralRuntime() {

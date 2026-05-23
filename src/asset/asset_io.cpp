@@ -441,6 +441,8 @@ std::string_view assetMeshFormatName(const AssetMeshFormat format) {
     return "stl";
   case AssetMeshFormat::Fbx:
     return "fbx";
+  case AssetMeshFormat::Gltf:
+    return "gltf";
   case AssetMeshFormat::Usd:
     return "usd";
   case AssetMeshFormat::Alembic:
@@ -483,6 +485,9 @@ AssetMeshFormat assetMeshFormatFromPath(const std::filesystem::path &path) {
   if (extension == ".fbx") {
     return AssetMeshFormat::Fbx;
   }
+  if (extension == ".gltf" || extension == ".glb") {
+    return AssetMeshFormat::Gltf;
+  }
   if (extension == ".usd" || extension == ".usda" || extension == ".usdc") {
     return AssetMeshFormat::Usd;
   }
@@ -512,6 +517,7 @@ AssetMeshImportResult importMeshAsset(const std::filesystem::path &path,
   case AssetMeshFormat::Stl:
     return importStl(path, options);
   case AssetMeshFormat::Fbx:
+  case AssetMeshFormat::Gltf:
   case AssetMeshFormat::Usd:
   case AssetMeshFormat::Alembic: {
     AssetMeshImportResult result;

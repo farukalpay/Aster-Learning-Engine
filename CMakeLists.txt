@@ -197,7 +197,7 @@ set(ASTER_GRAPHICS_CORE7_SOURCES
 
 set(ASTER_ASSET_SOURCES
   "${PROJECT_SOURCE_DIR}/src/asset/asset_database.cpp"
-  "${PROJECT_SOURCE_DIR}/src/asset/asset_factory.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/asset_foundry.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_io.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_library.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_modifier_stack.cpp"

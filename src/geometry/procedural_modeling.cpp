@@ -181,6 +181,114 @@ void mergeMesh(CpuMesh &target, const CpuMesh &source, const Vec3 translation, c
   }
 }
 
+void appendGridMesh(CpuMesh &mesh, const GridMeshSpec &spec) {
+  if (spec.width <= 0.0f || spec.depth <= 0.0f || spec.columns < 1 || spec.rows < 1) {
+    throw std::invalid_argument("Grid mesh requires positive size and at least one cell.");
+  }
+  const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
+  const int column_vertices = spec.columns + 1;
+  mesh.vertices.reserve(mesh.vertices.size() +
+                        static_cast<std::size_t>((spec.columns + 1) * (spec.rows + 1)));
+  mesh.indices.reserve(mesh.indices.size() +
+                       static_cast<std::size_t>(spec.columns * spec.rows * 6));
+  for (int row = 0; row <= spec.rows; ++row) {
+    const float v = static_cast<float>(row) / static_cast<float>(spec.rows);
+    for (int column = 0; column <= spec.columns; ++column) {
+      const float u = static_cast<float>(column) / static_cast<float>(spec.columns);
+      const Vec3 position{spec.center.x + (u - 0.5f) * spec.width,
+                          spec.center.y,
+                          spec.center.z + (v - 0.5f) * spec.depth};
+      mesh.vertices.push_back(vertex(position, {0.0f, 1.0f, 0.0f},
+                                     {u * spec.uv_scale.x, v * spec.uv_scale.y}));
+    }
+  }
+  for (int row = 0; row < spec.rows; ++row) {
+    for (int column = 0; column < spec.columns; ++column) {
+      const std::uint32_t a = base + static_cast<std::uint32_t>(row * column_vertices + column);
+      const std::uint32_t b =
+          base + static_cast<std::uint32_t>((row + 1) * column_vertices + column);
+      const std::uint32_t c =
+          base + static_cast<std::uint32_t>((row + 1) * column_vertices + column + 1);
+      const std::uint32_t d =
+          base + static_cast<std::uint32_t>(row * column_vertices + column + 1);
+      appendOrientedQuadIndices(mesh, a, b, c, d, {0.0f, 1.0f, 0.0f});
+    }
+  }
+}
+
+void appendCylinderConeMesh(CpuMesh &mesh, const CylinderConeMeshSpec &spec) {
+  if (spec.depth <= 0.0f || spec.radial_segments < 3 || spec.side_segments < 1 ||
+      spec.radius_top < 0.0f || spec.radius_bottom < 0.0f ||
+      std::max(spec.radius_top, spec.radius_bottom) <= kEpsilon) {
+    throw std::invalid_argument(
+        "Cylinder/cone mesh requires depth > 0, radial_segments >= 3, and a positive radius.");
+  }
+  const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
+  const int rings = spec.side_segments + 1;
+  mesh.vertices.reserve(mesh.vertices.size() +
+                        static_cast<std::size_t>(rings * spec.radial_segments + 2));
+  mesh.indices.reserve(mesh.indices.size() +
+                       static_cast<std::size_t>(spec.side_segments * spec.radial_segments * 6 +
+                                                spec.radial_segments * 6));
+
+  for (int ring = 0; ring < rings; ++ring) {
+    const float v = static_cast<float>(ring) / static_cast<float>(spec.side_segments);
+    const float radius = std::lerp(spec.radius_top, spec.radius_bottom, v);
+    const float y = spec.center.y + spec.depth * (0.5f - v);
+    for (int segment = 0; segment < spec.radial_segments; ++segment) {
+      const float u = static_cast<float>(segment) / static_cast<float>(spec.radial_segments);
+      const float theta = u * pi() * 2.0f;
+      const Vec3 radial{std::cos(theta), 0.0f, std::sin(theta)};
+      const Vec3 normal = safeNormalize(
+          {radial.x * spec.depth, spec.radius_bottom - spec.radius_top,
+           radial.z * spec.depth},
+          radial);
+      mesh.vertices.push_back(vertex(spec.center + Vec3{radial.x * radius, y - spec.center.y,
+                                                        radial.z * radius},
+                                     normal,
+                                     {u * spec.uv_scale.x, v * spec.uv_scale.y}));
+    }
+  }
+  for (int ring = 0; ring < spec.side_segments; ++ring) {
+    for (int segment = 0; segment < spec.radial_segments; ++segment) {
+      const int next = (segment + 1) % spec.radial_segments;
+      const std::uint32_t a =
+          base + static_cast<std::uint32_t>(ring * spec.radial_segments + segment);
+      const std::uint32_t b =
+          base + static_cast<std::uint32_t>((ring + 1) * spec.radial_segments + segment);
+      const std::uint32_t c =
+          base + static_cast<std::uint32_t>((ring + 1) * spec.radial_segments + next);
+      const std::uint32_t d = base + static_cast<std::uint32_t>(ring * spec.radial_segments + next);
+      appendOrientedQuadIndices(mesh, a, b, c, d,
+                                mesh.vertices[a].normal + mesh.vertices[c].normal);
+    }
+  }
+  if (spec.fill_caps && spec.radius_top > kEpsilon) {
+    const std::uint32_t center = static_cast<std::uint32_t>(mesh.vertices.size());
+    mesh.vertices.push_back(vertex(spec.center + Vec3{0.0f, spec.depth * 0.5f, 0.0f},
+                                   {0.0f, 1.0f, 0.0f}, {0.5f, 0.5f}));
+    for (int segment = 0; segment < spec.radial_segments; ++segment) {
+      const std::uint32_t a = base + static_cast<std::uint32_t>(segment);
+      const std::uint32_t b =
+          base + static_cast<std::uint32_t>((segment + 1) % spec.radial_segments);
+      appendOrientedTriangleIndices(mesh, center, a, b, {0.0f, 1.0f, 0.0f});
+    }
+  }
+  if (spec.fill_caps && spec.radius_bottom > kEpsilon) {
+    const std::uint32_t center = static_cast<std::uint32_t>(mesh.vertices.size());
+    const std::uint32_t bottom =
+        base + static_cast<std::uint32_t>(spec.side_segments * spec.radial_segments);
+    mesh.vertices.push_back(vertex(spec.center + Vec3{0.0f, -spec.depth * 0.5f, 0.0f},
+                                   {0.0f, -1.0f, 0.0f}, {0.5f, 0.5f}));
+    for (int segment = 0; segment < spec.radial_segments; ++segment) {
+      const std::uint32_t a = bottom + static_cast<std::uint32_t>(segment);
+      const std::uint32_t b =
+          bottom + static_cast<std::uint32_t>((segment + 1) % spec.radial_segments);
+      appendOrientedTriangleIndices(mesh, center, b, a, {0.0f, -1.0f, 0.0f});
+    }
+  }
+}
+
 void appendEllipsoidSection(CpuMesh &mesh, const EllipsoidSectionSpec &spec) {
   if (spec.segments < 3 || spec.rings < 2 || spec.radius.x <= 0.0f || spec.radius.y <= 0.0f ||
       spec.radius.z <= 0.0f || spec.theta_max <= spec.theta_min || spec.phi_max <= spec.phi_min) {
@@ -489,6 +597,18 @@ void applyDeterministicSurfaceDetail(CpuMesh &mesh, const SurfaceDisplacementSpe
 CpuMesh makeLathedSurface(const LatheSurfaceSpec &spec) {
   CpuMesh mesh;
   appendLathedSurface(mesh, spec);
+  return mesh;
+}
+
+CpuMesh makeGridMesh(const GridMeshSpec &spec) {
+  CpuMesh mesh;
+  appendGridMesh(mesh, spec);
+  return mesh;
+}
+
+CpuMesh makeCylinderConeMesh(const CylinderConeMeshSpec &spec) {
+  CpuMesh mesh;
+  appendCylinderConeMesh(mesh, spec);
   return mesh;
 }
 

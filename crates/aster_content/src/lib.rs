@@ -2037,7 +2037,13 @@ fn canonical_graph_node_kind(kind: &str) -> String {
 fn graph_node_capability_status(kind: &str) -> &'static str {
     match canonical_graph_node_kind(kind).as_str() {
         "mesh_primitive"
+        | "grid_primitive"
+        | "uv_sphere"
+        | "cone_primitive"
+        | "cylinder_cone"
         | "uv_policy"
+        | "uv_pack"
+        | "attribute_transfer"
         | "tangent_validation"
         | "material_assignment"
         | "mask_generator"
@@ -2084,13 +2090,20 @@ fn graph_node_capability_status(kind: &str) -> &'static str {
         | "triplanar_domain"
         | "baked_mask_preview"
         | "factory_recipe"
+        | "foundry_recipe"
         | "factory_stage"
+        | "foundry_stage"
         | "surface_contract"
+        | "foundry_surface_contract"
         | "world_perceptual_template"
         | "physics_proxy"
+        | "foundry_physics_proxy"
         | "lod_recipe"
+        | "foundry_lod_recipe"
         | "quality_signal"
         | "visual_brief_claim"
+        | "separate_geometry"
+        | "realize_instances"
         | "anatomy_landmark"
         | "ellipsoid_section"
         | "sweep_limb"
@@ -2118,7 +2131,9 @@ fn graph_node_capability_status(kind: &str) -> &'static str {
         | "prefab_variant"
         | "cook_export"
         | "diagnostic" => "runtime-procedural-reference",
-        "boolean" | "carve" | "bevel" | "fracture" => "descriptor-only-reference",
+        "boolean" | "carve" | "bevel" | "fracture" | "mesh_boolean" => {
+            "descriptor-only-reference"
+        }
         _ => "unsupported",
     }
 }
@@ -2585,7 +2600,8 @@ fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
     };
     for node in &parsed.nodes {
         match node.kind.as_str() {
-            "mesh_primitive" => set(1),
+            "mesh_primitive" | "grid_primitive" | "uv_sphere" | "cone_primitive"
+            | "cylinder_cone" => set(1),
             "material_assignment" => set(2),
             "noise" => set(3),
             "cellular" => set(4),
@@ -2600,11 +2616,11 @@ fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
             "collision_proxy" => set(13),
             "lod_generator" => set(14),
             "world_perceptual_template" => set(56),
-            "factory_recipe" => set(57),
-            "factory_stage" => set(58),
-            "surface_contract" => set(59),
-            "physics_proxy" => set(60),
-            "lod_recipe" => set(61),
+            "factory_recipe" | "foundry_recipe" => set(57),
+            "factory_stage" | "foundry_stage" => set(58),
+            "surface_contract" | "foundry_surface_contract" => set(59),
+            "physics_proxy" | "foundry_physics_proxy" => set(60),
+            "lod_recipe" | "foundry_lod_recipe" => set(61),
             "quality_signal" => set(62),
             "visual_brief_claim" => set(63),
             "pipe_body" => set(39),
@@ -3023,10 +3039,15 @@ fn asset_graph_factory_report(parsed: &ParsedAssetGraphSource) -> AssetGraphFact
             matches!(
                 node.kind.as_str(),
                 "factory_recipe"
+                    | "foundry_recipe"
                     | "factory_stage"
+                    | "foundry_stage"
                     | "surface_contract"
+                    | "foundry_surface_contract"
                     | "physics_proxy"
+                    | "foundry_physics_proxy"
                     | "lod_recipe"
+                    | "foundry_lod_recipe"
                     | "quality_signal"
                     | "visual_brief_claim"
             )
@@ -3036,7 +3057,7 @@ fn asset_graph_factory_report(parsed: &ParsedAssetGraphSource) -> AssetGraphFact
     let stable_recipe_hash = format!(
         "0x{:016x}",
         graph_hash_u64(
-            "aster.assetfactory.recipe.v1",
+            "aster.assetfoundry.recipe.v1",
             &(
                 parsed.id.as_str(),
                 parsed.primitive.as_str(),
@@ -3050,7 +3071,7 @@ fn asset_graph_factory_report(parsed: &ParsedAssetGraphSource) -> AssetGraphFact
     let stage_diagnostics = parsed
         .nodes
         .iter()
-        .filter(|node| node.kind == "factory_stage")
+        .filter(|node| node.kind == "factory_stage" || node.kind == "foundry_stage")
         .map(|node| {
             let kind = node
                 .params
@@ -3131,7 +3152,7 @@ fn asset_graph_factory_report(parsed: &ParsedAssetGraphSource) -> AssetGraphFact
     if let Some(proxy) = parsed
         .nodes
         .iter()
-        .find(|node| node.kind == "physics_proxy")
+        .find(|node| node.kind == "physics_proxy" || node.kind == "foundry_physics_proxy")
     {
         collision_proxy_summary.insert(
             "shape".to_string(),

@@ -39,6 +39,7 @@
 #include "aster/geometry/mesh_projection.hpp"
 #include "aster/geometry/mesh_cut.hpp"
 #include "aster/geometry/nature_mesh.hpp"
+#include "aster/geometry/procedural_modeling.hpp"
 #include "aster/geometry/stroke_mesh.hpp"
 #include "aster/geometry/terrain_mesh.hpp"
 #include "aster/geometry/terrain_sculpt.hpp"

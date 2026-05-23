@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Faruk Alpay
 
-#include "aster/asset/asset_factory.hpp"
+#include "aster/asset/asset_foundry.hpp"
 #include "aster/asset/procedural_asset_graph.hpp"
 #include "aster/asset/procedural_graph_runtime.hpp"
 #include "aster/geometry/mesh_modeling.hpp"
@@ -347,7 +347,7 @@ void testDeterministicRecipeHash() {
   const std::string first = aster::stableAsterAssetFoundryRecipeHash(recipe);
   const std::string second = aster::stableAsterAssetFoundryRecipeHash(recipe);
   assert(first == second);
-  assert(startsWith(first, "aster-factory-0x"));
+  assert(startsWith(first, "aster-foundry-0x"));
 
   aster::AsterPipeAssetSpec changed = testPipeSpec();
   changed.seed ^= 0x51u;
@@ -363,7 +363,17 @@ void testRecipeBuildStagesAndLods() {
       aster::buildAsterAssetFoundryRecipe(recipe);
   assert(result.production_ready);
   assert(result.quality_score >= 82u);
+  assert(result.production_session.session_id == "asset-production:test.factory.rusted_pipe");
+  assert(result.production_session.quality_gate == "production-ready");
+  assert(startsWith(result.production_session.preview_artifact_hash, "aster-preview-0x"));
+  assert(std::find(result.creative_variant_tags.begin(), result.creative_variant_tags.end(),
+                   "rounded-rim-normals") != result.creative_variant_tags.end());
   assert(result.stage_reports.size() == recipe.stages.size());
+  assert(std::all_of(result.stage_reports.begin(), result.stage_reports.end(),
+                     [](const aster::AsterAssetFoundryStageReport &report) {
+                       return report.id == "stage.pipe.source" ||
+                              !report.dependency_edges.empty();
+                     }));
   assert(result.surface_coverages.size() == 1u);
   assert(result.physics_bodies.size() == 1u);
   assert(result.lods.size() == 3u);
@@ -383,6 +393,10 @@ void testRecipeBuildStagesAndLods() {
   const aster::AsterAssetFoundryRecipeAudit audit =
       aster::auditAsterAssetFoundryBuild(recipe, result);
   assert(audit.production_ready);
+  assert(audit.dag.ready);
+  assert(audit.dag.acyclic);
+  assert(!audit.dag.topological_order.empty());
+  assert(audit.production_session.quality_gate == "production-ready");
   assert(audit.stage_order.size() == recipe.stages.size());
   assert(audit.missing_dependencies.empty());
   assert(audit.lod_summary.size() == 3u);
@@ -420,6 +434,8 @@ void testStageDependencyDiagnostics() {
   const aster::AsterAssetFoundryRecipeAudit audit =
       aster::auditAsterAssetFoundryBuild(recipe, result);
   assert(!audit.missing_dependencies.empty());
+  assert(!audit.dag.order_violations.empty());
+  assert(!audit.dag.ready);
   assert(std::any_of(audit.diagnostics.begin(), audit.diagnostics.end(),
                      [](const aster::AsterAssetFoundryQualityDiagnostic &diagnostic) {
                        return diagnostic.severity ==
@@ -520,12 +536,22 @@ void testPhysicsProxyConversionAndQueries() {
 void testRegistryFactoryNodes() {
   const aster::ProceduralNodeRegistry registry = aster::makeDefaultProceduralNodeRegistry();
   assert(registry.find("factory_recipe") != nullptr);
+  assert(registry.find("foundry_recipe") != nullptr);
   assert(registry.find("factory_stage") != nullptr);
+  assert(registry.find("foundry_stage") != nullptr);
   assert(registry.find("surface_contract") != nullptr);
+  assert(registry.find("foundry_surface_contract") != nullptr);
   assert(registry.find("physics_proxy") != nullptr);
+  assert(registry.find("foundry_physics_proxy") != nullptr);
   assert(registry.find("lod_recipe") != nullptr);
+  assert(registry.find("foundry_lod_recipe") != nullptr);
   assert(registry.find("quality_signal") != nullptr);
   assert(registry.find("visual_brief_claim") != nullptr);
+  assert(registry.find("grid_primitive") != nullptr);
+  assert(registry.find("cylinder_cone") != nullptr);
+  assert(registry.find("seam_inset") != nullptr);
+  assert(registry.find("contact_skirt") != nullptr);
+  assert(registry.find("depth_bias_policy") != nullptr);
 }
 
 void testAssetGraphFactoryReport() {
@@ -664,6 +690,12 @@ void testIndustrialConduitArtifactWriter() {
   std::filesystem::remove_all(directory);
 }
 
+void testNoThirdPartyNoticeArtifact() {
+  const std::filesystem::path source_dir = ASTER_SOURCE_DIR;
+  assert(!std::filesystem::exists(source_dir / "THIRD_PARTY_NOTICES"));
+  assert(!std::filesystem::exists(source_dir / "THIRD_PARTY_NOTICES.md"));
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -690,6 +722,8 @@ int main(int argc, char **argv) {
   testAssetGraphFactoryReport();
   std::cout << "asset_factory_tests: industrial conduit artifacts\n";
   testIndustrialConduitArtifactWriter();
+  std::cout << "asset_factory_tests: third-party notice policy\n";
+  testNoThirdPartyNoticeArtifact();
   std::cout << "asset_factory_tests: passed\n";
   return 0;
 }

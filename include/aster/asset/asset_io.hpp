@@ -18,6 +18,7 @@ enum class AssetMeshFormat {
   Ply,
   Stl,
   Fbx,
+  Gltf,
   Usd,
   Alembic,
 };

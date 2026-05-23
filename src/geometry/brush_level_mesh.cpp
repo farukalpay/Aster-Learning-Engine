@@ -191,9 +191,41 @@ void appendQuad(CpuMesh &mesh, Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec3 normal,
                                            base + 3u});
 }
 
-bool pointInsideAny(const std::vector<BrushFrame> &frames, const Vec3 point) {
+bool pointInsideAny(const std::vector<BrushFrame> &frames, const Vec3 point,
+                    const float tolerance = -kEpsilon) {
   return std::any_of(frames.begin(), frames.end(),
-                     [&](const BrushFrame &frame) { return contains(frame, point, -kEpsilon); });
+                     [&](const BrushFrame &frame) { return contains(frame, point, tolerance); });
+}
+
+bool faceCellTouchesAirInterior(const std::vector<BrushFrame> &airs, const Vec3 p00,
+                                const Vec3 p10, const Vec3 p11, const Vec3 p01) {
+  const float tolerance = kEpsilon * 8.0f;
+  const std::array<Vec3, 3> samples{
+      (p00 + p10 + p11 + p01) * 0.25f,
+      (p00 + p10 + p11) / 3.0f,
+      (p00 + p11 + p01) / 3.0f,
+  };
+  return std::any_of(samples.begin(), samples.end(), [&](const Vec3 sample) {
+    return pointInsideAny(airs, sample, tolerance);
+  });
+}
+
+bool faceCellTouchesOtherAirInterior(const std::vector<BrushFrame> &airs,
+                                     const BrushFrame &source, const Vec3 p00,
+                                     const Vec3 p10, const Vec3 p11, const Vec3 p01) {
+  const float tolerance = kEpsilon * 8.0f;
+  const std::array<Vec3, 3> samples{
+      (p00 + p10 + p11 + p01) * 0.25f,
+      (p00 + p10 + p11) / 3.0f,
+      (p00 + p11 + p01) / 3.0f,
+  };
+  return std::any_of(airs.begin(), airs.end(), [&](const BrushFrame &other) {
+    if (&other == &source) {
+      return false;
+    }
+    return std::any_of(samples.begin(), samples.end(),
+                       [&](const Vec3 sample) { return contains(other, sample, tolerance); });
+  });
 }
 
 void appendSolidFaces(CpuMesh &mesh, const BrushFrame &solid,
@@ -239,7 +271,7 @@ void appendSolidFaces(CpuMesh &mesh, const BrushFrame &solid,
                                           (u0 + u1) * 0.5f),
                             v_axis, (v0 + v1) * 0.5f);
           const Vec3 center = toWorld(solid, center_local);
-          if (pointInsideAny(airs, center)) {
+          if (pointInsideAny(airs, center, kEpsilon * 8.0f)) {
             continue;
           }
 
@@ -270,6 +302,9 @@ void appendSolidFaces(CpuMesh &mesh, const BrushFrame &solid,
           const Vec3 p01 = toWorld(
               solid, withComponent(withComponent(withComponent({}, normal_axis, fixed), u_axis, u0),
                                    v_axis, v1));
+          if (faceCellTouchesAirInterior(airs, p00, p10, p11, p01)) {
+            continue;
+          }
           appendQuad(mesh, p00, p10, p11, p01, solid.axis[normal_axis] * sign, options);
         }
       }
@@ -279,6 +314,7 @@ void appendSolidFaces(CpuMesh &mesh, const BrushFrame &solid,
 
 void appendAirBoundaryFaces(CpuMesh &mesh, const BrushFrame &air,
                             const std::vector<BrushFrame> &solids,
+                            const std::vector<BrushFrame> &airs,
                             const BrushLevelMeshOptions &options) {
   for (int normal_axis = 0; normal_axis < 3; ++normal_axis) {
     const int u_axis = (normal_axis + 1) % 3;
@@ -290,6 +326,28 @@ void appendAirBoundaryFaces(CpuMesh &mesh, const BrushFrame &air,
                         v_axis, 0.0f);
       const Vec3 center = toWorld(air, center_local);
       if (!pointInsideAny(solids, center - air.axis[normal_axis] * (sign * kEpsilon * 4.0f))) {
+        continue;
+      }
+      bool lies_on_solid_exterior = false;
+      for (const BrushFrame &solid : solids) {
+        const Vec3 local = toLocal(solid, center);
+        if (!containsLocal(local, solid.brush.half_extents, kEpsilon * 8.0f)) {
+          continue;
+        }
+        for (int axis = 0; axis < 3; ++axis) {
+          const float distance_to_shell =
+              std::abs(std::abs(component(local, axis)) -
+                       component(solid.brush.half_extents, axis));
+          if (distance_to_shell <= kEpsilon * 8.0f) {
+            lies_on_solid_exterior = true;
+            break;
+          }
+        }
+        if (lies_on_solid_exterior) {
+          break;
+        }
+      }
+      if (lies_on_solid_exterior) {
         continue;
       }
 
@@ -313,6 +371,9 @@ void appendAirBoundaryFaces(CpuMesh &mesh, const BrushFrame &air,
           toWorld(air, withComponent(withComponent(withComponent({}, normal_axis, fixed), u_axis,
                                                    u0),
                                      v_axis, v1));
+      if (faceCellTouchesOtherAirInterior(airs, air, p00, p10, p11, p01)) {
+        continue;
+      }
       appendQuad(mesh, p00, p10, p11, p01, air.axis[normal_axis] * -sign, options);
     }
   }
@@ -350,7 +411,7 @@ CpuMesh buildBrushLevelMesh(const std::vector<BrushBox> &brushes,
     appendSolidFaces(mesh, solid, solids, airs, options);
   }
   for (const BrushFrame &air : airs) {
-    appendAirBoundaryFaces(mesh, air, solids, options);
+    appendAirBoundaryFaces(mesh, air, solids, airs, options);
   }
 
   if (mesh.indices.empty()) {

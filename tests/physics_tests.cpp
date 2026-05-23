@@ -3,7 +3,7 @@
 
 #include "test_support.hpp"
 
-#include "aster/asset/asset_factory.hpp"
+#include "aster/asset/asset_foundry.hpp"
 
 namespace {
 

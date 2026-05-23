@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Faruk Alpay
 
-#include "aster/asset/asset_factory.hpp"
+#include "aster/asset/asset_foundry.hpp"
 
 #include "aster/asset/procedural_asset_graph.hpp"
 
@@ -405,7 +405,7 @@ evaluateSurfaceContract(const CpuMesh &mesh, const AsterAssetFoundrySurfaceContr
   }
   AssetModifierStack stack;
   stack.asset_id = "generated-lod";
-  stack.source_provenance_id = "asset-factory";
+  stack.source_provenance_id = "aster.asset_foundry.lod";
   stack.modifiers.push_back({.id = "lod.decimate." + std::to_string(level),
                              .kind = AssetModifierKind::Decimate,
                              .amount = level == 1u ? 0.52f : 0.28f,
@@ -584,6 +584,118 @@ std::string_view asterAssetFoundryPhysicsProxyKindName(
   return "unknown";
 }
 
+AsterAssetFoundryDagReport evaluateAsterAssetFoundryStageDag(
+    const AsterAssetFoundryRecipe &recipe) {
+  AsterAssetFoundryDagReport report;
+  std::map<std::string, std::size_t> index_by_id;
+  report.declared_order.reserve(recipe.stages.size());
+  for (std::size_t index = 0u; index < recipe.stages.size(); ++index) {
+    const std::string &id = recipe.stages[index].id;
+    report.declared_order.push_back(id);
+    if (!id.empty() && index_by_id.find(id) == index_by_id.end()) {
+      index_by_id[id] = index;
+    }
+  }
+
+  for (std::size_t index = 0u; index < recipe.stages.size(); ++index) {
+    const AsterAssetFoundryStage &stage = recipe.stages[index];
+    for (const std::string &dependency : stage.depends_on) {
+      const auto found = index_by_id.find(dependency);
+      if (found == index_by_id.end()) {
+        report.missing_dependencies.push_back(stage.id + " <- " + dependency);
+        continue;
+      }
+      if (found->second > index) {
+        report.order_violations.push_back(stage.id + " <- " + dependency);
+      }
+    }
+  }
+
+  std::vector<std::uint8_t> state(recipe.stages.size(), 0u);
+  const auto visit = [&](auto &&self, const std::size_t index) -> void {
+    if (state[index] == 2u) {
+      return;
+    }
+    if (state[index] == 1u) {
+      report.acyclic = false;
+      return;
+    }
+    state[index] = 1u;
+    const AsterAssetFoundryStage &stage = recipe.stages[index];
+    for (const std::string &dependency : stage.depends_on) {
+      const auto found = index_by_id.find(dependency);
+      if (found == index_by_id.end()) {
+        continue;
+      }
+      if (state[found->second] == 1u) {
+        report.acyclic = false;
+        report.cycle_edges.push_back(stage.id + " <- " + dependency);
+        continue;
+      }
+      self(self, found->second);
+    }
+    state[index] = 2u;
+    report.topological_order.push_back(stage.id);
+  };
+  for (std::size_t index = 0u; index < recipe.stages.size(); ++index) {
+    visit(visit, index);
+  }
+  report.ready = report.acyclic && report.missing_dependencies.empty() &&
+                 report.order_violations.empty();
+  return report;
+}
+
+AsterAssetFoundryProductionSession makeAsterAssetFoundryProductionSession(
+    const AsterAssetFoundryRecipe &recipe, std::string stable_recipe_hash) {
+  if (stable_recipe_hash.empty()) {
+    stable_recipe_hash = stableAsterAssetFoundryRecipeHash(recipe);
+  }
+  std::uint64_t preview_hash = fnvSeed();
+  appendHash(preview_hash, stable_recipe_hash);
+  for (const AsterAssetFoundryProofArtifact &artifact : recipe.proof_artifacts) {
+    appendHash(preview_hash, artifact.id);
+    appendHash(preview_hash, artifact.role);
+    appendHash(preview_hash, artifact.path.string());
+    appendHash(preview_hash, artifact.hash);
+    for (const std::string &tag : artifact.signal_tags) {
+      appendHash(preview_hash, tag);
+    }
+  }
+  for (const std::string &claim : recipe.visual_brief_claims) {
+    appendHash(preview_hash, claim);
+  }
+  for (const std::string &rejection : recipe.visual_brief_rejections) {
+    appendHash(preview_hash, rejection);
+  }
+
+  AsterAssetFoundryProductionSession session = recipe.production_session;
+  if (session.session_id.empty()) {
+    session.session_id = "asset-production:" + recipe.asset_id;
+  }
+  session.stable_recipe_hash = std::move(stable_recipe_hash);
+  if (session.preview_artifact_hash.empty()) {
+    session.preview_artifact_hash = hex64(preview_hash, "aster-preview-0x");
+  }
+  if (session.quality_gate.empty()) {
+    session.quality_gate = "foundry-build";
+  }
+  if (session.cook_steps.empty()) {
+    session.cook_steps = {"recipe-validate",
+                          "stage-dag-evaluate",
+                          "surface-signal-sample",
+                          "lod-cook",
+                          "physics-proxy-cook",
+                          "package-handoff"};
+  }
+  if (recipe.proof_artifacts.empty()) {
+    session.runtime_fallbacks.push_back("missing-proof-artifact");
+  }
+  if (recipe.authored_lods.empty()) {
+    session.runtime_fallbacks.push_back("generated-lod-chain");
+  }
+  return session;
+}
+
 std::vector<AsterAssetFoundryQualityDiagnostic>
 validateAsterAssetFoundryRecipe(const AsterAssetFoundryRecipe &recipe) {
   std::vector<AsterAssetFoundryQualityDiagnostic> diagnostics;
@@ -647,6 +759,15 @@ validateAsterAssetFoundryRecipe(const AsterAssetFoundryRecipe &recipe) {
       push(AsterAssetFoundryDiagnosticSeverity::Error, "physics", stage.id,
            "stage references a missing physics proxy: " + stage.physics_proxy_id);
     }
+  }
+  const AsterAssetFoundryDagReport dag = evaluateAsterAssetFoundryStageDag(recipe);
+  for (const std::string &edge : dag.order_violations) {
+    push(AsterAssetFoundryDiagnosticSeverity::Error, "dependency", {},
+         "stage dependency is declared after dependent: " + edge);
+  }
+  for (const std::string &edge : dag.cycle_edges) {
+    push(AsterAssetFoundryDiagnosticSeverity::Error, "dependency", {},
+         "stage dependency cycle detected: " + edge);
   }
 
   std::vector<std::string> contract_ids;
@@ -806,6 +927,11 @@ AsterAssetFoundryRecipeAudit auditAsterAssetFoundryBuild(
   audit.production_ready = result.production_ready;
   audit.lod_summary = summarizeAsterAssetFoundryLods(result);
   audit.visual_brief_rows = makeAsterAssetFoundryVisualBriefRows(recipe, result);
+  audit.dag = evaluateAsterAssetFoundryStageDag(recipe);
+  audit.production_session = result.production_session.session_id.empty()
+                                 ? makeAsterAssetFoundryProductionSession(recipe,
+                                                                         audit.stable_recipe_hash)
+                                 : result.production_session;
   audit.diagnostics = validateAsterAssetFoundryRecipe(recipe);
 
   audit.stage_order.reserve(recipe.stages.size());
@@ -863,6 +989,14 @@ describeAsterAssetFoundryAudit(const AsterAssetFoundryRecipeAudit &audit) {
   }
   for (const std::string &dependency : audit.missing_dependencies) {
     lines.push_back("missing_dependency=" + dependency);
+  }
+  for (const std::string &stage : audit.dag.topological_order) {
+    lines.push_back("dag.topological_stage=" + stage);
+  }
+  if (!audit.production_session.session_id.empty()) {
+    lines.push_back("production_session=" + audit.production_session.session_id +
+                    " gate=" + audit.production_session.quality_gate +
+                    " preview=" + audit.production_session.preview_artifact_hash);
   }
   for (const AsterAssetFoundryLodSummary &lod : audit.lod_summary) {
     std::ostringstream line;
@@ -951,7 +1085,30 @@ std::string stableAsterAssetFoundryRecipeHash(const AsterAssetFoundryRecipe &rec
   for (const std::string &rejection : recipe.visual_brief_rejections) {
     appendHash(hash, rejection);
   }
-  return hex64(hash, "aster-factory-0x");
+  for (const std::string &tag : recipe.creative_variant_tags) {
+    appendHash(hash, tag);
+  }
+  for (const AsterAssetFoundryProofArtifact &artifact : recipe.proof_artifacts) {
+    appendHash(hash, artifact.id);
+    appendHash(hash, artifact.role);
+    appendHash(hash, artifact.path.string());
+    appendHash(hash, artifact.kind);
+    appendHash(hash, artifact.hash);
+    appendHash(hash, artifact.width);
+    appendHash(hash, artifact.height);
+    for (const std::string &tag : artifact.signal_tags) {
+      appendHash(hash, tag);
+    }
+  }
+  appendHash(hash, recipe.production_session.session_id);
+  appendHash(hash, recipe.production_session.quality_gate);
+  for (const std::string &step : recipe.production_session.cook_steps) {
+    appendHash(hash, step);
+  }
+  for (const std::string &fallback : recipe.production_session.runtime_fallbacks) {
+    appendHash(hash, fallback);
+  }
+  return hex64(hash, "aster-foundry-0x");
 }
 
 PhysicsBodyDesc asterAssetFoundryPhysicsBodyDesc(
@@ -993,6 +1150,9 @@ AsterAssetFoundryBuildResult buildAsterAssetFoundryRecipe(
   result.visual_brief_claims = recipe.visual_brief_claims;
   result.visual_brief_rejections = recipe.visual_brief_rejections;
   result.proof_artifacts = recipe.proof_artifacts;
+  result.production_session =
+      makeAsterAssetFoundryProductionSession(recipe, result.stable_recipe_hash);
+  result.creative_variant_tags = recipe.creative_variant_tags;
   result.quality_score = 100u;
   result.production_ready = true;
 
@@ -1006,6 +1166,10 @@ AsterAssetFoundryBuildResult buildAsterAssetFoundryRecipe(
     report.quality_score = 100u;
     report.input_vertices = result.mesh.vertices.size();
     report.input_indices = result.mesh.indices.size();
+    report.creative_variant_tags = stage.creative_variant_tags;
+    for (const std::string &dependency : stage.depends_on) {
+      report.dependency_edges.push_back("stage:" + dependency + " -> stage:" + stage.id);
+    }
     if (!stage.enabled) {
       report.diagnostics.push_back("info: stage disabled");
       result.stage_reports.push_back(std::move(report));
@@ -1037,6 +1201,8 @@ AsterAssetFoundryBuildResult buildAsterAssetFoundryRecipe(
                                     modified.report.diagnostics.end());
           for (const std::string &edge : modified.report.creative_variant_tags) {
             result.dependency_edges.push_back("modifier:" + stage.id + " -> tag:" + edge);
+            report.creative_variant_tags.push_back(edge);
+            result.creative_variant_tags.push_back(edge);
           }
         }
         break;
@@ -1100,7 +1266,7 @@ AsterAssetFoundryBuildResult buildAsterAssetFoundryRecipe(
         }
         break;
       case AsterAssetFoundryStageKind::Package:
-        result.dependency_edges.push_back("factory:" + result.stable_recipe_hash +
+        result.dependency_edges.push_back("asset_foundry:" + result.stable_recipe_hash +
                                           " -> package:" + recipe.asset_id);
         break;
       }
@@ -1134,6 +1300,12 @@ AsterAssetFoundryBuildResult buildAsterAssetFoundryRecipe(
     result.quality_score = 0u;
     result.diagnostics.push_back("error: factory recipe produced empty render mesh");
   }
+  std::sort(result.creative_variant_tags.begin(), result.creative_variant_tags.end());
+  result.creative_variant_tags.erase(std::unique(result.creative_variant_tags.begin(),
+                                                 result.creative_variant_tags.end()),
+                                     result.creative_variant_tags.end());
+  result.production_session.quality_gate =
+      result.production_ready ? "production-ready" : "needs-review";
   return result;
 }
 
@@ -1148,7 +1320,7 @@ AsterAssetFoundryRecipe makeAsterPipeFoundryRecipe(AsterPipeAssetSpec spec,
   recipe.label = variant == AsterPipeFoundryVariant::IndustrialHardware
                      ? "Aster rusted pipe industrial hardware recipe"
                      : "Aster rusted pipe reference silhouette recipe";
-  recipe.source_provenance_id = "aster.asset_factory.pipe.v2";
+  recipe.source_provenance_id = "aster.asset_foundry.pipe.v2";
   recipe.source_mesh = pipe.mergedRenderMesh();
   recipe.material = makeAsterPipeMaterial("pipe.body");
   for (const AsterPipeLod &lod : pipe.lods) {
@@ -1156,7 +1328,7 @@ AsterAssetFoundryRecipe makeAsterPipeFoundryRecipe(AsterPipeAssetSpec spec,
   }
   recipe.stages = pipeStages(spec);
   recipe.dependency_edges = pipe.cook_report.dependency_edges;
-  recipe.dependency_edges.push_back("asset_factory.recipe -> pipe_runtime_asset");
+  recipe.dependency_edges.push_back("asset_foundry.recipe -> pipe_runtime_asset");
   recipe.dependency_edges.push_back("surface_contract -> procedural_surface_signals");
   recipe.dependency_edges.push_back("physics_proxy -> PhysicsBodyDesc");
   recipe.creative_variant_tags =

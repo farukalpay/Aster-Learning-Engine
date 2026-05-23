@@ -3,9 +3,10 @@
 
 #include "aster/asset/procedural_asset_graph.hpp"
 
-#include "aster/asset/asset_factory.hpp"
+#include "aster/asset/asset_foundry.hpp"
 #include "aster/asset/json_document.hpp"
 #include "aster/asset/pipe_runtime_asset.hpp"
+#include "aster/geometry/procedural_modeling.hpp"
 #include "aster/geometry/primate_anatomy.hpp"
 
 #include <algorithm>
@@ -571,7 +572,26 @@ CpuMesh proceduralAssetGraphMesh(const ProceduralAssetGraphPackage &package) {
     return buildAsterAssetFoundryRecipe(makeAsterPipeFoundryRecipe(spec, variant)).mesh;
   }
   if (primitive == "sphere" || primitive == "uv-sphere") {
-    return makeUvSphere(32, 16, 1.0f);
+    return makeUvSphere(materialParamIntOr(package.material, "segments", 32),
+                        materialParamIntOr(package.material, "rings", 16),
+                        materialParamOr(package.material, "radius", 1.0f));
+  }
+  if (primitive == "grid" || primitive == "grid-plane") {
+    return makeGridMesh({.width = materialParamOr(package.material, "width", 2.0f),
+                         .depth = materialParamOr(package.material, "depth", 2.0f),
+                         .columns = materialParamIntOr(package.material, "columns", 4),
+                         .rows = materialParamIntOr(package.material, "rows", 4)});
+  }
+  if (primitive == "cylinder" || primitive == "cone" || primitive == "cylinder-cone") {
+    const float radius = materialParamOr(package.material, "radius", 0.5f);
+    return makeCylinderConeMesh(
+        {.radius_top = materialParamOr(package.material, "radius_top",
+                                       primitive == "cone" ? radius * 0.18f : radius),
+         .radius_bottom = materialParamOr(package.material, "radius_bottom", radius),
+         .depth = materialParamOr(package.material, "depth", 1.0f),
+         .radial_segments = materialParamIntOr(package.material, "radial_segments", 32),
+         .side_segments = materialParamIntOr(package.material, "side_segments", 1),
+         .fill_caps = true});
   }
   if (primitive == "box" || primitive == "cube") {
     return makeBox();

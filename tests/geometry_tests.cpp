@@ -53,6 +53,31 @@ void testMeshGeneration() {
   assert(plane.vertices.size() == 4u);
   assert(plane.indices.size() == 6u);
 
+  const aster::CpuMesh grid =
+      aster::makeGridMesh({.width = 3.0f, .depth = 2.0f, .columns = 4, .rows = 3});
+  assert(grid.vertices.size() == 20u);
+  assert(grid.indices.size() == 72u);
+  assert(aster::validateMeshTopology(grid).indexable());
+
+  const aster::CpuMesh cylinder =
+      aster::makeCylinderConeMesh({.radius_top = 0.45f,
+                                   .radius_bottom = 0.45f,
+                                   .depth = 1.6f,
+                                   .radial_segments = 24,
+                                   .side_segments = 3});
+  assert(!cylinder.vertices.empty());
+  assert(cylinder.indices.size() == static_cast<std::size_t>((3 * 24 * 2 + 24 * 2) * 3));
+  assert(aster::validateMeshTopology(cylinder).indexable());
+
+  const aster::CpuMesh tapered =
+      aster::makeCylinderConeMesh({.radius_top = 0.18f,
+                                   .radius_bottom = 0.55f,
+                                   .depth = 1.4f,
+                                   .radial_segments = 18,
+                                   .side_segments = 2});
+  assert(!tapered.vertices.empty());
+  assert(aster::validateMeshTopology(tapered).indexable());
+
   const aster::CpuMesh box = aster::makeBox();
   assert(box.vertices.size() == 36u);
   assert(box.indices.size() == 36u);

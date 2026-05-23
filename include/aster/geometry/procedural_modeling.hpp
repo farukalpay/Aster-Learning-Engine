@@ -76,6 +76,26 @@ struct LatheSurfaceSpec {
   Vec2 uv_scale{1.0f, 1.0f};
 };
 
+struct GridMeshSpec {
+  float width = 1.0f;
+  float depth = 1.0f;
+  int columns = 1;
+  int rows = 1;
+  Vec3 center{};
+  Vec2 uv_scale{1.0f, 1.0f};
+};
+
+struct CylinderConeMeshSpec {
+  float radius_top = 0.5f;
+  float radius_bottom = 0.5f;
+  float depth = 1.0f;
+  int radial_segments = 32;
+  int side_segments = 1;
+  bool fill_caps = true;
+  Vec3 center{};
+  Vec2 uv_scale{1.0f, 1.0f};
+};
+
 struct EllipsoidSectionSpec {
   Vec3 center{};
   Vec3 radius{1.0f, 1.0f, 1.0f};
@@ -139,6 +159,8 @@ struct SurfaceDisplacementSpec {
 void mergeMesh(CpuMesh &target, const CpuMesh &source, Vec3 translation = {},
                Vec3 scale = {1.0f, 1.0f, 1.0f});
 
+void appendGridMesh(CpuMesh &mesh, const GridMeshSpec &spec);
+void appendCylinderConeMesh(CpuMesh &mesh, const CylinderConeMeshSpec &spec);
 void appendLathedSurface(CpuMesh &mesh, const LatheSurfaceSpec &spec);
 void appendEllipsoidSection(CpuMesh &mesh, const EllipsoidSectionSpec &spec);
 void appendSweptTube(CpuMesh &mesh, const SweptTubeSpec &spec);
@@ -148,6 +170,8 @@ void appendCapsule(CpuMesh &mesh, const CapsuleSpec &spec);
 void applyDeterministicSurfaceDetail(CpuMesh &mesh, const SurfaceDisplacementSpec &spec);
 
 [[nodiscard]] CpuMesh makeLathedSurface(const LatheSurfaceSpec &spec);
+[[nodiscard]] CpuMesh makeGridMesh(const GridMeshSpec &spec);
+[[nodiscard]] CpuMesh makeCylinderConeMesh(const CylinderConeMeshSpec &spec);
 [[nodiscard]] CpuMesh makeEllipsoidSection(const EllipsoidSectionSpec &spec);
 [[nodiscard]] CpuMesh makeSweptTube(const SweptTubeSpec &spec);
 [[nodiscard]] CpuMesh makeExtrudedRidge(const ExtrudedRidgeSpec &spec);
