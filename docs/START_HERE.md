@@ -1,40 +1,49 @@
 # Start Here
 
-Aster is a player-observable world transition contract engine. Start with the
-public `AsterWorld` contract, then follow how a world transition becomes render
-extraction, frame submission, and renderer proof. Lumen Run is sample content
-that proves the contract; it is not the contract root.
+Aster is a small inspectable engine kernel with a draw-first path. Start by
+drawing and capturing a frame, then move outward into the public ABI, renderer
+inspection, asset tools, samples, and research-heavy proof surfaces.
 
-Recommended path:
+## Recommended Path
 
-1. Run `aster_quickstart --capture /tmp/aster_quickstart.ppm` after building.
-2. Read the README `First Draw` section and `SIMPLE_API.md`.
-3. Read `WHAT_ASTER_IS.md`.
-4. Read `PRODUCT_PATH.md`.
-5. Render a lab scene with `aster_preview --scene material-lab`.
-6. Read `RENDERING_PIPELINE.md` and `MATERIALS_AND_SHADERS.md`.
-7. Inspect `SCENE_AND_MESH_PIPELINE.md`.
-8. For agent-led content work, read `AGENT_AUTHORING.md` and generate an
-   `aster_assetc agent-plan` report before editing.
-9. Use `LUMEN_RUN_AS_SAMPLE.md` only after the engine loop is clear.
+1. Draw something:
+   run `./build/aster_quickstart --capture /tmp/aster_quickstart.ppm`, then read
+   the README `First Draw` section and [SIMPLE_API.md](SIMPLE_API.md).
+2. Understand the public contract:
+   read [WHAT_ASTER_IS.md](WHAT_ASTER_IS.md), then
+   [ENGINE_INTERNALS/ENGINE_KERNEL.md](ENGINE_INTERNALS/ENGINE_KERNEL.md) for
+   the installed C ABI boundary.
+3. Inspect renderer and material behavior:
+   render `./build/aster_preview --scene material-lab`, then read
+   [RENDERING_PIPELINE.md](RENDERING_PIPELINE.md),
+   [MATERIALS_AND_SHADERS.md](MATERIALS_AND_SHADERS.md), and
+   [RENDERER_BACKEND_MATRIX.md](RENDERER_BACKEND_MATRIX.md).
+4. Explore assets and samples:
+   read [SCENE_AND_MESH_PIPELINE.md](SCENE_AND_MESH_PIPELINE.md),
+   [PRODUCT_PATH.md](PRODUCT_PATH.md), and
+   [LUMEN_RUN_AS_SAMPLE.md](LUMEN_RUN_AS_SAMPLE.md). Treat Lumen Run, Material
+   Lab, Pipe Lab, and Primate Lab as showcase/regression content, not as the
+   engine boundary.
+5. Read proof-heavy and research surfaces last:
+   `FrameForensics`, `WorldForensics`, GraphicsCore7, perception-ledger,
+   belief/perceptual ABI, and world-continuity docs explain diagnostics and
+   experiments after the first draw and public API boundaries are clear.
 
-Core proof points:
+## Public API Boundaries
 
-- The public root is `InputEvent -> PlayerIntent -> SimulationEpoch ->
-  WorldDelta -> AnimationPose -> SensoryEvent -> VisibilitySet ->
-  RenderExtraction -> FrameSubmission`.
-- `AsterWorld` owns the causal substrate. `Scene`, `Material`, mesh, camera,
-  settings, render graph, and frame diagnostics are render projections of that
-  substrate, with direct scene-render paths kept for lab and compatibility use.
-- `WorldForensics` is the primary proof surface. `FrameForensics` remains
-  required, but it is linked to world transition evidence when a frame comes
-  from a world extraction.
-- `WorldPerceptionLedger` is deterministic evidence for sensory channels.
-  `PerceptualWorldRuntime` is the source-level continuity layer that tracks
-  exposure, memory, residue, traversal pressure, occlusion trust, ecology
-  signal, and player-readable cause over time before render extraction.
+- Binary-stable public ABI: `include/aster/kernel`.
+- Public source SDK: `include/aster/game_sdk`.
+- First-contact draw facade: `include/aster/aster.hpp`.
+- Internal source contracts: other `include/aster/*` modules unless a doc or
+  build/export rule explicitly promotes them.
+
+## Diagnostic And Lab Surfaces
+
+- `FrameForensics`, `WorldForensics`, GraphicsCore7, and backend conformance
+  reports are diagnostic surfaces for explaining visible behavior.
 - `tests/golden/render/*.ppm` are deterministic software-reference baselines.
-- `aster_render_backend_conformance_tests` compares native captures against the
-  software reference and writes diff artifacts on mismatch.
 - `aster_materialc`, `aster_texturec`, and `aster_assetc` expose material,
-  texture, bundle, and generated-region gate contracts separately.
+  texture, bundle, project, and generated-region checks separately.
+- For agent-led content work, read [AGENT_AUTHORING.md](AGENT_AUTHORING.md) and
+  generate an `aster_assetc agent-plan` report before editing broad project
+  content.

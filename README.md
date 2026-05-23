@@ -1,47 +1,50 @@
 # Aster Learning Engine
 
-Aster is a player-observable world transition contract engine by Faruk Alpay.
-Its product promise is not "a game engine with everything"; it is a small,
-inspectable kernel where proof surfaces exist to protect the player's experience
-of a world responding. A frame is only interesting after the viewer can read
-input intent, simulation change, spatial consequence, weight, wetness, air,
-bounce, and material response on screen, then trace that visible result back
-through `AsterWorld`, render extraction, scene, mesh, material, render graph,
-backend output, world forensics, and frame-forensics contracts. Lumen Run is a
-sample game built on top of Aster; it is not the engine itself.
+Aster is a small inspectable engine kernel with a draw-first path and
+validation/debugging contracts for explaining player-visible results. It is not
+trying to be a finished Unity/Unreal-style engine, a full commercial renderer
+platform, or a sample game repository with engine code attached.
 
-The current spine is deliberately measured by contracts rather than by folder
-names: `InputEvent -> PlayerIntent -> SimulationEpoch -> WorldDelta ->
-AnimationPose -> SensoryEvent -> VisibilitySet -> RenderExtraction ->
-FrameSubmission` is the public root, and the same extracted render projection,
-materials, meshes, render graph, frame stats, and diagnostics feed the software
-reference renderer, native Metal, and the D3D12 offscreen/readback path. RHI
-descriptors still expose explicit barrier, attachment, pipeline-state,
-render-pass compatibility, and cache-key details so backends share more than
-matching type names.
+The stable public surface is deliberately narrow:
+
+- `include/aster/kernel`: binary-stable C ABI with opaque handles, fixed-layout
+  descriptors, validation events, world/frame diagnostics, and install-tree
+  consumer checks.
+- `include/aster/game_sdk`: source SDK for project, scene, prefab, material,
+  item, action graph, and agent-authoring documents.
+- `include/aster/aster.hpp`: first-contact C++ facade for opening Aster,
+  loading a mesh/material, drawing a light, capturing a frame, and then opting
+  into deeper inspection when needed.
+
+Renderer, RHI, scene, systems, asset runtime, lab, and sample modules live in
+the repository so the public contracts can be exercised end to end. They are not
+all equally productized, and most are internal source contracts until
+deliberately promoted. Lumen Run is sample content built on Aster; it is not the
+engine boundary.
 
 Start here: [docs/START_HERE.md](docs/START_HERE.md)
 
-## 30-Second Contract
+## 30-Second Path
 
-- World input: submit input/intent and simulation evidence through `AsterWorld`;
-  runtime rendering consumes render extractions from that causal substrate.
-- Scene input: submit `Scene` objects through the kernel ABI or repository
-  source contracts for lab/compatibility paths; production proof treats them as
-  render projections.
-- Material input: use `.astermat`/material packages or C++ material values with
-  explicit texture roles, color spaces, shader variants, reflection, and binding
-  diagnostics.
-- Mesh input: use primitive/custom mesh descriptors or cooked scene assets with
-  mesh validation and dependency metadata.
-- World guarantee: generated cave regions must pass nav, resource, encounter,
-  and perceptual gates before publish.
-- Visual guarantee: each frame is judged by the world transition and by
-  player-readable surface, light, shadow, reflection, material-frequency,
-  temporal-stability, and backend-delta evidence. GraphicsCore7 preflights the
-  graph/backend contract before encode and turns the populated frame evidence
-  into a `PlayerReadableFrameVerdict`; strict frames are not conformant when
-  required native proof is missing, even if debug rendering still happens.
+- Build the repo, then run `./build/aster_quickstart --capture
+  /tmp/aster_quickstart.ppm`.
+- Use `include/aster/aster.hpp` when you want to draw before inspecting renderer
+  details.
+- Use the kernel ABI and Game SDK when you need a stable public contract.
+- Use renderer/material docs, frame reports, and backend conformance tests when
+  a visible result needs explanation.
+- Treat samples and labs as evidence and examples, not as the product boundary.
+
+## Maturity Map
+
+| Area | Status | What to rely on |
+| --- | --- | --- |
+| Stable public contract | Product boundary | `include/aster/kernel` C ABI and `include/aster/game_sdk` source SDK |
+| First-contact API | Convenience surface | `include/aster/aster.hpp` for quick draw/capture examples |
+| Internal engine modules | Repository source contracts | Renderer, RHI, scene, systems, asset runtime, geometry, UI, and sample support |
+| Validation/debug surfaces | Diagnostic product surfaces | `FrameForensics`, `WorldForensics`, GraphicsCore7 verdicts, frame reports, conformance artifacts |
+| Research/internal experiments | Not productized APIs | Perception ledger, belief/perceptual ABIs, advanced world-continuity work |
+| Showcases | Examples and regression content | Lumen Run, Material Lab, Pipe Lab, Primate Lab, screenshot galleries |
 
 ## 30-Second Regression Lab
 
@@ -99,7 +102,7 @@ int main() {
 }
 ```
 
-One-command visual proof after building:
+One-command capture after building:
 
 ```bash
 ./build/aster_quickstart --capture /tmp/aster_quickstart.ppm
@@ -172,6 +175,11 @@ Run built-in lab scenes when you want the inspected renderer path:
 - Thin executable entrypoints for Lumen Run, Studio, offline preview rendering,
   Material Lab, and the networking probe.
 
+The current renderer/backend status is intentionally conservative. Use
+[docs/RENDERER_BACKEND_MATRIX.md](docs/RENDERER_BACKEND_MATRIX.md) as the truth
+source for advertised backend support, gaps, presentation paths, and conformance
+requirements.
+
 ## Docs Map
 
 | Path | Purpose |
@@ -179,7 +187,7 @@ Run built-in lab scenes when you want the inspected renderer path:
 | [docs/START_HERE.md](docs/START_HERE.md) | First reading path |
 | [docs/SIMPLE_API.md](docs/SIMPLE_API.md) | Draw-first API before renderer inspection |
 | [docs/WHAT_ASTER_IS.md](docs/WHAT_ASTER_IS.md) | Engine identity and non-goals |
-| [docs/PRODUCT_PATH.md](docs/PRODUCT_PATH.md) | Renderer, asset compiler, Studio, and Lumen Run product path |
+| [docs/PRODUCT_PATH.md](docs/PRODUCT_PATH.md) | Staged product roadmap, maturity boundaries, and gaps |
 | [docs/RENDERING_PIPELINE.md](docs/RENDERING_PIPELINE.md) | Scene-to-render-graph-to-backend flow |
 | [docs/MATERIALS_AND_SHADERS.md](docs/MATERIALS_AND_SHADERS.md) | Material authoring, shader library, typed graph |
 | [docs/SCENE_AND_MESH_PIPELINE.md](docs/SCENE_AND_MESH_PIPELINE.md) | Scene objects and procedural/custom mesh path |

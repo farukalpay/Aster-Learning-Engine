@@ -1,213 +1,119 @@
 # Aster Product Path
 
-Aster grows as a world transition contract engine first. Gameplay and sample
-features do not define the engine boundary; they consume it. Renderer proof is
-still mandatory, but it sits under player-observable world proof. The product
-stack is:
+Aster grows from the inspectable kernel outward. The product promise is not a
+finished all-purpose engine; it is a narrow public runtime contract, a draw-first
+entry point, and enough diagnostics to explain why a visible result happened.
+
+The roadmap is staged so public API, internal engine work, diagnostics,
+research, and samples do not blur into one claim.
+
+## Current V1 Product
+
+- Stable public runtime boundary: `include/aster/kernel` C ABI with opaque
+  handles, fixed-layout descriptors, validation events, world/frame diagnostics,
+  and install-tree consumer checks.
+- Public source SDK: `include/aster/game_sdk` for project, scene, prefab,
+  material, item, action graph, and agent-authoring documents.
+- First-contact draw path: `include/aster/aster.hpp` and `aster_quickstart` for
+  loading simple assets, drawing, capturing, and then opting into inspection.
+- Renderer proof base: deterministic software reference, native Metal scene
+  rendering/presentation, D3D12 offscreen/readback conformance paths, golden
+  captures, frame reports, and backend capability tables.
+- Asset compiler base: `aster_materialc`, `aster_texturec`, and `aster_assetc`
+  for material packages, texture packages, graph/package inspection, project
+  cooking, reports, and diagnostics.
+
+## Product Boundary
+
+The public engine contract is intentionally small:
 
 ```text
-Aster World Transition Contract
-  -> Aster Renderer Contract
-  -> Aster Procedural Asset Graph
-  -> Aster Asset Compilers
-  -> Aster Authoring Studio
-  -> Lumen Run and sample games
+Stable ABI + Game SDK
+  -> First Draw
+  -> Renderer/Material/Asset Diagnostics
+  -> Authoring Tooling
+  -> Samples and Showcases
+  -> Research Tracks
 ```
 
-## World Transition Contract
+`AsterWorld`, `Scene`, materials, meshes, render graph output, and frame reports
+are important because they let the engine explain visible behavior. External
+consumers should rely on the kernel ABI, Game SDK, runtime capability tables,
+frame/world diagnostic accessors, and documented compiler commands. Internal
+renderer/RHI/framegraph/source headers can evolve until deliberately promoted.
 
-The public runtime spine is:
+## Renderer Roadmap
 
-```text
-InputEvent
-  -> PlayerIntent
-  -> SimulationEpoch
-  -> WorldDelta
-  -> AnimationPose
-  -> SensoryEvent
-  -> VisibilitySet
-  -> RenderExtraction
-  -> FrameSubmission
-```
+The renderer is a diagnostic product surface and an internal engine system, not
+yet a complete commercial RHI. Backend support must stay conservative and match
+[RENDERER_BACKEND_MATRIX.md](RENDERER_BACKEND_MATRIX.md).
 
-`AsterWorld` is the public ABI root for this spine. It uses the existing
-world-state identity, tick, transaction, snapshot, and replay substrate for
-causal evidence, while `AsterSystemWorldHandle` remains a compatibility path for
-the older system-world trace surface. `Scene` is a render projection extracted
-from world state; direct scene rendering remains useful for labs, backend
-conformance, and compatibility, but it must declare compatibility provenance
-when it is not linked to a world transition.
+Current priority gaps:
 
-`WorldForensics` answers whether a region can be published to the player before
-the frame is judged. It carries the world transition hash, epoch/tick evidence,
-actor delta summary, generated-region gate verdict, navigation validity,
-encounter/resource probe results, perceptual budget, streaming region identity,
-and render extraction linkage. Above the renderer evidence sits the internal
-World Perception Ledger: a deterministic sensory-state graph for world cells
-that records material memory, contact history, lighting exposure, atmosphere
-membership, occlusion role, gameplay affordance, wear continuity, semantic LOD,
-and audio/visual cue budget. The existing perceptual continuity budget is the
-compatibility aggregate of that ledger, not a substitute for the ledger.
-The ledger is evidence, not the whole experience model. `PerceptualWorldRuntime`
-now sits between world delta proof and render extraction as the stateful
-continuity layer: it accumulates exposure over a long-horizon window, carries
-material memory and interaction residue forward, and emits continuity debt,
-traversal pressure, lighting believability, occlusion trust, ecology signal,
-player-readable cause, and a semantic render budget for the next frame.
+1. D3D12 parity for shadow atlas, volumetric fog, and reflection probes.
+2. GPU timestamp queries in Metal and D3D12 for real pass timings.
+3. Native HDR/MSAA proof paths.
+4. Full D3D12/Windows presentation proof, including explicit successful
+   swapchain present evidence.
+5. Backend conformance gates for every advertised native feature.
 
-Generated cave regions are proof-gated twice:
+GraphicsCore7, `FrameForensics`, resource provenance, pass cost maps, debug
+captures, and backend feature proofs should remain framed as diagnostic
+surfaces. They are product value when they explain a visible frame; they should
+not make the README sound like every backend feature is already complete.
 
-1. Cook-time `aster_assetc cook` emits a machine-readable world gate report for
-   cave assets: seed, region identity, deterministic probe trace hash,
-   pass/fail reasons, and navigation/resource/encounter/perceptual verdicts.
-2. Runtime streaming validates candidate cave chunks before publish. Valid
-   chunks become visible only when the perception ledger also satisfies its
-   required sensory channels; failed chunks are quarantined and emit
-   world-forensics validation evidence.
+## Asset And Authoring Roadmap
 
-## Renderer Contract
+The asset pipeline is useful today when it keeps compiler contracts visible:
 
-The renderer spine is:
+- `aster_assetc graph-inspect` and `graph-package` keep `.astergraph` identity,
+  dependency, procedural material IR, mesh/collision/LOD, shader key, quality,
+  and diagnostic data reproducible.
+- `aster_materialc` owns legacy/import `.astermat` package diagnostics and
+  shader/material binding reports.
+- `aster_texturec` owns role, color-space, mip/compression, and byte-cost
+  diagnostics for texture packages.
+- `aster_assetc cook` orchestrates projects, scenes, graphs, materials,
+  textures, cooked artifacts, failure reports, and asset databases without
+  hiding single-domain compiler failures.
 
-```text
-Scene / Material / Mesh Input
-  -> Frame Intent
-  -> RenderGraph Compiler
-  -> Resource Lifetime + Barriers + Descriptors + Pipeline Compatibility
-  -> Backend Execution
-  -> Frame Forensics Timeline + Resource Provenance Graph + Regression Lab
-```
+Authoring Studio remains a product path, not a finished claim. The missing
+workflow is still: open a project, browse assets, edit scene hierarchy, inspect
+materials and procedural graphs, cook content, inspect dependency/errors, and
+run the cooked result. Node editing, viewport authoring, prefab variants,
+cooked-content UX, and diagnostics-to-preview feedback are authoring gaps until
+that loop is complete.
 
-This renderer contract is now a subordinate proof surface. Every rendered frame
-should carry world linkage when it came from `AsterWorld`: world transition hash,
-actor-state delta hash, encounter budget/result, navigation validity, streaming
-region id, perceptual salience, and the world perception ledger hash/object
-traces when available. Frames submitted from direct scene/lab paths remain
-valid, but their provenance is compatibility scene extraction rather than world
-transition extraction.
+## Samples And Showcases
 
-The public runtime surface remains frozen around the kernel ABI and source Game
-SDK. Internal renderer/RHI/framegraph headers can evolve, but external consumers
-should learn the contract through `include/aster/kernel`, `include/aster/game_sdk`,
-runtime capability tables, world-forensics accessors, and frame-forensics
-accessors.
+Lumen Run, Material Lab, Pipe Lab, Primate Lab, screenshot galleries, and lab
+scenes demonstrate or stress engine contracts. They should not define engine
+architecture by accident.
 
-Backend feature support is proof-gated. A feature is supported only when the
-backend supplies native work, captures or samples when required, resource
-transition evidence, and conformance results. Declared graph passes without
-native proof remain unsupported.
+Samples may prove:
 
-The current renderer is still a contract-first spine. Frame forensics, resource
-provenance, and RHI reports are valuable only when attached to backend work that
-applies real GPU pressure. D3D12 now has a swapchain path whose proof is promoted
-only after explicit present evidence, and it consumes cluster-selected lights and
-perceptual material memory through native uniforms. Native HDR/MSAA, GPU
-timestamp queries, full per-tile clustered-light indirection, and D3D12
-shadow/fog/probe parity remain product gaps until the backend proves them.
+- first draw and capture workflows
+- material and mesh diagnostics
+- generated-region and world/frame reports
+- backend conformance evidence
+- cooked asset placement and regression captures
 
-The debugger is a required product surface, not a bonus overlay. Each frame must
-explain visibility, material binding, light clusters, shadow, fog, probe, pass
-outputs, overdraw, and fallback reasons on one timeline. Pass entries must read
-as a CPU/GPU cost map: CPU build time, GPU time when sampled, bandwidth estimate,
-render target size, draw count, material variant count, descriptor heap pressure,
-and pipeline cache hit/miss totals. Render graph inspection must answer
-provenance questions such as which producer node created a texture, which
-material graph and cook report fed it, which backend fallback touched it, and
-which asset hash and shader variant key identify it. Screenshot galleries are
-regression labs: visuals are useful only when paired with image diff status,
-backend difference, pass timing, asset hash, and shader variant evidence.
+Samples should not claim production-art completeness or imply that sample
+gameplay rules are reusable engine APIs.
 
-Priority order:
+## Research Track
 
-1. D3D12 shadow atlas, volumetric fog, and reflection probe parity.
-2. GPU timestamp queries in Metal and D3D12 for real frame timings.
-3. Native HDR and MSAA proof paths.
-4. Full GPU clustered-light indirection beyond the current native uniform
-   consumption path.
-5. Backend conformance gates for every advertised feature.
-
-## Asset Compilers
-
-The content pipeline has three explicit compiler roles:
-
-- `aster_assetc graph-inspect` and `graph-package`: `.astergraph` input to
-  `assetgraphbin`, stable graph GUID/node IDs, dependency edges, procedural
-  material IR, mesh/collision/LOD descriptors, shader and pipeline keys, quality
-  score, diagnostics, and world/frame provenance.
-- `aster_materialc`: legacy `.astermat` input to material package,
-  shader variants, reflection, binding layout, preview, and diagnostics.
-- `aster_texturec`: source image/KTX2 input to cooked texture, mip/compression
-  profile, role/color-space validation, report, and byte-cost metadata.
-- `aster_assetc cook`: project, scene, mesh, graph, material, and image bundles
-  to stable GUIDs, dependency graph, cooked artifacts, cave world-gate reports,
-  failure reports, and asset database.
-
-`aster_assetc` may orchestrate graph, material, and texture compilation, but it
-should not hide their contracts. Single-domain compiler failures must remain
-visible and reproducible from the command line. `.astergraph` is the canonical
-full asset graph format; `.astermat` remains the legacy/import material path.
-
-The V1 authoring kernel is deliberately bounded but end to end. `pipe_lab`
-is the first runtime asset-contract proof: a rusted pipe graph must produce
-mesh parts, material masks, UV islands, LODs, collision proxy metadata, cook
-diagnostics, and a live Lumen Run placement from the same Aster-owned asset
+World transition proof is Aster's distinctive diagnostic philosophy, but some of
+the current vocabulary is research/internal unless promoted through the public
 contract.
 
-```text
-Procedural Graph
-  -> Mesh Generator / Descriptor
-  -> UV / Tangent / Lightmap Policy
-  -> Material Graph
-  -> Collision / Gameplay Tags
-  -> LOD / Impostor / Proxy
-  -> Prefab Variant
-  -> Cooked Runtime Asset
-  -> Frame Forensics
-```
+Research/internal surfaces include:
 
-Material Lab is the acceptance gate for V1 contracts. It can prove texture
-roles, procedural material IR, debug views, and backend traces, but a sterile
-lab rig is not the same thing as production art in a lived scene. Complex mesh
-operators can start as deterministic descriptors plus diagnostics, but
-graph-authored materials must execute through renderer-facing procedural IR and
-trace back to graph GUID, node ID, shader variant, pipeline key, backend
-capability, and fallback/degradation reason.
-Production placement adds one more contract: assets must declare how they feed
-the perception ledger. A material or graph package can still prove texture roles
-and backend binding in isolation, but Lumen Run treats those proofs as inputs to
-cell-level sensory memory rather than as the final player-facing truth. The
-runtime continuity layer consumes that evidence with traversal, residue, cause,
-and ecology signals so an asset can become a remembered world object instead of
-only a renderer-valid surface.
+- World Perception Ledger and perceptual continuity/runtime experiments
+- belief/perceptual ABI work
+- advanced world-causality and long-horizon sensory memory models
+- player-readable frame verdict research beyond the stable diagnostic API
 
-## Authoring Studio
-
-Aster Studio is a production authoring shell, not a sample-game editor. The
-first complete workflow is:
-
-1. Open a project and browse assets.
-2. Author a cave scene with hierarchy and inspector views.
-3. Add a pipe mesh/prefab and assign a rust/wet material.
-4. Edit material nodes and inspect compiler diagnostics.
-5. Generate collision and prefab variants.
-6. Cook the project and inspect dependency/error reports.
-7. Run the cooked result in Lumen Run.
-
-Required Studio surfaces are asset browser, outliner, inspector, viewport gizmo,
-material node editor, procedural mesh graph, prefab authoring, cook button,
-dependency viewer, and error panel.
-
-Studio adoption comes after the graph package, diagnostics, and renderer traces
-are stable. Node edits should update both preview output and frame forensics so
-authors can see draw count, overdraw, normal aliasing, probe coverage, backend
-fallback, and quality-score changes from the same graph.
-
-## Lumen Run
-
-Lumen Run is the showcase. It should demonstrate that renderer and asset
-contracts are downstream of world proof. A generated cave region must pass
-cook/runtime world gates before its lighting, material binding, fog, shadow,
-probe, and readback issues are investigated through frame forensics, image
-diffs, resource transitions, and material binding traces. Sample-specific
-guessing is still a bug smell; the new first question is whether the world
-transition was valid for the player before the frame was captured.
+These systems can guide renderer, asset, and sample work, but they should be
+presented as research or diagnostics until they have stable public interfaces,
+clear user workflows, and acceptance tests.
