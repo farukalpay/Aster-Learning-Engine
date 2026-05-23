@@ -141,6 +141,27 @@ struct ColliderComponent {
   std::string mask;
 };
 
+enum class RigidBodyType {
+  Static,
+  Dynamic,
+  Kinematic,
+};
+
+struct RigidBodyComponent {
+  RigidBodyType type = RigidBodyType::Static;
+  float mass = 1.0f;
+  float linear_damping = 0.08f;
+  float angular_damping = 0.10f;
+  bool gravity_enabled = true;
+  bool ccd_enabled = false;
+  bool allow_sleep = true;
+  Vec3 center_of_mass{};
+  Vec3 inertia_scale{1.0f, 1.0f, 1.0f};
+  Vec3 lock_linear_axes{};
+  Vec3 lock_angular_axes{};
+  int solver_iterations = 0;
+};
+
 enum class LightKind {
   Point,
   Directional,
@@ -226,6 +247,7 @@ struct ComponentSet {
   std::optional<MeshRendererComponent> mesh_renderer;
   std::optional<PerceptualPlacementBindingComponent> perceptual_binding;
   std::optional<ColliderComponent> collider;
+  std::optional<RigidBodyComponent> rigid_body;
   std::optional<LightComponent> light;
   std::optional<InteractableComponent> interactable;
   std::optional<InventoryComponent> inventory;

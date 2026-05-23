@@ -1015,7 +1015,7 @@ BeliefExtractionReport LumenRun::buildBeliefExtractionReport() const {
   }
 
   desc.visible_object_count = scene_.objects().size();
-  std::vector<std::string> material_families;
+  std::unordered_set<std::string> material_families;
   material_families.reserve(scene_.objects().size());
   for (const RenderObject &object : scene_.objects()) {
     std::string family = object.material_asset_id;
@@ -1025,10 +1025,7 @@ BeliefExtractionReport LumenRun::buildBeliefExtractionReport() const {
     if (family.empty()) {
       family = "runtime-material";
     }
-    if (std::find(material_families.begin(), material_families.end(), family) ==
-        material_families.end()) {
-      material_families.push_back(std::move(family));
-    }
+    material_families.insert(std::move(family));
   }
   desc.material_family_count = material_families.size();
 
@@ -2090,9 +2087,37 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   const std::uint64_t ledger_region =
       world_forensics_.streaming_region_id != 0u ? world_forensics_.streaming_region_id
                                                  : world_forensics_.cave_gate.region_id;
-  world_forensics_.perception_ledger = buildPerceptionLedgerReport(ledger_region);
-  world_forensics_.perception_object_traces =
-      buildPerceptionObjectTraces(world_forensics_.perception_ledger);
+  CaveInteriorSample proof_cave_sample{};
+  const bool proof_inside_cave =
+      caveSectionAt(player_position_, &proof_cave_sample) != nullptr &&
+      proof_cave_sample.interior > 0.08f;
+  const PhysicsStepStats proof_physics_stats = physics_.lastStats();
+  const FrameControlOutput proof_control = frame_control_.evaluate(
+      {.target_frame_seconds = 1.0 / 60.0,
+       .frame_seconds = step * 1.75,
+       .update_seconds = step * 0.82,
+       .render_seconds = step * 0.45,
+       .perception_seconds = step * 0.28,
+       .physics_seconds = step * 0.18,
+       .streaming_backlog_items = static_cast<std::uint32_t>(cave_collision_meshes_.size()),
+       .perceptual_backlog_items = static_cast<std::uint32_t>(scene_.objects().size()),
+       .active_dynamic_bodies = proof_physics_stats.active_dynamic_bodies,
+       .active_contacts = proof_physics_stats.contact_count,
+       .player_speed = length(player_velocity_),
+       .cave_pressure = proof_inside_cave ? 0.95 : 0.48});
+  const std::uint64_t proof_epoch = next_world_epoch_;
+  const std::uint32_t overload_proof_interval =
+      proof_control.degraded != 0u || scene_.objects().size() > 420u ? 24u : 1u;
+  const std::uint32_t proof_interval =
+      std::max(overload_proof_interval, proof_control.perceptual_proof_interval_frames);
+  const bool heavy_proof_frame =
+      world_forensics_.perception_ledger.ledger_hash == 0u ||
+      (proof_epoch % static_cast<std::uint64_t>(proof_interval)) == 0u;
+  if (heavy_proof_frame) {
+    world_forensics_.perception_ledger = buildPerceptionLedgerReport(ledger_region);
+    world_forensics_.perception_object_traces =
+        buildPerceptionObjectTraces(world_forensics_.perception_ledger);
+  }
 
   std::uint64_t actor_hash = lumenHashString("actor-delta", intent_hash);
   actor_hash = lumenHash(previous_player_position, actor_hash);
@@ -2136,9 +2161,9 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
   world_forensics_.sensory_event_hash = sensory_hash;
   world_forensics_.visibility_set_hash = visibility_hash;
   advancePerceptualRuntime(step, move_axis, previous_player_position);
-  refreshWorldPerceptualPrimitives();
-  world_forensics_.belief_report = buildBeliefExtractionReport();
-  refreshWorldTruthAuditHash();
+  if (heavy_proof_frame) {
+    refreshWorldPerceptualPrimitives();
+  }
 
   const WorldTickResult tick =
       world_state_.tick({.tick = next_world_epoch_++,
@@ -2180,9 +2205,10 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
       lumenHash(transition_hash, world_forensics_.perceptual_schedule.decision_impact_score);
   transition_hash = lumenHash(transition_hash, world_forensics_.belief_report.belief_contract_hash);
   world_forensics_.world_transition_hash = transition_hash;
-  world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(0.0f);
-  refreshWorldPerceptualPrimitives();
-  world_forensics_.belief_report = buildBeliefExtractionReport();
+  if (heavy_proof_frame) {
+    world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(0.0f);
+    world_forensics_.belief_report = buildBeliefExtractionReport();
+  }
   refreshWorldTruthAuditHash();
 }
 

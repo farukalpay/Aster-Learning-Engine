@@ -343,7 +343,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 6u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 6u);
+  assert(version.minor == 7u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -363,6 +363,93 @@ void testStatusAndEngineLifecycle() {
   status = aster_kernel_engine_create(&stale, &engine);
   assert(status.code == ASTER_STATUS_ABI_MISMATCH);
   assert(engine == nullptr);
+}
+
+void testPhysicsAndFrameControlAbi7Contracts() {
+  AsterFrameControlInput control_input{sizeof(AsterFrameControlInput),
+                                       ASTER_KERNEL_STRUCT_VERSION_1,
+                                       1.0 / 60.0,
+                                       0.030,
+                                       0.020,
+                                       0.009,
+                                       0.0005,
+                                       0.0002,
+                                       0.004,
+                                       0.003,
+                                       0.002,
+                                       72u,
+                                       48u,
+                                       3u,
+                                       12u,
+                                       4.0,
+                                       0.8};
+  AsterFrameControlOutput control_output{};
+  assert(aster_kernel_frame_control_evaluate(&control_input, &control_output).code ==
+         ASTER_STATUS_OK);
+  assert(control_output.size == sizeof(AsterFrameControlOutput));
+  assert(control_output.degraded == 1u);
+  assert(control_output.physics_max_substeps >= 1u);
+  assert(control_output.perceptual_proof_interval_frames >= 1u);
+
+  AsterPhysicsWorldHandle world = nullptr;
+  AsterPhysicsWorldDesc world_desc{sizeof(AsterPhysicsWorldDesc),
+                                   ASTER_KERNEL_STRUCT_VERSION_1,
+                                   {0.0f, 0.0f, 0.0f},
+                                   6,
+                                   1.0f / 120.0f,
+                                   0.035f,
+                                   0.020f,
+                                   0.55f};
+  assert(aster_kernel_physics_world_create(&world_desc, &world).code == ASTER_STATUS_OK);
+  assert(world != nullptr);
+
+  AsterPhysicsBodyDesc body_desc{};
+  body_desc.size = sizeof(AsterPhysicsBodyDesc);
+  body_desc.version = ASTER_KERNEL_STRUCT_VERSION_1;
+  body_desc.type = ASTER_PHYSICS_BODY_DYNAMIC;
+  body_desc.shape = {sizeof(AsterPhysicsShapeDesc),
+                     ASTER_KERNEL_STRUCT_VERSION_1,
+                     ASTER_PHYSICS_SHAPE_BOX,
+                     {0.4f, 0.3f, 0.2f},
+                     0.25f,
+                     0.0f};
+  body_desc.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+  body_desc.mass = 2.0f;
+  body_desc.material = {0.4f, 0.0f};
+  body_desc.linear_damping = 0.0f;
+  body_desc.angular_damping = 0.0f;
+  body_desc.filter = {1u, 1u, 0u, 1u};
+  body_desc.allow_sleep = 0u;
+  body_desc.gravity_enabled = 0u;
+  body_desc.inertia_scale = {1.0f, 1.0f, 1.0f};
+  AsterPhysicsBodyHandle body{};
+  assert(aster_kernel_physics_body_create(world, &body_desc, &body).code == ASTER_STATUS_OK);
+  assert(body.generation != 0u);
+
+  assert(aster_kernel_physics_body_apply_torque(world, body, {0.0f, 3.0f, 0.0f}).code ==
+         ASTER_STATUS_OK);
+  AsterPhysicsStepResult step_result{};
+  const AsterPhysicsStepDesc step_desc{sizeof(AsterPhysicsStepDesc),
+                                       ASTER_KERNEL_STRUCT_VERSION_1,
+                                       1.0f / 30.0f,
+                                       2,
+                                       6};
+  assert(aster_kernel_physics_world_step(world, &step_desc, &step_result).code ==
+         ASTER_STATUS_OK);
+  assert(step_result.stats.body_count == 1u);
+  assert(step_result.stats.substeps >= 1u);
+
+  AsterPhysicsBodyState state{};
+  assert(aster_kernel_physics_body_state(world, body, &state).code == ASTER_STATUS_OK);
+  assert(std::abs(state.angular_velocity.y) > 0.001f);
+  assert(std::abs(state.orientation.w) < 1.0f);
+
+  AsterPhysicsStats stats{};
+  assert(aster_kernel_physics_world_stats(world, &stats).code == ASTER_STATUS_OK);
+  assert(stats.active_dynamic_bodies == 1u);
+
+  assert(aster_kernel_physics_body_destroy(world, body).code == ASTER_STATUS_OK);
+  assert(aster_kernel_physics_world_destroy(world).code == ASTER_STATUS_OK);
 }
 
 void testMathAbi5Contracts() {
@@ -2732,6 +2819,24 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_authoring_action_event_tag",
       "aster_kernel_authoring_action_execution_destroy",
       "aster_kernel_authoring_document_destroy",
+      "aster_kernel_frame_control_evaluate",
+      "aster_kernel_physics_world_create",
+      "aster_kernel_physics_world_step",
+      "aster_kernel_physics_world_stats",
+      "aster_kernel_physics_body_create",
+      "aster_kernel_physics_body_destroy",
+      "aster_kernel_physics_body_state",
+      "aster_kernel_physics_body_set_state",
+      "aster_kernel_physics_body_apply_force",
+      "aster_kernel_physics_body_apply_force_at_position",
+      "aster_kernel_physics_body_apply_torque",
+      "aster_kernel_physics_body_apply_impulse",
+      "aster_kernel_physics_body_apply_impulse_at_position",
+      "aster_kernel_physics_raycast",
+      "aster_kernel_physics_shape_cast",
+      "aster_kernel_physics_overlap_count",
+      "aster_kernel_physics_overlap",
+      "aster_kernel_physics_contact",
       "aster_kernel_physics_world_destroy",
       "aster_kernel_system_world_destroy",
       "aster_kernel_sample_app_destroy",
@@ -2893,6 +2998,24 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_authoring_action_event_tag;
   (void)&aster_kernel_authoring_action_execution_destroy;
   (void)&aster_kernel_authoring_document_destroy;
+  (void)&aster_kernel_frame_control_evaluate;
+  (void)&aster_kernel_physics_world_create;
+  (void)&aster_kernel_physics_world_step;
+  (void)&aster_kernel_physics_world_stats;
+  (void)&aster_kernel_physics_body_create;
+  (void)&aster_kernel_physics_body_destroy;
+  (void)&aster_kernel_physics_body_state;
+  (void)&aster_kernel_physics_body_set_state;
+  (void)&aster_kernel_physics_body_apply_force;
+  (void)&aster_kernel_physics_body_apply_force_at_position;
+  (void)&aster_kernel_physics_body_apply_torque;
+  (void)&aster_kernel_physics_body_apply_impulse;
+  (void)&aster_kernel_physics_body_apply_impulse_at_position;
+  (void)&aster_kernel_physics_raycast;
+  (void)&aster_kernel_physics_shape_cast;
+  (void)&aster_kernel_physics_overlap_count;
+  (void)&aster_kernel_physics_overlap;
+  (void)&aster_kernel_physics_contact;
   (void)&aster_kernel_physics_world_destroy;
   (void)&aster_kernel_system_world_destroy;
   (void)&aster_kernel_sample_app_destroy;
@@ -2904,6 +3027,7 @@ int main() {
   testAbiHeaderStaysPlainC();
   testPublicApiBoundaryIsFrozen();
   testStatusAndEngineLifecycle();
+  testPhysicsAndFrameControlAbi7Contracts();
   testMathAbi5Contracts();
   testProjectionAbiEntrypointsMatchHeaderMathBitwise();
   testRendererAbi5Lifecycle();

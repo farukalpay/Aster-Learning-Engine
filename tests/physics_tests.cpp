@@ -147,6 +147,64 @@ void testPhysicsQueriesAndDynamicContact() {
   assert(overlaps.size() >= 2u);
 }
 
+void testRigidBodyAngularImpulseAndTorque() {
+  aster::PhysicsWorld world;
+  world.setSettings({{0.0f, 0.0f, 0.0f}, 8, 1.0f / 120.0f});
+
+  aster::PhysicsBodyDesc box_desc;
+  box_desc.type = aster::PhysicsBodyType::Dynamic;
+  box_desc.shape = aster::PhysicsShapeType::Box;
+  box_desc.position = {0.0f, 0.0f, 0.0f};
+  box_desc.half_extents = {0.4f, 0.3f, 0.2f};
+  box_desc.mass = 2.0f;
+  box_desc.angular_damping = 0.0f;
+  box_desc.gravity_enabled = false;
+  const aster::PhysicsBodyHandle box = world.addBody(box_desc);
+
+  world.applyImpulseAtPosition(box, {0.0f, 0.0f, 2.0f}, {0.4f, 0.0f, 0.0f});
+  assert(std::abs(world.body(box).angular_velocity.y) > 0.01f);
+
+  const aster::Quat before = world.body(box).orientation;
+  world.applyTorque(box, {0.0f, 3.0f, 0.0f});
+  world.step(1.0f / 30.0f);
+  const aster::PhysicsBody &body = world.body(box);
+  assert(std::abs(body.angular_velocity.y) > 0.01f);
+  assert(std::abs(aster::dot(before, body.orientation)) < 0.9999f);
+  assert(world.lastStats().active_dynamic_bodies == 1u);
+  assert(world.lastStats().solver_iterations == 8u);
+}
+
+void testRigidBodyCcdSphereStopsAtWall() {
+  constexpr std::uint32_t world_layer = 1u << 0u;
+  constexpr std::uint32_t dynamic_layer = 1u << 1u;
+  aster::PhysicsWorld world;
+  world.setSettings({{0.0f, 0.0f, 0.0f}, 4, 1.0f / 60.0f});
+
+  aster::PhysicsBodyDesc wall_desc;
+  wall_desc.type = aster::PhysicsBodyType::Static;
+  wall_desc.shape = aster::PhysicsShapeType::Box;
+  wall_desc.position = {0.0f, 0.0f, 0.0f};
+  wall_desc.half_extents = {0.05f, 1.0f, 1.0f};
+  wall_desc.filter = {world_layer, dynamic_layer};
+  [[maybe_unused]] const aster::PhysicsBodyHandle wall = world.addBody(wall_desc);
+
+  aster::PhysicsBodyDesc sphere_desc;
+  sphere_desc.type = aster::PhysicsBodyType::Dynamic;
+  sphere_desc.shape = aster::PhysicsShapeType::Sphere;
+  sphere_desc.position = {-1.0f, 0.0f, 0.0f};
+  sphere_desc.radius = 0.18f;
+  sphere_desc.mass = 1.0f;
+  sphere_desc.linear_damping = 0.0f;
+  sphere_desc.filter = {dynamic_layer, world_layer};
+  sphere_desc.gravity_enabled = false;
+  sphere_desc.ccd_enabled = true;
+  const aster::PhysicsBodyHandle sphere = world.addBody(sphere_desc);
+  world.setVelocity(sphere, {80.0f, 0.0f, 0.0f});
+  world.step(1.0f / 60.0f);
+  assert(world.body(sphere).position.x < -0.12f);
+  assert(world.body(sphere).velocity.x <= 0.001f);
+}
+
 void testPhysicsStaticTriangleMeshContact() {
   aster::CpuMesh wall_mesh;
   wall_mesh.vertices = {{{0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
@@ -566,6 +624,8 @@ int main() {
   testPhysicsWorldGravityAndStaticContact();
   testPhysicsDistanceConstraint();
   testPhysicsQueriesAndDynamicContact();
+  testRigidBodyAngularImpulseAndTorque();
+  testRigidBodyCcdSphereStopsAtWall();
   testPhysicsStaticTriangleMeshContact();
   testPhysicsCharacterController();
   testTerrainCharacterContact();

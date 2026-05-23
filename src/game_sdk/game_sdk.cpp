@@ -1190,6 +1190,24 @@ parseCavePerceptualCausalityGraphDocument(const Json &value,
   return LightKind::Point;
 }
 
+[[nodiscard]] RigidBodyType parseRigidBodyType(const std::string_view value,
+                                               std::vector<Diagnostic> &diagnostics,
+                                               const std::filesystem::path &source,
+                                               const std::string &path) {
+  if (value == "static") {
+    return RigidBodyType::Static;
+  }
+  if (value == "dynamic") {
+    return RigidBodyType::Dynamic;
+  }
+  if (value == "kinematic") {
+    return RigidBodyType::Kinematic;
+  }
+  addDiagnostic(diagnostics, source, path,
+                "unknown rigid body type '" + std::string(value) + "'");
+  return RigidBodyType::Static;
+}
+
 [[nodiscard]] TransformComponent parseTransformComponent(const Json &component,
                                                          std::vector<Diagnostic> &diagnostics,
                                                          const std::filesystem::path &source,
@@ -1247,6 +1265,28 @@ parseCavePerceptualCausalityGraphDocument(const Json &value,
   out.trigger = readBoolOr(component, "trigger", diagnostics, source, path, false);
   out.layer = readStringOr(component, "layer", diagnostics, source, path, {});
   out.mask = readStringOr(component, "mask", diagnostics, source, path, {});
+  return out;
+}
+
+[[nodiscard]] RigidBodyComponent parseRigidBodyComponent(const Json &component,
+                                                         std::vector<Diagnostic> &diagnostics,
+                                                         const std::filesystem::path &source,
+                                                         const std::string &path) {
+  RigidBodyComponent out;
+  const std::string type = readStringOr(component, "type", diagnostics, source, path, "static");
+  out.type = parseRigidBodyType(type, diagnostics, source, childPath(path, "type"));
+  out.mass = readFloatOr(component, "mass", diagnostics, source, path, 1.0f);
+  out.linear_damping = readFloatOr(component, "linear_damping", diagnostics, source, path, 0.08f);
+  out.angular_damping = readFloatOr(component, "angular_damping", diagnostics, source, path, 0.10f);
+  out.gravity_enabled = readBoolOr(component, "gravity_enabled", diagnostics, source, path, true);
+  out.ccd_enabled = readBoolOr(component, "ccd_enabled", diagnostics, source, path, false);
+  out.allow_sleep = readBoolOr(component, "allow_sleep", diagnostics, source, path, true);
+  out.center_of_mass = readVec3Or(component, "center_of_mass", diagnostics, source, path, {});
+  out.inertia_scale =
+      readVec3Or(component, "inertia_scale", diagnostics, source, path, {1.0f, 1.0f, 1.0f});
+  out.lock_linear_axes = readVec3Or(component, "lock_linear_axes", diagnostics, source, path, {});
+  out.lock_angular_axes = readVec3Or(component, "lock_angular_axes", diagnostics, source, path, {});
+  out.solver_iterations = readIntOr(component, "solver_iterations", diagnostics, source, path, 0);
   return out;
 }
 
@@ -1401,9 +1441,10 @@ parseCavePerceptualCausalityGraphDocument(const Json &value,
   }
 
   const std::set<std::string> known_components = {
-      "transform",    "mesh_renderer", "perceptual_binding", "collider",    "light",
-      "interactable", "inventory",     "camera",             "cave_scene",  "fixture",
-      "ore_node",     "torch_socket",  "spawn_point",        "mining",      "cave_debug"};
+      "transform",    "mesh_renderer", "perceptual_binding", "collider",   "rigid_body",
+      "light",        "interactable",  "inventory",          "camera",     "cave_scene",
+      "fixture",      "ore_node",      "torch_socket",       "spawn_point", "mining",
+      "cave_debug"};
   for (const auto &[key, value] : components.object) {
     if (!known_components.contains(key)) {
       addDiagnostic(diagnostics, source, childPath(path, key), "unknown component type");
@@ -1422,6 +1463,8 @@ parseCavePerceptualCausalityGraphDocument(const Json &value,
           parsePerceptualPlacementBindingComponent(value, diagnostics, source, childPath(path, key));
     } else if (key == "collider") {
       out.collider = parseColliderComponent(value, diagnostics, source, childPath(path, key));
+    } else if (key == "rigid_body") {
+      out.rigid_body = parseRigidBodyComponent(value, diagnostics, source, childPath(path, key));
     } else if (key == "light") {
       out.light = parseLightComponent(value, diagnostics, source, childPath(path, key));
     } else if (key == "interactable") {
@@ -2783,6 +2826,14 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
       }
       if (entity.components.ore_node.has_value() && !entity.components.collider.has_value()) {
         addError("$.scene.entities." + entity.id, "ore nodes must define a collider");
+      }
+      if (entity.components.rigid_body.has_value() && !entity.components.collider.has_value()) {
+        addError("$.scene.entities." + entity.id, "rigid bodies must define a collider");
+      }
+      if (entity.components.rigid_body.has_value() &&
+          entity.components.rigid_body->type == RigidBodyType::Dynamic &&
+          entity.components.rigid_body->mass <= 0.0f) {
+        addError("$.scene.entities." + entity.id, "dynamic rigid bodies must define mass > 0");
       }
       if (entity.components.interactable.has_value() &&
           !entity.components.collider.has_value() &&

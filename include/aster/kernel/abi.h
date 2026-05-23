@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 6u
-#define ASTER_KERNEL_ABI_MINOR 6u
+#define ASTER_KERNEL_ABI_MINOR 7u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -86,6 +86,11 @@ typedef struct AsterPipelineCacheHandle__ *AsterPipelineCacheHandle;
 typedef struct AsterFrameScheduleHandle__ *AsterFrameScheduleHandle;
 typedef struct AsterAuthoringDocumentHandle__ *AsterAuthoringDocumentHandle;
 typedef struct AsterAuthoringActionExecutionHandle__ *AsterAuthoringActionExecutionHandle;
+
+typedef struct AsterPhysicsBodyHandle {
+  uint32_t index;
+  uint32_t generation;
+} AsterPhysicsBodyHandle;
 
 typedef enum AsterKernelBackendKind {
   ASTER_KERNEL_BACKEND_SOFTWARE_REFERENCE = 0,
@@ -882,6 +887,171 @@ typedef struct AsterTransform {
   AsterQuat rotation;
   AsterVec3 scale;
 } AsterTransform;
+
+typedef enum AsterPhysicsBodyType {
+  ASTER_PHYSICS_BODY_STATIC = 0,
+  ASTER_PHYSICS_BODY_DYNAMIC = 1,
+  ASTER_PHYSICS_BODY_KINEMATIC = 2
+} AsterPhysicsBodyType;
+
+typedef enum AsterPhysicsShapeType {
+  ASTER_PHYSICS_SHAPE_BOX = 0,
+  ASTER_PHYSICS_SHAPE_SPHERE = 1,
+  ASTER_PHYSICS_SHAPE_CAPSULE = 2
+} AsterPhysicsShapeType;
+
+typedef struct AsterPhysicsMaterial {
+  float friction;
+  float restitution;
+} AsterPhysicsMaterial;
+
+typedef struct AsterPhysicsCollisionFilter {
+  uint32_t layer_bits;
+  uint32_t collides_with;
+  uint32_t sensor;
+  uint32_t query_enabled;
+} AsterPhysicsCollisionFilter;
+
+typedef struct AsterPhysicsShapeDesc {
+  size_t size;
+  uint32_t version;
+  AsterPhysicsShapeType type;
+  AsterVec3 half_extents;
+  float radius;
+  float capsule_half_height;
+} AsterPhysicsShapeDesc;
+
+typedef struct AsterPhysicsWorldDesc {
+  size_t size;
+  uint32_t version;
+  AsterVec3 gravity;
+  int32_t solver_iterations;
+  float max_step_seconds;
+  float sleep_linear_threshold;
+  float sleep_angular_threshold;
+  float sleep_time_threshold;
+} AsterPhysicsWorldDesc;
+
+typedef struct AsterPhysicsBodyDesc {
+  size_t size;
+  uint32_t version;
+  AsterPhysicsBodyType type;
+  AsterPhysicsShapeDesc shape;
+  AsterVec3 position;
+  AsterQuat orientation;
+  AsterVec3 velocity;
+  AsterVec3 angular_velocity;
+  float mass;
+  AsterPhysicsMaterial material;
+  float linear_damping;
+  float angular_damping;
+  AsterPhysicsCollisionFilter filter;
+  uint32_t allow_sleep;
+  uint32_t gravity_enabled;
+  uint32_t ccd_enabled;
+  AsterVec3 center_of_mass;
+  AsterVec3 inertia_scale;
+  AsterVec3 lock_linear_axes;
+  AsterVec3 lock_angular_axes;
+} AsterPhysicsBodyDesc;
+
+typedef struct AsterPhysicsBodyState {
+  size_t size;
+  uint32_t version;
+  AsterVec3 position;
+  AsterQuat orientation;
+  AsterVec3 velocity;
+  AsterVec3 angular_velocity;
+  uint32_t sleeping;
+} AsterPhysicsBodyState;
+
+typedef struct AsterPhysicsStepDesc {
+  size_t size;
+  uint32_t version;
+  float dt_seconds;
+  int32_t max_substeps;
+  int32_t solver_iterations_override;
+} AsterPhysicsStepDesc;
+
+typedef struct AsterPhysicsStats {
+  size_t size;
+  uint32_t version;
+  uint32_t body_count;
+  uint32_t active_dynamic_bodies;
+  uint32_t sleeping_dynamic_bodies;
+  uint32_t contact_count;
+  uint32_t broadphase_pair_count;
+  uint32_t substeps;
+  uint32_t solver_iterations;
+  uint32_t queued_command_count;
+} AsterPhysicsStats;
+
+typedef struct AsterPhysicsStepResult {
+  size_t size;
+  uint32_t version;
+  AsterPhysicsStats stats;
+} AsterPhysicsStepResult;
+
+typedef struct AsterPhysicsContactInfo {
+  size_t size;
+  uint32_t version;
+  AsterPhysicsBodyHandle body_a;
+  AsterPhysicsBodyHandle body_b;
+  AsterVec3 point;
+  AsterVec3 normal;
+  float penetration;
+  float normal_impulse;
+  float tangent_impulse;
+} AsterPhysicsContactInfo;
+
+typedef struct AsterPhysicsRayDesc {
+  size_t size;
+  uint32_t version;
+  AsterVec3 origin;
+  AsterVec3 direction;
+  float max_distance;
+  uint32_t collides_with;
+  uint32_t include_sensors;
+  AsterPhysicsBodyHandle ignore_body;
+} AsterPhysicsRayDesc;
+
+typedef struct AsterPhysicsShapeCastDesc {
+  size_t size;
+  uint32_t version;
+  AsterVec3 origin;
+  AsterVec3 displacement;
+  float radius;
+  uint32_t collides_with;
+  uint32_t include_sensors;
+  AsterPhysicsBodyHandle ignore_body;
+} AsterPhysicsShapeCastDesc;
+
+typedef struct AsterPhysicsHit {
+  size_t size;
+  uint32_t version;
+  uint32_t hit;
+  AsterPhysicsBodyHandle body;
+  AsterVec3 point;
+  AsterVec3 normal;
+  float distance;
+  float fraction;
+} AsterPhysicsHit;
+
+typedef struct AsterPhysicsOverlapDesc {
+  size_t size;
+  uint32_t version;
+  AsterVec3 center;
+  float radius;
+  uint32_t collides_with;
+  uint32_t include_sensors;
+  AsterPhysicsBodyHandle ignore_body;
+} AsterPhysicsOverlapDesc;
+
+typedef struct AsterPhysicsOverlapInfo {
+  size_t size;
+  uint32_t version;
+  AsterPhysicsBodyHandle body;
+} AsterPhysicsOverlapInfo;
 
 typedef struct AsterRay3 {
   AsterVec3 origin;
@@ -1859,6 +2029,49 @@ typedef struct AsterFrameStats {
   double render_encode_seconds;
 } AsterFrameStats;
 
+typedef struct AsterFrameControlInput {
+  size_t size;
+  uint32_t version;
+  double target_frame_seconds;
+  double frame_seconds;
+  double update_seconds;
+  double render_seconds;
+  double hud_seconds;
+  double swap_seconds;
+  double perception_seconds;
+  double physics_seconds;
+  double streaming_seconds;
+  uint32_t streaming_backlog_items;
+  uint32_t perceptual_backlog_items;
+  uint32_t active_dynamic_bodies;
+  uint32_t active_contacts;
+  double player_speed;
+  double cave_pressure;
+} AsterFrameControlInput;
+
+typedef struct AsterKernelWorkBudgetInfo {
+  uint32_t max_items;
+  double max_seconds;
+  uint32_t starvation_frame_limit;
+  double starvation_priority_per_frame;
+} AsterKernelWorkBudgetInfo;
+
+typedef struct AsterFrameControlOutput {
+  size_t size;
+  uint32_t version;
+  AsterKernelWorkBudgetInfo streaming_budget;
+  AsterKernelWorkBudgetInfo perceptual_budget;
+  uint32_t physics_max_substeps;
+  uint32_t physics_solver_iterations;
+  uint32_t perceptual_proof_interval_frames;
+  uint32_t lighting_update_interval_frames;
+  uint32_t visibility_hint_budget;
+  float semantic_lod_bias;
+  double pressure;
+  double optional_work_seconds;
+  uint32_t degraded;
+} AsterFrameControlOutput;
+
 typedef struct AsterFrameForensicsCounts {
   size_t size;
   uint32_t version;
@@ -2547,6 +2760,51 @@ aster_kernel_authoring_action_execution_destroy(AsterAuthoringActionExecutionHan
 ASTER_KERNEL_API AsterStatus
 aster_kernel_authoring_document_destroy(AsterAuthoringDocumentHandle document);
 
+ASTER_KERNEL_API AsterStatus aster_kernel_frame_control_evaluate(
+    const AsterFrameControlInput *input, AsterFrameControlOutput *out_output);
+
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_world_create(
+    const AsterPhysicsWorldDesc *desc, AsterPhysicsWorldHandle *out_physics_world);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_world_step(
+    AsterPhysicsWorldHandle physics_world, const AsterPhysicsStepDesc *desc,
+    AsterPhysicsStepResult *out_result);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_world_stats(
+    AsterPhysicsWorldHandle physics_world, AsterPhysicsStats *out_stats);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_body_create(
+    AsterPhysicsWorldHandle physics_world, const AsterPhysicsBodyDesc *desc,
+    AsterPhysicsBodyHandle *out_body);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_body_destroy(
+    AsterPhysicsWorldHandle physics_world, AsterPhysicsBodyHandle body);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_body_state(
+    AsterPhysicsWorldHandle physics_world, AsterPhysicsBodyHandle body,
+    AsterPhysicsBodyState *out_state);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_body_set_state(
+    AsterPhysicsWorldHandle physics_world, AsterPhysicsBodyHandle body,
+    const AsterPhysicsBodyState *state);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_body_apply_force(
+    AsterPhysicsWorldHandle physics_world, AsterPhysicsBodyHandle body, AsterVec3 force);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_body_apply_force_at_position(
+    AsterPhysicsWorldHandle physics_world, AsterPhysicsBodyHandle body, AsterVec3 force,
+    AsterVec3 world_position);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_body_apply_torque(
+    AsterPhysicsWorldHandle physics_world, AsterPhysicsBodyHandle body, AsterVec3 torque);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_body_apply_impulse(
+    AsterPhysicsWorldHandle physics_world, AsterPhysicsBodyHandle body, AsterVec3 impulse);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_body_apply_impulse_at_position(
+    AsterPhysicsWorldHandle physics_world, AsterPhysicsBodyHandle body, AsterVec3 impulse,
+    AsterVec3 world_position);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_raycast(
+    AsterPhysicsWorldHandle physics_world, const AsterPhysicsRayDesc *desc, AsterPhysicsHit *out_hit);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_shape_cast(
+    AsterPhysicsWorldHandle physics_world, const AsterPhysicsShapeCastDesc *desc,
+    AsterPhysicsHit *out_hit);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_overlap_count(
+    AsterPhysicsWorldHandle physics_world, const AsterPhysicsOverlapDesc *desc, size_t *out_count);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_overlap(
+    AsterPhysicsWorldHandle physics_world, const AsterPhysicsOverlapDesc *desc, size_t index,
+    AsterPhysicsOverlapInfo *out_overlap);
+ASTER_KERNEL_API AsterStatus aster_kernel_physics_contact(
+    AsterPhysicsWorldHandle physics_world, size_t index, AsterPhysicsContactInfo *out_contact);
 ASTER_KERNEL_API AsterStatus
 aster_kernel_physics_world_destroy(AsterPhysicsWorldHandle physics_world);
 ASTER_KERNEL_API AsterStatus aster_kernel_system_world_destroy(AsterSystemWorldHandle system_world);

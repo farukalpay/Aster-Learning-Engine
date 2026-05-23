@@ -6319,6 +6319,10 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   const bool certify_forensics = settings.forensics.backend_certification;
   const bool graph_forensics =
       detailed_forensics || capture_forensics || certify_forensics;
+  const bool graphics_core7_active =
+      settings.graphics_core7.flags != 0u ||
+      settings.graphics_core7.required_signal_mask != 0u ||
+      graph_forensics;
   MaterialFrameSummary material_summary =
       analyzeMaterialFrame(scene, plan, active_capabilities, material_artifact_cache_,
                            previous_transparent_order_);
@@ -6383,8 +6387,10 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
   stats.graph_compile_seconds = graph_compiler_.lastCompileSeconds();
   stats.backend_kind_value =
       static_cast<std::uint32_t>(backendCapabilities().kind);
-  applyGraphicsCore7PreflightGate(render_graph_, active_capabilities, settings, stats,
-                                  last_forensics_);
+  if (graphics_core7_active) {
+    applyGraphicsCore7PreflightGate(render_graph_, active_capabilities, settings, stats,
+                                    last_forensics_);
+  }
 
   SoftwareFrameBuffer &framebuffer = activeFrameBuffer();
   if (native_backend_ != nullptr) {
@@ -6456,8 +6462,10 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
 	      appendMathDiagnosticsToFrame(last_forensics_.events);
 	      finalizeObjectRenderFates(last_forensics_);
 	    }
-    applyGraphicsCore7FrameTruth(native_backend_->capabilities(), settings, native_stats,
-                                 last_forensics_);
+    if (graphics_core7_active) {
+      applyGraphicsCore7FrameTruth(native_backend_->capabilities(), settings, native_stats,
+                                   last_forensics_);
+    }
     if (graph_forensics || detailed_forensics || capture_forensics) {
       rebuildFrameEvidenceProducts(render_graph_, native_backend_->capabilities(), last_forensics_);
     }
@@ -6593,7 +6601,9 @@ FrameStats RenderDevice::render(const Scene &scene, const OrbitCamera &camera,
 	    appendMathDiagnosticsToFrame(last_forensics_.events);
 	    finalizeObjectRenderFates(last_forensics_);
 	  }
-  applyGraphicsCore7FrameTruth(softwareCapabilities(), settings, stats, last_forensics_);
+  if (graphics_core7_active) {
+    applyGraphicsCore7FrameTruth(softwareCapabilities(), settings, stats, last_forensics_);
+  }
   if (graph_forensics || detailed_forensics || capture_forensics) {
     rebuildFrameEvidenceProducts(render_graph_, softwareCapabilities(), last_forensics_);
   }

@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 
 namespace aster {
 namespace {
@@ -80,6 +81,123 @@ float bodyInverseMass(const PhysicsBody &body) {
   return body.type == PhysicsBodyType::Dynamic ? body.inverse_mass : 0.0f;
 }
 
+bool bodyCanIntegrate(const PhysicsBody &body) {
+  return body.type == PhysicsBodyType::Dynamic;
+}
+
+bool bodyCanWake(const PhysicsBody &body) {
+  return body.type == PhysicsBodyType::Dynamic;
+}
+
+Vec3 finiteLockFactor(const Vec3 locked_axes) {
+  return {locked_axes.x != 0.0f ? 0.0f : 1.0f, locked_axes.y != 0.0f ? 0.0f : 1.0f,
+          locked_axes.z != 0.0f ? 0.0f : 1.0f};
+}
+
+Vec3 safeInertiaScale(const Vec3 value) {
+  return {std::max(value.x, 0.0001f), std::max(value.y, 0.0001f),
+          std::max(value.z, 0.0001f)};
+}
+
+Vec3 inverseInertiaForBody(const PhysicsBodyDesc &desc) {
+  if (desc.type != PhysicsBodyType::Dynamic) {
+    return {};
+  }
+  const float mass = safeMass(desc.mass);
+  const Vec3 scale = safeInertiaScale(desc.inertia_scale);
+  Vec3 inertia{1.0f, 1.0f, 1.0f};
+  if (desc.shape == PhysicsShapeType::Sphere) {
+    const float radius = std::max(desc.radius, kEpsilon);
+    const float value = 0.4f * mass * radius * radius;
+    inertia = {value, value, value};
+  } else if (desc.shape == PhysicsShapeType::Capsule) {
+    const float radius = std::max(desc.radius, kEpsilon);
+    const float half_height = std::max(desc.half_extents.y, 0.0f);
+    const float full_height = half_height * 2.0f;
+    const float ixz = mass * (3.0f * radius * radius + full_height * full_height) / 12.0f;
+    const float iy = 0.5f * mass * radius * radius;
+    inertia = {ixz, iy, ixz};
+  } else {
+    const Vec3 full_extents = desc.half_extents * 2.0f;
+    inertia = {mass * (full_extents.y * full_extents.y + full_extents.z * full_extents.z) / 12.0f,
+               mass * (full_extents.x * full_extents.x + full_extents.z * full_extents.z) / 12.0f,
+               mass * (full_extents.x * full_extents.x + full_extents.y * full_extents.y) / 12.0f};
+  }
+  inertia = inertia * scale;
+  return {(inertia.x > kEpsilon ? 1.0f / inertia.x : 0.0f),
+          (inertia.y > kEpsilon ? 1.0f / inertia.y : 0.0f),
+          (inertia.z > kEpsilon ? 1.0f / inertia.z : 0.0f)};
+}
+
+Vec3 worldInverseInertia(const PhysicsBody &body, const Vec3 angular_impulse) {
+  if (body.type != PhysicsBodyType::Dynamic) {
+    return {};
+  }
+  const MathResult<Quat> inv = inverse(body.orientation);
+  const Vec3 local = rotate(inv.value, angular_impulse);
+  const Vec3 local_response = local * body.inverse_inertia * body.lock_angular_factor;
+  return rotate(body.orientation, local_response);
+}
+
+Vec3 contactVelocity(const PhysicsBody &body, const Vec3 world_point) {
+  return body.velocity + cross(body.angular_velocity, world_point - body.position);
+}
+
+void applyLinearImpulse(PhysicsBody &body, const Vec3 impulse) {
+  const float inverse_mass = bodyInverseMass(body);
+  if (inverse_mass <= 0.0f) {
+    return;
+  }
+  body.velocity = body.velocity + impulse * inverse_mass * body.lock_linear_factor;
+  if (bodyCanWake(body)) {
+    body.sleeping = false;
+    body.sleep_timer = 0.0f;
+  }
+}
+
+void applyAngularImpulse(PhysicsBody &body, const Vec3 angular_impulse) {
+  if (body.type != PhysicsBodyType::Dynamic) {
+    return;
+  }
+  body.angular_velocity = body.angular_velocity + worldInverseInertia(body, angular_impulse);
+  body.sleeping = false;
+  body.sleep_timer = 0.0f;
+}
+
+void applyImpulseAtPoint(PhysicsBody &body, const Vec3 impulse, const Vec3 world_point) {
+  applyLinearImpulse(body, impulse);
+  applyAngularImpulse(body, cross(world_point - body.position, impulse));
+}
+
+float effectiveMassDenominator(const PhysicsBody &body_a, const PhysicsBody &body_b,
+                               const Vec3 point, const Vec3 axis) {
+  const Vec3 ra = point - body_a.position;
+  const Vec3 rb = point - body_b.position;
+  const Vec3 angular_a = cross(worldInverseInertia(body_a, cross(ra, axis)), ra);
+  const Vec3 angular_b = cross(worldInverseInertia(body_b, cross(rb, axis)), rb);
+  return bodyInverseMass(body_a) + bodyInverseMass(body_b) + dot(angular_a + angular_b, axis);
+}
+
+Quat advanceOrientation(const Quat orientation, const Vec3 angular_velocity, const float dt) {
+  if (length(angular_velocity) <= kEpsilon) {
+    return orientation;
+  }
+  const Quat omega{angular_velocity.x, angular_velocity.y, angular_velocity.z, 0.0f};
+  return normalize(orientation + (omega * orientation) * (0.5f * dt));
+}
+
+Vec3 orientedBoxHalfExtent(const PhysicsBody &body) {
+  if (std::abs(body.orientation.x) <= kEpsilon && std::abs(body.orientation.y) <= kEpsilon &&
+      std::abs(body.orientation.z) <= kEpsilon &&
+      std::abs(std::abs(body.orientation.w) - 1.0f) <= kEpsilon) {
+    return body.half_extents;
+  }
+  const Vec3 x = absVec(rotate(body.orientation, {1.0f, 0.0f, 0.0f}));
+  const Vec3 y = absVec(rotate(body.orientation, {0.0f, 1.0f, 0.0f}));
+  const Vec3 z = absVec(rotate(body.orientation, {0.0f, 0.0f, 1.0f}));
+  return x * body.half_extents.x + y * body.half_extents.y + z * body.half_extents.z;
+}
+
 float supportExtentY(const PhysicsBody &body) {
   if (body.shape == PhysicsShapeType::Sphere) {
     return body.radius;
@@ -102,7 +220,8 @@ Aabb bodyAabb(const PhysicsBody &body) {
   if (body.shape == PhysicsShapeType::TriangleMesh) {
     return {body.mesh_bounds_min, body.mesh_bounds_max};
   }
-  return {body.position - body.half_extents, body.position + body.half_extents};
+  const Vec3 extents = orientedBoxHalfExtent(body);
+  return {body.position - extents, body.position + extents};
 }
 
 Aabb expandAabb(const Aabb box, const float amount) {
@@ -839,6 +958,8 @@ void PhysicsWorld::clear() {
   fluid_volumes_.clear();
   contacts_.clear();
   broadphase_pairs_.clear();
+  command_buffer_.clear();
+  last_stats_ = {};
 }
 
 void PhysicsWorld::setSettings(const PhysicsSettings settings) {
@@ -846,6 +967,7 @@ void PhysicsWorld::setSettings(const PhysicsSettings settings) {
   settings_.solver_iterations = std::max(1, settings_.solver_iterations);
   settings_.max_step = std::max(settings_.max_step, 0.001f);
   settings_.sleep_linear_threshold = std::max(0.0f, settings_.sleep_linear_threshold);
+  settings_.sleep_angular_threshold = std::max(0.0f, settings_.sleep_angular_threshold);
   settings_.sleep_time_threshold = std::max(0.0f, settings_.sleep_time_threshold);
 }
 
@@ -875,13 +997,26 @@ PhysicsBodyHandle PhysicsWorld::addBody(const PhysicsBodyDesc &desc) {
   body.shape = desc.shape;
   body.position = desc.position;
   body.previous_position = desc.position;
+  body.orientation = normalize(desc.orientation);
+  body.previous_orientation = body.orientation;
+  body.velocity = desc.velocity;
+  body.angular_velocity = desc.angular_velocity;
   body.half_extents = desc.half_extents;
   body.radius = desc.radius;
   body.inverse_mass = desc.type == PhysicsBodyType::Dynamic ? 1.0f / safeMass(desc.mass) : 0.0f;
+  body.inverse_inertia = inverseInertiaForBody(desc);
   body.material = desc.material;
   body.linear_damping = clamp(desc.linear_damping, 0.0f, 1.0f);
+  body.angular_damping = clamp(desc.angular_damping, 0.0f, 1.0f);
   body.filter = desc.filter;
   body.allow_sleep = desc.allow_sleep;
+  body.gravity_enabled = desc.gravity_enabled;
+  body.ccd_enabled = desc.ccd_enabled;
+  body.center_of_mass = desc.center_of_mass;
+  body.lock_linear_factor = finiteLockFactor(desc.lock_linear_axes);
+  body.lock_angular_factor = finiteLockFactor(desc.lock_angular_axes);
+  body.velocity = body.velocity * body.lock_linear_factor;
+  body.angular_velocity = body.angular_velocity * body.lock_angular_factor;
   body.mesh_double_sided = desc.mesh_double_sided;
 
   if (desc.shape == PhysicsShapeType::TriangleMesh) {
@@ -936,6 +1071,8 @@ bool PhysicsWorld::removeBody(const PhysicsBodyHandle handle) {
   target.sleeping = true;
   target.velocity = {};
   target.force = {};
+  target.angular_velocity = {};
+  target.torque = {};
   ++target.generation;
   contacts_.clear();
   broadphase_pairs_.clear();
@@ -989,18 +1126,83 @@ void PhysicsWorld::applyForce(const PhysicsBodyHandle handle, const Vec3 force) 
   }
 }
 
-void PhysicsWorld::applyImpulse(const PhysicsBodyHandle handle, const Vec3 impulse) {
+void PhysicsWorld::applyForceAtPosition(const PhysicsBodyHandle handle, const Vec3 force,
+                                        const Vec3 world_position) {
   PhysicsBody &target = body(handle);
   if (target.type == PhysicsBodyType::Dynamic) {
     wake(target);
-    target.velocity = target.velocity + impulse * target.inverse_mass;
+    target.force = target.force + force;
+    target.torque = target.torque + cross(world_position - target.position, force);
+  }
+}
+
+void PhysicsWorld::applyTorque(const PhysicsBodyHandle handle, const Vec3 torque) {
+  PhysicsBody &target = body(handle);
+  if (target.type == PhysicsBodyType::Dynamic) {
+    wake(target);
+    target.torque = target.torque + torque;
+  }
+}
+
+void PhysicsWorld::applyImpulse(const PhysicsBodyHandle handle, const Vec3 impulse) {
+  PhysicsBody &target = body(handle);
+  if (target.type == PhysicsBodyType::Dynamic) {
+    applyLinearImpulse(target, impulse);
+  }
+}
+
+void PhysicsWorld::applyImpulseAtPosition(const PhysicsBodyHandle handle, const Vec3 impulse,
+                                          const Vec3 world_position) {
+  PhysicsBody &target = body(handle);
+  if (target.type == PhysicsBodyType::Dynamic) {
+    applyImpulseAtPoint(target, impulse, world_position);
+  }
+}
+
+void PhysicsWorld::queueForce(const PhysicsBodyHandle handle, const Vec3 force) {
+  if (valid(handle)) {
+    command_buffer_.push_back({CommandKind::Force, handle, force, {}});
+  }
+}
+
+void PhysicsWorld::queueForceAtPosition(const PhysicsBodyHandle handle, const Vec3 force,
+                                        const Vec3 world_position) {
+  if (valid(handle)) {
+    command_buffer_.push_back({CommandKind::ForceAtPosition, handle, force, world_position});
+  }
+}
+
+void PhysicsWorld::queueTorque(const PhysicsBodyHandle handle, const Vec3 torque) {
+  if (valid(handle)) {
+    command_buffer_.push_back({CommandKind::Torque, handle, torque, {}});
+  }
+}
+
+void PhysicsWorld::queueImpulse(const PhysicsBodyHandle handle, const Vec3 impulse) {
+  if (valid(handle)) {
+    command_buffer_.push_back({CommandKind::Impulse, handle, impulse, {}});
+  }
+}
+
+void PhysicsWorld::queueImpulseAtPosition(const PhysicsBodyHandle handle, const Vec3 impulse,
+                                          const Vec3 world_position) {
+  if (valid(handle)) {
+    command_buffer_.push_back({CommandKind::ImpulseAtPosition, handle, impulse, world_position});
   }
 }
 
 void PhysicsWorld::setVelocity(const PhysicsBodyHandle handle, const Vec3 velocity) {
   PhysicsBody &target = body(handle);
   if (target.type == PhysicsBodyType::Dynamic) {
-    target.velocity = velocity;
+    target.velocity = velocity * target.lock_linear_factor;
+    wake(target);
+  }
+}
+
+void PhysicsWorld::setAngularVelocity(const PhysicsBodyHandle handle, const Vec3 angular_velocity) {
+  PhysicsBody &target = body(handle);
+  if (target.type == PhysicsBodyType::Dynamic) {
+    target.angular_velocity = angular_velocity * target.lock_angular_factor;
     wake(target);
   }
 }
@@ -1012,6 +1214,34 @@ void PhysicsWorld::setPosition(const PhysicsBodyHandle handle, const Vec3 positi
   wake(target);
 }
 
+void PhysicsWorld::setOrientation(const PhysicsBodyHandle handle, const Quat orientation) {
+  PhysicsBody &target = body(handle);
+  target.orientation = normalize(orientation);
+  target.previous_orientation = target.orientation;
+  wake(target);
+}
+
+void PhysicsWorld::setBodyState(const PhysicsBodyHandle handle, const PhysicsBodyState &state) {
+  PhysicsBody &target = body(handle);
+  target.position = state.position;
+  target.previous_position = state.position;
+  target.orientation = normalize(state.orientation);
+  target.previous_orientation = target.orientation;
+  target.velocity = state.velocity * target.lock_linear_factor;
+  target.angular_velocity = state.angular_velocity * target.lock_angular_factor;
+  target.sleeping = state.sleeping && target.allow_sleep;
+  target.sleep_timer = target.sleeping ? settings_.sleep_time_threshold : 0.0f;
+  if (!target.sleeping) {
+    wake(target);
+  }
+}
+
+PhysicsBodyState PhysicsWorld::bodyState(const PhysicsBodyHandle handle) const {
+  const PhysicsBody &target = body(handle);
+  return {target.position, target.orientation, target.velocity, target.angular_velocity,
+          target.sleeping};
+}
+
 void PhysicsWorld::wakeBody(const PhysicsBodyHandle handle) {
   if (valid(handle)) {
     wake(bodies_[handle.index]);
@@ -1019,22 +1249,56 @@ void PhysicsWorld::wakeBody(const PhysicsBodyHandle handle) {
 }
 
 void PhysicsWorld::step(const float dt) {
+  (void)step({.dt = dt});
+}
+
+PhysicsStepResult PhysicsWorld::step(const PhysicsStepDesc &desc) {
+  const float dt = desc.dt;
   if (dt <= 0.0f) {
-    return;
+    return {last_stats_};
   }
 
-  const int substeps = std::max(1, static_cast<int>(std::ceil(dt / settings_.max_step)));
+  const std::uint32_t queued_command_count = static_cast<std::uint32_t>(command_buffer_.size());
+  int substeps = std::max(1, static_cast<int>(std::ceil(dt / settings_.max_step)));
+  if (desc.max_substeps > 0) {
+    substeps = std::min(substeps, std::max(1, desc.max_substeps));
+  }
   const float h = dt / static_cast<float>(substeps);
+  const int solver_iterations =
+      desc.solver_iterations_override > 0
+          ? std::max(1, desc.solver_iterations_override)
+          : settings_.solver_iterations;
   for (int i = 0; i < substeps; ++i) {
+    flushCommands();
     applyFluidForces();
     integrate(h);
-    for (int iteration = 0; iteration < settings_.solver_iterations; ++iteration) {
+    resolveCcdSweeps();
+    for (int iteration = 0; iteration < solver_iterations; ++iteration) {
       solveConstraints(h);
       contacts_.clear();
       solveCollisions();
     }
     updateSleeping(h);
   }
+
+  PhysicsStepStats stats;
+  stats.body_count = static_cast<std::uint32_t>(bodies_.size());
+  stats.contact_count = static_cast<std::uint32_t>(contacts_.size());
+  stats.broadphase_pair_count = static_cast<std::uint32_t>(broadphase_pairs_.size());
+  stats.substeps = static_cast<std::uint32_t>(substeps);
+  stats.solver_iterations = static_cast<std::uint32_t>(solver_iterations);
+  stats.queued_command_count = queued_command_count;
+  for (const PhysicsBody &body : bodies_) {
+    if (!body.active || body.type != PhysicsBodyType::Dynamic) {
+      continue;
+    }
+    ++stats.active_dynamic_bodies;
+    if (body.sleeping) {
+      ++stats.sleeping_dynamic_bodies;
+    }
+  }
+  last_stats_ = stats;
+  return {last_stats_};
 }
 
 bool PhysicsWorld::raycast(const PhysicsRay &ray, PhysicsRayHit &hit) const {
@@ -1268,12 +1532,44 @@ void PhysicsWorld::updateSleeping(const float dt) {
     }
 
     if (length(body.velocity) <= settings_.sleep_linear_threshold &&
-        length(body.force) <= kEpsilon) {
+        length(body.angular_velocity) <= settings_.sleep_angular_threshold &&
+        length(body.force) <= kEpsilon && length(body.torque) <= kEpsilon) {
       body.sleep_timer += dt;
       body.sleeping = body.sleep_timer >= settings_.sleep_time_threshold;
     } else {
       body.sleep_timer = 0.0f;
       body.sleeping = false;
+    }
+  }
+}
+
+void PhysicsWorld::flushCommands() {
+  if (command_buffer_.empty()) {
+    return;
+  }
+
+  const std::vector<BufferedCommand> commands = std::move(command_buffer_);
+  command_buffer_.clear();
+  for (const BufferedCommand &command : commands) {
+    if (!valid(command.body)) {
+      continue;
+    }
+    switch (command.kind) {
+    case CommandKind::Force:
+      applyForce(command.body, command.vector);
+      break;
+    case CommandKind::ForceAtPosition:
+      applyForceAtPosition(command.body, command.vector, command.world_position);
+      break;
+    case CommandKind::Torque:
+      applyTorque(command.body, command.vector);
+      break;
+    case CommandKind::Impulse:
+      applyImpulse(command.body, command.vector);
+      break;
+    case CommandKind::ImpulseAtPosition:
+      applyImpulseAtPosition(command.body, command.vector, command.world_position);
+      break;
     }
   }
 }
@@ -1321,16 +1617,62 @@ void PhysicsWorld::applyFluidForces() {
 
 void PhysicsWorld::integrate(const float dt) {
   for (PhysicsBody &body : bodies_) {
-    if (!body.active || body.type != PhysicsBodyType::Dynamic || body.sleeping) {
+    if (!body.active || !bodyCanIntegrate(body) || body.sleeping) {
       continue;
     }
 
     body.previous_position = body.position;
-    const Vec3 acceleration = settings_.gravity + body.force * body.inverse_mass;
+    body.previous_orientation = body.orientation;
+    const Vec3 acceleration =
+        (body.gravity_enabled ? settings_.gravity : Vec3{}) + body.force * body.inverse_mass;
     body.velocity = body.velocity + acceleration * dt;
-    body.velocity = body.velocity * std::max(0.0f, 1.0f - body.linear_damping * dt);
+    body.velocity =
+        body.velocity * std::max(0.0f, 1.0f - body.linear_damping * dt) * body.lock_linear_factor;
     body.position = body.position + body.velocity * dt;
+    body.angular_velocity =
+        (body.angular_velocity + worldInverseInertia(body, body.torque) * dt) *
+        std::max(0.0f, 1.0f - body.angular_damping * dt) * body.lock_angular_factor;
+    body.orientation = advanceOrientation(body.orientation, body.angular_velocity, dt);
     body.force = {};
+    body.torque = {};
+  }
+}
+
+void PhysicsWorld::resolveCcdSweeps() {
+  ASTER_PROFILE_SCOPE("PhysicsWorld::ccd");
+  for (std::size_t index = 0; index < bodies_.size(); ++index) {
+    PhysicsBody &body = bodies_[index];
+    if (!body.active || body.type != PhysicsBodyType::Dynamic || !body.ccd_enabled ||
+        body.sleeping) {
+      continue;
+    }
+    const Vec3 displacement = body.position - body.previous_position;
+    const float distance = length(displacement);
+    const float sweep_radius =
+        body.shape == PhysicsShapeType::Sphere || body.shape == PhysicsShapeType::Capsule
+            ? body.radius
+            : std::min({body.half_extents.x, body.half_extents.y, body.half_extents.z});
+    if (sweep_radius <= kEpsilon || distance <= sweep_radius * 0.25f) {
+      continue;
+    }
+
+    PhysicsShapeCastHit hit;
+    PhysicsSphereCast cast;
+    cast.origin = body.previous_position;
+    cast.displacement = displacement;
+    cast.radius = sweep_radius;
+    cast.filter.collides_with = body.filter.collides_with;
+    cast.filter.ignore_body = {static_cast<std::uint32_t>(index), body.generation};
+    if (!castSphere(cast, hit)) {
+      continue;
+    }
+    const float skin_fraction = std::min(0.02f / std::max(distance, kEpsilon), 0.10f);
+    body.position =
+        body.previous_position + displacement * std::max(hit.fraction - skin_fraction, 0.0f);
+    const float normal_speed = dot(body.velocity, hit.normal);
+    if (normal_speed < 0.0f) {
+      body.velocity = body.velocity - hit.normal * normal_speed;
+    }
   }
 }
 
@@ -1443,8 +1785,10 @@ void PhysicsWorld::solvePair(const PhysicsBodyHandle handle_a, PhysicsBody &body
     return;
   }
 
-  contacts_.push_back({handle_a, handle_b, contact.point, contact.normal, contact.penetration});
+  PhysicsContact physics_contact{handle_a, handle_b, contact.point, contact.normal,
+                                 contact.penetration};
   if (body_a.filter.sensor || body_b.filter.sensor) {
+    contacts_.push_back(physics_contact);
     return;
   }
 
@@ -1452,6 +1796,7 @@ void PhysicsWorld::solvePair(const PhysicsBodyHandle handle_a, PhysicsBody &body
   const float inverse_mass_b = bodyInverseMass(body_b);
   const float inverse_mass_sum = inverse_mass_a + inverse_mass_b;
   if (inverse_mass_sum <= kEpsilon) {
+    contacts_.push_back(physics_contact);
     return;
   }
 
@@ -1466,41 +1811,52 @@ void PhysicsWorld::solvePair(const PhysicsBodyHandle handle_a, PhysicsBody &body
     wake(body_b);
   }
 
-  Vec3 relative_velocity = body_a.velocity - body_b.velocity;
+  Vec3 relative_velocity =
+      contactVelocity(body_a, contact.point) - contactVelocity(body_b, contact.point);
   const float normal_speed = dot(relative_velocity, contact.normal);
   if (normal_speed >= 0.0f) {
+    contacts_.push_back(physics_contact);
     return;
   }
 
   const PhysicsMaterial material = combineMaterial(body_a, body_b);
   const float restitution = clamp(material.restitution, 0.0f, 1.0f);
-  const float normal_impulse_size = -(1.0f + restitution) * normal_speed / inverse_mass_sum;
+  const float normal_denominator =
+      std::max(effectiveMassDenominator(body_a, body_b, contact.point, contact.normal),
+               inverse_mass_sum);
+  const float normal_impulse_size = -(1.0f + restitution) * normal_speed / normal_denominator;
   const Vec3 normal_impulse = contact.normal * normal_impulse_size;
   if (inverse_mass_a > 0.0f) {
-    body_a.velocity = body_a.velocity + normal_impulse * inverse_mass_a;
+    applyImpulseAtPoint(body_a, normal_impulse, contact.point);
   }
   if (inverse_mass_b > 0.0f) {
-    body_b.velocity = body_b.velocity - normal_impulse * inverse_mass_b;
+    applyImpulseAtPoint(body_b, -normal_impulse, contact.point);
   }
+  physics_contact.normal_impulse = normal_impulse_size;
 
-  relative_velocity = body_a.velocity - body_b.velocity;
+  relative_velocity = contactVelocity(body_a, contact.point) - contactVelocity(body_b, contact.point);
   Vec3 tangent = relative_velocity - contact.normal * dot(relative_velocity, contact.normal);
   const float tangent_length = length(tangent);
   if (tangent_length <= kEpsilon) {
+    contacts_.push_back(physics_contact);
     return;
   }
 
   tangent = tangent / tangent_length;
-  float tangent_impulse_size = -dot(relative_velocity, tangent) / inverse_mass_sum;
+  const float tangent_denominator =
+      std::max(effectiveMassDenominator(body_a, body_b, contact.point, tangent), inverse_mass_sum);
+  float tangent_impulse_size = -dot(relative_velocity, tangent) / tangent_denominator;
   const float friction_limit = normal_impulse_size * clamp(material.friction, 0.0f, 1.0f);
   tangent_impulse_size = std::clamp(tangent_impulse_size, -friction_limit, friction_limit);
   const Vec3 tangent_impulse = tangent * tangent_impulse_size;
   if (inverse_mass_a > 0.0f) {
-    body_a.velocity = body_a.velocity + tangent_impulse * inverse_mass_a;
+    applyImpulseAtPoint(body_a, tangent_impulse, contact.point);
   }
   if (inverse_mass_b > 0.0f) {
-    body_b.velocity = body_b.velocity - tangent_impulse * inverse_mass_b;
+    applyImpulseAtPoint(body_b, -tangent_impulse, contact.point);
   }
+  physics_contact.tangent_impulse = tangent_impulse_size;
+  contacts_.push_back(physics_contact);
 }
 
 } // namespace aster

@@ -2005,6 +2005,143 @@ namespace math {
 
 } // namespace math
 
+namespace physics {
+
+class World {
+public:
+  World() = default;
+  explicit World(AsterPhysicsWorldHandle handle) noexcept : handle_(handle) {}
+
+  World(World &&other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  World &operator=(World &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  World(const World &) = delete;
+  World &operator=(const World &) = delete;
+
+  ~World() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<World> create(const AsterPhysicsWorldDesc &desc) noexcept {
+    AsterPhysicsWorldHandle handle = nullptr;
+    const Status status(aster_kernel_physics_world_create(&desc, &handle));
+    if (!status) {
+      return Result<World>(status);
+    }
+    return Result<World>(World(handle));
+  }
+
+  [[nodiscard]] static Result<World> create() noexcept {
+    const AsterPhysicsWorldDesc desc{sizeof(AsterPhysicsWorldDesc),
+                                     ASTER_KERNEL_STRUCT_VERSION_1,
+                                     {0.0f, -9.81f, 0.0f},
+                                     6,
+                                     1.0f / 120.0f,
+                                     0.035f,
+                                     0.020f,
+                                     0.55f};
+    return create(desc);
+  }
+
+  [[nodiscard]] bool valid() const noexcept {
+    return handle_ != nullptr;
+  }
+
+  [[nodiscard]] AsterPhysicsWorldHandle get() const noexcept {
+    return handle_;
+  }
+
+  [[nodiscard]] Result<AsterPhysicsBodyHandle>
+  createBody(const AsterPhysicsBodyDesc &desc) const noexcept {
+    AsterPhysicsBodyHandle body{};
+    const Status status(aster_kernel_physics_body_create(handle_, &desc, &body));
+    if (!status) {
+      return Result<AsterPhysicsBodyHandle>(status);
+    }
+    return Result<AsterPhysicsBodyHandle>(std::move(body));
+  }
+
+  [[nodiscard]] Status destroyBody(const AsterPhysicsBodyHandle body) const noexcept {
+    return Status(aster_kernel_physics_body_destroy(handle_, body));
+  }
+
+  [[nodiscard]] Result<AsterPhysicsStepResult> step(const AsterPhysicsStepDesc &desc) const noexcept {
+    AsterPhysicsStepResult result{sizeof(AsterPhysicsStepResult), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_physics_world_step(handle_, &desc, &result));
+    if (!status) {
+      return Result<AsterPhysicsStepResult>(status);
+    }
+    return Result<AsterPhysicsStepResult>(std::move(result));
+  }
+
+  [[nodiscard]] Result<AsterPhysicsBodyState>
+  bodyState(const AsterPhysicsBodyHandle body) const noexcept {
+    AsterPhysicsBodyState state{sizeof(AsterPhysicsBodyState), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_physics_body_state(handle_, body, &state));
+    if (!status) {
+      return Result<AsterPhysicsBodyState>(status);
+    }
+    return Result<AsterPhysicsBodyState>(std::move(state));
+  }
+
+  [[nodiscard]] Status setBodyState(const AsterPhysicsBodyHandle body,
+                                    const AsterPhysicsBodyState &state) const noexcept {
+    return Status(aster_kernel_physics_body_set_state(handle_, body, &state));
+  }
+
+  [[nodiscard]] Status applyForce(const AsterPhysicsBodyHandle body,
+                                  const AsterVec3 force) const noexcept {
+    return Status(aster_kernel_physics_body_apply_force(handle_, body, force));
+  }
+
+  [[nodiscard]] Status applyTorque(const AsterPhysicsBodyHandle body,
+                                   const AsterVec3 torque) const noexcept {
+    return Status(aster_kernel_physics_body_apply_torque(handle_, body, torque));
+  }
+
+  [[nodiscard]] Status applyImpulse(const AsterPhysicsBodyHandle body,
+                                    const AsterVec3 impulse) const noexcept {
+    return Status(aster_kernel_physics_body_apply_impulse(handle_, body, impulse));
+  }
+
+  [[nodiscard]] Result<AsterPhysicsStats> stats() const noexcept {
+    AsterPhysicsStats value{sizeof(AsterPhysicsStats), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_physics_world_stats(handle_, &value));
+    if (!status) {
+      return Result<AsterPhysicsStats>(status);
+    }
+    return Result<AsterPhysicsStats>(std::move(value));
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_physics_world_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterPhysicsWorldHandle handle_ = nullptr;
+};
+
+[[nodiscard]] inline Result<AsterFrameControlOutput>
+evaluateFrameControl(const AsterFrameControlInput &input) noexcept {
+  AsterFrameControlOutput output{sizeof(AsterFrameControlOutput), ASTER_KERNEL_STRUCT_VERSION_1};
+  const Status status(aster_kernel_frame_control_evaluate(&input, &output));
+  if (!status) {
+    return Result<AsterFrameControlOutput>(status);
+  }
+  return Result<AsterFrameControlOutput>(std::move(output));
+}
+
+} // namespace physics
+
 [[nodiscard]] inline AsterStringView stringView(const char *text, const size_t size) noexcept {
   return {text, size};
 }

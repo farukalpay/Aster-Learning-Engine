@@ -5,6 +5,7 @@
 
 #include "aster/game_sdk/game_sdk.hpp"
 #include "aster/core/belief_extraction.hpp"
+#include "aster/core/frame_control.hpp"
 #include "aster/core/perceptual_causality_graph.hpp"
 #include "aster/core/perceptual_world_runtime.hpp"
 #include "aster/core/world_perception_ledger.hpp"
@@ -645,6 +646,7 @@ private:
   MiningState mining_;
   std::uint64_t placed_resource_serial_ = 1u;
   PhysicsWorld physics_;
+  FrameControlPolicy frame_control_;
   mutable SceneCoherenceReport scene_coherence_;
   mutable SceneTraceValidationReport scene_trace_;
   mutable bool scene_coherence_dirty_ = true;

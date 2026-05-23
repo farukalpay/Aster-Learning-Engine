@@ -2964,6 +2964,7 @@ void LumenRun::rebuildPhysicsWorld() {
   player_body.type = PhysicsBodyType::Dynamic;
   player_body.shape = PhysicsShapeType::Capsule;
   player_body.position = player_position_;
+  player_body.orientation = identityQuat();
   player_body.half_extents = {tuning_.player_radius,
                               tuning_.player_height * 0.5f - tuning_.player_radius * 0.92f,
                               tuning_.player_radius};
@@ -2971,8 +2972,12 @@ void LumenRun::rebuildPhysicsWorld() {
   player_body.mass = 1.0f;
   player_body.material = {0.34f, 0.02f};
   player_body.linear_damping = 0.045f;
+  player_body.angular_damping = 0.35f;
   player_body.filter = {kPhysicsLayerPlayer, kPhysicsLayerWorld};
   player_body.allow_sleep = false;
+  player_body.gravity_enabled = true;
+  player_body.ccd_enabled = true;
+  player_body.lock_angular_axes = {1.0f, 0.0f, 1.0f};
   player_body_ = physics_.addBody(player_body);
 
   const float arena_extent = std::max(tuning_.arena_radius * 5.8f, tuning_.arena_radius + 18.0f);

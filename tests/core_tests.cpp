@@ -4,6 +4,7 @@
 #include "test_support.hpp"
 
 #include "aster/core/belief_extraction.hpp"
+#include "aster/core/frame_control.hpp"
 #include "aster/core/job_graph.hpp"
 #include "aster/core/module_registry.hpp"
 #include "aster/core/neural_irradiance_volume.hpp"
@@ -375,6 +376,64 @@ void testBudgetedWorkQueueContracts() {
       controller.nextBudget({.frame_seconds = 0.026, .backlog_items = 18u}, base_budget);
   assert(pressured_budget.max_seconds <= spare_budget.max_seconds);
   assert(controller.telemetry().pressure > 0.0);
+}
+
+void testFrameControlPolicyContracts() {
+  aster::FrameControlPolicy policy;
+  const aster::FrameControlOutput spare =
+      policy.evaluate({.target_frame_seconds = 1.0 / 60.0,
+                       .frame_seconds = 0.010,
+                       .update_seconds = 0.004,
+                       .render_seconds = 0.004,
+                       .streaming_backlog_items = 4u,
+                       .perceptual_backlog_items = 2u,
+                       .active_dynamic_bodies = 3u,
+                       .active_contacts = 1u,
+                       .player_speed = 1.2,
+                       .cave_pressure = 0.1});
+  const aster::FrameControlOutput pressured =
+      policy.evaluate({.target_frame_seconds = 1.0 / 60.0,
+                       .frame_seconds = 0.031,
+                       .update_seconds = 0.020,
+                       .render_seconds = 0.010,
+                       .streaming_backlog_items = 80u,
+                       .perceptual_backlog_items = 64u,
+                       .active_dynamic_bodies = 12u,
+                       .active_contacts = 18u,
+                       .player_speed = 4.8,
+                       .cave_pressure = 1.0});
+  assert(pressured.pressure > spare.pressure);
+  assert(pressured.physics_max_substeps <= spare.physics_max_substeps);
+  assert(pressured.physics_solver_iterations <= spare.physics_solver_iterations);
+  assert(pressured.perceptual_proof_interval_frames >= spare.perceptual_proof_interval_frames);
+  assert(pressured.streaming_budget.max_seconds <= spare.streaming_budget.max_seconds);
+  assert(pressured.semantic_lod_bias >= spare.semantic_lod_bias);
+
+  const aster::FrameControlOutput deterministic_a =
+      aster::evaluateFrameControl({.target_frame_seconds = 1.0 / 60.0,
+                                   .frame_seconds = 0.031,
+                                   .update_seconds = 0.020,
+                                   .render_seconds = 0.010,
+                                   .streaming_backlog_items = 80u,
+                                   .perceptual_backlog_items = 64u,
+                                   .active_dynamic_bodies = 12u,
+                                   .active_contacts = 18u,
+                                   .player_speed = 4.8,
+                                   .cave_pressure = 1.0});
+  const aster::FrameControlOutput deterministic_b =
+      aster::evaluateFrameControl({.target_frame_seconds = 1.0 / 60.0,
+                                   .frame_seconds = 0.031,
+                                   .update_seconds = 0.020,
+                                   .render_seconds = 0.010,
+                                   .streaming_backlog_items = 80u,
+                                   .perceptual_backlog_items = 64u,
+                                   .active_dynamic_bodies = 12u,
+                                   .active_contacts = 18u,
+                                   .player_speed = 4.8,
+                                   .cave_pressure = 1.0});
+  assert(deterministic_a.physics_max_substeps == deterministic_b.physics_max_substeps);
+  assert(deterministic_a.perceptual_proof_interval_frames ==
+         deterministic_b.perceptual_proof_interval_frames);
 }
 
 void testAsterCoreRuntimeContracts() {
@@ -1260,6 +1319,7 @@ int main() {
   testFrameTimeStats();
   testProfilerCaptureExport();
   testBudgetedWorkQueueContracts();
+  testFrameControlPolicyContracts();
   testAsterCoreRuntimeContracts();
   testWorldStateTransitionContracts();
   testWorldPerceptionLedgerContracts();

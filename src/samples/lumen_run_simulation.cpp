@@ -217,7 +217,25 @@ void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const b
     player_grounded_ = player_grounded_ || step_assist.grounded;
   }
 
-  physics_.step(dt);
+  const bool in_authored_cave = !cave_floor_supports_.empty() &&
+                                inside_cave_support_envelope(physics_.body(player_body_).position);
+  const PhysicsStepStats previous_physics_stats = physics_.lastStats();
+  const FrameControlOutput frame_control = frame_control_.evaluate(
+      {.target_frame_seconds = 1.0 / 60.0,
+       .frame_seconds = dt,
+       .update_seconds = dt * 0.62,
+       .render_seconds = dt * 0.30,
+       .physics_seconds = dt * 0.18,
+       .streaming_backlog_items = static_cast<std::uint32_t>(cave_collision_meshes_.size()),
+       .perceptual_backlog_items = static_cast<std::uint32_t>(scene_.objects().size() / 8u),
+       .active_dynamic_bodies = previous_physics_stats.active_dynamic_bodies,
+       .active_contacts = previous_physics_stats.contact_count,
+       .player_speed = length(physics_.body(player_body_).velocity),
+       .cave_pressure = in_authored_cave ? 0.72 : 0.18});
+  (void)physics_.step({.dt = dt,
+                       .max_substeps = static_cast<int>(frame_control.physics_max_substeps),
+                       .solver_iterations_override =
+                           static_cast<int>(frame_control.physics_solver_iterations)});
   [[maybe_unused]] const bool horizontal_collision_resolved = resolveContinuousHorizontalCollision(
       physics_, player_body_,
       {.radius = tuning_.player_radius, .collision_mask = kPhysicsLayerWorld});

@@ -9,6 +9,8 @@
       "components": {
         "transform": { "translation": [1.1, 0.28, 1.0], "rotation": [0.0, 3.14159, 0.0] },
         "camera": { "primary": true, "vertical_fov_degrees": 54.0, "near_plane": 0.01, "far_plane": 160.0 },
+        "collider": { "shape": "capsule", "radius": 0.35, "height": 1.10, "layer": "actor.player", "mask": "world.static" },
+        "rigid_body": { "type": "dynamic", "mass": 1.0, "linear_damping": 0.045, "angular_damping": 0.35, "gravity_enabled": true, "ccd_enabled": true, "allow_sleep": false, "lock_angular_axes": [1.0, 0.0, 1.0], "solver_iterations": 8 },
         "spawn_point": {
           "spawn_kind": "player",
           "radius": 0.35,
@@ -25,6 +27,7 @@
         "mesh_renderer": { "mesh": "mesh.supply_chest", "material": "material.cave_rock" },
         "perceptual_binding": { "template": "asset_graph.material_lab.wet_rock", "cell_anchor": "cave_entry.main_cell", "residency_role": "interactable-container", "local_cause": "player-loot-route", "traversal_role": "cover-adjacent", "visual_occlusion_role": "grounded-prop", "acoustic_role": "wood-stone-contact", "material_half_life_override": 18.0, "streaming_cost_override": 0.24 },
         "collider": { "shape": "box", "half_extents": [0.55, 0.42, 0.38], "layer": "world.interactable" },
+        "rigid_body": { "type": "static", "mass": 0.0, "gravity_enabled": false },
         "interactable": {
           "tags": ["lumen.container.supply", "interaction.openable"],
           "action_graph": "action.chest.open",
@@ -63,6 +66,7 @@
         "mesh_renderer": { "mesh": "mesh.coal_ore", "material": "material.cave_rock" },
         "perceptual_binding": { "template": "asset_graph.material_lab.wet_rock", "cell_anchor": "cave_entry.ore_wall", "residency_role": "mineable-resource", "local_cause": "coal-vein-affordance", "traversal_role": "resource-target", "visual_occlusion_role": "embedded-rock", "acoustic_role": "stone-impact", "material_half_life_override": 22.0, "streaming_cost_override": 0.26 },
         "collider": { "shape": "sphere", "radius": 0.28, "layer": "world.mineable" },
+        "rigid_body": { "type": "static", "mass": 0.0, "gravity_enabled": false },
         "interactable": {
           "tags": ["resource.coal", "interaction.mineable"],
           "action_graph": "action.mine.coal_ore",

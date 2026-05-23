@@ -5,11 +5,13 @@
 
 #include "aster/core/belief_extraction.hpp"
 #include "aster/core/config.hpp"
+#include "aster/core/frame_control.hpp"
 #include "aster/core/world_state.hpp"
 #include "aster/game_sdk/game_sdk.hpp"
 #include "aster/math/geometry.hpp"
 #include "aster/math/quat.hpp"
 #include "aster/math/transform.hpp"
+#include "aster/physics/physics_world.hpp"
 #include "aster/platform/window.hpp"
 #include "aster/render/frame_capture.hpp"
 #include "aster/render/mesh.hpp"
@@ -66,6 +68,7 @@ constexpr std::uint32_t kWorldMagic = 0x41545744u;
 constexpr std::uint32_t kSystemWorldMagic = 0x41545357u;
 constexpr std::uint32_t kAuthoringDocumentMagic = 0x41544144u;
 constexpr std::uint32_t kAuthoringExecutionMagic = 0x41544145u;
+constexpr std::uint32_t kPhysicsWorldMagic = 0x41545057u;
 constexpr std::uint32_t kRetiredMagic = 0xDEAD5A5Au;
 
 struct KernelValidationRecord {
@@ -363,6 +366,12 @@ struct AsterAuthoringActionExecutionHandle__ {
   std::uint32_t magic = kAuthoringExecutionMagic;
   aster::sdk::ActionExecution execution;
   std::list<std::string> string_scratch;
+};
+
+struct AsterPhysicsWorldHandle__ {
+  std::uint32_t magic = kPhysicsWorldMagic;
+  AsterEngineHandle owner = nullptr;
+  aster::PhysicsWorld world;
 };
 
 namespace {
@@ -1182,6 +1191,10 @@ bool validAuthoringExecution(const AsterAuthoringActionExecutionHandle execution
   return execution != nullptr && execution->magic == kAuthoringExecutionMagic;
 }
 
+bool validPhysicsWorld(const AsterPhysicsWorldHandle physics_world) {
+  return physics_world != nullptr && physics_world->magic == kPhysicsWorldMagic;
+}
+
 template <typename Document>
 [[nodiscard]] const Document *authoringDocumentAs(const AsterAuthoringDocumentHandle document) {
   return validAuthoringDocument(document) ? std::get_if<Document>(&document->document) : nullptr;
@@ -1595,6 +1608,107 @@ aster::Vec2 vec(const AsterVec2 value) {
 
 AsterVec3 abiVec(const aster::Vec3 value) {
   return {value.x, value.y, value.z};
+}
+
+aster::PhysicsBodyHandle physicsBodyHandle(const AsterPhysicsBodyHandle value) {
+  return {value.index, value.generation};
+}
+
+AsterPhysicsBodyHandle abiPhysicsBodyHandle(const aster::PhysicsBodyHandle value) {
+  return {value.index, value.generation};
+}
+
+aster::PhysicsBodyType physicsBodyType(const AsterPhysicsBodyType value) {
+  switch (value) {
+  case ASTER_PHYSICS_BODY_STATIC:
+    return aster::PhysicsBodyType::Static;
+  case ASTER_PHYSICS_BODY_DYNAMIC:
+    return aster::PhysicsBodyType::Dynamic;
+  case ASTER_PHYSICS_BODY_KINEMATIC:
+    return aster::PhysicsBodyType::Kinematic;
+  }
+  return aster::PhysicsBodyType::Static;
+}
+
+aster::PhysicsShapeType physicsShapeType(const AsterPhysicsShapeType value) {
+  switch (value) {
+  case ASTER_PHYSICS_SHAPE_BOX:
+    return aster::PhysicsShapeType::Box;
+  case ASTER_PHYSICS_SHAPE_SPHERE:
+    return aster::PhysicsShapeType::Sphere;
+  case ASTER_PHYSICS_SHAPE_CAPSULE:
+    return aster::PhysicsShapeType::Capsule;
+  }
+  return aster::PhysicsShapeType::Box;
+}
+
+aster::PhysicsCollisionFilter physicsFilter(const AsterPhysicsCollisionFilter &value) {
+  return {.layer_bits = value.layer_bits == 0u ? 1u : value.layer_bits,
+          .collides_with = value.collides_with == 0u ? 0xffffffffu : value.collides_with,
+          .sensor = value.sensor != 0u,
+          .query_enabled = value.query_enabled == 0u ? true : value.query_enabled != 0u};
+}
+
+aster::PhysicsQueryFilter physicsQueryFilter(const std::uint32_t collides_with,
+                                             const std::uint32_t include_sensors,
+                                             const AsterPhysicsBodyHandle ignore_body) {
+  return {.collides_with = collides_with == 0u ? 0xffffffffu : collides_with,
+          .include_sensors = include_sensors != 0u,
+          .ignore_body = physicsBodyHandle(ignore_body)};
+}
+
+AsterPhysicsStats abiPhysicsStats(const aster::PhysicsStepStats &value) {
+  return {.size = sizeof(AsterPhysicsStats),
+          .version = ASTER_KERNEL_STRUCT_VERSION_1,
+          .body_count = value.body_count,
+          .active_dynamic_bodies = value.active_dynamic_bodies,
+          .sleeping_dynamic_bodies = value.sleeping_dynamic_bodies,
+          .contact_count = value.contact_count,
+          .broadphase_pair_count = value.broadphase_pair_count,
+          .substeps = value.substeps,
+          .solver_iterations = value.solver_iterations,
+          .queued_command_count = value.queued_command_count};
+}
+
+aster::FrameControlInput frameControlInput(const AsterFrameControlInput &value) {
+  return {.target_frame_seconds = value.target_frame_seconds,
+          .frame_seconds = value.frame_seconds,
+          .update_seconds = value.update_seconds,
+          .render_seconds = value.render_seconds,
+          .hud_seconds = value.hud_seconds,
+          .swap_seconds = value.swap_seconds,
+          .perception_seconds = value.perception_seconds,
+          .physics_seconds = value.physics_seconds,
+          .streaming_seconds = value.streaming_seconds,
+          .streaming_backlog_items = value.streaming_backlog_items,
+          .perceptual_backlog_items = value.perceptual_backlog_items,
+          .active_dynamic_bodies = value.active_dynamic_bodies,
+          .active_contacts = value.active_contacts,
+          .player_speed = value.player_speed,
+          .cave_pressure = value.cave_pressure};
+}
+
+AsterKernelWorkBudgetInfo abiWorkBudget(const aster::FrameWorkBudget &value) {
+  return {.max_items = value.max_items,
+          .max_seconds = value.max_seconds,
+          .starvation_frame_limit = value.starvation_frame_limit,
+          .starvation_priority_per_frame = value.starvation_priority_per_frame};
+}
+
+AsterFrameControlOutput abiFrameControlOutput(const aster::FrameControlOutput &value) {
+  return {.size = sizeof(AsterFrameControlOutput),
+          .version = ASTER_KERNEL_STRUCT_VERSION_1,
+          .streaming_budget = abiWorkBudget(value.streaming_budget),
+          .perceptual_budget = abiWorkBudget(value.perceptual_budget),
+          .physics_max_substeps = value.physics_max_substeps,
+          .physics_solver_iterations = value.physics_solver_iterations,
+          .perceptual_proof_interval_frames = value.perceptual_proof_interval_frames,
+          .lighting_update_interval_frames = value.lighting_update_interval_frames,
+          .visibility_hint_budget = value.visibility_hint_budget,
+          .semantic_lod_bias = value.semantic_lod_bias,
+          .pressure = value.pressure,
+          .optional_work_seconds = value.optional_work_seconds,
+          .degraded = value.degraded};
 }
 
 bool validCellAnchorInfo(const AsterWorldPerceptualCellAnchorInfo &info) {
@@ -7592,11 +7706,379 @@ AsterStatus aster_kernel_authoring_document_destroy(AsterAuthoringDocumentHandle
   return destroyHandle(document, kAuthoringDocumentMagic);
 }
 
-AsterStatus aster_kernel_physics_world_destroy(const AsterPhysicsWorldHandle physics_world) {
-  if (physics_world == nullptr) {
-    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is null");
+AsterStatus aster_kernel_frame_control_evaluate(const AsterFrameControlInput *input,
+                                                AsterFrameControlOutput *out_output) {
+  if (!validStruct(input)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "frame control input version is not supported");
   }
-  return makeStatus(ASTER_STATUS_UNSUPPORTED, "physics world creation is not public yet");
+  if (out_output == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_output is null");
+  }
+  *out_output = abiFrameControlOutput(aster::evaluateFrameControl(frameControlInput(*input)));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_world_create(const AsterPhysicsWorldDesc *desc,
+                                              AsterPhysicsWorldHandle *out_physics_world) {
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "physics world desc version is not supported");
+  }
+  if (out_physics_world == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_physics_world is null");
+  }
+  auto *handle = new (std::nothrow) AsterPhysicsWorldHandle__();
+  if (handle == nullptr) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "could not allocate physics world");
+  }
+  aster::PhysicsSettings settings;
+  settings.gravity = vec(desc->gravity);
+  settings.solver_iterations = desc->solver_iterations > 0 ? desc->solver_iterations : 6;
+  settings.max_step = desc->max_step_seconds > 0.0f ? desc->max_step_seconds : 1.0f / 120.0f;
+  settings.sleep_linear_threshold =
+      desc->sleep_linear_threshold > 0.0f ? desc->sleep_linear_threshold : 0.035f;
+  settings.sleep_angular_threshold =
+      desc->sleep_angular_threshold > 0.0f ? desc->sleep_angular_threshold : 0.020f;
+  settings.sleep_time_threshold =
+      desc->sleep_time_threshold > 0.0f ? desc->sleep_time_threshold : 0.55f;
+  handle->world.setSettings(settings);
+  *out_physics_world = handle;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_world_step(const AsterPhysicsWorldHandle physics_world,
+                                            const AsterPhysicsStepDesc *desc,
+                                            AsterPhysicsStepResult *out_result) {
+  if (!validPhysicsWorld(physics_world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is invalid");
+  }
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "physics step desc version is not supported");
+  }
+  if (out_result == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_result is null");
+  }
+  const aster::PhysicsStepResult result =
+      physics_world->world.step({.dt = desc->dt_seconds,
+                                 .max_substeps = desc->max_substeps,
+                                 .solver_iterations_override = desc->solver_iterations_override});
+  *out_result = {.size = sizeof(AsterPhysicsStepResult),
+                 .version = ASTER_KERNEL_STRUCT_VERSION_1,
+                 .stats = abiPhysicsStats(result.stats)};
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_world_stats(const AsterPhysicsWorldHandle physics_world,
+                                             AsterPhysicsStats *out_stats) {
+  if (!validPhysicsWorld(physics_world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is invalid");
+  }
+  if (out_stats == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_stats is null");
+  }
+  *out_stats = abiPhysicsStats(physics_world->world.lastStats());
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_body_create(const AsterPhysicsWorldHandle physics_world,
+                                             const AsterPhysicsBodyDesc *desc,
+                                             AsterPhysicsBodyHandle *out_body) {
+  if (!validPhysicsWorld(physics_world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is invalid");
+  }
+  if (!validStruct(desc) || !validStruct(&desc->shape)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "physics body desc version is not supported");
+  }
+  if (out_body == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_body is null");
+  }
+  try {
+    aster::PhysicsBodyDesc body_desc;
+    body_desc.type = physicsBodyType(desc->type);
+    body_desc.shape = physicsShapeType(desc->shape.type);
+    body_desc.position = vec(desc->position);
+    const bool zero_rotation = desc->orientation.x == 0.0f && desc->orientation.y == 0.0f &&
+                               desc->orientation.z == 0.0f && desc->orientation.w == 0.0f;
+    body_desc.orientation = zero_rotation ? aster::identityQuat() : quat(desc->orientation);
+    body_desc.velocity = vec(desc->velocity);
+    body_desc.angular_velocity = vec(desc->angular_velocity);
+    body_desc.half_extents = vec(desc->shape.half_extents);
+    if (body_desc.shape == aster::PhysicsShapeType::Capsule && desc->shape.capsule_half_height > 0.0f) {
+      body_desc.half_extents.y = desc->shape.capsule_half_height;
+    }
+    body_desc.radius = desc->shape.radius > 0.0f ? desc->shape.radius : 0.5f;
+    body_desc.mass = desc->mass > 0.0f ? desc->mass : 1.0f;
+    body_desc.material = {desc->material.friction, desc->material.restitution};
+    body_desc.linear_damping = desc->linear_damping;
+    body_desc.angular_damping = desc->angular_damping;
+    body_desc.filter = physicsFilter(desc->filter);
+    body_desc.allow_sleep = desc->allow_sleep != 0u;
+    body_desc.gravity_enabled = desc->gravity_enabled != 0u;
+    body_desc.ccd_enabled = desc->ccd_enabled != 0u;
+    body_desc.center_of_mass = vec(desc->center_of_mass);
+    body_desc.inertia_scale =
+        desc->inertia_scale.x == 0.0f && desc->inertia_scale.y == 0.0f &&
+                desc->inertia_scale.z == 0.0f
+            ? aster::Vec3{1.0f, 1.0f, 1.0f}
+            : vec(desc->inertia_scale);
+    body_desc.lock_linear_axes = vec(desc->lock_linear_axes);
+    body_desc.lock_angular_axes = vec(desc->lock_angular_axes);
+    *out_body = abiPhysicsBodyHandle(physics_world->world.addBody(body_desc));
+  } catch (const std::exception &error) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, error.what());
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_body_destroy(const AsterPhysicsWorldHandle physics_world,
+                                              const AsterPhysicsBodyHandle body) {
+  if (!validPhysicsWorld(physics_world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is invalid");
+  }
+  return physics_world->world.removeBody(physicsBodyHandle(body))
+             ? aster_kernel_status_ok()
+             : makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics body handle is invalid");
+}
+
+AsterStatus aster_kernel_physics_body_state(const AsterPhysicsWorldHandle physics_world,
+                                            const AsterPhysicsBodyHandle body,
+                                            AsterPhysicsBodyState *out_state) {
+  if (!validPhysicsWorld(physics_world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is invalid");
+  }
+  if (out_state == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_state is null");
+  }
+  if (!physics_world->world.valid(physicsBodyHandle(body))) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics body handle is invalid");
+  }
+  const aster::PhysicsBodyState state = physics_world->world.bodyState(physicsBodyHandle(body));
+  *out_state = {.size = sizeof(AsterPhysicsBodyState),
+                .version = ASTER_KERNEL_STRUCT_VERSION_1,
+                .position = abiVec(state.position),
+                .orientation = abiQuat(state.orientation),
+                .velocity = abiVec(state.velocity),
+                .angular_velocity = abiVec(state.angular_velocity),
+                .sleeping = state.sleeping ? 1u : 0u};
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_body_set_state(const AsterPhysicsWorldHandle physics_world,
+                                                const AsterPhysicsBodyHandle body,
+                                                const AsterPhysicsBodyState *state) {
+  if (!validPhysicsWorld(physics_world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is invalid");
+  }
+  if (!validStruct(state)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "physics body state version is not supported");
+  }
+  if (!physics_world->world.valid(physicsBodyHandle(body))) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics body handle is invalid");
+  }
+  physics_world->world.setBodyState(
+      physicsBodyHandle(body),
+      {.position = vec(state->position),
+       .orientation = quat(state->orientation),
+       .velocity = vec(state->velocity),
+       .angular_velocity = vec(state->angular_velocity),
+       .sleeping = state->sleeping != 0u});
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_body_apply_force(const AsterPhysicsWorldHandle physics_world,
+                                                  const AsterPhysicsBodyHandle body,
+                                                  const AsterVec3 force) {
+  if (!validPhysicsWorld(physics_world) || !physics_world->world.valid(physicsBodyHandle(body))) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics handle is invalid");
+  }
+  physics_world->world.queueForce(physicsBodyHandle(body), vec(force));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_body_apply_force_at_position(
+    const AsterPhysicsWorldHandle physics_world, const AsterPhysicsBodyHandle body,
+    const AsterVec3 force, const AsterVec3 world_position) {
+  if (!validPhysicsWorld(physics_world) || !physics_world->world.valid(physicsBodyHandle(body))) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics handle is invalid");
+  }
+  physics_world->world.queueForceAtPosition(physicsBodyHandle(body), vec(force), vec(world_position));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_body_apply_torque(const AsterPhysicsWorldHandle physics_world,
+                                                   const AsterPhysicsBodyHandle body,
+                                                   const AsterVec3 torque) {
+  if (!validPhysicsWorld(physics_world) || !physics_world->world.valid(physicsBodyHandle(body))) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics handle is invalid");
+  }
+  physics_world->world.queueTorque(physicsBodyHandle(body), vec(torque));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_body_apply_impulse(const AsterPhysicsWorldHandle physics_world,
+                                                    const AsterPhysicsBodyHandle body,
+                                                    const AsterVec3 impulse) {
+  if (!validPhysicsWorld(physics_world) || !physics_world->world.valid(physicsBodyHandle(body))) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics handle is invalid");
+  }
+  physics_world->world.applyImpulse(physicsBodyHandle(body), vec(impulse));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_body_apply_impulse_at_position(
+    const AsterPhysicsWorldHandle physics_world, const AsterPhysicsBodyHandle body,
+    const AsterVec3 impulse, const AsterVec3 world_position) {
+  if (!validPhysicsWorld(physics_world) || !physics_world->world.valid(physicsBodyHandle(body))) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics handle is invalid");
+  }
+  physics_world->world.applyImpulseAtPosition(physicsBodyHandle(body), vec(impulse),
+                                              vec(world_position));
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_raycast(const AsterPhysicsWorldHandle physics_world,
+                                         const AsterPhysicsRayDesc *desc,
+                                         AsterPhysicsHit *out_hit) {
+  if (!validPhysicsWorld(physics_world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is invalid");
+  }
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "physics ray desc version is not supported");
+  }
+  if (out_hit == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_hit is null");
+  }
+  aster::PhysicsRayHit hit;
+  const bool found = physics_world->world.raycast(
+      {.origin = vec(desc->origin),
+       .direction = vec(desc->direction),
+       .max_distance = desc->max_distance,
+       .filter = physicsQueryFilter(desc->collides_with, desc->include_sensors, desc->ignore_body)},
+      hit);
+  *out_hit = {.size = sizeof(AsterPhysicsHit),
+              .version = ASTER_KERNEL_STRUCT_VERSION_1,
+              .hit = found ? 1u : 0u,
+              .body = abiPhysicsBodyHandle(hit.body),
+              .point = abiVec(hit.point),
+              .normal = abiVec(hit.normal),
+              .distance = hit.distance,
+              .fraction = hit.fraction};
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_shape_cast(const AsterPhysicsWorldHandle physics_world,
+                                            const AsterPhysicsShapeCastDesc *desc,
+                                            AsterPhysicsHit *out_hit) {
+  if (!validPhysicsWorld(physics_world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is invalid");
+  }
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "physics shape cast desc version is not supported");
+  }
+  if (out_hit == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_hit is null");
+  }
+  try {
+    aster::PhysicsShapeCastHit hit;
+    const bool found = physics_world->world.castSphere(
+        {.origin = vec(desc->origin),
+         .displacement = vec(desc->displacement),
+         .radius = desc->radius,
+         .filter =
+             physicsQueryFilter(desc->collides_with, desc->include_sensors, desc->ignore_body)},
+        hit);
+    *out_hit = {.size = sizeof(AsterPhysicsHit),
+                .version = ASTER_KERNEL_STRUCT_VERSION_1,
+                .hit = found ? 1u : 0u,
+                .body = abiPhysicsBodyHandle(hit.body),
+                .point = abiVec(hit.point),
+                .normal = abiVec(hit.normal),
+                .distance = hit.distance,
+                .fraction = hit.fraction};
+  } catch (const std::exception &error) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, error.what());
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_overlap_count(const AsterPhysicsWorldHandle physics_world,
+                                               const AsterPhysicsOverlapDesc *desc,
+                                               size_t *out_count) {
+  if (!validPhysicsWorld(physics_world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is invalid");
+  }
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "physics overlap desc version is not supported");
+  }
+  if (out_count == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_count is null");
+  }
+  try {
+    const std::vector<aster::PhysicsOverlapHit> hits = physics_world->world.overlapSphere(
+        vec(desc->center), desc->radius,
+        physicsQueryFilter(desc->collides_with, desc->include_sensors, desc->ignore_body));
+    *out_count = hits.size();
+  } catch (const std::exception &error) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, error.what());
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_overlap(const AsterPhysicsWorldHandle physics_world,
+                                         const AsterPhysicsOverlapDesc *desc, const size_t index,
+                                         AsterPhysicsOverlapInfo *out_overlap) {
+  if (!validPhysicsWorld(physics_world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is invalid");
+  }
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "physics overlap desc version is not supported");
+  }
+  if (out_overlap == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_overlap is null");
+  }
+  try {
+    const std::vector<aster::PhysicsOverlapHit> hits = physics_world->world.overlapSphere(
+        vec(desc->center), desc->radius,
+        physicsQueryFilter(desc->collides_with, desc->include_sensors, desc->ignore_body));
+    if (index >= hits.size()) {
+      return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics overlap index is out of range");
+    }
+    *out_overlap = {.size = sizeof(AsterPhysicsOverlapInfo),
+                    .version = ASTER_KERNEL_STRUCT_VERSION_1,
+                    .body = abiPhysicsBodyHandle(hits[index].body)};
+  } catch (const std::exception &error) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, error.what());
+  }
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_contact(const AsterPhysicsWorldHandle physics_world,
+                                         const size_t index,
+                                         AsterPhysicsContactInfo *out_contact) {
+  if (!validPhysicsWorld(physics_world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics world handle is invalid");
+  }
+  if (out_contact == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_contact is null");
+  }
+  const std::vector<aster::PhysicsContact> &contacts = physics_world->world.contacts();
+  if (index >= contacts.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "physics contact index is out of range");
+  }
+  const aster::PhysicsContact &contact = contacts[index];
+  *out_contact = {.size = sizeof(AsterPhysicsContactInfo),
+                  .version = ASTER_KERNEL_STRUCT_VERSION_1,
+                  .body_a = abiPhysicsBodyHandle(contact.body_a),
+                  .body_b = abiPhysicsBodyHandle(contact.body_b),
+                  .point = abiVec(contact.point),
+                  .normal = abiVec(contact.normal),
+                  .penetration = contact.penetration,
+                  .normal_impulse = contact.normal_impulse,
+                  .tangent_impulse = contact.tangent_impulse};
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_physics_world_destroy(const AsterPhysicsWorldHandle physics_world) {
+  return destroyHandle(physics_world, kPhysicsWorldMagic);
 }
 
 AsterStatus aster_kernel_system_world_destroy(const AsterSystemWorldHandle system_world) {

@@ -13,9 +13,9 @@ fn value_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
 
 fn asset_domain(kind: &str) -> Vec<&'static str> {
     match kind {
-        "scene" => vec!["project", "scene"],
-        "prefab" => vec!["prefab", "systems"],
-        "cave" | "mesh" | "asset_graph" => vec!["geometry", "scene"],
+        "scene" => vec!["project", "scene", "physics"],
+        "prefab" => vec!["prefab", "systems", "physics"],
+        "cave" | "mesh" | "asset_graph" => vec!["geometry", "scene", "physics"],
         "material" | "texture" => vec!["material", "rendering"],
         "item" => vec!["item", "systems"],
         "action_graph" => vec!["action_graph", "systems"],

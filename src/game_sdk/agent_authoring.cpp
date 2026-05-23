@@ -960,13 +960,13 @@ std::string_view asterAgentCommandDecisionName(const AsterAgentCommandDecision d
 std::vector<AsterAgentDomain> asterAgentDomainsForAssetKind(const AssetKind kind) {
   switch (kind) {
   case AssetKind::Scene:
-    return {AsterAgentDomain::Project, AsterAgentDomain::Scene};
+    return {AsterAgentDomain::Project, AsterAgentDomain::Scene, AsterAgentDomain::Physics};
   case AssetKind::Prefab:
-    return {AsterAgentDomain::Prefab, AsterAgentDomain::Systems};
+    return {AsterAgentDomain::Prefab, AsterAgentDomain::Systems, AsterAgentDomain::Physics};
   case AssetKind::Cave:
   case AssetKind::Mesh:
   case AssetKind::AssetGraph:
-    return {AsterAgentDomain::Geometry, AsterAgentDomain::Scene};
+    return {AsterAgentDomain::Geometry, AsterAgentDomain::Scene, AsterAgentDomain::Physics};
   case AssetKind::Material:
   case AssetKind::Texture:
     return {AsterAgentDomain::Material, AsterAgentDomain::Rendering};

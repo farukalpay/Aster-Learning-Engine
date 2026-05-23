@@ -148,6 +148,7 @@ set(ASTER_CORE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/belief_extraction.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/deterministic_sim.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/fixed_timestep.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/frame_control.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/frame_time_stats.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/job_graph.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/module_registry.cpp"

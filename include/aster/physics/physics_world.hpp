@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "aster/math/quat.hpp"
 #include "aster/math/transform.hpp"
 #include "aster/math/vec.hpp"
 #include "aster/render/mesh.hpp"
@@ -17,6 +18,7 @@ namespace aster {
 enum class PhysicsBodyType {
   Static,
   Dynamic,
+  Kinematic,
 };
 
 enum class PhysicsShapeType {
@@ -67,6 +69,16 @@ struct PhysicsBodyDesc {
   std::shared_ptr<const CpuMesh> mesh{};
   Transform mesh_transform{};
   bool mesh_double_sided = true;
+  Quat orientation{};
+  Vec3 velocity{};
+  Vec3 angular_velocity{};
+  float angular_damping = 0.10f;
+  bool gravity_enabled = true;
+  bool ccd_enabled = false;
+  Vec3 center_of_mass{};
+  Vec3 inertia_scale{1.0f, 1.0f, 1.0f};
+  Vec3 lock_linear_axes{};
+  Vec3 lock_angular_axes{};
 };
 
 enum class DistanceConstraintMode {
@@ -95,19 +107,30 @@ struct PhysicsBody {
   PhysicsShapeType shape = PhysicsShapeType::Box;
   Vec3 position{};
   Vec3 previous_position{};
+  Quat orientation{};
+  Quat previous_orientation{};
   Vec3 velocity{};
+  Vec3 angular_velocity{};
   Vec3 force{};
+  Vec3 torque{};
   Vec3 half_extents{0.5f, 0.5f, 0.5f};
   float radius = 0.5f;
   float inverse_mass = 0.0f;
+  Vec3 inverse_inertia{};
   PhysicsMaterial material{};
   float linear_damping = 0.08f;
+  float angular_damping = 0.10f;
   PhysicsCollisionFilter filter{};
   std::uint32_t generation = 1;
   bool active = true;
   bool allow_sleep = true;
+  bool gravity_enabled = true;
+  bool ccd_enabled = false;
   bool sleeping = false;
   float sleep_timer = 0.0f;
+  Vec3 center_of_mass{};
+  Vec3 lock_linear_factor{1.0f, 1.0f, 1.0f};
+  Vec3 lock_angular_factor{1.0f, 1.0f, 1.0f};
   bool mesh_double_sided = true;
   Vec3 mesh_bounds_min{};
   Vec3 mesh_bounds_max{};
@@ -120,6 +143,8 @@ struct PhysicsContact {
   Vec3 point{};
   Vec3 normal{};
   float penetration = 0.0f;
+  float normal_impulse = 0.0f;
+  float tangent_impulse = 0.0f;
 };
 
 struct PhysicsBroadphasePair {
@@ -190,7 +215,37 @@ struct PhysicsSettings {
   int solver_iterations = 6;
   float max_step = 1.0f / 30.0f;
   float sleep_linear_threshold = 0.035f;
+  float sleep_angular_threshold = 0.020f;
   float sleep_time_threshold = 0.55f;
+};
+
+struct PhysicsBodyState {
+  Vec3 position{};
+  Quat orientation{};
+  Vec3 velocity{};
+  Vec3 angular_velocity{};
+  bool sleeping = false;
+};
+
+struct PhysicsStepDesc {
+  float dt = 0.0f;
+  int max_substeps = 0;
+  int solver_iterations_override = 0;
+};
+
+struct PhysicsStepStats {
+  std::uint32_t body_count = 0u;
+  std::uint32_t active_dynamic_bodies = 0u;
+  std::uint32_t sleeping_dynamic_bodies = 0u;
+  std::uint32_t contact_count = 0u;
+  std::uint32_t broadphase_pair_count = 0u;
+  std::uint32_t substeps = 0u;
+  std::uint32_t solver_iterations = 0u;
+  std::uint32_t queued_command_count = 0u;
+};
+
+struct PhysicsStepResult {
+  PhysicsStepStats stats{};
 };
 
 struct CharacterControllerSettings {
@@ -234,12 +289,25 @@ public:
   [[nodiscard]] const PhysicsBody &body(PhysicsBodyHandle handle) const;
 
   void applyForce(PhysicsBodyHandle handle, Vec3 force);
+  void applyForceAtPosition(PhysicsBodyHandle handle, Vec3 force, Vec3 world_position);
+  void applyTorque(PhysicsBodyHandle handle, Vec3 torque);
   void applyImpulse(PhysicsBodyHandle handle, Vec3 impulse);
+  void applyImpulseAtPosition(PhysicsBodyHandle handle, Vec3 impulse, Vec3 world_position);
+  void queueForce(PhysicsBodyHandle handle, Vec3 force);
+  void queueForceAtPosition(PhysicsBodyHandle handle, Vec3 force, Vec3 world_position);
+  void queueTorque(PhysicsBodyHandle handle, Vec3 torque);
+  void queueImpulse(PhysicsBodyHandle handle, Vec3 impulse);
+  void queueImpulseAtPosition(PhysicsBodyHandle handle, Vec3 impulse, Vec3 world_position);
   void setVelocity(PhysicsBodyHandle handle, Vec3 velocity);
+  void setAngularVelocity(PhysicsBodyHandle handle, Vec3 angular_velocity);
   void setPosition(PhysicsBodyHandle handle, Vec3 position);
+  void setOrientation(PhysicsBodyHandle handle, Quat orientation);
+  void setBodyState(PhysicsBodyHandle handle, const PhysicsBodyState &state);
+  [[nodiscard]] PhysicsBodyState bodyState(PhysicsBodyHandle handle) const;
   void wakeBody(PhysicsBodyHandle handle);
 
   void step(float dt);
+  [[nodiscard]] PhysicsStepResult step(const PhysicsStepDesc &desc);
 
   [[nodiscard]] bool raycast(const PhysicsRay &ray, PhysicsRayHit &hit) const;
   [[nodiscard]] bool castSphere(const PhysicsSphereCast &cast, PhysicsShapeCastHit &hit) const;
@@ -260,6 +328,10 @@ public:
     return broadphase_pairs_;
   }
 
+  [[nodiscard]] const PhysicsStepStats &lastStats() const {
+    return last_stats_;
+  }
+
 private:
   struct DistanceConstraint {
     DistanceConstraintDesc desc{};
@@ -273,9 +345,26 @@ private:
     bool active = true;
   };
 
+  enum class CommandKind {
+    Force,
+    ForceAtPosition,
+    Torque,
+    Impulse,
+    ImpulseAtPosition,
+  };
+
+  struct BufferedCommand {
+    CommandKind kind = CommandKind::Force;
+    PhysicsBodyHandle body{};
+    Vec3 vector{};
+    Vec3 world_position{};
+  };
+
   void updateSleeping(float dt);
   void applyFluidForces();
+  void flushCommands();
   void integrate(float dt);
+  void resolveCcdSweeps();
   void buildBroadphasePairs();
   void solveConstraints(float dt);
   void solveCollisions();
@@ -288,6 +377,8 @@ private:
   std::vector<FluidVolume> fluid_volumes_;
   std::vector<PhysicsContact> contacts_;
   std::vector<PhysicsBroadphasePair> broadphase_pairs_;
+  std::vector<BufferedCommand> command_buffer_;
+  PhysicsStepStats last_stats_{};
 };
 
 [[nodiscard]] bool samePhysicsHandle(PhysicsBodyHandle lhs, PhysicsBodyHandle rhs);
