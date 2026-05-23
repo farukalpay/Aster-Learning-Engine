@@ -124,6 +124,13 @@ static_assert(std::is_standard_layout_v<AsterFrameDebugCaptureInfo>);
 static_assert(std::is_standard_layout_v<AsterFramePassArtifactInfo>);
 static_assert(std::is_standard_layout_v<AsterFrameResourceTransition>);
 static_assert(std::is_standard_layout_v<AsterObjectRenderFate>);
+static_assert(std::is_standard_layout_v<AsterFrameDebuggerTimelineEventInfo>);
+static_assert(std::is_standard_layout_v<AsterMaterialBindingTraceInfo>);
+static_assert(std::is_standard_layout_v<AsterAssetFrameTraceInfo>);
+static_assert(std::is_standard_layout_v<AsterFrameResourceProvenanceInfo>);
+static_assert(std::is_standard_layout_v<AsterFrameRegressionGalleryEntryInfo>);
+static_assert(std::is_standard_layout_v<AsterFramePipelineSignatureInfo>);
+static_assert(std::is_standard_layout_v<AsterFrameMaterialResidencyInfo>);
 static_assert(std::is_standard_layout_v<AsterRhiValidationEvent>);
 static_assert(std::is_standard_layout_v<AsterFrameTimestampSample>);
 static_assert(std::is_standard_layout_v<AsterBackendFeatureProof>);
@@ -182,6 +189,8 @@ static_assert(ASTER_KERNEL_RENDER_RESOURCE_SURFACE_ATTRIBUTES !=
               ASTER_KERNEL_RENDER_RESOURCE_SCENE_COLOR);
 static_assert(ASTER_KERNEL_RENDER_RESOURCE_SURFACE_OCCLUSION !=
               ASTER_KERNEL_RENDER_RESOURCE_SHADOW_ATLAS);
+static_assert(ASTER_KERNEL_RENDER_RESOURCE_SURFACE_TRUTH_BASE_COLOR == 10u);
+static_assert(ASTER_KERNEL_RENDER_RESOURCE_TONEMAP_INPUT == 19u);
 static_assert(ASTER_BELIEF_FINDING_MATERIAL_FAMILY_COLLAPSE == 1u);
 static_assert(ASTER_BELIEF_FINDING_BACKEND_VISUAL_TRUTH_GAP == 9u);
 static_assert(ASTER_BELIEF_FINDING_MISSING_PERCEPTUAL_PRIMITIVE == 17u);
@@ -343,7 +352,7 @@ void testStatusAndEngineLifecycle() {
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 7u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 0u);
+  assert(version.minor == 1u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -1266,6 +1275,13 @@ void testRendererAbi5Lifecycle() {
   assert(detail_counts.graphics_core7_verdict.evidence_hash != 0u);
   assert(detail_counts.graphics_core7_verdict.signal_count ==
          detail_counts.graphics_core7_signal_count);
+  assert(detail_counts.debug_timeline_count >= 1u);
+  assert(detail_counts.material_binding_count >= 1u);
+  assert(detail_counts.asset_trace_count >= 1u);
+  assert(detail_counts.resource_provenance_count >= 1u);
+  assert(detail_counts.regression_gallery_count >= 1u);
+  assert(detail_counts.pipeline_signature_count == detail_counts.object_fate_count);
+  assert(detail_counts.material_residency_count == detail_counts.material_binding_count);
 
   AsterGraphicsCore7VerdictInfo gc7_verdict{sizeof(AsterGraphicsCore7VerdictInfo),
                                             ASTER_KERNEL_STRUCT_VERSION_1};
@@ -1438,6 +1454,50 @@ void testRendererAbi5Lifecycle() {
   assert(fate.pass_list.size > 0u);
   assert(fate.final_contribution.size > 0u);
   assert(fate.contribution_hash != 0u);
+  AsterFrameDebuggerTimelineEventInfo timeline_event{
+      sizeof(AsterFrameDebuggerTimelineEventInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_frame_debugger_timeline_event(renderer, 0u, &timeline_event)
+             .code == ASTER_STATUS_OK);
+  assert(timeline_event.label.size > 0u);
+  assert(timeline_event.evidence_hash != 0u);
+  AsterMaterialBindingTraceInfo material_binding{sizeof(AsterMaterialBindingTraceInfo),
+                                                 ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_material_binding_trace(renderer, 0u, &material_binding).code ==
+         ASTER_STATUS_OK);
+  assert(material_binding.object_name.size > 0u);
+  assert(material_binding.role.size > 0u);
+  AsterAssetFrameTraceInfo asset_trace{sizeof(AsterAssetFrameTraceInfo),
+                                       ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_asset_frame_trace(renderer, 0u, &asset_trace).code ==
+         ASTER_STATUS_OK);
+  assert(asset_trace.object_name.size > 0u);
+  assert(asset_trace.trace_hash != 0u);
+  AsterFrameResourceProvenanceInfo provenance{sizeof(AsterFrameResourceProvenanceInfo),
+                                              ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_resource_provenance(renderer, 0u, &provenance).code ==
+         ASTER_STATUS_OK);
+  assert(provenance.resource_name.size > 0u);
+  assert(provenance.provenance_hash != 0u);
+  AsterFrameRegressionGalleryEntryInfo gallery_entry{
+      sizeof(AsterFrameRegressionGalleryEntryInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_regression_gallery_entry(renderer, 0u, &gallery_entry).code ==
+         ASTER_STATUS_OK);
+  assert(gallery_entry.label.size > 0u);
+  if (gallery_entry.available != 0u) {
+    assert(gallery_entry.image_hash != 0u);
+  }
+  AsterFramePipelineSignatureInfo pipeline_signature{
+      sizeof(AsterFramePipelineSignatureInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_pipeline_signature(renderer, 0u, &pipeline_signature).code ==
+         ASTER_STATUS_OK);
+  assert(pipeline_signature.pipeline_cache_key.size > 0u);
+  assert(pipeline_signature.contribution_hash == fate.contribution_hash);
+  AsterFrameMaterialResidencyInfo material_residency{
+      sizeof(AsterFrameMaterialResidencyInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_renderer_material_residency(renderer, 0u, &material_residency).code ==
+         ASTER_STATUS_OK);
+  assert(material_residency.object_name.size > 0u);
+  assert(material_residency.role.size > 0u);
   AsterFrameTimestampSample timestamp{sizeof(AsterFrameTimestampSample),
                                       ASTER_KERNEL_STRUCT_VERSION_1};
   if (detail_counts.timestamp_sample_count > 0u) {
@@ -2804,12 +2864,19 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_renderer_debug_capture_info",
       "aster_kernel_renderer_pass_artifact_info",
       "aster_kernel_renderer_resource_transition",
+      "aster_kernel_renderer_object_render_fate",
+      "aster_kernel_renderer_frame_debugger_timeline_event",
+      "aster_kernel_renderer_material_binding_trace",
+      "aster_kernel_renderer_asset_frame_trace",
+      "aster_kernel_renderer_resource_provenance",
+      "aster_kernel_renderer_regression_gallery_entry",
+      "aster_kernel_renderer_pipeline_signature",
+      "aster_kernel_renderer_material_residency",
       "aster_kernel_renderer_rhi_validation_event",
       "aster_kernel_renderer_timestamp_sample",
       "aster_kernel_renderer_backend_feature_proof",
       "aster_kernel_renderer_frame_graphics_core7_verdict",
       "aster_kernel_renderer_frame_graphics_core7_signal",
-      "aster_kernel_renderer_object_render_fate",
       "aster_kernel_renderer_get_last_frame_schedule",
       "aster_kernel_renderer_destroy",
       "aster_kernel_mesh_create",
@@ -2983,12 +3050,19 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_renderer_debug_capture_info;
   (void)&aster_kernel_renderer_pass_artifact_info;
   (void)&aster_kernel_renderer_resource_transition;
+  (void)&aster_kernel_renderer_object_render_fate;
+  (void)&aster_kernel_renderer_frame_debugger_timeline_event;
+  (void)&aster_kernel_renderer_material_binding_trace;
+  (void)&aster_kernel_renderer_asset_frame_trace;
+  (void)&aster_kernel_renderer_resource_provenance;
+  (void)&aster_kernel_renderer_regression_gallery_entry;
+  (void)&aster_kernel_renderer_pipeline_signature;
+  (void)&aster_kernel_renderer_material_residency;
   (void)&aster_kernel_renderer_rhi_validation_event;
   (void)&aster_kernel_renderer_timestamp_sample;
   (void)&aster_kernel_renderer_backend_feature_proof;
   (void)&aster_kernel_renderer_frame_graphics_core7_verdict;
   (void)&aster_kernel_renderer_frame_graphics_core7_signal;
-  (void)&aster_kernel_renderer_object_render_fate;
   (void)&aster_kernel_renderer_get_last_frame_schedule;
   (void)&aster_kernel_renderer_destroy;
   (void)&aster_kernel_mesh_create;

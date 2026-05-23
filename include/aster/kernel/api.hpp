@@ -1525,6 +1525,89 @@ public:
     return Result<AsterObjectRenderFate>(std::move(fate));
   }
 
+  [[nodiscard]] Result<AsterFrameDebuggerTimelineEventInfo>
+  frameDebuggerTimelineEvent(const size_t index) const noexcept {
+    AsterFrameDebuggerTimelineEventInfo event{
+        sizeof(AsterFrameDebuggerTimelineEventInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_renderer_frame_debugger_timeline_event(handle_, index, &event));
+    if (!status) {
+      return Result<AsterFrameDebuggerTimelineEventInfo>(status);
+    }
+    return Result<AsterFrameDebuggerTimelineEventInfo>(std::move(event));
+  }
+
+  [[nodiscard]] Result<AsterMaterialBindingTraceInfo> materialBindingTrace(
+      const size_t index) const noexcept {
+    AsterMaterialBindingTraceInfo binding{sizeof(AsterMaterialBindingTraceInfo),
+                                          ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_renderer_material_binding_trace(handle_, index, &binding));
+    if (!status) {
+      return Result<AsterMaterialBindingTraceInfo>(status);
+    }
+    return Result<AsterMaterialBindingTraceInfo>(std::move(binding));
+  }
+
+  [[nodiscard]] Result<AsterAssetFrameTraceInfo> assetFrameTrace(
+      const size_t index) const noexcept {
+    AsterAssetFrameTraceInfo trace{sizeof(AsterAssetFrameTraceInfo),
+                                   ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_renderer_asset_frame_trace(handle_, index, &trace));
+    if (!status) {
+      return Result<AsterAssetFrameTraceInfo>(status);
+    }
+    return Result<AsterAssetFrameTraceInfo>(std::move(trace));
+  }
+
+  [[nodiscard]] Result<AsterFrameResourceProvenanceInfo> resourceProvenance(
+      const size_t index) const noexcept {
+    AsterFrameResourceProvenanceInfo provenance{
+        sizeof(AsterFrameResourceProvenanceInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_renderer_resource_provenance(handle_, index, &provenance));
+    if (!status) {
+      return Result<AsterFrameResourceProvenanceInfo>(status);
+    }
+    return Result<AsterFrameResourceProvenanceInfo>(std::move(provenance));
+  }
+
+  [[nodiscard]] Result<AsterFrameRegressionGalleryEntryInfo> regressionGalleryEntry(
+      const size_t index) const noexcept {
+    AsterFrameRegressionGalleryEntryInfo entry{
+        sizeof(AsterFrameRegressionGalleryEntryInfo), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_renderer_regression_gallery_entry(handle_, index, &entry));
+    if (!status) {
+      return Result<AsterFrameRegressionGalleryEntryInfo>(status);
+    }
+    return Result<AsterFrameRegressionGalleryEntryInfo>(std::move(entry));
+  }
+
+  [[nodiscard]] Result<AsterFramePipelineSignatureInfo> pipelineSignature(
+      const size_t index) const noexcept {
+    AsterFramePipelineSignatureInfo signature{sizeof(AsterFramePipelineSignatureInfo),
+                                              ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_renderer_pipeline_signature(handle_, index, &signature));
+    if (!status) {
+      return Result<AsterFramePipelineSignatureInfo>(status);
+    }
+    return Result<AsterFramePipelineSignatureInfo>(std::move(signature));
+  }
+
+  [[nodiscard]] Result<AsterFrameMaterialResidencyInfo> materialResidency(
+      const size_t index) const noexcept {
+    AsterFrameMaterialResidencyInfo residency{sizeof(AsterFrameMaterialResidencyInfo),
+                                              ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_renderer_material_residency(handle_, index, &residency));
+    if (!status) {
+      return Result<AsterFrameMaterialResidencyInfo>(status);
+    }
+    return Result<AsterFrameMaterialResidencyInfo>(std::move(residency));
+  }
+
   [[nodiscard]] Result<AsterRhiValidationEvent> rhiValidationEvent(
       const size_t index) const noexcept {
     AsterRhiValidationEvent event{sizeof(AsterRhiValidationEvent),

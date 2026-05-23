@@ -133,6 +133,26 @@ std::string_view renderGraphResourceName(const RenderGraphResource resource) {
     return "ui-overlay";
   case RenderGraphResource::CaptureReadback:
     return "capture-readback";
+  case RenderGraphResource::SurfaceTruthBaseColor:
+    return "surface-truth-base-color";
+  case RenderGraphResource::SurfaceTruthNormal:
+    return "surface-truth-normal";
+  case RenderGraphResource::SurfaceTruthMaterial:
+    return "surface-truth-material";
+  case RenderGraphResource::SurfaceTruthVelocity:
+    return "surface-truth-velocity";
+  case RenderGraphResource::SurfaceHistory:
+    return "surface-history";
+  case RenderGraphResource::DepthHierarchy:
+    return "depth-hierarchy";
+  case RenderGraphResource::BloomChain:
+    return "bloom-chain";
+  case RenderGraphResource::TemporalAaHistory:
+    return "temporal-aa-history";
+  case RenderGraphResource::ExposureHistogram:
+    return "exposure-histogram";
+  case RenderGraphResource::ToneMapInput:
+    return "tonemap-input";
   }
   return "unknown";
 }
@@ -213,6 +233,36 @@ RenderGraphResource renderGraphResourceFromName(const std::string_view name) {
   }
   if (name == renderGraphResourceName(RenderGraphResource::CaptureReadback)) {
     return RenderGraphResource::CaptureReadback;
+  }
+  if (name == renderGraphResourceName(RenderGraphResource::SurfaceTruthBaseColor)) {
+    return RenderGraphResource::SurfaceTruthBaseColor;
+  }
+  if (name == renderGraphResourceName(RenderGraphResource::SurfaceTruthNormal)) {
+    return RenderGraphResource::SurfaceTruthNormal;
+  }
+  if (name == renderGraphResourceName(RenderGraphResource::SurfaceTruthMaterial)) {
+    return RenderGraphResource::SurfaceTruthMaterial;
+  }
+  if (name == renderGraphResourceName(RenderGraphResource::SurfaceTruthVelocity)) {
+    return RenderGraphResource::SurfaceTruthVelocity;
+  }
+  if (name == renderGraphResourceName(RenderGraphResource::SurfaceHistory)) {
+    return RenderGraphResource::SurfaceHistory;
+  }
+  if (name == renderGraphResourceName(RenderGraphResource::DepthHierarchy)) {
+    return RenderGraphResource::DepthHierarchy;
+  }
+  if (name == renderGraphResourceName(RenderGraphResource::BloomChain)) {
+    return RenderGraphResource::BloomChain;
+  }
+  if (name == renderGraphResourceName(RenderGraphResource::TemporalAaHistory)) {
+    return RenderGraphResource::TemporalAaHistory;
+  }
+  if (name == renderGraphResourceName(RenderGraphResource::ExposureHistogram)) {
+    return RenderGraphResource::ExposureHistogram;
+  }
+  if (name == renderGraphResourceName(RenderGraphResource::ToneMapInput)) {
+    return RenderGraphResource::ToneMapInput;
   }
   return RenderGraphResource::SceneColor;
 }
@@ -325,6 +375,74 @@ framegraph::ResourceDesc defaultRenderGraphResourceDesc(const RenderGraphResourc
 	            .format = rhi::ImageFormat::Bgra8Unorm,
 	            .extent = {.width = 0u, .height = 0u, .depth = 1u},
 	            .usage = rhi::imageUsageBit(rhi::ImageUsage::TransferDestination)};
+  case RenderGraphResource::SurfaceTruthBaseColor:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Rgba8Unorm,
+            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
+  case RenderGraphResource::SurfaceTruthNormal:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Rgba16Float,
+            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
+  case RenderGraphResource::SurfaceTruthMaterial:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Rgba8Unorm,
+            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
+  case RenderGraphResource::SurfaceTruthVelocity:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Rg8Unorm,
+            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
+  case RenderGraphResource::SurfaceHistory:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Imported),
+            .format = rhi::ImageFormat::Rgba16Float,
+            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
+  case RenderGraphResource::DepthHierarchy:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Depth32Float,
+            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::DepthAttachment) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
+  case RenderGraphResource::BloomChain:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Rgba16Float,
+            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
+  case RenderGraphResource::TemporalAaHistory:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Imported),
+            .format = rhi::ImageFormat::Rgba16Float,
+            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
+  case RenderGraphResource::ExposureHistogram:
+    return {.kind = framegraph::ResourceKind::Buffer,
+            .lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .usage = rhi::bufferUsageBit(rhi::BufferUsage::Storage) |
+                     rhi::bufferUsageBit(rhi::BufferUsage::Readback),
+            .byte_size = 256u * sizeof(std::uint32_t),
+            .stride = sizeof(std::uint32_t)};
+  case RenderGraphResource::ToneMapInput:
+    return {.lifetime = lifetimeFor(RenderGraphResourceLifetime::Frame),
+            .format = rhi::ImageFormat::Rgba16Float,
+            .extent = {.width = 0u, .height = 0u, .depth = 1u},
+            .usage = rhi::imageUsageBit(rhi::ImageUsage::ColorAttachment) |
+                     rhi::imageUsageBit(rhi::ImageUsage::Sampled) |
+                     rhi::imageUsageBit(rhi::ImageUsage::TransferSource)};
   }
   return {};
 }
@@ -478,7 +596,7 @@ framegraph::FrameGraph makeDefaultFrameGraph(const bool ui_overlay_enabled,
   const RenderPassRegistry registry =
       makeDefaultRenderPassRegistry(ui_overlay_enabled, capture_enabled);
   std::vector<framegraph::ResourceHandle> handles;
-  handles.resize(10u);
+  handles.resize(kRenderGraphResourceCount);
   for (std::uint32_t i = 0u; i < static_cast<std::uint32_t>(handles.size()); ++i) {
     const auto resource = static_cast<RenderGraphResource>(i);
     handles[i] = graph.addResource(std::string(renderGraphResourceName(resource)),

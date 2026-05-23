@@ -894,6 +894,7 @@ if(ASTER_BUILD_TESTS)
       retro_style_preview_effects
       retro_style_emissive_gain
       material_render_policies
+      render_extraction_and_cache_contracts
       runtime_light_policy
       simple_draw_api
       rhi_resource_registry

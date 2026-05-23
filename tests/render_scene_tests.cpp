@@ -7,6 +7,7 @@
 #include "aster/asset/pipe_runtime_asset.hpp"
 #include "aster/framegraph/transient_resource_allocator.hpp"
 #include "aster/graphics_core7/graphics_core7.hpp"
+#include "aster/render/render_extraction.hpp"
 #include "aster/render/visual_regression.hpp"
 #include "aster/rhi/graphics_pipeline.hpp"
 #include "aster/rhi/resource_barrier.hpp"
@@ -2598,6 +2599,107 @@ void testMaterialRenderPolicies() {
   assert(scene.reflectionProbes().front().influence_radius == 6.0f);
 }
 
+void testRenderExtractionAndCacheContracts() {
+  aster::Scene scene;
+  aster::RenderObject object;
+  object.name = "extraction cache box";
+  object.primitive = aster::MeshPrimitive::Box;
+  object.material.asset_id = "material.extraction.cache";
+  object.material.base_color = {0.42f, 0.58f, 0.74f};
+  object.material.roughness = 0.48f;
+  scene.objects().push_back(object);
+
+  aster::OrbitCamera camera;
+  camera.target = {0.0f, 0.0f, 0.0f};
+  camera.yaw = aster::radians(35.0f);
+  camera.pitch = aster::radians(18.0f);
+  camera.radius = 4.0f;
+  camera.vertical_fov = aster::radians(52.0f);
+
+  const aster::LineOfSightFadeSettings fade{};
+  const aster::RenderExtractionSet extraction =
+      aster::buildRenderExtractionSet(scene, camera, fade, 64, 48);
+  assert(extraction.ir.objects.size() == 1u);
+  assert(extraction.plan.diagnostics.visible_objects >= 1u);
+  assert(extraction.pipeline_signatures.size() == extraction.plan.groups.size());
+  assert(extraction.extraction_hash != 0u);
+
+  aster::RenderPipelineSignatureCache pipeline_cache;
+  for (const aster::RenderPipelineSignature &signature : extraction.pipeline_signatures) {
+    const aster::RenderPipelineSignature &inserted = pipeline_cache.getOrInsert(signature);
+    assert(inserted.stable_hash == signature.stable_hash);
+  }
+  assert(pipeline_cache.stats().entries == extraction.pipeline_signatures.size());
+  assert(pipeline_cache.stats().misses == extraction.pipeline_signatures.size());
+  if (!extraction.pipeline_signatures.empty()) {
+    const aster::RenderPipelineSignature &cached =
+        pipeline_cache.getOrInsert(extraction.pipeline_signatures.front());
+    assert(cached.stable_hash == extraction.pipeline_signatures.front().stable_hash);
+    assert(pipeline_cache.stats().hits == 1u);
+  }
+
+  aster::DescriptorBindingCache descriptor_cache;
+  descriptor_cache.upsert({.label = "material-set",
+                           .layout_hash = 0xD35C01u,
+                           .binding_count = 3u,
+                           .update_count = 1u});
+  const aster::DescriptorBindingEvidence *descriptor =
+      descriptor_cache.find(0xD35C01u);
+  assert(descriptor != nullptr);
+  assert(descriptor->binding_count == 3u);
+
+  aster::MaterialResidencyCache residency_cache;
+  residency_cache.upsert({.object_name = "extraction cache box",
+                          .material_asset_id = "material.extraction.cache",
+                          .role = "albedo",
+                          .valid = true,
+                          .bound = true,
+                          .fallback = false,
+                          .width = 4u,
+                          .height = 4u,
+                          .mip_count = 1u,
+                          .descriptor_layout_hash = 0xD35C01u});
+  assert(residency_cache.residentCount() == 1u);
+  residency_cache.upsert({.object_name = "extraction cache box",
+                          .material_asset_id = "material.extraction.cache",
+                          .role = "albedo",
+                          .valid = true,
+                          .bound = true,
+                          .fallback = true,
+                          .descriptor_layout_hash = 0xD35C01u,
+                          .backend_degradation = "fallback-texture"});
+  assert(residency_cache.records().size() == 1u);
+  assert(residency_cache.residentCount() == 0u);
+  assert(residency_cache.fallbackCount() == 1u);
+
+  aster::DeferredGpuReleaseQueue release_queue;
+  release_queue.enqueue({.label = "old-material-buffer",
+                         .resource_hash = 0xBEEFu,
+                         .retire_after_frame = 4u});
+  release_queue.enqueue({.label = "new-material-buffer",
+                         .resource_hash = 0xFEEDu,
+                         .retire_after_frame = 8u});
+  assert(release_queue.pendingCount() == 2u);
+  std::vector<aster::DeferredGpuReleaseItem> retired =
+      release_queue.retireCompleted(4u);
+  assert(retired.size() == 1u);
+  assert(release_queue.pendingCount() == 1u);
+  assert(release_queue.retiredCount() == 1u);
+
+  const aster::SurfaceTruthGBuffer gbuffer{.width = 64u,
+                                           .height = 48u,
+                                           .surface_attributes = true,
+                                           .surface_occlusion = true,
+                                           .velocity = true,
+                                           .history = true};
+  assert(gbuffer.valid());
+  const aster::DepthHierarchyPass depth = aster::makeDepthHierarchyPass(64u, 48u);
+  assert(depth.valid());
+  assert(depth.levels.size() > 1u);
+  assert(depth.levels.back().width == 1u);
+  assert(depth.levels.back().height == 1u);
+}
+
 void testRuntimeLightPolicy() {
   aster::LightRig lights;
   for (int i = 0; i < 12; ++i) {
@@ -2975,7 +3077,7 @@ void testFrameGraphContract() {
   const aster::FixedRenderGraph graph = aster::makeFixedRenderGraph();
   assert(graph.valid());
   assert(graph.validation_errors.empty());
-  assert(graph.resources.size() == 10u);
+  assert(graph.resources.size() == aster::kRenderGraphResourceCount);
   assert(graph.resources[0].name == "scene-color");
   assert(graph.resources[0].desc.kind == aster::framegraph::ResourceKind::Image);
   assert(graph.resources[0].desc.lifetime == aster::framegraph::ResourceLifetime::Transient);
@@ -2992,6 +3094,24 @@ void testFrameGraphContract() {
   assert(graph.resources[8].desc.lifetime == aster::framegraph::ResourceLifetime::Imported);
   assert(graph.resources[9].name == "capture-readback");
   assert(graph.resources[9].desc.lifetime == aster::framegraph::ResourceLifetime::Readback);
+  assert(graph.resources[10].name == "surface-truth-base-color");
+  assert(graph.resources[10].desc.format == aster::rhi::ImageFormat::Rgba8Unorm);
+  assert(graph.resources[11].name == "surface-truth-normal");
+  assert(graph.resources[11].desc.format == aster::rhi::ImageFormat::Rgba16Float);
+  assert(graph.resources[13].name == "surface-truth-velocity");
+  assert(graph.resources[13].desc.format == aster::rhi::ImageFormat::Rg8Unorm);
+  assert(graph.resources[14].name == "surface-history");
+  assert(graph.resources[14].desc.lifetime == aster::framegraph::ResourceLifetime::Imported);
+  assert(graph.resources[15].name == "depth-hierarchy");
+  assert(graph.resources[15].desc.format == aster::rhi::ImageFormat::Depth32Float);
+  assert(graph.resources[16].name == "bloom-chain");
+  assert(graph.resources[16].desc.format == aster::rhi::ImageFormat::Rgba16Float);
+  assert(graph.resources[17].name == "temporal-aa-history");
+  assert(graph.resources[17].desc.lifetime == aster::framegraph::ResourceLifetime::Imported);
+  assert(graph.resources[18].name == "exposure-histogram");
+  assert(graph.resources[18].desc.kind == aster::framegraph::ResourceKind::Buffer);
+  assert(graph.resources[19].name == "tonemap-input");
+  assert(graph.resources[19].desc.format == aster::rhi::ImageFormat::Rgba16Float);
   assert(graph.passes.size() == 12u);
   assert(graph.passes[0].name == "scene-color-depth");
   assert(graph.passes[1].name == "light-cull");
@@ -3046,7 +3166,7 @@ void testFrameGraphContract() {
          graph.passes[9].write_mask == color);
   assert(graph.passes[10].read_mask == (color | ui) && graph.passes[10].write_mask == color);
   assert(graph.passes[11].read_mask == color && graph.passes[11].write_mask == capture);
-  assert(graph.transient_resource_count == 8u);
+  assert(graph.transient_resource_count == 16u);
   assert(!graph.barriers.empty());
   assert(!graph.resource_barriers.empty());
   assert(graph.resource_barriers.size() == graph.barriers.size());
@@ -3168,6 +3288,10 @@ void testFrameGraphContract() {
   assert(aster::renderGraphResourceName(aster::RenderGraphResource::UiOverlay) == "ui-overlay");
   assert(aster::renderGraphResourceName(aster::RenderGraphResource::SurfaceOcclusion) ==
          "surface-occlusion");
+  assert(aster::renderGraphResourceName(aster::RenderGraphResource::DepthHierarchy) ==
+         "depth-hierarchy");
+  assert(aster::renderGraphResourceFromName("surface-truth-velocity") ==
+         aster::RenderGraphResource::SurfaceTruthVelocity);
   assert(aster::renderGraphResourceLifetimeName(aster::RenderGraphResourceLifetime::Readback) ==
          "readback");
 }
@@ -3603,6 +3727,7 @@ constexpr TestCase kTestCases[] = {
     {"retro_style_preview_effects", testRetroStyleSoftwarePreviewEffects},
     {"retro_style_emissive_gain", testRetroStyleEmissiveSoftwarePreviewGain},
     {"material_render_policies", testMaterialRenderPolicies},
+    {"render_extraction_and_cache_contracts", testRenderExtractionAndCacheContracts},
     {"runtime_light_policy", testRuntimeLightPolicy},
     {"simple_draw_api", testSimpleDrawApiBuildsRenderableFrame},
     {"rhi_resource_registry", testRhiResourceRegistryContract},

@@ -36,7 +36,7 @@ int main() {
   const AsterAbiVersion version = aster::kernel::abiVersion();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
   assert(version.major == 7u);
-  assert(version.minor == 0u);
+  assert(version.minor == 1u);
 
   const auto normalized = aster::kernel::math::normalize({3.0f, 0.0f, 4.0f});
   assert(normalized);
@@ -206,6 +206,35 @@ int main() {
   assert(forensics.value().perceptual_continuity_budget.reaction_package_hash == 0xA01u);
   assert(forensics.value().world_extraction_provenance ==
          ASTER_WORLD_EXTRACTION_WORLD_TRANSITION);
+  assert(forensics.value().debug_timeline_count > 0u);
+  assert(forensics.value().material_binding_count > 0u);
+  assert(forensics.value().asset_trace_count > 0u);
+  assert(forensics.value().resource_provenance_count > 0u);
+  assert(forensics.value().regression_gallery_count > 0u);
+  assert(forensics.value().pipeline_signature_count == forensics.value().object_fate_count);
+  assert(forensics.value().material_residency_count ==
+         forensics.value().material_binding_count);
+  auto timeline_event = renderer.value().frameDebuggerTimelineEvent(0u);
+  assert(timeline_event);
+  assert(timeline_event.value().label.size > 0u);
+  auto material_binding = renderer.value().materialBindingTrace(0u);
+  assert(material_binding);
+  assert(material_binding.value().role.size > 0u);
+  auto asset_trace = renderer.value().assetFrameTrace(0u);
+  assert(asset_trace);
+  assert(asset_trace.value().object_name.size > 0u);
+  auto provenance = renderer.value().resourceProvenance(0u);
+  assert(provenance);
+  assert(provenance.value().resource_name.size > 0u);
+  auto gallery_entry = renderer.value().regressionGalleryEntry(0u);
+  assert(gallery_entry);
+  assert(gallery_entry.value().label.size > 0u);
+  auto pipeline_signature = renderer.value().pipelineSignature(0u);
+  assert(pipeline_signature);
+  assert(pipeline_signature.value().pipeline_cache_key.size > 0u);
+  auto material_residency = renderer.value().materialResidency(0u);
+  assert(material_residency);
+  assert(material_residency.value().role.size > 0u);
 
   const std::filesystem::path vision_dir =
       std::filesystem::temp_directory_path() / "aster_kernel_public_consumer_vision";

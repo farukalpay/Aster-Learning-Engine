@@ -3023,6 +3023,26 @@ AsterKernelRenderGraphResource renderGraphResource(const aster::RenderGraphResou
     return ASTER_KERNEL_RENDER_RESOURCE_UI_OVERLAY;
   case aster::RenderGraphResource::CaptureReadback:
     return ASTER_KERNEL_RENDER_RESOURCE_CAPTURE_READBACK;
+  case aster::RenderGraphResource::SurfaceTruthBaseColor:
+    return ASTER_KERNEL_RENDER_RESOURCE_SURFACE_TRUTH_BASE_COLOR;
+  case aster::RenderGraphResource::SurfaceTruthNormal:
+    return ASTER_KERNEL_RENDER_RESOURCE_SURFACE_TRUTH_NORMAL;
+  case aster::RenderGraphResource::SurfaceTruthMaterial:
+    return ASTER_KERNEL_RENDER_RESOURCE_SURFACE_TRUTH_MATERIAL;
+  case aster::RenderGraphResource::SurfaceTruthVelocity:
+    return ASTER_KERNEL_RENDER_RESOURCE_SURFACE_TRUTH_VELOCITY;
+  case aster::RenderGraphResource::SurfaceHistory:
+    return ASTER_KERNEL_RENDER_RESOURCE_SURFACE_HISTORY;
+  case aster::RenderGraphResource::DepthHierarchy:
+    return ASTER_KERNEL_RENDER_RESOURCE_DEPTH_HIERARCHY;
+  case aster::RenderGraphResource::BloomChain:
+    return ASTER_KERNEL_RENDER_RESOURCE_BLOOM_CHAIN;
+  case aster::RenderGraphResource::TemporalAaHistory:
+    return ASTER_KERNEL_RENDER_RESOURCE_TEMPORAL_AA_HISTORY;
+  case aster::RenderGraphResource::ExposureHistogram:
+    return ASTER_KERNEL_RENDER_RESOURCE_EXPOSURE_HISTOGRAM;
+  case aster::RenderGraphResource::ToneMapInput:
+    return ASTER_KERNEL_RENDER_RESOURCE_TONEMAP_INPUT;
   case aster::RenderGraphResource::SceneColor:
   default:
     return ASTER_KERNEL_RENDER_RESOURCE_SCENE_COLOR;
@@ -3102,6 +3122,46 @@ backendFeatureProofStatus(const aster::BackendFeatureProofStatus status) {
   case aster::BackendFeatureProofStatus::NotAdvertised:
   default:
     return ASTER_KERNEL_BACKEND_FEATURE_NOT_ADVERTISED;
+  }
+}
+
+AsterFrameDebuggerTimelineEventKind frameDebuggerTimelineEventKind(
+    const aster::FrameDebuggerTimelineEventKind kind) {
+  switch (kind) {
+  case aster::FrameDebuggerTimelineEventKind::MaterialBinding:
+    return ASTER_FRAME_DEBUGGER_TIMELINE_MATERIAL_BINDING;
+  case aster::FrameDebuggerTimelineEventKind::LightCluster:
+    return ASTER_FRAME_DEBUGGER_TIMELINE_LIGHT_CLUSTER;
+  case aster::FrameDebuggerTimelineEventKind::Shadow:
+    return ASTER_FRAME_DEBUGGER_TIMELINE_SHADOW;
+  case aster::FrameDebuggerTimelineEventKind::SurfaceOcclusion:
+    return ASTER_FRAME_DEBUGGER_TIMELINE_SURFACE_OCCLUSION;
+  case aster::FrameDebuggerTimelineEventKind::Fog:
+    return ASTER_FRAME_DEBUGGER_TIMELINE_FOG;
+  case aster::FrameDebuggerTimelineEventKind::Probe:
+    return ASTER_FRAME_DEBUGGER_TIMELINE_PROBE;
+  case aster::FrameDebuggerTimelineEventKind::PerceptualPrimitive:
+    return ASTER_FRAME_DEBUGGER_TIMELINE_PERCEPTUAL_PRIMITIVE;
+  case aster::FrameDebuggerTimelineEventKind::PassOutput:
+    return ASTER_FRAME_DEBUGGER_TIMELINE_PASS_OUTPUT;
+  case aster::FrameDebuggerTimelineEventKind::Overdraw:
+    return ASTER_FRAME_DEBUGGER_TIMELINE_OVERDRAW;
+  case aster::FrameDebuggerTimelineEventKind::Fallback:
+    return ASTER_FRAME_DEBUGGER_TIMELINE_FALLBACK;
+  case aster::FrameDebuggerTimelineEventKind::Visibility:
+  default:
+    return ASTER_FRAME_DEBUGGER_TIMELINE_VISIBILITY;
+  }
+}
+
+AsterFrameResourceProvenanceKind frameResourceProvenanceKind(
+    const aster::FrameResourceProvenanceKind kind) {
+  switch (kind) {
+  case aster::FrameResourceProvenanceKind::MaterialTexture:
+    return ASTER_FRAME_RESOURCE_PROVENANCE_MATERIAL_TEXTURE;
+  case aster::FrameResourceProvenanceKind::GraphResource:
+  default:
+    return ASTER_FRAME_RESOURCE_PROVENANCE_GRAPH_RESOURCE;
   }
 }
 
@@ -6054,6 +6114,48 @@ AsterStatus aster_kernel_renderer_frame_forensics_detail_counts(
         viewFromScratch(renderer, forensics.graphics_core7_verdict.diagnostic),
         &out_counts->graphics_core7_verdict);
   }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 debug_timeline_count),
+                        sizeof(out_counts->debug_timeline_count))) {
+    out_counts->debug_timeline_count = forensics.debug_timeline.size();
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 material_binding_count),
+                        sizeof(out_counts->material_binding_count))) {
+    out_counts->material_binding_count = forensics.material_bindings.size();
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 asset_trace_count),
+                        sizeof(out_counts->asset_trace_count))) {
+    out_counts->asset_trace_count = forensics.asset_traces.size();
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 resource_provenance_count),
+                        sizeof(out_counts->resource_provenance_count))) {
+    out_counts->resource_provenance_count = forensics.resource_provenance.size();
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 regression_gallery_count),
+                        sizeof(out_counts->regression_gallery_count))) {
+    out_counts->regression_gallery_count = forensics.regression_gallery.size();
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 pipeline_signature_count),
+                        sizeof(out_counts->pipeline_signature_count))) {
+    out_counts->pipeline_signature_count = forensics.object_fates.size();
+  }
+  if (abiStructHasField(out_counts->size,
+                        offsetof(AsterFrameForensicsDetailCounts,
+                                 material_residency_count),
+                        sizeof(out_counts->material_residency_count))) {
+    out_counts->material_residency_count = forensics.material_bindings.size();
+  }
   return aster_kernel_status_ok();
 }
 
@@ -6349,6 +6451,259 @@ AsterStatus aster_kernel_renderer_object_render_fate(
   out_fate->feature_proofs = viewFromScratch(renderer, joinStrings(fate.feature_proofs, ","));
   out_fate->final_contribution = viewFromString(fate.final_contribution);
   out_fate->contribution_hash = fate.contribution_hash;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_frame_debugger_timeline_event(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterFrameDebuggerTimelineEventInfo *out_event) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_event)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame debugger timeline event struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.debug_timeline.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame debugger timeline event index is out of range");
+  }
+  const aster::FrameDebuggerTimelineEvent &event = forensics.debug_timeline[index];
+  out_event->sequence = event.sequence;
+  out_event->kind = frameDebuggerTimelineEventKind(event.kind);
+  out_event->pass = renderGraphPass(event.pass);
+  out_event->resource = renderGraphResource(event.resource);
+  out_event->object_name = viewFromString(event.object_name);
+  out_event->object_index = event.object_index;
+  out_event->label = viewFromString(event.label);
+  out_event->evidence = viewFromString(event.evidence);
+  out_event->fallback_reason = viewFromString(event.fallback_reason);
+  out_event->evidence_hash = event.evidence_hash;
+  out_event->cpu_build_seconds = event.cpu_build_seconds;
+  out_event->gpu_execution_seconds = event.gpu_execution_seconds;
+  out_event->estimated_bandwidth_bytes = event.estimated_bandwidth_bytes;
+  out_event->render_target_width = event.render_target_width;
+  out_event->render_target_height = event.render_target_height;
+  out_event->draw_count = event.draw_count;
+  out_event->material_variant_count = event.material_variant_count;
+  out_event->descriptor_heap_pressure = event.descriptor_heap_pressure;
+  out_event->pipeline_cache_hits = event.pipeline_cache_hits;
+  out_event->pipeline_cache_misses = event.pipeline_cache_misses;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_material_binding_trace(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterMaterialBindingTraceInfo *out_binding) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_binding)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "material binding trace struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.material_bindings.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "material binding trace index is out of range");
+  }
+  const aster::MaterialBindingTrace &binding = forensics.material_bindings[index];
+  out_binding->object_name = viewFromString(binding.object_name);
+  out_binding->material_asset_id = viewFromString(binding.material_asset_id);
+  out_binding->role = viewFromString(binding.role);
+  out_binding->source_path = viewFromString(binding.source_path);
+  out_binding->texture_kind = viewFromString(binding.texture_kind);
+  out_binding->color_space = viewFromString(binding.color_space);
+  out_binding->fallback_reason = viewFromString(binding.fallback_reason);
+  out_binding->backend_degradation = viewFromString(binding.backend_degradation);
+  out_binding->valid = binding.valid ? 1u : 0u;
+  out_binding->fallback = binding.fallback ? 1u : 0u;
+  out_binding->bound = binding.bound ? 1u : 0u;
+  out_binding->width = binding.width;
+  out_binding->height = binding.height;
+  out_binding->mip_count = binding.mip_count;
+  out_binding->descriptor_layout_hash = binding.descriptor_layout_hash;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_asset_frame_trace(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterAssetFrameTraceInfo *out_trace) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_trace)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "asset frame trace struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.asset_traces.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "asset frame trace index is out of range");
+  }
+  renderer->string_scratch.clear();
+  renderer->string_scratch.reserve(3u);
+  const aster::AssetFrameTrace &trace = forensics.asset_traces[index];
+  out_trace->object_name = viewFromString(trace.object_name);
+  out_trace->object_index = trace.object_index;
+  out_trace->source_asset_id = viewFromString(trace.source_asset_id);
+  out_trace->source_graph_guid = viewFromString(trace.source_graph_guid);
+  out_trace->source_graph_node = viewFromString(trace.source_graph_node);
+  out_trace->source_path = viewFromString(trace.source_path);
+  out_trace->source_node = viewFromString(trace.source_node);
+  out_trace->source_mesh = viewFromString(trace.source_mesh);
+  out_trace->material_slot = viewFromString(trace.material_slot);
+  out_trace->shader_variant_key = viewFromString(trace.shader_variant_key);
+  out_trace->pipeline_cache_key = viewFromString(trace.pipeline_cache_key);
+  out_trace->procedural_capability_status =
+      viewFromString(trace.procedural_capability_status);
+  out_trace->issues = viewFromScratch(renderer, joinStrings(trace.issues, ","));
+  out_trace->texture_roles =
+      viewFromScratch(renderer, joinStrings(trace.texture_roles, ","));
+  out_trace->backend_degradations =
+      viewFromScratch(renderer, joinStrings(trace.backend_degradations, ","));
+  out_trace->trace_hash = trace.trace_hash;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_resource_provenance(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterFrameResourceProvenanceInfo *out_provenance) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_provenance)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame resource provenance struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.resource_provenance.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame resource provenance index is out of range");
+  }
+  renderer->string_scratch.clear();
+  renderer->string_scratch.reserve(1u);
+  const aster::FrameResourceProvenance &provenance =
+      forensics.resource_provenance[index];
+  out_provenance->kind = frameResourceProvenanceKind(provenance.kind);
+  out_provenance->resource = renderGraphResource(provenance.resource);
+  out_provenance->producer_pass = renderGraphPass(provenance.producer_pass);
+  out_provenance->resource_name = viewFromString(provenance.resource_name);
+  out_provenance->producer_node = viewFromString(provenance.producer_node);
+  out_provenance->material_asset_id = viewFromString(provenance.material_asset_id);
+  out_provenance->material_graph_guid = viewFromString(provenance.material_graph_guid);
+  out_provenance->material_graph_node = viewFromString(provenance.material_graph_node);
+  out_provenance->cook_report = viewFromString(provenance.cook_report);
+  out_provenance->texture_role = viewFromString(provenance.texture_role);
+  out_provenance->source_path = viewFromString(provenance.source_path);
+  out_provenance->asset_hash = viewFromString(provenance.asset_hash);
+  out_provenance->shader_variant_key = viewFromString(provenance.shader_variant_key);
+  out_provenance->backend_fallback = viewFromString(provenance.backend_fallback);
+  out_provenance->upstream = viewFromScratch(renderer, joinStrings(provenance.upstream, ","));
+  out_provenance->provenance_hash = provenance.provenance_hash;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_regression_gallery_entry(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterFrameRegressionGalleryEntryInfo *out_entry) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_entry)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame regression gallery entry struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.regression_gallery.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame regression gallery entry index is out of range");
+  }
+  const aster::FrameRegressionGalleryEntry &entry = forensics.regression_gallery[index];
+  out_entry->label = viewFromString(entry.label);
+  out_entry->backend = backendKind(entry.backend);
+  out_entry->pass = renderGraphPass(entry.pass);
+  out_entry->resource = renderGraphResource(entry.resource);
+  out_entry->width = entry.width;
+  out_entry->height = entry.height;
+  out_entry->image_hash = entry.image_hash;
+  out_entry->diff_hash = entry.diff_hash;
+  out_entry->mean_abs_error = entry.mean_abs_error;
+  out_entry->differing_pixel_ratio = entry.differing_pixel_ratio;
+  out_entry->image_diff_status = viewFromString(entry.image_diff_status);
+  out_entry->backend_difference = viewFromString(entry.backend_difference);
+  out_entry->pass_encode_seconds = entry.pass_encode_seconds;
+  out_entry->asset_hash = viewFromString(entry.asset_hash);
+  out_entry->shader_variant_key = viewFromString(entry.shader_variant_key);
+  out_entry->available = entry.available ? 1u : 0u;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_pipeline_signature(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterFramePipelineSignatureInfo *out_signature) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_signature)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame pipeline signature struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.object_fates.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame pipeline signature index is out of range");
+  }
+  renderer->string_scratch.clear();
+  renderer->string_scratch.reserve(3u);
+  const aster::ObjectRenderFateTrace &fate = forensics.object_fates[index];
+  out_signature->object_index = fate.object_index;
+  out_signature->visible = fate.visible ? 1u : 0u;
+  out_signature->object_name = viewFromString(fate.object_name);
+  out_signature->mesh_key = viewFromString(fate.mesh_key);
+  out_signature->material_key = viewFromString(fate.material_key);
+  out_signature->shader_variant_key = viewFromString(fate.shader_variant_key);
+  out_signature->pipeline_tag = viewFromString(fate.pipeline_tag);
+  out_signature->pipeline_cache_key = viewFromString(fate.pipeline_cache_key);
+  out_signature->pass_list = viewFromScratch(renderer, joinStrings(fate.pass_list, ","));
+  out_signature->resource_transitions =
+      viewFromScratch(renderer, joinStrings(fate.resource_transitions, ","));
+  out_signature->feature_proofs =
+      viewFromScratch(renderer, joinStrings(fate.feature_proofs, ","));
+  out_signature->contribution_hash = fate.contribution_hash;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_renderer_material_residency(
+    const AsterRendererHandle renderer, const std::size_t index,
+    AsterFrameMaterialResidencyInfo *out_residency) {
+  if (!validRenderer(renderer)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "renderer handle is invalid");
+  }
+  if (!validStruct(out_residency)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "frame material residency struct version is not supported");
+  }
+  const aster::FrameForensics &forensics = renderer->renderer->lastFrameForensics();
+  if (index >= forensics.material_bindings.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT,
+                      "frame material residency index is out of range");
+  }
+  const aster::MaterialBindingTrace &binding = forensics.material_bindings[index];
+  out_residency->object_name = viewFromString(binding.object_name);
+  out_residency->material_asset_id = viewFromString(binding.material_asset_id);
+  out_residency->role = viewFromString(binding.role);
+  out_residency->source_path = viewFromString(binding.source_path);
+  out_residency->texture_kind = viewFromString(binding.texture_kind);
+  out_residency->fallback_reason = viewFromString(binding.fallback_reason);
+  out_residency->backend_degradation = viewFromString(binding.backend_degradation);
+  out_residency->resident = binding.valid && binding.bound && !binding.fallback ? 1u : 0u;
+  out_residency->fallback = binding.fallback ? 1u : 0u;
+  out_residency->bound = binding.bound ? 1u : 0u;
+  out_residency->width = binding.width;
+  out_residency->height = binding.height;
+  out_residency->mip_count = binding.mip_count;
+  out_residency->descriptor_layout_hash = binding.descriptor_layout_hash;
   return aster_kernel_status_ok();
 }
 

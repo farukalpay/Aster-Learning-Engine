@@ -29,6 +29,21 @@ Aster builds a frame from engine data, not sample-specific code:
    required visual-truth signal is missing, unsupported, or degraded; debug
    rendering may still continue for inspection.
 
+`RenderExtractionSet` is the Aster-owned extraction surface between `RenderScene`
+and backend submission. It bundles the canonical render IR, `FrameRenderPlan`,
+stable `RenderPipelineSignature` rows, and an extraction hash used by caches and
+forensics. The associated engine-side caches are intentionally named in Aster
+terms: `RenderPipelineSignatureCache`, `DescriptorBindingCache`,
+`MaterialResidencyCache`, and `DeferredGpuReleaseQueue`.
+
+The graph resource vocabulary now reserves the deferred/post chain needed for
+native Metal and D3D12 proof work: surface-truth base color, normal, material,
+velocity, surface history, depth hierarchy, bloom chain, temporal AA history,
+exposure histogram, and tonemap input. These resources are semantic contracts,
+not automatic backend claims. A backend only advertises a resource when it owns
+the allocation, barriers, writes, captures, sampling evidence, and GC7 signal for
+that resource.
+
 The frame debugger is contract-first: every frame records pass cost maps,
 resource transition traces, queue submit traces, descriptor layout hashes,
 pipeline cache keys, material binding/fallback state, asset-to-frame provenance

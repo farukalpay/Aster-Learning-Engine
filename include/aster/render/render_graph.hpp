@@ -39,7 +39,19 @@ enum class RenderGraphResource : std::uint32_t {
   ReflectionProbes,
   UiOverlay,
   CaptureReadback,
+  SurfaceTruthBaseColor,
+  SurfaceTruthNormal,
+  SurfaceTruthMaterial,
+  SurfaceTruthVelocity,
+  SurfaceHistory,
+  DepthHierarchy,
+  BloomChain,
+  TemporalAaHistory,
+  ExposureHistogram,
+  ToneMapInput,
 };
+
+constexpr std::uint32_t kRenderGraphResourceCount = 20u;
 
 enum class RenderGraphResourceLifetime : std::uint32_t {
   Frame,

@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define ASTER_KERNEL_ABI_MAJOR 7u
-#define ASTER_KERNEL_ABI_MINOR 0u
+#define ASTER_KERNEL_ABI_MINOR 1u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -220,7 +220,17 @@ typedef enum AsterKernelRenderGraphResource {
   ASTER_KERNEL_RENDER_RESOURCE_UI_OVERLAY = 6,
   ASTER_KERNEL_RENDER_RESOURCE_CAPTURE_READBACK = 7,
   ASTER_KERNEL_RENDER_RESOURCE_SURFACE_ATTRIBUTES = 8,
-  ASTER_KERNEL_RENDER_RESOURCE_SURFACE_OCCLUSION = 9
+  ASTER_KERNEL_RENDER_RESOURCE_SURFACE_OCCLUSION = 9,
+  ASTER_KERNEL_RENDER_RESOURCE_SURFACE_TRUTH_BASE_COLOR = 10,
+  ASTER_KERNEL_RENDER_RESOURCE_SURFACE_TRUTH_NORMAL = 11,
+  ASTER_KERNEL_RENDER_RESOURCE_SURFACE_TRUTH_MATERIAL = 12,
+  ASTER_KERNEL_RENDER_RESOURCE_SURFACE_TRUTH_VELOCITY = 13,
+  ASTER_KERNEL_RENDER_RESOURCE_SURFACE_HISTORY = 14,
+  ASTER_KERNEL_RENDER_RESOURCE_DEPTH_HIERARCHY = 15,
+  ASTER_KERNEL_RENDER_RESOURCE_BLOOM_CHAIN = 16,
+  ASTER_KERNEL_RENDER_RESOURCE_TEMPORAL_AA_HISTORY = 17,
+  ASTER_KERNEL_RENDER_RESOURCE_EXPOSURE_HISTOGRAM = 18,
+  ASTER_KERNEL_RENDER_RESOURCE_TONEMAP_INPUT = 19
 } AsterKernelRenderGraphResource;
 
 typedef enum AsterKernelRhiResourceState {
@@ -353,6 +363,25 @@ typedef enum AsterKernelFrameDiagnosticKind {
   ASTER_KERNEL_FRAME_DIAGNOSTIC_CAVE_LIGHT_EXPOSURE_OVERFLOW = 27,
   ASTER_KERNEL_FRAME_DIAGNOSTIC_PERCEPTUAL_TRUTH_GAP = 28
 } AsterKernelFrameDiagnosticKind;
+
+typedef enum AsterFrameDebuggerTimelineEventKind {
+  ASTER_FRAME_DEBUGGER_TIMELINE_VISIBILITY = 0,
+  ASTER_FRAME_DEBUGGER_TIMELINE_MATERIAL_BINDING = 1,
+  ASTER_FRAME_DEBUGGER_TIMELINE_LIGHT_CLUSTER = 2,
+  ASTER_FRAME_DEBUGGER_TIMELINE_SHADOW = 3,
+  ASTER_FRAME_DEBUGGER_TIMELINE_SURFACE_OCCLUSION = 4,
+  ASTER_FRAME_DEBUGGER_TIMELINE_FOG = 5,
+  ASTER_FRAME_DEBUGGER_TIMELINE_PROBE = 6,
+  ASTER_FRAME_DEBUGGER_TIMELINE_PERCEPTUAL_PRIMITIVE = 7,
+  ASTER_FRAME_DEBUGGER_TIMELINE_PASS_OUTPUT = 8,
+  ASTER_FRAME_DEBUGGER_TIMELINE_OVERDRAW = 9,
+  ASTER_FRAME_DEBUGGER_TIMELINE_FALLBACK = 10
+} AsterFrameDebuggerTimelineEventKind;
+
+typedef enum AsterFrameResourceProvenanceKind {
+  ASTER_FRAME_RESOURCE_PROVENANCE_GRAPH_RESOURCE = 0,
+  ASTER_FRAME_RESOURCE_PROVENANCE_MATERIAL_TEXTURE = 1
+} AsterFrameResourceProvenanceKind;
 
 typedef enum AsterBeliefFindingKind {
   ASTER_BELIEF_FINDING_UNKNOWN = 0,
@@ -2181,6 +2210,13 @@ typedef struct AsterFrameForensicsDetailCounts {
   AsterPerceptualCausalityGraphInfo perceptual_causality_graph;
   size_t graphics_core7_signal_count;
   AsterGraphicsCore7VerdictInfo graphics_core7_verdict;
+  size_t debug_timeline_count;
+  size_t material_binding_count;
+  size_t asset_trace_count;
+  size_t resource_provenance_count;
+  size_t regression_gallery_count;
+  size_t pipeline_signature_count;
+  size_t material_residency_count;
 } AsterFrameForensicsDetailCounts;
 
 typedef struct AsterFramePassStats {
@@ -2313,6 +2349,150 @@ typedef struct AsterObjectRenderFate {
   AsterStringView final_contribution;
   uint64_t contribution_hash;
 } AsterObjectRenderFate;
+
+typedef struct AsterFrameDebuggerTimelineEventInfo {
+  size_t size;
+  uint32_t version;
+  size_t sequence;
+  AsterFrameDebuggerTimelineEventKind kind;
+  AsterKernelRenderGraphPass pass;
+  AsterKernelRenderGraphResource resource;
+  AsterStringView object_name;
+  size_t object_index;
+  AsterStringView label;
+  AsterStringView evidence;
+  AsterStringView fallback_reason;
+  uint64_t evidence_hash;
+  double cpu_build_seconds;
+  double gpu_execution_seconds;
+  uint64_t estimated_bandwidth_bytes;
+  uint32_t render_target_width;
+  uint32_t render_target_height;
+  size_t draw_count;
+  size_t material_variant_count;
+  size_t descriptor_heap_pressure;
+  size_t pipeline_cache_hits;
+  size_t pipeline_cache_misses;
+} AsterFrameDebuggerTimelineEventInfo;
+
+typedef struct AsterMaterialBindingTraceInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView object_name;
+  AsterStringView material_asset_id;
+  AsterStringView role;
+  AsterStringView source_path;
+  AsterStringView texture_kind;
+  AsterStringView color_space;
+  AsterStringView fallback_reason;
+  AsterStringView backend_degradation;
+  uint32_t valid;
+  uint32_t fallback;
+  uint32_t bound;
+  uint32_t width;
+  uint32_t height;
+  uint32_t mip_count;
+  uint64_t descriptor_layout_hash;
+} AsterMaterialBindingTraceInfo;
+
+typedef struct AsterAssetFrameTraceInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView object_name;
+  size_t object_index;
+  AsterStringView source_asset_id;
+  AsterStringView source_graph_guid;
+  AsterStringView source_graph_node;
+  AsterStringView source_path;
+  AsterStringView source_node;
+  AsterStringView source_mesh;
+  AsterStringView material_slot;
+  AsterStringView shader_variant_key;
+  AsterStringView pipeline_cache_key;
+  AsterStringView procedural_capability_status;
+  AsterStringView issues;
+  AsterStringView texture_roles;
+  AsterStringView backend_degradations;
+  uint64_t trace_hash;
+} AsterAssetFrameTraceInfo;
+
+typedef struct AsterFrameResourceProvenanceInfo {
+  size_t size;
+  uint32_t version;
+  AsterFrameResourceProvenanceKind kind;
+  AsterKernelRenderGraphResource resource;
+  AsterKernelRenderGraphPass producer_pass;
+  AsterStringView resource_name;
+  AsterStringView producer_node;
+  AsterStringView material_asset_id;
+  AsterStringView material_graph_guid;
+  AsterStringView material_graph_node;
+  AsterStringView cook_report;
+  AsterStringView texture_role;
+  AsterStringView source_path;
+  AsterStringView asset_hash;
+  AsterStringView shader_variant_key;
+  AsterStringView backend_fallback;
+  AsterStringView upstream;
+  uint64_t provenance_hash;
+} AsterFrameResourceProvenanceInfo;
+
+typedef struct AsterFrameRegressionGalleryEntryInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView label;
+  AsterKernelBackendKind backend;
+  AsterKernelRenderGraphPass pass;
+  AsterKernelRenderGraphResource resource;
+  uint32_t width;
+  uint32_t height;
+  uint64_t image_hash;
+  uint64_t diff_hash;
+  double mean_abs_error;
+  double differing_pixel_ratio;
+  AsterStringView image_diff_status;
+  AsterStringView backend_difference;
+  double pass_encode_seconds;
+  AsterStringView asset_hash;
+  AsterStringView shader_variant_key;
+  uint32_t available;
+} AsterFrameRegressionGalleryEntryInfo;
+
+typedef struct AsterFramePipelineSignatureInfo {
+  size_t size;
+  uint32_t version;
+  size_t object_index;
+  uint32_t visible;
+  AsterStringView object_name;
+  AsterStringView mesh_key;
+  AsterStringView material_key;
+  AsterStringView shader_variant_key;
+  AsterStringView pipeline_tag;
+  AsterStringView pipeline_cache_key;
+  AsterStringView pass_list;
+  AsterStringView resource_transitions;
+  AsterStringView feature_proofs;
+  uint64_t contribution_hash;
+} AsterFramePipelineSignatureInfo;
+
+typedef struct AsterFrameMaterialResidencyInfo {
+  size_t size;
+  uint32_t version;
+  AsterStringView object_name;
+  AsterStringView material_asset_id;
+  AsterStringView role;
+  AsterStringView source_path;
+  AsterStringView texture_kind;
+  AsterStringView fallback_reason;
+  AsterStringView backend_degradation;
+  uint32_t resident;
+  uint32_t fallback;
+  uint32_t bound;
+  uint32_t width;
+  uint32_t height;
+  uint32_t mip_count;
+  uint64_t descriptor_layout_hash;
+} AsterFrameMaterialResidencyInfo;
 
 typedef struct AsterCaptureDesc {
   size_t size;
@@ -2646,6 +2826,20 @@ aster_kernel_renderer_resource_transition(AsterRendererHandle renderer, size_t i
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_object_render_fate(AsterRendererHandle renderer, size_t index,
                                          AsterObjectRenderFate *out_fate);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_frame_debugger_timeline_event(
+    AsterRendererHandle renderer, size_t index, AsterFrameDebuggerTimelineEventInfo *out_event);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_material_binding_trace(
+    AsterRendererHandle renderer, size_t index, AsterMaterialBindingTraceInfo *out_binding);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_asset_frame_trace(
+    AsterRendererHandle renderer, size_t index, AsterAssetFrameTraceInfo *out_trace);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_resource_provenance(
+    AsterRendererHandle renderer, size_t index, AsterFrameResourceProvenanceInfo *out_provenance);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_regression_gallery_entry(
+    AsterRendererHandle renderer, size_t index, AsterFrameRegressionGalleryEntryInfo *out_entry);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_pipeline_signature(
+    AsterRendererHandle renderer, size_t index, AsterFramePipelineSignatureInfo *out_signature);
+ASTER_KERNEL_API AsterStatus aster_kernel_renderer_material_residency(
+    AsterRendererHandle renderer, size_t index, AsterFrameMaterialResidencyInfo *out_residency);
 ASTER_KERNEL_API AsterStatus
 aster_kernel_renderer_rhi_validation_event(AsterRendererHandle renderer, size_t index,
                                            AsterRhiValidationEvent *out_event);

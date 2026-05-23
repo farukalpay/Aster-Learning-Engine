@@ -10,6 +10,7 @@ material, render graph, capture, and diagnostic contracts.
 | Presentation | Software framebuffer | CAMetalLayer | D3D12 swapchain when a Win32 window is bound; offscreen readback otherwise | wl_shm or raw X11 from software framebuffer |
 | Scene contract | Shared `Scene` and `FrameRenderPlan` | Shared `Scene` and `FrameRenderPlan` | Shared `Scene` and `FrameRenderPlan` | Uses software renderer output |
 | Render graph passes | Declarative registry plus compiled scheduler trace; software executes scene/lighting/contact/surface-occlusion/transparent/post/capture and reference surface-attribute/shadow/fog/probe producers | Same registry and trace; native scene/UI/capture work plus cave-conformance surface/shadow/fog/probe producers and consumers | Same registry and trace; native scene/capture work plus surface-attribute and surface-occlusion proof resources; UI composite and shadow/fog/probe resource support remain unsupported | Presents software output |
+| Surface-truth/post resources | Semantic resources are present in the graph vocabulary; software remains the reference producer as individual planes land | May advertise a surface-truth, depth hierarchy, bloom, temporal, exposure, or tonemap resource only after native allocation, capture, sampling, and GC7 evidence exist | Same rule; unsupported resources stay out of the D3D12 mask until native offscreen or swapchain proof exists | Software output |
 | Clustered forward lighting | CPU reference contract, deterministic cluster lists, frame-debug membership trace | CPU reference contract; GPU buffer consumption not yet wired | Cluster-selected lights are uploaded through the D3D12 scene uniform path and consumed by HLSL shading; full per-tile GPU indirection remains future work | Software reference |
 | Shadow atlas | Yes: reference cascaded directional atlas, PCF shadow sampling when shadows are enabled, RGBA debug capture | Yes: native depth atlas pass with cascade viewports, caster filtering, receiver bias, PCF sampling, and GPU/readback debug capture | Not supported yet: pass may exist in the graph, but `ShadowAtlas` stays out of the D3D12 resource mask until the Windows offscreen path writes and samples it | Software contract trace |
 | Surface attributes | Yes: packed normal/roughness/AO presentation resource written from the opaque surface stack and captured for proof | Yes: native proof capture and resource mask support for cave/material conformance | Yes: native offscreen proof capture and resource mask support | Software contract trace |
@@ -46,6 +47,13 @@ native proof captures; shadow, fog, and reflection probes stay unsupported until
 their own native pass data exists. Object visibility, object-to-cluster
 membership traces, and last-frame perceptual primitive traces are recorded for
 frame-debugger queries.
+
+ABI 7.1 exposes the same proof data to public consumers through fixed-layout
+accessors for debugger timeline events, material bindings, asset traces,
+resource provenance, regression gallery entries, pipeline signatures, and
+material residency. The accessors report zero rows only when the producer has not
+landed or the frame did not exercise that evidence; they do not imply backend
+support by themselves.
 
 Backend feature support is certification-gated. GraphicsCore7 first preflights
 the compiled graph against the backend resource mask, material/shader evidence,
