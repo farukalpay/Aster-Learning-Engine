@@ -468,6 +468,20 @@ void testAgentAssetBriefReviewGate() {
                                        "coplanar_seam_stripe",
                                        "knife_edge_rims",
                                        "single_layer_orange_oxide"};
+  strong_iteration.presentation_quality.scale_cues = "floor contact and authored pipe scale cues";
+  strong_iteration.presentation_quality.contact_shadows =
+      "contact shadows harden under welds and soften across the receiver";
+  strong_iteration.presentation_quality.surface_occlusion =
+      "cavity occlusion is visible in seams, rims, and undercuts";
+  strong_iteration.presentation_quality.volumetric_depth =
+      "hollow rim darkness and depth layering are visible";
+  strong_iteration.presentation_quality.camera_language = "pipe-lab-three-quarter";
+  strong_iteration.presentation_quality.preview_artifact = "assets/screenshots/industrial_pipe.png";
+  strong_iteration.surface_stack.physical_texel_density = 1024.0f;
+  strong_iteration.surface_stack.height_normal_coupling = 0.92f;
+  strong_iteration.surface_stack.roughness_height_coupling = 0.74f;
+  strong_iteration.surface_stack.macro_frequency_breakup = 0.48f;
+  strong_iteration.surface_stack.micro_frequency_breakup = 0.66f;
   const aster::sdk::AsterAgentAssetReview strong_review =
       aster::sdk::reviewAsterAgentAssetIteration(brief, strong_iteration);
   assert(strong_review.passed());

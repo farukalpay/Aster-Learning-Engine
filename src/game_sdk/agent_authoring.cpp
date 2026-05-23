@@ -1378,6 +1378,8 @@ std::string asterAgentAssetOutputSchemaJson() {
     "candidate_artifacts",
     "claimed_signals",
     "rejected_signals",
+    "presentation_quality",
+    "surface_stack",
     "self_review"
   ],
   "properties": {
@@ -1402,6 +1404,42 @@ std::string asterAgentAssetOutputSchemaJson() {
     "rejected_signals": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
+    },
+    "presentation_quality": {
+      "type": "object",
+      "required": [
+        "scale_cues",
+        "contact_shadows",
+        "surface_occlusion",
+        "volumetric_depth",
+        "camera_language",
+        "preview_artifact"
+      ],
+      "properties": {
+        "scale_cues": { "type": "string" },
+        "contact_shadows": { "type": "string" },
+        "surface_occlusion": { "type": "string" },
+        "volumetric_depth": { "type": "string" },
+        "camera_language": { "type": "string" },
+        "preview_artifact": { "type": "string", "minLength": 1 }
+      }
+    },
+    "surface_stack": {
+      "type": "object",
+      "required": [
+        "physical_texel_density",
+        "height_normal_coupling",
+        "roughness_height_coupling",
+        "macro_frequency_breakup",
+        "micro_frequency_breakup"
+      ],
+      "properties": {
+        "physical_texel_density": { "type": "number", "exclusiveMinimum": 0 },
+        "height_normal_coupling": { "type": "number", "minimum": 0 },
+        "roughness_height_coupling": { "type": "number", "minimum": 0 },
+        "macro_frequency_breakup": { "type": "number", "minimum": 0 },
+        "micro_frequency_breakup": { "type": "number", "minimum": 0 }
+      }
     },
     "self_review": {
       "type": "object",
@@ -1592,6 +1630,52 @@ AsterAgentAssetReview reviewAsterAgentAssetIteration(const AsterAgentAssetBrief 
     addDiagnostic(review.diagnostics, DiagnosticSeverity::Error, source_path, "$.artifact",
                   "asset iteration artifact is required");
   }
+  const auto require_text = [&](const std::string &value, const char *path,
+                                const char *message) {
+    if (value.empty()) {
+      addDiagnostic(review.diagnostics, DiagnosticSeverity::Error, source_path, path, message);
+    }
+  };
+  require_text(iteration.presentation_quality.scale_cues, "$.presentation_quality.scale_cues",
+               "asset iteration must describe visible scale cues");
+  require_text(iteration.presentation_quality.contact_shadows,
+               "$.presentation_quality.contact_shadows",
+               "asset iteration must describe contact-shadow proof");
+  require_text(iteration.presentation_quality.surface_occlusion,
+               "$.presentation_quality.surface_occlusion",
+               "asset iteration must describe surface occlusion proof");
+  require_text(iteration.presentation_quality.volumetric_depth,
+               "$.presentation_quality.volumetric_depth",
+               "asset iteration must describe depth or hollow-volume proof");
+  require_text(iteration.presentation_quality.camera_language,
+               "$.presentation_quality.camera_language",
+               "asset iteration must describe preview camera language");
+  if (iteration.presentation_quality.preview_artifact.empty()) {
+    addDiagnostic(review.diagnostics, DiagnosticSeverity::Error, source_path,
+                  "$.presentation_quality.preview_artifact",
+                  "asset iteration preview artifact path is required");
+  }
+  const auto require_positive = [&](const float value, const char *path,
+                                    const char *message) {
+    if (!(value > 0.0f)) {
+      addDiagnostic(review.diagnostics, DiagnosticSeverity::Error, source_path, path, message);
+    }
+  };
+  require_positive(iteration.surface_stack.physical_texel_density,
+                   "$.surface_stack.physical_texel_density",
+                   "asset iteration must declare positive physical texel density");
+  require_positive(iteration.surface_stack.height_normal_coupling,
+                   "$.surface_stack.height_normal_coupling",
+                   "asset iteration must declare height/normal coupling");
+  require_positive(iteration.surface_stack.roughness_height_coupling,
+                   "$.surface_stack.roughness_height_coupling",
+                   "asset iteration must declare roughness/height coupling");
+  require_positive(iteration.surface_stack.macro_frequency_breakup,
+                   "$.surface_stack.macro_frequency_breakup",
+                   "asset iteration must declare macro frequency breakup");
+  require_positive(iteration.surface_stack.micro_frequency_breakup,
+                   "$.surface_stack.micro_frequency_breakup",
+                   "asset iteration must declare micro frequency breakup");
 
   float possible_score = 0.0f;
   float earned_score = 0.0f;

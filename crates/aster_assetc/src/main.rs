@@ -17,7 +17,8 @@ use aster_runtime::{
     build_frame_plan, AsterRuntimeCamera, AsterRuntimeRenderObject, AsterRuntimeRenderPlanOptions,
     AsterRuntimeVec3,
 };
-use std::collections::BTreeMap;
+use serde_json::{json, Value};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -130,6 +131,7 @@ fn usage() -> &'static str {
   aster_assetc agent-runtime-audit --repo <path> [--json|--markdown] [--output <file>]
   aster_assetc agent-review --plan <file> --repo <path> [--json|--markdown] [--output <file>]
   aster_assetc asset-brief --project <file.asterproj> --asset <id> --reference <image> [--target <text>] [--require <signal>] [--forbid <signal>] [--output-schema]
+  aster_assetc asset-proof-run --project <file.asterproj> --asset <id> --reference <image> --preview-artifact <image> --output <dir> [--target <text>] [--require <signal>] [--forbid <signal>] [--output-schema]
   aster_assetc graph --db <assetdb.asterdb.json>
   aster_assetc fate --db <assetdb.asterdb.json> --asset <id-or-guid>
   aster_assetc diff --before <old.assetdb.asterdb.json> --after <new.assetdb.asterdb.json>
@@ -626,6 +628,430 @@ fn asset_brief_command(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn normalize_path(path: &Path) -> String {
+    path.components()
+        .as_path()
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn signal_ids(value: &Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_string))
+        .collect()
+}
+
+fn string_set_at(value: &Value, path: &[&str]) -> BTreeSet<String> {
+    let mut current = value;
+    for key in path {
+        let Some(next) = current.get(*key) else {
+            return BTreeSet::new();
+        };
+        current = next;
+    }
+    current
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn number_at(value: &Value, path: &[&str]) -> Option<f64> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current.as_f64()
+}
+
+fn asset_proof_run_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Aster Agent Asset Proof Run",
+        "type": "object",
+        "required": [
+            "schema_version",
+            "kind",
+            "status",
+            "passed",
+            "project",
+            "asset",
+            "bundle",
+            "validation",
+            "required_signals",
+            "forbidden_signals",
+            "surface_stack",
+            "diagnostics"
+        ],
+        "properties": {
+            "schema_version": { "const": 1 },
+            "kind": { "const": "aster_agent_asset_proof_run" },
+            "status": { "enum": ["passed", "failed"] },
+            "passed": { "type": "boolean" },
+            "project": { "type": "object" },
+            "asset": { "type": "object" },
+            "bundle": { "type": "object" },
+            "validation": { "type": "array" },
+            "required_signals": { "type": "array" },
+            "forbidden_signals": { "type": "array" },
+            "surface_stack": { "type": "object" },
+            "diagnostics": { "type": "array" }
+        }
+    })
+}
+
+fn validation_row(id: &str, status: &str, artifact: impl AsRef<Path>, notes: &str) -> Value {
+    json!({
+        "id": id,
+        "status": status,
+        "artifact": normalize_path(artifact.as_ref()),
+        "notes": notes
+    })
+}
+
+fn diagnostic(severity: &str, path: &str, message: impl Into<String>) -> Value {
+    json!({
+        "severity": severity,
+        "path": path,
+        "message": message.into()
+    })
+}
+
+fn asset_proof_run_command(args: &[String]) -> Result<(), String> {
+    let project = value_after(args, "--project")
+        .map(PathBuf::from)
+        .ok_or_else(|| "asset-proof-run requires --project <file.asterproj>".to_string())?;
+    let asset = value_after(args, "--asset")
+        .ok_or_else(|| "asset-proof-run requires --asset <id>".to_string())?;
+    let references = values_after(args, "--reference")
+        .into_iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    if references.is_empty() {
+        return Err("asset-proof-run requires at least one --reference <image>".to_string());
+    }
+    let preview_artifact = value_after(args, "--preview-artifact")
+        .map(PathBuf::from)
+        .ok_or_else(|| "asset-proof-run requires --preview-artifact <image>".to_string())?;
+    let output = value_after(args, "--output")
+        .map(PathBuf::from)
+        .ok_or_else(|| "asset-proof-run requires --output <dir>".to_string())?;
+    let platform = value_after(args, "--platform").unwrap_or_else(|| "desktop".to_string());
+    let target = value_after(args, "--target");
+    let required = values_after(args, "--require");
+    let forbidden = values_after(args, "--forbid");
+    let include_schema = args.iter().any(|arg| arg == "--output-schema");
+
+    fs::create_dir_all(&output).map_err(|error| error.to_string())?;
+    let brief_path = output.join("brief.json");
+    let graph_inspect_path = output.join("graph-inspect.json");
+    let package_root = output.join("package");
+    let cook_root = output.join("cooked");
+    let proof_path = output.join("proof-run.json");
+
+    let mut validation = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    let brief_text = asset_brief_report_json(
+        &project,
+        &asset,
+        &references,
+        target.as_deref(),
+        &required,
+        &forbidden,
+        true,
+    )?;
+    fs::write(&brief_path, &brief_text).map_err(|error| error.to_string())?;
+    validation.push(validation_row(
+        "brief",
+        "passed",
+        &brief_path,
+        "asset brief generated",
+    ));
+    let brief_value: Value =
+        serde_json::from_str(&brief_text).map_err(|error| error.to_string())?;
+
+    let project_root = project.parent().unwrap_or_else(|| Path::new("."));
+    let asset_path = brief_value
+        .get("asset")
+        .and_then(|row| row.get("path"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let graph_input = project_root.join(asset_path);
+    if asset_path.is_empty() {
+        diagnostics.push(diagnostic(
+            "error",
+            "$.asset.path",
+            "asset path is missing from the project manifest",
+        ));
+    }
+
+    let mut graph_value = Value::Null;
+    match asset_graph_inspect_report_json(&graph_input) {
+        Ok(graph_text) => {
+            fs::write(&graph_inspect_path, &graph_text).map_err(|error| error.to_string())?;
+            graph_value = serde_json::from_str(&graph_text).map_err(|error| error.to_string())?;
+            validation.push(validation_row(
+                "graph-inspect",
+                "passed",
+                &graph_inspect_path,
+                "asset graph inspected",
+            ));
+        }
+        Err(error) => {
+            diagnostics.push(diagnostic("error", "$.graph_inspect", error.to_string()));
+            validation.push(validation_row(
+                "graph-inspect",
+                "failed",
+                &graph_inspect_path,
+                "asset graph inspection failed",
+            ));
+        }
+    }
+
+    match package_asset_graph(&graph_input, &package_root) {
+        Ok(cooked) => {
+            let notes = format!(
+                "graph packaged with {} node(s), score={}",
+                cooked.graph_bin.nodes.len(),
+                cooked.graph_bin.quality.score
+            );
+            validation.push(validation_row(
+                "graph-package",
+                "passed",
+                &cooked.graph_bin_path,
+                &notes,
+            ));
+        }
+        Err(error) => {
+            diagnostics.push(diagnostic("error", "$.graph_package", error.to_string()));
+            validation.push(validation_row(
+                "graph-package",
+                "failed",
+                &package_root,
+                "asset graph package failed",
+            ));
+        }
+    }
+
+    let mut database_path = cook_root.join("assetdb.asterdb.json");
+    let mut cook_error_count = 1usize;
+    let mut cook_warning_count = 0usize;
+    match cook_project(&project, &platform, &cook_root) {
+        Ok(result) => {
+            database_path = result.database_path.clone();
+            cook_error_count = result.error_count;
+            cook_warning_count = result.warning_count;
+            let status = if result.error_count == 0 {
+                "passed"
+            } else {
+                "failed"
+            };
+            let notes = format!(
+                "assets={} errors={} warnings={}",
+                result.database.records.len(),
+                result.error_count,
+                result.warning_count
+            );
+            validation.push(validation_row(
+                "cook-project",
+                status,
+                &result.database_path,
+                &notes,
+            ));
+            if result.error_count > 0 {
+                diagnostics.push(diagnostic(
+                    "error",
+                    "$.cook_project",
+                    format!("strict cook reported {} error(s)", result.error_count),
+                ));
+            }
+        }
+        Err(error) => {
+            diagnostics.push(diagnostic("error", "$.cook_project", error.to_string()));
+            validation.push(validation_row(
+                "cook-project",
+                "failed",
+                &database_path,
+                "project cook failed",
+            ));
+        }
+    }
+
+    let preview_exists = preview_artifact.exists();
+    validation.push(validation_row(
+        "preview-artifact",
+        if preview_exists { "passed" } else { "failed" },
+        &preview_artifact,
+        if preview_exists {
+            "preview artifact exists"
+        } else {
+            "preview artifact is missing"
+        },
+    ));
+    if !preview_exists {
+        diagnostics.push(diagnostic(
+            "error",
+            "$.preview_artifact",
+            format!(
+                "preview artifact does not exist: {}",
+                preview_artifact.display()
+            ),
+        ));
+    }
+
+    let claimed_signals = string_set_at(&graph_value, &["factory_report", "visual_brief_claims"]);
+    let rejected_signals =
+        string_set_at(&graph_value, &["factory_report", "visual_brief_rejections"]);
+    let required_rows = signal_ids(&brief_value, "required_signals")
+        .into_iter()
+        .map(|id| {
+            let claimed = claimed_signals.contains(&id);
+            if !claimed {
+                diagnostics.push(diagnostic(
+                    "error",
+                    "$.required_signals",
+                    format!("required signal is not claimed by the graph: {id}"),
+                ));
+            }
+            json!({
+                "id": id,
+                "status": if claimed { "claimed" } else { "missing" },
+                "source": if claimed {
+                    "graph.factory_report.visual_brief_claims"
+                } else {
+                    "brief.required_signals"
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let forbidden_rows = signal_ids(&brief_value, "forbidden_signals")
+        .into_iter()
+        .map(|id| {
+            let rejected = rejected_signals.contains(&id);
+            if !rejected {
+                diagnostics.push(diagnostic(
+                    "error",
+                    "$.forbidden_signals",
+                    format!("forbidden signal is not rejected by the graph: {id}"),
+                ));
+            }
+            json!({
+                "id": id,
+                "status": if rejected { "rejected" } else { "unrejected" },
+                "source": if rejected {
+                    "graph.factory_report.visual_brief_rejections"
+                } else {
+                    "brief.forbidden_signals"
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let physical_texel_density_min = number_at(
+        &brief_value,
+        &["surface_stack", "physical_texel_density", "minimum"],
+    )
+    .unwrap_or(1.0);
+    let surface_specs = [
+        ("physical_texel_density", physical_texel_density_min),
+        ("height_normal_coupling", 0.0),
+        ("roughness_height_coupling", 0.0),
+        ("macro_frequency_breakup", 0.0),
+        ("micro_frequency_breakup", 0.0),
+    ];
+    let mut surface_rows = Vec::new();
+    for (field, minimum) in surface_specs {
+        let observed = number_at(&graph_value, &["material", "params", field]);
+        let passed = observed.map(|value| value >= minimum).unwrap_or(false);
+        if !passed {
+            diagnostics.push(diagnostic(
+                "error",
+                "$.surface_stack",
+                format!("{field} is missing or below minimum {minimum}"),
+            ));
+        }
+        surface_rows.push(json!({
+            "id": field,
+            "status": if passed { "passed" } else { "failed" },
+            "observed": observed,
+            "minimum": minimum,
+            "source": "graph.material.params"
+        }));
+    }
+    let surface_passed = surface_rows
+        .iter()
+        .all(|row| row.get("status").and_then(Value::as_str) == Some("passed"));
+
+    let passed = diagnostics
+        .iter()
+        .all(|row| row.get("severity").and_then(Value::as_str) != Some("error"))
+        && surface_passed
+        && cook_error_count == 0;
+    let mut report = json!({
+        "schema_version": 1,
+        "kind": "aster_agent_asset_proof_run",
+        "status": if passed { "passed" } else { "failed" },
+        "passed": passed,
+        "project": {
+            "path": normalize_path(&project),
+            "platform": platform
+        },
+        "asset": {
+            "id": asset,
+            "path": normalize_path(&graph_input)
+        },
+        "bundle": {
+            "root": normalize_path(&output),
+            "brief": normalize_path(&brief_path),
+            "graph_inspect": normalize_path(&graph_inspect_path),
+            "package_root": normalize_path(&package_root),
+            "cooked_database": normalize_path(&database_path),
+            "preview_artifact": normalize_path(&preview_artifact),
+            "proof_run": normalize_path(&proof_path)
+        },
+        "validation": validation,
+        "required_signals": required_rows,
+        "forbidden_signals": forbidden_rows,
+        "surface_stack": {
+            "status": if surface_passed { "passed" } else { "failed" },
+            "checks": surface_rows
+        },
+        "cook": {
+            "errors": cook_error_count,
+            "warnings": cook_warning_count
+        },
+        "diagnostics": diagnostics,
+        "rules": [
+            "Preview generation is explicit; asset-proof-run consumes --preview-artifact and does not launch a renderer.",
+            "Required visual signals must be claimed by the graph inspect factory report.",
+            "Forbidden visual signals must be rejected by the graph inspect factory report.",
+            "Surface-stack values must be numeric graph material parameters.",
+            "Strict cook must report zero errors."
+        ]
+    });
+    if include_schema {
+        report["output_schema"] = asset_proof_run_output_schema();
+    }
+    let text = serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?;
+    fs::write(&proof_path, &text).map_err(|error| error.to_string())?;
+    println!("{text}");
+    if passed {
+        Ok(())
+    } else {
+        Err(format!(
+            "asset proof run failed; inspect {}",
+            proof_path.display()
+        ))
+    }
+}
+
 fn mesh_format_for_path(path: &Path) -> String {
     path.extension()
         .and_then(|extension| extension.to_str())
@@ -794,6 +1220,7 @@ fn run() -> Result<(), String> {
         Some("agent-runtime-audit") => agent_runtime_audit_command(&args[2..]),
         Some("agent-review") => agent_review_command(&args[2..]),
         Some("asset-brief") => asset_brief_command(&args[2..]),
+        Some("asset-proof-run") => asset_proof_run_command(&args[2..]),
         Some("graph") => graph_command(&args[2..]),
         Some("fate") => fate_command(&args[2..]),
         Some("diff") => diff_command(&args[2..]),

@@ -654,7 +654,10 @@ ProceduralNodeRegistry makeDefaultProceduralNodeRegistry() {
   registry.registerNode({"lod_recipe", "asset-foundry-lod", "runtime-procedural-reference", {"levels"}});
   registry.registerNode({"foundry_lod_recipe", "asset-foundry-lod", "runtime-procedural-reference", {"levels"}});
   registry.registerNode({"quality_signal", "asset-foundry-quality", "runtime-procedural-reference", {"signal"}});
-  registry.registerNode({"visual_brief_claim", "asset-foundry-quality", "runtime-procedural-reference", {"signal"}});
+  registry.registerNode(
+      {"visual_brief_claim", "asset-foundry-quality", "runtime-procedural-reference", {"signal"}});
+  registry.registerNode({"visual_brief_rejection", "asset-foundry-quality",
+                         "runtime-procedural-reference", {"signal"}});
   registry.registerNode({"transform_geometry", "mesh-operator", "runtime-reference", {}});
   registry.registerNode({"join_geometry", "mesh-operator", "runtime-reference", {}});
   registry.registerNode({"separate_geometry", "mesh-operator", "runtime-reference", {}});

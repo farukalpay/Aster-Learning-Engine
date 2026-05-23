@@ -1,9 +1,11 @@
 # Aster Learning Engine
 
-Aster is a small inspectable engine kernel with a draw-first path and
-validation/debugging contracts for explaining player-visible results. It is not
-trying to be a finished Unity/Unreal-style engine, a full commercial renderer
-platform, or a sample game repository with engine code attached.
+Aster is an Agentic Asset Runtime built around a small inspectable engine
+kernel. Agent-authored asset changes become runtime content only after they can
+produce machine-readable proof: a visual brief, source graph, package output,
+cooked asset database, preview artifact, and pass/fail report. It is not trying
+to be a finished Unity/Unreal-style engine, a full commercial renderer platform,
+or a sample game repository with engine code attached.
 
 The stable public surface is deliberately narrow:
 
@@ -11,7 +13,8 @@ The stable public surface is deliberately narrow:
   descriptors, validation events, world/frame diagnostics, and install-tree
   consumer checks.
 - `include/aster/game_sdk`: source SDK for project, scene, prefab, material,
-  item, action graph, and agent-authoring documents.
+  item, action graph, and agent-authoring documents, including asset iteration
+  review fields for presentation quality and surface-stack proof.
 - `include/aster/aster.hpp`: first-contact C++ facade for opening Aster,
   loading a mesh/material, drawing a light, capturing a frame, and then opting
   into deeper inspection when needed.
@@ -33,6 +36,8 @@ Start here: [docs/START_HERE.md](docs/START_HERE.md)
 - Use the kernel ABI and Game SDK when you need a stable public contract.
 - Use renderer/material docs, frame reports, and backend conformance tests when
   a visible result needs explanation.
+- Use `aster_assetc asset-proof-run` when an agent-authored asset needs a
+  proof bundle before it becomes runtime content.
 - Treat samples and labs as evidence and examples, not as the product boundary.
 
 ## Maturity Map
@@ -45,6 +50,25 @@ Start here: [docs/START_HERE.md](docs/START_HERE.md)
 | Validation/debug surfaces | Diagnostic product surfaces | `FrameForensics`, `WorldForensics`, GraphicsCore7 verdicts, frame reports, conformance artifacts |
 | Research/internal experiments | Not productized APIs | Perception ledger, belief/perceptual ABIs, advanced world-continuity work |
 | Showcases | Examples and regression content | Lumen Run, Aster Grid Tactics, Material Lab, Pipe Lab, Primate Lab, screenshot galleries |
+
+## Pipe Lab Proof Run
+
+Pipe Lab is Aster's first Agentic Asset Runtime proof cartridge. It turns the
+rusted pipe visual brief, `.astergraph`, package output, cooked asset database,
+and preview artifact into one proof bundle:
+
+```bash
+cargo run -p aster_assetc --bin aster_assetc -- asset-proof-run \
+  --project showcases/pipe_lab/pipe_lab.asterproj \
+  --asset asset_graph.pipe_lab.rusted_pipe \
+  --reference assets/screenshots/industrial_pipe.png \
+  --preview-artifact assets/screenshots/industrial_pipe.png \
+  --output /tmp/aster_pipe_lab_proof \
+  --output-schema
+```
+
+Read [docs/AGENTIC_ASSET_RUNTIME.md](docs/AGENTIC_ASSET_RUNTIME.md) for the
+proof contract.
 
 ## 30-Second Regression Lab
 
@@ -185,6 +209,7 @@ requirements.
 | Path | Purpose |
 | --- | --- |
 | [docs/START_HERE.md](docs/START_HERE.md) | First reading path |
+| [docs/AGENTIC_ASSET_RUNTIME.md](docs/AGENTIC_ASSET_RUNTIME.md) | Agent-authored asset proof runs and Pipe Lab proof cartridge |
 | [docs/SIMPLE_API.md](docs/SIMPLE_API.md) | Draw-first API before renderer inspection |
 | [docs/WHAT_ASTER_IS.md](docs/WHAT_ASTER_IS.md) | Engine identity and non-goals |
 | [docs/PRODUCT_PATH.md](docs/PRODUCT_PATH.md) | Staged product roadmap, maturity boundaries, and gaps |
@@ -239,6 +264,7 @@ cargo run -p aster_assetc --bin aster_assetc -- report --db showcases/material_l
 ./build/aster_material_lab --graph showcases/material_lab/cooked/desktop/asset_graphs/asset_graph.material_lab.wet_rock.assetgraphbin --output /tmp/wet_rock_graph.ppm
 cargo run -p aster_assetc --bin aster_assetc -- graph-package --input showcases/pipe_lab/rusted_pipe.astergraph --output /tmp/aster_pipe_graph_package
 cargo run -p aster_assetc --bin aster_assetc -- cook --project showcases/pipe_lab/pipe_lab.asterproj --platform desktop --output /tmp/aster_pipe_lab_cooked
+cargo run -p aster_assetc --bin aster_assetc -- asset-proof-run --project showcases/pipe_lab/pipe_lab.asterproj --asset asset_graph.pipe_lab.rusted_pipe --reference assets/screenshots/industrial_pipe.png --preview-artifact assets/screenshots/industrial_pipe.png --output /tmp/aster_pipe_lab_proof --output-schema
 ```
 
 `.astergraph` is the V1 procedural asset graph format and cooks to

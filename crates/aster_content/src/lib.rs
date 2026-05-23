@@ -2246,6 +2246,7 @@ fn graph_node_capability_status(kind: &str) -> &'static str {
         | "foundry_lod_recipe"
         | "quality_signal"
         | "visual_brief_claim"
+        | "visual_brief_rejection"
         | "separate_geometry"
         | "realize_instances"
         | "anatomy_landmark"
@@ -2773,7 +2774,7 @@ fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
             "physics_proxy" | "foundry_physics_proxy" => set(60),
             "lod_recipe" | "foundry_lod_recipe" => set(61),
             "quality_signal" => set(62),
-            "visual_brief_claim" => set(63),
+            "visual_brief_claim" | "visual_brief_rejection" => set(63),
             "pipe_body" => set(39),
             "bevel_modifier" => set(40),
             "weld_seam" => set(41),
@@ -2952,6 +2953,7 @@ fn asset_graph_quality_report(
             "lod_recipe",
             "quality_signal",
             "visual_brief_claim",
+            "visual_brief_rejection",
             "bevel_modifier",
             "soft_rim_normals",
             "weld_seam",
@@ -3224,6 +3226,7 @@ fn asset_graph_factory_report(parsed: &ParsedAssetGraphSource) -> AssetGraphFact
                     | "foundry_lod_recipe"
                     | "quality_signal"
                     | "visual_brief_claim"
+                    | "visual_brief_rejection"
             )
         })
         .cloned()
@@ -3367,12 +3370,23 @@ fn asset_graph_factory_report(parsed: &ParsedAssetGraphSource) -> AssetGraphFact
         ];
     }
 
-    let visual_brief_rejections = vec![
-        "smooth_black_pipe".to_string(),
-        "decorative_bolts_without_reference".to_string(),
-        "clean_plastic_surface".to_string(),
-        "monochrome_material".to_string(),
-    ];
+    let mut visual_brief_rejections = parsed
+        .nodes
+        .iter()
+        .filter(|node| node.kind == "visual_brief_rejection")
+        .filter_map(|node| node.params.get("signal").cloned())
+        .collect::<Vec<_>>();
+    if visual_brief_rejections.is_empty()
+        && (parsed.primitive.contains("pipe") || parsed.surface_profile.contains("metal"))
+    {
+        visual_brief_rejections = vec![
+            "smooth_black_pipe".to_string(),
+            "decorative_bolts_without_reference".to_string(),
+            "clean_plastic_surface".to_string(),
+            "monochrome_material".to_string(),
+            "missing_weld_rings".to_string(),
+        ];
+    }
 
     AssetGraphFactoryReport {
         stable_recipe_hash,

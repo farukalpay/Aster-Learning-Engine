@@ -32,6 +32,22 @@ fn fixture_dir() -> PathBuf {
     ))
 }
 
+fn source_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|path| path.parent())
+        .expect("workspace root")
+        .to_path_buf()
+}
+
+fn pipe_lab_project() -> PathBuf {
+    source_root().join("showcases/pipe_lab/pipe_lab.asterproj")
+}
+
+fn industrial_pipe_preview() -> PathBuf {
+    source_root().join("assets/screenshots/industrial_pipe.png")
+}
+
 fn write_fixture() -> PathBuf {
     let dir = fixture_dir();
     fs::create_dir_all(&dir).expect("create fixture dir");
@@ -231,6 +247,60 @@ fn write_broken_material_project() -> PathBuf {
 	  ]
 	}
 	"#,
+    )
+    .expect("project");
+    dir.join("project.asterproj")
+}
+
+fn write_pipe_project_with_broken_material() -> PathBuf {
+    let dir = fixture_dir();
+    fs::create_dir_all(dir.join("materials")).expect("materials");
+    fs::create_dir_all(dir.join("textures")).expect("textures");
+    fs::copy(
+        source_root().join("showcases/pipe_lab/rusted_pipe.astergraph"),
+        dir.join("rusted_pipe.astergraph"),
+    )
+    .expect("copy pipe graph");
+    write_png_header(&dir.join("textures/albedo.png"), 16, 16);
+    write_ktx2_header(&dir.join("textures/normal.ktx2"), 16, 16, 5, 37);
+    fs::write(
+        dir.join("materials/broken.astermat"),
+        r#"material BrokenPipeProofMaterial {
+  name: "Broken Pipe Proof Material"
+  shading_model: LitPBR
+  blend_mode: Opaque
+  cull_mode: Back
+  textures {
+    albedo: "../textures/albedo.png"
+    normal: "../textures/normal.ktx2"
+  }
+}
+"#,
+    )
+    .expect("broken material");
+    fs::write(
+        dir.join("project.asterproj"),
+        r#"{
+  "schema_version": 2,
+  "name": "Broken Pipe Proof Project",
+  "assets": [
+    {
+      "id": "asset_graph.pipe_lab.rusted_pipe",
+      "guid": "asset-v2-pipe-proof-rusted-pipe-0001",
+      "kind": "asset_graph",
+      "path": "rusted_pipe.astergraph",
+      "import_preset": "default"
+    },
+    {
+      "id": "material.pipe_proof_broken",
+      "guid": "asset-v2-pipe-proof-broken-material-1",
+      "kind": "material",
+      "path": "materials/broken.astermat",
+      "import_preset": "default"
+    }
+  ]
+}
+"#,
     )
     .expect("project");
     dir.join("project.asterproj")
@@ -706,6 +776,134 @@ fn asset_brief_reports_reference_quality_gate() {
     assert!(stdout.contains("Aster Agent Asset Iteration Report"));
     assert!(stdout.contains("A passed build is not enough"));
     fs::remove_dir_all(project.parent().unwrap()).ok();
+}
+
+#[test]
+fn asset_proof_run_writes_passing_pipe_bundle() {
+    let output_dir = fixture_dir();
+    let binary = env!("CARGO_BIN_EXE_aster_assetc");
+    let proof = Command::new(binary)
+        .arg("asset-proof-run")
+        .arg("--project")
+        .arg(pipe_lab_project())
+        .arg("--asset")
+        .arg("asset_graph.pipe_lab.rusted_pipe")
+        .arg("--reference")
+        .arg(industrial_pipe_preview())
+        .arg("--preview-artifact")
+        .arg(industrial_pipe_preview())
+        .arg("--output")
+        .arg(&output_dir)
+        .arg("--output-schema")
+        .output()
+        .expect("run asset proof");
+    assert!(
+        proof.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&proof.stdout),
+        String::from_utf8_lossy(&proof.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&proof.stdout);
+    assert!(stdout.contains("\"kind\": \"aster_agent_asset_proof_run\""));
+    assert!(stdout.contains("\"status\": \"passed\""));
+    assert!(stdout.contains("missing_weld_rings"));
+    assert!(output_dir.join("brief.json").exists());
+    assert!(output_dir.join("graph-inspect.json").exists());
+    assert!(output_dir
+        .join("package/asset_graphs/rusted_pipe.assetgraphbin")
+        .exists());
+    assert!(output_dir.join("cooked/assetdb.asterdb.json").exists());
+    assert!(output_dir.join("proof-run.json").exists());
+    let proof_json = fs::read_to_string(output_dir.join("proof-run.json")).expect("proof json");
+    assert!(proof_json.contains("\"passed\": true"));
+    assert!(proof_json.contains("physical_texel_density"));
+    fs::remove_dir_all(&output_dir).ok();
+}
+
+#[test]
+fn asset_proof_run_reports_structured_failures() {
+    let binary = env!("CARGO_BIN_EXE_aster_assetc");
+    let run = |output_dir: &PathBuf, extra: &[&str], preview: PathBuf| {
+        let mut command = Command::new(binary);
+        command
+            .arg("asset-proof-run")
+            .arg("--project")
+            .arg(pipe_lab_project())
+            .arg("--asset")
+            .arg("asset_graph.pipe_lab.rusted_pipe")
+            .arg("--reference")
+            .arg(industrial_pipe_preview())
+            .arg("--preview-artifact")
+            .arg(preview)
+            .arg("--output")
+            .arg(output_dir);
+        for arg in extra {
+            command.arg(arg);
+        }
+        command.output().expect("run failing asset proof")
+    };
+
+    let missing_preview_dir = fixture_dir();
+    let missing_preview = run(
+        &missing_preview_dir,
+        &[],
+        missing_preview_dir.join("missing-preview.png"),
+    );
+    assert!(!missing_preview.status.success());
+    let missing_preview_json =
+        fs::read_to_string(missing_preview_dir.join("proof-run.json")).expect("missing proof json");
+    assert!(missing_preview_json.contains("\"preview-artifact\""));
+    assert!(missing_preview_json.contains("\"status\": \"failed\""));
+    fs::remove_dir_all(&missing_preview_dir).ok();
+
+    let missing_required_dir = fixture_dir();
+    let missing_required = run(
+        &missing_required_dir,
+        &["--require", "absent_surface_signal"],
+        industrial_pipe_preview(),
+    );
+    assert!(!missing_required.status.success());
+    let missing_required_json = fs::read_to_string(missing_required_dir.join("proof-run.json"))
+        .expect("missing required proof json");
+    assert!(missing_required_json.contains("absent_surface_signal"));
+    assert!(missing_required_json.contains("\"status\": \"missing\""));
+    fs::remove_dir_all(&missing_required_dir).ok();
+
+    let unrejected_dir = fixture_dir();
+    let unrejected = run(
+        &unrejected_dir,
+        &["--forbid", "forbidden_unrejected_signal"],
+        industrial_pipe_preview(),
+    );
+    assert!(!unrejected.status.success());
+    let unrejected_json =
+        fs::read_to_string(unrejected_dir.join("proof-run.json")).expect("unrejected proof json");
+    assert!(unrejected_json.contains("forbidden_unrejected_signal"));
+    assert!(unrejected_json.contains("\"status\": \"unrejected\""));
+    fs::remove_dir_all(&unrejected_dir).ok();
+
+    let broken_project = write_pipe_project_with_broken_material();
+    let broken_dir = fixture_dir();
+    let broken = Command::new(binary)
+        .arg("asset-proof-run")
+        .arg("--project")
+        .arg(&broken_project)
+        .arg("--asset")
+        .arg("asset_graph.pipe_lab.rusted_pipe")
+        .arg("--reference")
+        .arg(industrial_pipe_preview())
+        .arg("--preview-artifact")
+        .arg(industrial_pipe_preview())
+        .arg("--output")
+        .arg(&broken_dir)
+        .output()
+        .expect("run broken proof");
+    assert!(!broken.status.success());
+    let broken_json = fs::read_to_string(broken_dir.join("proof-run.json")).expect("broken json");
+    assert!(broken_json.contains("\"cook-project\""));
+    assert!(broken_json.contains("strict cook reported"));
+    fs::remove_dir_all(broken_project.parent().unwrap()).ok();
+    fs::remove_dir_all(&broken_dir).ok();
 }
 
 #[test]

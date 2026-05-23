@@ -1,8 +1,10 @@
 # Aster Product Path
 
-Aster grows from the inspectable kernel outward. The product promise is not a
-finished all-purpose engine; it is a narrow public runtime contract, a draw-first
-entry point, and enough diagnostics to explain why a visible result happened.
+Aster grows from the Agentic Asset Runtime outward. The product promise is not a
+finished all-purpose engine; it is a runtime path where agent-authored assets
+produce machine-readable proof before they become content, backed by a narrow
+public runtime contract, a draw-first entry point, and diagnostics that explain
+why a visible result happened.
 
 The roadmap is staged so public API, internal engine work, diagnostics,
 research, and samples do not blur into one claim.
@@ -21,7 +23,7 @@ research, and samples do not blur into one claim.
   captures, frame reports, and backend capability tables.
 - Asset compiler base: `aster_materialc`, `aster_texturec`, and `aster_assetc`
   for material packages, texture packages, graph/package inspection, project
-  cooking, reports, and diagnostics.
+  cooking, reports, diagnostics, and asset proof-run bundles.
 
 ## Product Boundary
 
@@ -29,6 +31,7 @@ The public engine contract is intentionally small:
 
 ```text
 Stable ABI + Game SDK
+  -> Agentic Asset Runtime proof runs
   -> First Draw
   -> Renderer/Material/Asset Diagnostics
   -> Authoring Tooling
@@ -66,6 +69,9 @@ not make the README sound like every backend feature is already complete.
 
 The asset pipeline is useful today when it keeps compiler contracts visible:
 
+- `aster_assetc asset-proof-run` is the hero path for agent-authored assets:
+  it writes `brief.json`, `graph-inspect.json`, packaged graph output, cooked
+  asset DB output, and `proof-run.json`.
 - `aster_assetc graph-inspect` and `graph-package` keep `.astergraph` identity,
   dependency, procedural material IR, mesh/collision/LOD, shader key, quality,
   and diagnostic data reproducible.
@@ -83,6 +89,11 @@ materials and procedural graphs, cook content, inspect dependency/errors, and
 run the cooked result. Node editing, viewport authoring, prefab variants,
 cooked-content UX, and diagnostics-to-preview feedback are authoring gaps until
 that loop is complete.
+
+Pipe Lab is the first complete proof-run cartridge. It should remain the
+reference path for agent brief -> asset graph -> graph package -> project cook
+-> preview artifact -> proof-run verdict until a second cartridge reaches the
+same standard.
 
 ## Samples And Showcases
 

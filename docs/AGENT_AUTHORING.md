@@ -50,6 +50,17 @@ structured iteration report that the agent must return. A successful build does
 not pass the asset if the brief says the candidate is missing required visual
 signals.
 
+For the canonical Pipe Lab proof cartridge, run the full proof bundle after the
+brief and asset edit:
+
+```bash
+cargo run -p aster_assetc --bin aster_assetc -- asset-proof-run --project showcases/pipe_lab/pipe_lab.asterproj --asset asset_graph.pipe_lab.rusted_pipe --reference assets/screenshots/industrial_pipe.png --preview-artifact assets/screenshots/industrial_pipe.png --output /tmp/aster_pipe_lab_proof --output-schema
+```
+
+The proof run writes `brief.json`, `graph-inspect.json`, packaged graph output,
+cooked asset DB output, and `proof-run.json`. It consumes an explicit preview
+artifact and does not launch a renderer.
+
 ## C++ SDK Surface
 
 The same contract is available through `include/aster/game_sdk`:

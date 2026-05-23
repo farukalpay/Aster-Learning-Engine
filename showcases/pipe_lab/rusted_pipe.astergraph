@@ -70,6 +70,11 @@ node factory.claim.rim visual_brief_claim role=factory signal=open_hollow_rims
 node factory.claim.pitting visual_brief_claim role=factory signal=uneven_pitting
 node factory.claim.scratches visual_brief_claim role=factory signal=axial_scratches
 node factory.claim.silhouette visual_brief_claim role=factory signal=reference_silhouette
+node factory.reject.smooth visual_brief_rejection role=factory signal=smooth_black_pipe
+node factory.reject.hardware visual_brief_rejection role=factory signal=decorative_bolts_without_reference
+node factory.reject.plastic visual_brief_rejection role=factory signal=clean_plastic_surface
+node factory.reject.monochrome visual_brief_rejection role=factory signal=monochrome_material
+node factory.reject.weld visual_brief_rejection role=factory signal=missing_weld_rings
 node modifier.bevel bevel_modifier role=modifier segments=4 width=0.026 affects=rim,seam,weld
 node modifier.soft_rim soft_rim_normals role=modifier feather=0.78 affects=open_hollow_rims
 node uv.pipe uv_policy role=uv mapping=pipe-triplanar-uv-islands texel_density=5.2 islands=outer,inner,weld

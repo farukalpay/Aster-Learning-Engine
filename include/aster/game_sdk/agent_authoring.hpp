@@ -203,12 +203,31 @@ struct AsterAgentAssetBrief {
   float minimum_score = 0.82f;
 };
 
+struct AsterAgentAssetPresentationQuality {
+  std::string scale_cues;
+  std::string contact_shadows;
+  std::string surface_occlusion;
+  std::string volumetric_depth;
+  std::string camera_language;
+  std::filesystem::path preview_artifact;
+};
+
+struct AsterAgentAssetSurfaceStack {
+  float physical_texel_density = 0.0f;
+  float height_normal_coupling = 0.0f;
+  float roughness_height_coupling = 0.0f;
+  float macro_frequency_breakup = 0.0f;
+  float micro_frequency_breakup = 0.0f;
+};
+
 struct AsterAgentAssetIteration {
   std::string id;
   std::filesystem::path artifact;
   std::string notes;
   std::vector<std::string> claimed_signals;
   std::vector<std::string> rejected_signals;
+  AsterAgentAssetPresentationQuality presentation_quality;
+  AsterAgentAssetSurfaceStack surface_stack;
 };
 
 struct AsterAgentAssetReview {
