@@ -2034,8 +2034,152 @@ fn canonical_graph_node_kind(kind: &str) -> String {
     kind.replace('-', "_").to_ascii_lowercase()
 }
 
+fn graph_node_kind_is_runtime_geometry_alias(kind: &str) -> bool {
+    matches!(
+        kind,
+        "mesh_primitive_cube"
+            | "mesh_primitive_grid"
+            | "mesh_primitive_uv_sphere"
+            | "mesh_primitive_cylinder"
+            | "mesh_primitive_cone"
+            | "mesh_primitive_line"
+            | "curve_primitive_line"
+            | "bounding_box"
+            | "mesh_to_points"
+            | "distribute_points_on_faces"
+            | "scatter_points"
+            | "instance_on_points"
+            | "transform_geometry"
+            | "join_geometry"
+            | "separate_geometry"
+            | "realize_instances"
+            | "merge_by_distance"
+            | "triangulate"
+            | "extrude_mesh"
+            | "flip_faces"
+            | "uv_pack_islands"
+            | "set_material"
+            | "set_material_index"
+    )
+}
+
+fn graph_node_kind_is_descriptor_only_geometry(kind: &str) -> bool {
+    matches!(
+        kind,
+        "attribute_statistic"
+            | "attribute_capture"
+            | "evaluate_on_domain"
+            | "evaluate_at_index"
+            | "field_average"
+            | "field_min_and_max"
+            | "field_variance"
+            | "accumulate_field"
+            | "field_to_list"
+            | "field_to_grid"
+            | "grid_curl"
+            | "grid_gradient"
+            | "grid_laplacian"
+            | "grid_mean"
+            | "grid_median"
+            | "grid_dilate_erode"
+            | "grid_advect"
+            | "grid_clip"
+            | "grid_prune"
+            | "grid_info"
+            | "grid_to_mesh"
+            | "grid_to_points"
+            | "grid_voxelize"
+            | "sdf_grid_boolean"
+            | "sdf_grid_offset"
+            | "sdf_grid_fillet"
+            | "sdf_grid_laplacian"
+            | "sdf_grid_mean"
+            | "sdf_grid_median"
+            | "sdf_grid_mean_curvature"
+            | "mesh_to_volume"
+            | "volume_to_mesh"
+            | "volume_cube"
+            | "points_to_volume"
+            | "points_to_sdf_grid"
+            | "mesh_to_sdf_grid"
+            | "mesh_to_density_grid"
+            | "raycast"
+            | "sample_nearest"
+            | "sample_nearest_surface"
+            | "sample_index"
+            | "sample_uv_surface"
+            | "sample_grid"
+            | "sample_grid_index"
+            | "subdivision_surface"
+            | "convex_hull"
+            | "boolean"
+            | "carve"
+            | "bevel"
+            | "fracture"
+            | "mesh_boolean"
+            | "dual_mesh"
+            | "mesh_subdivide"
+            | "mesh_to_curve"
+            | "curve_to_mesh"
+            | "curve_to_points"
+            | "points_to_curves"
+            | "curve_fill"
+            | "curve_sample"
+            | "curve_trim"
+            | "curve_length"
+            | "curve_reverse"
+            | "curve_resample"
+            | "curve_subdivide"
+            | "curve_fillet"
+            | "curve_primitive_circle"
+            | "curve_primitive_arc"
+            | "curve_primitive_spiral"
+            | "curve_primitive_star"
+            | "curve_primitive_quadrilateral"
+            | "curve_primitive_bezier_segment"
+            | "curve_primitive_quadratic_bezier"
+            | "string_to_curves"
+            | "gizmo_transform"
+            | "gizmo_linear"
+            | "gizmo_dial"
+            | "viewer"
+            | "tool_selection"
+            | "tool_set_selection"
+            | "tool_face_set"
+            | "tool_set_face_set"
+            | "tool_3d_cursor"
+            | "tool_active_element"
+            | "object_info"
+            | "collection_info"
+            | "collection_children"
+            | "self_object"
+            | "camera_info"
+            | "viewport_transform"
+            | "is_viewport"
+            | "import_obj"
+            | "import_ply"
+            | "import_stl"
+            | "import_vdb"
+            | "import_csv"
+            | "import_text"
+            | "image"
+            | "image_texture"
+            | "image_info"
+            | "sample_sound_frequencies"
+            | "xpbd_solver"
+    )
+}
+
 fn graph_node_capability_status(kind: &str) -> &'static str {
-    match canonical_graph_node_kind(kind).as_str() {
+    let canonical = canonical_graph_node_kind(kind);
+    let kind = canonical.as_str();
+    if graph_node_kind_is_runtime_geometry_alias(kind) {
+        return "runtime-procedural-reference";
+    }
+    if graph_node_kind_is_descriptor_only_geometry(kind) {
+        return "descriptor-only-reference";
+    }
+    match kind {
         "mesh_primitive"
         | "grid_primitive"
         | "uv_sphere"
@@ -2131,9 +2275,6 @@ fn graph_node_capability_status(kind: &str) -> &'static str {
         | "prefab_variant"
         | "cook_export"
         | "diagnostic" => "runtime-procedural-reference",
-        "boolean" | "carve" | "bevel" | "fracture" | "mesh_boolean" => {
-            "descriptor-only-reference"
-        }
         _ => "unsupported",
     }
 }
@@ -2600,9 +2741,19 @@ fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
     };
     for node in &parsed.nodes {
         match node.kind.as_str() {
-            "mesh_primitive" | "grid_primitive" | "uv_sphere" | "cone_primitive"
-            | "cylinder_cone" => set(1),
-            "material_assignment" => set(2),
+            "mesh_primitive"
+            | "grid_primitive"
+            | "uv_sphere"
+            | "cone_primitive"
+            | "cylinder_cone"
+            | "mesh_primitive_cube"
+            | "mesh_primitive_grid"
+            | "mesh_primitive_uv_sphere"
+            | "mesh_primitive_cylinder"
+            | "mesh_primitive_cone"
+            | "mesh_primitive_line"
+            | "curve_primitive_line" => set(1),
+            "material_assignment" | "set_material" | "set_material_index" => set(2),
             "noise" => set(3),
             "cellular" => set(4),
             "curvature_mask" | "slope_mask" | "cavity_dirt" | "mask_generator" => set(5),
@@ -2649,6 +2800,11 @@ fn graph_feature_mask(parsed: &ParsedAssetGraphSource) -> u64 {
             "axial_scratch" => set(49),
             "triplanar_domain" | "baked_mask_preview" => set(50),
             "probe_helper" | "prefab_variant" | "cook_export" | "diagnostic" => set(15),
+            kind if graph_node_kind_is_runtime_geometry_alias(kind)
+                || graph_node_kind_is_descriptor_only_geometry(kind) =>
+            {
+                set(15)
+            }
             "anatomy_landmark" | "measurement_probe" => set(20),
             "ellipsoid_section" | "sweep_limb" => set(21),
             "bilophodont_tooth_row" => set(22),
@@ -2711,6 +2867,24 @@ fn asset_graph_quality_report(
         });
     };
     let has_kind = |kind: &str| parsed.nodes.iter().any(|node| node.kind == kind);
+    let has_mesh_primitive = parsed.nodes.iter().any(|node| {
+        matches!(
+            node.kind.as_str(),
+            "mesh_primitive"
+                | "pipe_body"
+                | "mesh_primitive_cube"
+                | "mesh_primitive_grid"
+                | "mesh_primitive_uv_sphere"
+                | "mesh_primitive_cylinder"
+                | "mesh_primitive_cone"
+                | "mesh_primitive_line"
+                | "curve_primitive_line"
+                | "grid_primitive"
+                | "uv_sphere"
+                | "cone_primitive"
+                | "cylinder_cone"
+        )
+    });
     let normalized_surface_profile = parsed
         .surface_profile
         .replace('_', "-")
@@ -2725,7 +2899,7 @@ fn asset_graph_quality_report(
         "cook_export",
         "diagnostic",
     ] {
-        if required == "mesh_primitive" && has_kind("pipe_body") {
+        if required == "mesh_primitive" && has_mesh_primitive {
             continue;
         }
         if !has_kind(required) {
@@ -11287,6 +11461,96 @@ edge perception.template export.runtime perceptual_template
     }
 
     #[test]
+    fn asset_graph_accepts_geometry_node_breadth_aliases() {
+        let dir = fixture_dir("asset_graph_geometry_node_breadth");
+        fs::create_dir_all(&dir).expect("dir");
+        let graph = dir.join("geometry_nodes.astergraph");
+        fs::write(
+            &graph,
+            r#"astergraph asset_graph.geometry_nodes
+schema_version 1
+name "Geometry Node Breadth"
+material_id material.geometry_nodes
+surface_profile stratified-rock
+primitive box
+uv_policy packed-uv0
+tangent_policy validate-or-generate
+collision_proxy bounds
+lod_policy single-lod
+base_color 0.42 0.44 0.40
+roughness 0.66
+metallic 0.03
+param roughness_variation 0.32
+feature normal_map true
+preview rig inspection-geometry
+node mesh.cube mesh_primitive_cube role=mesh size_x=1.2 size_y=0.8 size_z=0.5
+node mesh.grid mesh_primitive_grid role=mesh width=2.0 depth=1.5 columns=3 rows=2
+node mesh.sphere mesh_primitive_uv_sphere role=mesh segments=12 rings=6 radius=0.7
+node mesh.cylinder mesh_primitive_cylinder role=mesh vertices=16 radius=0.35 depth=1.1
+node mesh.cone mesh_primitive_cone role=mesh vertices=16 radius_bottom=0.45 radius_top=0.05 depth=1.0
+node curve.line curve_primitive_line role=mesh start_x=-0.5 start_y=0 start_z=0 end_x=0.5 end_y=0 end_z=0 width=0.04
+node geom.transform transform_geometry role=operator translate_x=0.25 scale_y=1.2
+node geom.join join_geometry role=operator copies=2 spacing=0.75
+node geom.separate separate_geometry role=operator
+node points.from_mesh mesh_to_points role=points
+node points.scatter distribute_points_on_faces role=points count=5 seed=11 radius=0.35
+node geom.instance instance_on_points role=operator
+node geom.bounds bounding_box role=operator
+node geom.triangulate triangulate role=operator
+node geom.extrude extrude_mesh role=operator amount=0.03
+node geom.merge merge_by_distance role=operator distance=0.0001
+node geom.flip flip_faces role=operator
+node geom.uv uv_pack_islands role=uv padding=0.03
+node material.assign material_assignment role=material
+node material.set set_material role=material material=material.geometry_nodes
+node material.index set_material_index role=material index=2
+node policy.uv uv_policy role=uv mapping=packed-uv0
+node policy.tangent tangent_validation role=tangent policy=validate-or-generate
+node policy.collision collision_proxy role=collision shape=bounds
+node policy.lod lod_generator role=lod policy=single-lod
+node descriptor.field field_average role=field
+node descriptor.grid sdf_grid_boolean role=grid
+node descriptor.volume volume_to_mesh role=volume
+node descriptor.raycast raycast role=sample
+node descriptor.subdivision subdivision_surface role=mesh
+node descriptor.convex convex_hull role=mesh
+node descriptor.gizmo gizmo_transform role=tool
+node perception.template world_perceptual_template role=perceptual profile=stratified-rock surface_response=geometry history_response=authoring material_half_life_seconds=12 wetness_half_life_seconds=8 semantic_lod=0.7 streaming_cost=0.2 patch_channels=geometry,material_stability contact_channels=contact_normal,visual_occlusion residue_channels=interaction_residue,player_readable_cause
+node export.runtime cook_export role=package
+node diagnostic.quality diagnostic role=quality
+edge mesh.cube geom.transform mesh
+edge geom.transform geom.join mesh
+edge geom.join points.scatter mesh
+edge points.scatter geom.instance points
+edge geom.instance geom.bounds mesh
+edge geom.bounds geom.triangulate mesh
+edge geom.triangulate geom.uv uv
+"#,
+        )
+        .expect("geometry graph");
+        let packaged = package_asset_graph(&graph, dir.join("package")).expect("package graph");
+        assert!(packaged.graph_bin.quality.production_ready);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 1) != 0);
+        assert!(packaged.graph_bin.material.feature_mask & (1 << 15) != 0);
+        assert!(packaged
+            .graph_bin
+            .nodes
+            .iter()
+            .all(|node| node.capability_status != "unsupported"));
+        assert!(packaged.graph_bin.nodes.iter().any(|node| {
+            node.kind == "mesh_primitive_cube"
+                && node.capability_status == "runtime-procedural-reference"
+        }));
+        assert!(packaged.graph_bin.nodes.iter().any(|node| {
+            node.kind == "sdf_grid_boolean" && node.capability_status == "descriptor-only-reference"
+        }));
+        assert!(packaged.graph_bin.nodes.iter().any(|node| {
+            node.kind == "gizmo_transform" && node.capability_status == "descriptor-only-reference"
+        }));
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn pipe_asset_graph_reports_surface_realism_nodes() {
         let dir = fixture_dir("pipe_asset_graph_realism");
         fs::create_dir_all(&dir).expect("dir");
@@ -11442,11 +11706,7 @@ edge perception.template export.runtime perceptual_template
             .stable_recipe_hash
             .starts_with("0x"));
         assert_eq!(
-            packaged
-                .graph_bin
-                .metadata
-                .get("owner")
-                .map(String::as_str),
+            packaged.graph_bin.metadata.get("owner").map(String::as_str),
             Some("aster-headless-foundry")
         );
         assert_eq!(packaged.graph_bin.sockets.len(), 1);

@@ -33,6 +33,16 @@ std::string readText(const std::filesystem::path &path) {
   return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
 
+const aster::ProceduralGraphNodeExecutionReport *findExecutionReport(
+    const aster::ProceduralGraphEvaluationResult &result, const std::string &node_id) {
+  const auto found = std::find_if(
+      result.execution_reports.begin(), result.execution_reports.end(),
+      [&](const aster::ProceduralGraphNodeExecutionReport &report) {
+        return report.node_id == node_id;
+      });
+  return found == result.execution_reports.end() ? nullptr : &*found;
+}
+
 void assertUserFacingOwnershipLanguageIsClean() {
   const std::filesystem::path root = ASTER_SOURCE_DIR;
   const std::vector<std::filesystem::path> paths{
@@ -498,6 +508,159 @@ void assertProceduralRuntime() {
   assert(build.proof_artifacts.size() == 1u);
 }
 
+void assertProceduralGeometryNodeBreadth() {
+  aster::ProceduralAssetGraphPackage package;
+  package.id = "graph.geometry_nodes";
+  package.asset_guid = "graph-geometry-guid";
+  package.runtime_model = "aster-runtime";
+  package.mesh.primitive = "box";
+  package.quality.score = 98u;
+  package.quality.production_ready = true;
+  package.nodes.push_back({.id = "mesh.cube",
+                           .kind = "mesh_primitive_cube",
+                           .role = "mesh",
+                           .params = {{"size_x", "1.2"}, {"size_y", "0.8"}, {"size_z", "0.5"}}});
+  package.nodes.push_back({.id = "mesh.grid",
+                           .kind = "mesh_primitive_grid",
+                           .role = "mesh",
+                           .params = {{"width", "2.0"},
+                                      {"depth", "1.5"},
+                                      {"columns", "3"},
+                                      {"rows", "2"}}});
+  package.nodes.push_back({.id = "mesh.sphere",
+                           .kind = "mesh_primitive_uv_sphere",
+                           .role = "mesh",
+                           .params = {{"segments", "12"}, {"rings", "6"}, {"radius", "0.7"}}});
+  package.nodes.push_back({.id = "mesh.cylinder",
+                           .kind = "mesh_primitive_cylinder",
+                           .role = "mesh",
+                           .params = {{"vertices", "16"}, {"radius", "0.35"}, {"depth", "1.1"}}});
+  package.nodes.push_back({.id = "mesh.cone",
+                           .kind = "mesh_primitive_cone",
+                           .role = "mesh",
+                           .params = {{"vertices", "16"},
+                                      {"radius_bottom", "0.45"},
+                                      {"radius_top", "0.05"},
+                                      {"depth", "1.0"}}});
+  package.nodes.push_back({.id = "curve.line",
+                           .kind = "curve_primitive_line",
+                           .role = "mesh",
+                           .params = {{"start_x", "-0.5"},
+                                      {"start_y", "0.0"},
+                                      {"start_z", "0.0"},
+                                      {"end_x", "0.5"},
+                                      {"end_y", "0.0"},
+                                      {"end_z", "0.0"},
+                                      {"width", "0.04"}}});
+  package.nodes.push_back({.id = "geom.transform",
+                           .kind = "transform_geometry",
+                           .role = "operator",
+                           .params = {{"translate_x", "0.25"}, {"scale_y", "1.2"}}});
+  package.nodes.push_back({.id = "geom.join",
+                           .kind = "join_geometry",
+                           .role = "operator",
+                           .params = {{"copies", "2"}, {"spacing", "0.75"}}});
+  package.nodes.push_back({.id = "geom.separate",
+                           .kind = "separate_geometry",
+                           .role = "operator"});
+  package.nodes.push_back({.id = "points.from_mesh",
+                           .kind = "mesh_to_points",
+                           .role = "points"});
+  package.nodes.push_back({.id = "points.scatter",
+                           .kind = "distribute_points_on_faces",
+                           .role = "points",
+                           .params = {{"count", "5"}, {"seed", "11"}, {"radius", "0.35"}}});
+  package.nodes.push_back({.id = "geom.instance",
+                           .kind = "instance_on_points",
+                           .role = "operator"});
+  package.nodes.push_back({.id = "geom.bounds",
+                           .kind = "bounding_box",
+                           .role = "operator"});
+  package.nodes.push_back({.id = "geom.triangulate",
+                           .kind = "triangulate",
+                           .role = "operator"});
+  package.nodes.push_back({.id = "geom.extrude",
+                           .kind = "extrude_mesh",
+                           .role = "operator",
+                           .params = {{"amount", "0.03"}}});
+  package.nodes.push_back({.id = "geom.merge",
+                           .kind = "merge_by_distance",
+                           .role = "operator",
+                           .params = {{"distance", "0.0001"}}});
+  package.nodes.push_back({.id = "geom.flip",
+                           .kind = "flip_faces",
+                           .role = "operator"});
+  package.nodes.push_back({.id = "geom.uv",
+                           .kind = "uv_pack_islands",
+                           .role = "uv",
+                           .params = {{"padding", "0.03"}}});
+  package.nodes.push_back({.id = "material.set",
+                           .kind = "set_material",
+                           .role = "material",
+                           .params = {{"material", "material.geometry_nodes"}}});
+  package.nodes.push_back({.id = "material.index",
+                           .kind = "set_material_index",
+                           .role = "material",
+                           .params = {{"index", "2"}}});
+
+  const aster::ProceduralGraphEvaluationResult result =
+      aster::evaluateProceduralAssetGraph(package);
+  assert(result.production_ready);
+  assert(!result.mesh.vertices.empty());
+  assert(result.mesh.indices.size() % 3u == 0u);
+  assert(result.material.asset_id == "material.geometry_nodes");
+  assert(result.execution_reports.size() == package.nodes.size());
+  for (const aster::ProceduralAssetGraphNode &node : package.nodes) {
+    const aster::ProceduralGraphNodeExecutionReport *report =
+        findExecutionReport(result, node.id);
+    assert(report != nullptr);
+    assert(report->status == "executed" || report->status == "executed-mesh-approximation" ||
+           report->status == "metadata");
+  }
+  const aster::ProceduralGraphNodeExecutionReport *scatter =
+      findExecutionReport(result, "points.scatter");
+  assert(scatter != nullptr);
+  assert(scatter->output_points == 5u);
+  const aster::ProceduralGraphNodeExecutionReport *instance =
+      findExecutionReport(result, "geom.instance");
+  assert(instance != nullptr);
+  assert(instance->output_vertices > instance->input_vertices);
+  const aster::ProceduralGraphNodeExecutionReport *bounds =
+      findExecutionReport(result, "geom.bounds");
+  assert(bounds != nullptr);
+  assert(bounds->output_vertices <= bounds->input_vertices);
+}
+
+void assertProceduralDescriptorOnlyGeometryNodes() {
+  aster::ProceduralAssetGraphPackage package;
+  package.id = "graph.descriptor_only";
+  package.asset_guid = "graph-descriptor-guid";
+  package.runtime_model = "aster-runtime";
+  package.mesh.primitive = "box";
+  package.quality.score = 94u;
+  package.quality.production_ready = true;
+  package.nodes.push_back({.id = "field.average", .kind = "field_average", .role = "field"});
+  package.nodes.push_back({.id = "grid.sdf", .kind = "sdf_grid_boolean", .role = "grid"});
+  package.nodes.push_back({.id = "volume.mesh", .kind = "volume_to_mesh", .role = "volume"});
+  package.nodes.push_back({.id = "geom.raycast", .kind = "raycast", .role = "sample"});
+  package.nodes.push_back({.id = "geom.subdivision",
+                           .kind = "subdivision_surface",
+                           .role = "mesh"});
+  package.nodes.push_back({.id = "geom.convex", .kind = "convex_hull", .role = "mesh"});
+  package.nodes.push_back({.id = "ui.gizmo", .kind = "gizmo_transform", .role = "tool"});
+
+  const aster::ProceduralGraphEvaluationResult result =
+      aster::evaluateProceduralAssetGraph(package);
+  assert(result.production_ready);
+  assert(result.diagnostics.empty());
+  assert(result.execution_reports.size() == package.nodes.size());
+  for (const aster::ProceduralGraphNodeExecutionReport &report : result.execution_reports) {
+    assert(report.status == "descriptor-only");
+    assert(report.input_vertices == report.output_vertices);
+    assert(report.input_indices == report.output_indices);
+  }
+}
+
 void assertPreviewAndSimulation() {
   aster::PreviewImageRgba8 foreground;
   foreground.width = 2u;
@@ -590,6 +753,8 @@ int main() {
   assertGeometryOperations();
   assertMeshIo();
   assertProceduralRuntime();
+  assertProceduralGeometryNodeBreadth();
+  assertProceduralDescriptorOnlyGeometryNodes();
   assertPreviewAndSimulation();
   assertXpbdAuthoringSourceEdit();
   return 0;
