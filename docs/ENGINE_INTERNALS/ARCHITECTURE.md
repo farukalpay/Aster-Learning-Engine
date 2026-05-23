@@ -231,9 +231,9 @@ modules, and the public game SDK from the outside. Sample code can be
 content-specific; engine, SDK, and systems code cannot. Lumen Run is not part of
 the stable engine kernel; if a sample needs external binary access, it must be
 exposed through an opaque `AsterSampleAppHandle` facade rather than a public
-header containing sample state. Source-only helpers live beside
-`src/samples/lumen_run_*.cpp` so Lumen-specific placement, material, and route
-data do not become engine defaults by accident.
+header containing sample state. Source-only helpers live under
+`src/samples/lumen_run/` so Lumen-specific placement, material, and route data
+do not become engine defaults by accident.
 
 `include/aster/ui`
 
@@ -394,7 +394,7 @@ CTest exposes subsystem targets instead of a single catch-all executable:
 `aster_kernel_public_consumer`, `aster_kernel_contract_tests`,
 `aster_game_sdk_public_consumer`, `aster_core_tests`, `aster_geometry_tests`,
 `aster_render_scene_tests`, `aster_systems_tests`, `aster_physics_tests`,
-`aster_sample_tests`, and `aster_network_tests` when networking is enabled.
+`aster_lumen_run_tests`, and `aster_network_tests` when networking is enabled.
 Shared test helpers are local to `tests/` and must not become engine API. New
 coverage should land in the target that owns the contract being changed;
 sample-specific regression checks belong in the sample target unless they first

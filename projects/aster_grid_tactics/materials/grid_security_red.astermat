@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.grid_security_red {
+  schema_version: 1
+  name: "Aster Grid Security Red"
+  shading_model: LitPBR
+  surface_profile: corroded-metal
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  textures {
+    albedo: "../textures/grid_lab_albedo.ktx2"
+    normal: "../textures/grid_lab_normal.ktx2"
+    orm: "../textures/grid_lab_orm.ktx2"
+    height: "../textures/grid_lab_height.ktx2"
+  }
+
+  params {
+    base_color_r: 0.42
+    base_color_g: 0.045
+    base_color_b: 0.085
+    emission_r: 1.00
+    emission_g: 0.08
+    emission_b: 0.14
+    emission_strength: 1.55
+    roughness: 0.52
+    metallic: 0.58
+    triplanar_scale: 4.8
+    detail_strength: 0.52
+    micro_normal_strength: 0.44
+    roughness_variation: 0.26
+    physical_texel_density: 900
+    height_normal_coupling: 0.86
+    roughness_height_coupling: 0.60
+    macro_frequency_breakup: 0.46
+    micro_frequency_breakup: 0.70
+    height_shading: 0.26
+    pattern_depth: 0.14
+    pattern_contrast: 0.32
+    edge_wear: 0.30
+    pitting_density: 0.40
+    cavity_grime: 0.24
+  }
+
+  features {
+    triplanar: true
+    normal_map: true
+    orm_texture: true
+    height: true
+    emissive: true
+    decal_receiver: true
+  }
+}

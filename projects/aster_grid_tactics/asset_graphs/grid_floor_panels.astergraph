@@ -1,0 +1,59 @@
+astergraph asset_graph.grid.floor_panels
+schema_version 1
+name "Aster Grid Floor Panels"
+material_id material.grid_lab_floor
+surface_profile corroded-metal
+primitive plane
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy box
+lod_policy single-lod
+base_color 0.070 0.095 0.105
+roughness 0.72
+metallic 0.42
+param wetness 0.08
+param macro_variation 0.42
+param micro_normal_strength 0.46
+param roughness_variation 0.22
+param physical_texel_density 960
+param height_normal_coupling 0.94
+param roughness_height_coupling 0.76
+param macro_frequency_breakup 0.46
+param micro_frequency_breakup 0.62
+param height_shading 0.30
+param pitting_density 0.52
+param pitting_depth 0.012
+param oxide_layering 0.48
+param cavity_grime 0.30
+param edge_polish 0.28
+param axial_scratches 0.42
+param rust_bloom 0.08
+feature triplanar true
+feature normal_map true
+feature height true
+preview environment neon-lab-floor
+preview rig orthographic-grid
+node mesh.panel mesh_primitive role=mesh primitive=plane
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=4.4
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=corroded-metal
+node mat.noise noise role=base_color scale=14.0 strength=0.22
+node mat.cells cellular role=panel_wear scale=18.0 strength=0.24
+node mat.cavity cavity_dirt role=dirt strength=0.30
+node mat.edge edge_wear role=edge_wear strength=0.28
+node mat.scratches axial_scratch role=axial_scratches strength=0.42
+node mat.orm orm_baker role=orm policy=runtime-procedural
+node mat.normal normal_baker role=normal strength=0.46
+node mat.height height_baker role=height strength=0.30
+node collision.proxy collision_proxy role=collision shape=box
+node lod.single lod_generator role=lod policy=single-lod
+node probe.preview probe_helper role=lighting environment=neon-lab
+node perception.template world_perceptual_template role=perceptual profile=corroded-metal surface_response=neon-lab-floor-panel history_response=panel-wear-contact-memory material_half_life_seconds=34 wetness_half_life_seconds=18 semantic_lod=0.86 streaming_cost=0.32 patch_channels=oxidation,edge_wear,material_stability contact_channels=contact_normal,visual_occlusion,traversal_affordance residue_channels=coolant_residue,electrical_residue,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.cells material.assign panel_wear
+edge mat.edge material.assign edge_wear
+edge mat.scratches material.assign axial_scratches
+edge mat.normal export.runtime normal
+edge mat.height export.runtime height
+edge perception.template export.runtime perceptual_template

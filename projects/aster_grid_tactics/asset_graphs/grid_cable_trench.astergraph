@@ -1,0 +1,58 @@
+astergraph asset_graph.grid.cable_trench
+schema_version 1
+name "Aster Grid Cable Trench"
+material_id material.grid_lab_wall
+surface_profile corroded-metal
+primitive plane
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy box
+lod_policy single-lod
+base_color 0.020 0.028 0.032
+roughness 0.70
+metallic 0.52
+param wetness 0.06
+param macro_variation 0.34
+param micro_normal_strength 0.42
+param roughness_variation 0.22
+param physical_texel_density 980
+param height_normal_coupling 0.88
+param roughness_height_coupling 0.72
+param macro_frequency_breakup 0.42
+param micro_frequency_breakup 0.64
+param height_shading 0.30
+param pitting_density 0.36
+param cavity_grime 0.54
+param edge_polish 0.20
+param emission_r 0.08
+param emission_g 0.60
+param emission_b 0.58
+param emission_strength 0.22
+feature triplanar true
+feature normal_map true
+feature height true
+feature emissive true
+preview environment neon-industrial-trench
+preview rig orthographic-grid
+node mesh.trench mesh_primitive role=mesh primitive=plane
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=4.6
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=corroded-metal
+node mat.noise noise role=base_color scale=11.0 strength=0.20
+node mat.cells cellular role=channel_panels scale=9.0 strength=0.24
+node mat.cavity cavity_dirt role=dirt strength=0.54
+node mat.edge edge_wear role=edge_wear strength=0.20
+node mat.emission baked_mask_preview role=embedded_channel_glow strength=0.22
+node mat.normal normal_baker role=normal strength=0.42
+node mat.height height_baker role=height strength=0.30
+node collision.proxy collision_proxy role=collision shape=box
+node lod.single lod_generator role=lod policy=single-lod
+node perception.template world_perceptual_template role=perceptual profile=corroded-metal surface_response=energy-cable-trench history_response=reroute-pulse-contact-memory material_half_life_seconds=28 wetness_half_life_seconds=12 semantic_lod=0.84 streaming_cost=0.26 patch_channels=channel_glow,edge_wear,material_stability contact_channels=contact_normal,visual_occlusion,traversal_affordance residue_channels=electrical_residue,coolant_residue,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.cells material.assign panel_breakup
+edge mat.cavity material.assign cavity_dirt
+edge mat.emission material.assign embedded_channel_glow
+edge mat.normal export.runtime normal
+edge mat.height export.runtime height
+edge perception.template export.runtime perceptual_template

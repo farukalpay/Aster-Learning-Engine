@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "id": "scene.grid_lab",
+  "name": "Aster Grid Tactics Lab Floor",
+  "entities": [
+    {
+      "id": "player_spawn",
+      "name": "Player Spawn",
+      "components": {
+        "transform": { "translation": [1.0, 0.0, 1.0] },
+        "spawn_point": { "spawn_kind": "player", "grid": [1, 1] },
+        "grid_actor": { "team": "player", "command_source": "lockstep" }
+      }
+    },
+    {
+      "id": "hack_terminal",
+      "name": "Hack Terminal",
+      "components": {
+        "transform": { "translation": [4.0, 0.0, 2.0] },
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "interactable": { "action_graph": "action.grid.hack_terminal", "prompt_action": "Hack", "prompt_subject": "Terminal", "radius": 1.0 },
+        "grid_terminal": { "opens": "security_door", "disables": "turret_alpha" }
+      }
+    },
+    {
+      "id": "energy_node_alpha",
+      "name": "Energy Node Alpha",
+      "components": {
+        "transform": { "translation": [5.0, 0.0, 5.0] },
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "interactable": { "action_graph": "action.grid.reroute_energy", "prompt_action": "Reroute", "prompt_subject": "Energy Node", "radius": 1.0 },
+        "grid_energy_node": { "order": 1, "required": true }
+      }
+    },
+    {
+      "id": "energy_node_beta",
+      "name": "Energy Node Beta",
+      "components": {
+        "transform": { "translation": [13.0, 0.0, 7.0] },
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "interactable": { "action_graph": "action.grid.reroute_energy", "prompt_action": "Reroute", "prompt_subject": "Energy Node", "radius": 1.0 },
+        "grid_energy_node": { "order": 2, "required": true }
+      }
+    },
+    {
+      "id": "security_door",
+      "name": "Security Door",
+      "components": {
+        "transform": { "translation": [8.0, 0.0, 5.0] },
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "grid_door": { "starts_open": false, "blocks_sight": true }
+      }
+    },
+    {
+      "id": "turret_alpha",
+      "name": "Turret Alpha",
+      "components": {
+        "transform": { "translation": [12.0, 0.0, 4.0] },
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "grid_turret": { "fire_ticks": 36, "disabled_by": "hack_terminal" }
+      }
+    },
+    {
+      "id": "extraction",
+      "name": "Extraction",
+      "components": {
+        "transform": { "translation": [16.0, 0.0, 10.0] },
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "grid_extraction": { "requires_energy_nodes": 2, "requires_terminal": true }
+      }
+    }
+  ]
+}

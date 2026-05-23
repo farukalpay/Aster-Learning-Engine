@@ -10,12 +10,15 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace aster {
+
+struct ProceduralAssetGraphPackage;
 
 enum class AsterAssetFoundryStageKind {
   SourceGeometry,
@@ -67,6 +70,25 @@ struct AsterAssetFoundrySurfaceCoverage {
   std::vector<std::string> diagnostics;
   std::uint32_t quality_score = 100u;
   bool passed = true;
+};
+
+struct AsterAssetFoundrySurfaceSignalSummary {
+  std::string signal;
+  float average = 0.0f;
+  float coverage = 0.0f;
+  std::string status;
+  std::string source;
+};
+
+struct AsterAssetFoundryProofArtifact {
+  std::string id;
+  std::string role;
+  std::filesystem::path path;
+  std::string kind;
+  std::string hash;
+  std::uint32_t width = 0u;
+  std::uint32_t height = 0u;
+  std::vector<std::string> signal_tags;
 };
 
 struct AsterAssetFoundrySurfaceContract {
@@ -137,6 +159,7 @@ struct AsterAssetFoundryRecipe {
   std::vector<std::string> visual_brief_rejections;
   std::vector<std::string> dependency_edges;
   std::vector<std::string> creative_variant_tags;
+  std::vector<AsterAssetFoundryProofArtifact> proof_artifacts;
 };
 
 struct AsterAssetFoundryBuildResult {
@@ -151,6 +174,7 @@ struct AsterAssetFoundryBuildResult {
   std::vector<std::string> dependency_edges;
   std::vector<std::string> visual_brief_claims;
   std::vector<std::string> visual_brief_rejections;
+  std::vector<AsterAssetFoundryProofArtifact> proof_artifacts;
   std::vector<std::string> diagnostics;
   std::uint32_t quality_score = 0u;
   bool production_ready = false;
@@ -218,6 +242,8 @@ validateAsterAssetFoundryRecipe(const AsterAssetFoundryRecipe &recipe);
 summarizeAsterAssetFoundryLods(const AsterAssetFoundryBuildResult &result);
 [[nodiscard]] std::vector<AsterAssetFoundryPhysicsProxySummary>
 summarizeAsterAssetFoundryPhysicsProxies(const AsterAssetFoundryRecipe &recipe);
+[[nodiscard]] std::vector<AsterAssetFoundrySurfaceSignalSummary>
+summarizeAsterAssetFoundrySurfaceSignals(const AsterAssetFoundryBuildResult &result);
 [[nodiscard]] std::vector<AsterAssetFoundryVisualBriefRow>
 makeAsterAssetFoundryVisualBriefRows(const AsterAssetFoundryRecipe &recipe,
                                      const AsterAssetFoundryBuildResult &result);
@@ -233,6 +259,9 @@ asterAssetFoundryPhysicsBodyDesc(const AsterAssetFoundryPhysicsProxy &proxy,
                                  std::shared_ptr<const CpuMesh> mesh = {});
 [[nodiscard]] AsterAssetFoundryBuildResult
 buildAsterAssetFoundryRecipe(const AsterAssetFoundryRecipe &recipe);
+[[nodiscard]] AsterAssetFoundryRecipe makeAsterAssetFoundryRecipeFromGraph(
+    const ProceduralAssetGraphPackage &package,
+    std::vector<AsterAssetFoundryQualityDiagnostic> *diagnostics = nullptr);
 [[nodiscard]] AsterAssetFoundryRecipe
 makeAsterPipeFoundryRecipe(AsterPipeAssetSpec spec = {},
                            AsterPipeFoundryVariant variant =

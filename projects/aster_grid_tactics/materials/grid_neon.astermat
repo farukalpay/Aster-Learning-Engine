@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.grid_neon {
+  schema_version: 1
+  name: "Aster Grid Neon"
+  shading_model: Emissive
+  blend_mode: Blend
+  cull_mode: None
+  receives_decals: false
+  receives_shadows: false
+
+  params {
+    base_color_r: 0.04
+    base_color_g: 0.18
+    base_color_b: 0.22
+    emission_r: 0.20
+    emission_g: 0.95
+    emission_b: 0.86
+    emission_strength: 1.85
+    roughness: 0.36
+    opacity: 0.92
+  }
+
+  features {
+    emissive: true
+    alpha_blend: true
+    double_sided: true
+  }
+}

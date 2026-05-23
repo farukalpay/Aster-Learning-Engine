@@ -906,6 +906,57 @@ pub struct ProceduralGraphEdge {
     pub role: String,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProceduralGraphSocket {
+    pub node_id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub socket_type: String,
+    pub direction: String,
+    pub role: String,
+    pub default_value: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProceduralGraphZone {
+    pub id: String,
+    pub kind: String,
+    pub input_node: String,
+    pub output_node: String,
+    pub items: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProceduralGraphBundleItem {
+    pub bundle_id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub socket_type: String,
+    pub source_node: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProceduralGraphBakeTarget {
+    pub id: String,
+    pub node_id: String,
+    pub target: String,
+    pub artifact_role: String,
+    pub frame_start: u32,
+    pub frame_end: u32,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetGraphProofArtifact {
+    pub id: String,
+    pub role: String,
+    pub path: String,
+    pub kind: String,
+    pub hash: String,
+    pub width: u32,
+    pub height: u32,
+    pub signal_tags: Vec<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AssetGraphMeshDescriptor {
     pub primitive: String,
@@ -1010,6 +1061,18 @@ pub struct AssetGraphBin {
     pub perceptual_template: AssetGraphPerceptualTemplate,
     pub nodes: Vec<ProceduralGraphNode>,
     pub edges: Vec<ProceduralGraphEdge>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, String>,
+    #[serde(default)]
+    pub sockets: Vec<ProceduralGraphSocket>,
+    #[serde(default)]
+    pub zones: Vec<ProceduralGraphZone>,
+    #[serde(default)]
+    pub bundle_items: Vec<ProceduralGraphBundleItem>,
+    #[serde(default)]
+    pub bake_targets: Vec<ProceduralGraphBakeTarget>,
+    #[serde(default)]
+    pub proof_artifacts: Vec<AssetGraphProofArtifact>,
     pub preview: BTreeMap<String, String>,
     #[serde(default)]
     pub production_session: AssetGraphProductionSession,
@@ -1828,6 +1891,12 @@ struct ParsedAssetGraphSource {
     perceptual_template: Option<AssetGraphPerceptualTemplate>,
     nodes: Vec<ProceduralGraphNode>,
     edges: Vec<ProceduralGraphEdge>,
+    metadata: BTreeMap<String, String>,
+    sockets: Vec<ProceduralGraphSocket>,
+    zones: Vec<ProceduralGraphZone>,
+    bundle_items: Vec<ProceduralGraphBundleItem>,
+    bake_targets: Vec<ProceduralGraphBakeTarget>,
+    proof_artifacts: Vec<AssetGraphProofArtifact>,
     diagnostics: Vec<AssetCookDiagnostic>,
 }
 
@@ -1860,6 +1929,12 @@ impl ParsedAssetGraphSource {
             perceptual_template: None,
             nodes: Vec::new(),
             edges: Vec::new(),
+            metadata: BTreeMap::new(),
+            sockets: Vec::new(),
+            zones: Vec::new(),
+            bundle_items: Vec::new(),
+            bake_targets: Vec::new(),
+            proof_artifacts: Vec::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -2193,6 +2268,120 @@ fn push_graph_node(parsed: &mut ParsedAssetGraphSource, tokens: &[String]) -> Re
     Ok(())
 }
 
+fn push_graph_socket(parsed: &mut ParsedAssetGraphSource, tokens: &[String]) -> Result<()> {
+    if tokens.len() < 4 {
+        return Err(ContentError::new(
+            "socket requires: socket <node_id> <name> <type> [key=value...]",
+        ));
+    }
+    let params = parse_graph_param_tokens(&tokens[4..]);
+    parsed.sockets.push(ProceduralGraphSocket {
+        node_id: tokens[1].clone(),
+        name: tokens[2].clone(),
+        socket_type: tokens[3].clone(),
+        direction: params
+            .get("direction")
+            .cloned()
+            .unwrap_or_else(|| "input".to_string()),
+        role: params.get("role").cloned().unwrap_or_default(),
+        default_value: params.get("default").cloned().unwrap_or_default(),
+    });
+    Ok(())
+}
+
+fn push_graph_zone(parsed: &mut ParsedAssetGraphSource, tokens: &[String]) -> Result<()> {
+    if tokens.len() < 3 {
+        return Err(ContentError::new(
+            "zone requires: zone <id> <kind> [key=value...]",
+        ));
+    }
+    let params = parse_graph_param_tokens(&tokens[3..]);
+    parsed.zones.push(ProceduralGraphZone {
+        id: tokens[1].clone(),
+        kind: canonical_graph_node_kind(&tokens[2]),
+        input_node: params.get("input").cloned().unwrap_or_default(),
+        output_node: params.get("output").cloned().unwrap_or_default(),
+        items: graph_param_list(&params, "items", &[]),
+    });
+    Ok(())
+}
+
+fn push_graph_bundle_item(parsed: &mut ParsedAssetGraphSource, tokens: &[String]) -> Result<()> {
+    if tokens.len() < 4 {
+        return Err(ContentError::new(
+            "bundle_item requires: bundle_item <bundle_id> <name> <type> [key=value...]",
+        ));
+    }
+    let params = parse_graph_param_tokens(&tokens[4..]);
+    parsed.bundle_items.push(ProceduralGraphBundleItem {
+        bundle_id: tokens[1].clone(),
+        name: tokens[2].clone(),
+        socket_type: tokens[3].clone(),
+        source_node: params.get("source").cloned().unwrap_or_default(),
+    });
+    Ok(())
+}
+
+fn push_graph_bake_target(parsed: &mut ParsedAssetGraphSource, tokens: &[String]) -> Result<()> {
+    if tokens.len() < 3 {
+        return Err(ContentError::new(
+            "bake_target requires: bake_target <id> <node_id> [key=value...]",
+        ));
+    }
+    let params = parse_graph_param_tokens(&tokens[3..]);
+    parsed.bake_targets.push(ProceduralGraphBakeTarget {
+        id: tokens[1].clone(),
+        node_id: tokens[2].clone(),
+        target: params
+            .get("target")
+            .cloned()
+            .unwrap_or_else(|| "preview".to_string()),
+        artifact_role: params
+            .get("artifact")
+            .or_else(|| params.get("role"))
+            .cloned()
+            .unwrap_or_else(|| "preview".to_string()),
+        frame_start: params
+            .get("frame_start")
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(0),
+        frame_end: params
+            .get("frame_end")
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(0),
+    });
+    Ok(())
+}
+
+fn push_graph_proof_artifact(parsed: &mut ParsedAssetGraphSource, tokens: &[String]) -> Result<()> {
+    if tokens.len() < 4 {
+        return Err(ContentError::new(
+            "proof_artifact requires: proof_artifact <id> <role> <path> [key=value...]",
+        ));
+    }
+    let params = parse_graph_param_tokens(&tokens[4..]);
+    parsed.proof_artifacts.push(AssetGraphProofArtifact {
+        id: tokens[1].clone(),
+        role: tokens[2].clone(),
+        path: tokens[3].clone(),
+        kind: params
+            .get("kind")
+            .cloned()
+            .unwrap_or_else(|| "png".to_string()),
+        hash: params.get("hash").cloned().unwrap_or_default(),
+        width: params
+            .get("width")
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(0),
+        height: params
+            .get("height")
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(0),
+        signal_tags: graph_param_list(&params, "signals", &[]),
+    });
+    Ok(())
+}
+
 fn parse_asset_graph_source(
     source: &str,
     fallback_id: &str,
@@ -2310,7 +2499,20 @@ fn parse_asset_graph_source(
                 }
                 parsed.preview.insert(tokens[1].clone(), tokens[2].clone());
             }
+            "metadata" => {
+                if tokens.len() < 3 {
+                    return Err(ContentError::new(
+                        "metadata requires: metadata <name> <value>",
+                    ));
+                }
+                parsed.metadata.insert(tokens[1].clone(), tokens[2].clone());
+            }
             "node" => push_graph_node(&mut parsed, &tokens)?,
+            "socket" => push_graph_socket(&mut parsed, &tokens)?,
+            "zone" => push_graph_zone(&mut parsed, &tokens)?,
+            "bundle_item" => push_graph_bundle_item(&mut parsed, &tokens)?,
+            "bake_target" => push_graph_bake_target(&mut parsed, &tokens)?,
+            "proof_artifact" => push_graph_proof_artifact(&mut parsed, &tokens)?,
             "edge" => {
                 if tokens.len() >= 5 && tokens[2] == "->" {
                     parsed.edges.push(ProceduralGraphEdge {
@@ -3003,6 +3205,12 @@ fn build_asset_graph_bin(
         parsed.perceptual_template.clone(),
         parsed.nodes.clone(),
         parsed.edges.clone(),
+        parsed.metadata.clone(),
+        parsed.sockets.clone(),
+        parsed.zones.clone(),
+        parsed.bundle_items.clone(),
+        parsed.bake_targets.clone(),
+        parsed.proof_artifacts.clone(),
     );
     let shader_variant_key = graph_hash_u64("aster.assetgraph.shader.v1", &shader_seed);
     let shader_variant_tag = format!("AssetGraph.{}.runtime-procedural", parsed.material_id);
@@ -3107,6 +3315,12 @@ fn build_asset_graph_bin(
         perceptual_template,
         nodes: parsed.nodes,
         edges: parsed.edges,
+        metadata: parsed.metadata,
+        sockets: parsed.sockets,
+        zones: parsed.zones,
+        bundle_items: parsed.bundle_items,
+        bake_targets: parsed.bake_targets,
+        proof_artifacts: parsed.proof_artifacts,
         preview: parsed.preview,
         production_session,
         factory_report,
@@ -11101,7 +11315,13 @@ param rim_normal_feather 0.78
 feature triplanar true
 feature normal_map true
 preview rig pipe-lab-three-quarter
+metadata owner aster-headless-foundry
 node mesh.pipe pipe_body role=mesh primitive=rusted-pipe
+socket mesh.pipe Geometry geometry direction=output role=mesh
+zone factory.zone repeat input=factory.recipe output=export.runtime items=mesh.pipe,factory.surface
+bundle_item factory.bundle surface_signal string source=factory.signal.rust
+bake_target bake.preview export.runtime target=preview artifact=proof frame_start=0 frame_end=0
+proof_artifact proof.pipe graph tests/artifacts/asset_foundry_headless/industrial_conduit_graph.png kind=png width=640 height=300 signals=rust,oxide,weld
 node factory.recipe factory_recipe role=factory target=rusted-pipe variant=reference-silhouette owner=aster
 node factory.stage.source factory_stage role=factory kind=source-geometry order=0
 node factory.stage.modifiers factory_stage role=factory kind=modifier-stack order=1
@@ -11200,6 +11420,20 @@ edge perception.template export.runtime perceptual_template
             .factory_report
             .stable_recipe_hash
             .starts_with("0x"));
+        assert_eq!(
+            packaged
+                .graph_bin
+                .metadata
+                .get("owner")
+                .map(String::as_str),
+            Some("aster-headless-foundry")
+        );
+        assert_eq!(packaged.graph_bin.sockets.len(), 1);
+        assert_eq!(packaged.graph_bin.zones.len(), 1);
+        assert_eq!(packaged.graph_bin.bundle_items.len(), 1);
+        assert_eq!(packaged.graph_bin.bake_targets.len(), 1);
+        assert_eq!(packaged.graph_bin.proof_artifacts.len(), 1);
+        assert_eq!(packaged.graph_bin.proof_artifacts[0].width, 640);
         assert!(packaged.graph_bin.factory_report.stage_diagnostics.len() >= 6);
         assert!(packaged
             .graph_bin

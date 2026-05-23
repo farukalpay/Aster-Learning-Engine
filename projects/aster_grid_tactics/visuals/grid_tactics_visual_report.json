@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "asset_id": "asset_graph.grid.floor_panels",
+  "reference_images_used": [
+    "assets/screenshots/industrial_pipe.png",
+    "assets/screenshots/material_lab.png"
+  ],
+  "candidate_artifacts": [
+    "visuals/grid_tactics_style_board.png",
+    "visuals/grid_tactics_atlas_concept.png",
+    "materials/grid_lab_floor.astermat",
+    "materials/grid_lab_wall.astermat",
+    "materials/grid_security_red.astermat",
+    "materials/grid_operator_blue.astermat",
+    "materials/grid_energy_green.astermat",
+    "asset_graphs/grid_floor_panels.astergraph",
+    "asset_graphs/grid_security_emitters.astergraph",
+    "asset_graphs/grid_cable_trench.astergraph",
+    "asset_graphs/grid_energy_lens.astergraph",
+    "asset_graphs/grid_extraction_gate.astergraph",
+    "visuals/grid_tactics_gameplay.gif",
+    "visuals/grid_tactics_gameplay_contact.png",
+    "/tmp/aster_grid_tactics_polished.png",
+    "/tmp/aster_grid_tactics_polished_victory.png"
+  ],
+  "generation_mode": "hybrid_style_board_plus_aster_material_mesh_vfx_runtime",
+  "prompt_summary": "Neon Industrial top-down tactical lab: gunmetal floor panels, inset energy trenches, readable operator and guard silhouettes, amber terminals, red security emitters, green extraction bloom, and deterministic VFX state language.",
+  "required_visual_signals": [
+    "no_full_board_debug_grid_by_default",
+    "gunmetal_floor_panel_domains",
+    "inset_cable_trench_language",
+    "non_placeholder_operator_hull",
+    "red_guard_drone_and_vision_cone",
+    "terminal_screen_scan_effect",
+    "turret_offline_dimming",
+    "energy_node_ring_and_conduit_pulse",
+    "extraction_gate_bloom_or_burst",
+    "minimal_diegetic_hud",
+    "restart_affordance_after_end_state",
+    "normal_orm_height_capable_material_stack"
+  ],
+  "forbidden_visual_signals": [
+    "flat_monochrome_board",
+    "full_board_editor_grid_overlay",
+    "main_actor_placeholder_circle_or_hex",
+    "hud_log_language_like_tick_hash_draw_calls",
+    "runtime_png_dependency_for_strict_cook",
+    "third_party_texture_dependency"
+  ],
+  "claimed_signals": [
+    "Default runtime scene removes full-board grid overlay; --debug-grid is opt-in and tested.",
+    "Runtime objects are named polished render clusters: Operator Hull, Guard Drone Hull, Energy Node Ring, Terminal Console Screen, Security Turret, Extraction Gate Ring.",
+    "Playable runtime uses clean deterministic conduit segments; cookable conduit and asset graph proof remains project-bound while gameplay avoids off-screen ribbon artifacts.",
+    "Default app uses native 1600x900 presentation, MSAA, FXAA, and visual tweening for player and guard movement while keeping the simulation grid deterministic.",
+    "Terminal hack, energy reroute, extraction open, extraction complete, and defeat expose deterministic visual event ticks and HUD callouts.",
+    "HUD language is player-facing: POWER, TERMINAL, EXIT, overload bar, and restart prompt; frame/debug data remains in CLI reports.",
+    "Project contains cookable asset graphs for floor panels, cable trench, security emitters, energy lens, and extraction gate.",
+    "Generated style board is retained as project-bound art direction and validation artifact, not a runtime strict-cook dependency."
+  ],
+  "rejected_signals": [
+    "plain single-color board",
+    "pink/blue placeholder main actors",
+    "yellow placeholder extraction hex",
+    "debug grid as default art layer",
+    "missing restart instruction on victory/failure overlay",
+    "unsupported asset graph nodes in strict cook"
+  ],
+  "presentation_quality": {
+    "art_direction": "Neon Industrial with controlled gunmetal surfaces, cyan-green energy, amber terminal screens, and red security language.",
+    "scale_cues": "Larger deterministic floor panel domains, raised machinery walls, pylons, door rails, terminal consoles, and ring nodes establish a physical lab floor.",
+    "contact_shadows": "2.5D object clusters use raised primitive depth and renderer grounding to keep silhouettes attached to the surface.",
+    "surface_occlusion": "Aster material parameters and KTX2-backed normal/ORM/height sources carry panel wear, cavity grime, edge polish, pitting, and height shading.",
+    "volumetric_depth": "Clean conduit segments, compact guard warning tiles, and extraction rings show gameplay states without particle clutter.",
+    "camera_language": "Orthographic top-down tactical framing with debug grid hidden by default.",
+    "preview_artifact": "/tmp/aster_grid_tactics_polished.png"
+  },
+  "surface_stack": {
+    "physical_texel_density": 960,
+    "height_normal_coupling": 0.94,
+    "roughness_height_coupling": 0.76,
+    "macro_frequency_breakup": 0.58,
+    "micro_frequency_breakup": 0.74
+  },
+  "review": {
+    "status": "accepted",
+    "score": 0.86,
+    "missing_required": [],
+    "present_forbidden": [],
+    "preview_artifact": "visuals/grid_tactics_gameplay.gif",
+    "notes": "Gameplay GIF review removed stray marker/projectile-style clutter, switched default presentation to MSAA/FXAA/native resolution, and added deterministic visual tweening for grid movement."
+  }
+}

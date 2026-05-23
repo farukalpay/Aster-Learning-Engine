@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "id": "ui.grid_hud",
+  "name": "Aster Grid Tactics HUD",
+  "layers": [
+    { "id": "objective", "kind": "text", "binding": "grid.objective" },
+    { "id": "overload", "kind": "bar", "binding": "grid.overload_fraction" },
+    { "id": "status", "kind": "text", "binding": "grid.status_line" }
+  ]
+}

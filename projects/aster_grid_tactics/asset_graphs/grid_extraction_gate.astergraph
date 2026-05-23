@@ -1,0 +1,55 @@
+astergraph asset_graph.grid.extraction_gate
+schema_version 1
+name "Aster Grid Extraction Gate"
+material_id material.grid_energy_green
+surface_profile corroded-metal
+primitive cube
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy box
+lod_policy single-lod
+base_color 0.035 0.105 0.085
+roughness 0.44
+metallic 0.50
+param wetness 0.04
+param macro_variation 0.30
+param micro_normal_strength 0.34
+param roughness_variation 0.20
+param physical_texel_density 940
+param height_normal_coupling 0.70
+param roughness_height_coupling 0.54
+param macro_frequency_breakup 0.36
+param micro_frequency_breakup 0.58
+param height_shading 0.24
+param cavity_grime 0.24
+param edge_polish 0.32
+param emission_r 0.18
+param emission_g 1.00
+param emission_b 0.48
+param emission_strength 1.65
+feature triplanar true
+feature normal_map true
+feature height true
+feature emissive true
+preview environment extraction-bloom
+preview rig orthographic-gate
+node mesh.gate mesh_primitive role=mesh primitive=cube
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=4.0
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=corroded-metal
+node mat.noise noise role=base_color scale=8.0 strength=0.18
+node mat.cavity cavity_dirt role=dirt strength=0.24
+node mat.edge edge_wear role=edge_wear strength=0.32
+node mat.emission baked_mask_preview role=gate_status_bloom strength=1.65
+node mat.normal normal_baker role=normal strength=0.34
+node mat.height height_baker role=height strength=0.24
+node collision.proxy collision_proxy role=collision shape=box
+node lod.single lod_generator role=lod policy=single-lod
+node perception.template world_perceptual_template role=perceptual profile=corroded-metal surface_response=extraction-gate-frame history_response=gate-open-bloom-memory material_half_life_seconds=24 wetness_half_life_seconds=9 semantic_lod=0.88 streaming_cost=0.28 patch_channels=gate_status,edge_wear,material_stability contact_channels=contact_normal,visual_occlusion,extraction_affordance residue_channels=electrical_residue,activation_bloom,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.edge material.assign edge_wear
+edge mat.emission material.assign gate_status_bloom
+edge mat.normal export.runtime normal
+edge mat.height export.runtime height
+edge perception.template export.runtime perceptual_template

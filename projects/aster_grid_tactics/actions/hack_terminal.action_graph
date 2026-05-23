@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "action.grid.hack_terminal",
+  "name": "Hack Terminal",
+  "nodes": [
+    { "id": "unlock", "type": "set_flag", "parameters": { "flag": "grid.terminal.hacked", "value": "true" }, "tags": ["grid.hack", "door.open"] },
+    { "id": "disable_turret", "type": "set_flag", "parameters": { "flag": "grid.turret.disabled", "value": "true" }, "tags": ["grid.hack", "turret.disable"] }
+  ],
+  "reaction_contracts": [
+    { "id": "terminal_hack_feedback", "minimum_score": 0.72, "required_channels": ["ui_feedback", "event_residue"], "required_events": ["unlock", "disable_turret"] }
+  ]
+}

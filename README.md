@@ -44,7 +44,7 @@ Start here: [docs/START_HERE.md](docs/START_HERE.md)
 | Internal engine modules | Repository source contracts | Renderer, RHI, scene, systems, asset runtime, geometry, UI, and sample support |
 | Validation/debug surfaces | Diagnostic product surfaces | `FrameForensics`, `WorldForensics`, GraphicsCore7 verdicts, frame reports, conformance artifacts |
 | Research/internal experiments | Not productized APIs | Perception ledger, belief/perceptual ABIs, advanced world-continuity work |
-| Showcases | Examples and regression content | Lumen Run, Material Lab, Pipe Lab, Primate Lab, screenshot galleries |
+| Showcases | Examples and regression content | Lumen Run, Aster Grid Tactics, Material Lab, Pipe Lab, Primate Lab, screenshot galleries |
 
 ## 30-Second Regression Lab
 
@@ -172,8 +172,8 @@ Run built-in lab scenes when you want the inspected renderer path:
 - Typed color/material math with runtime `LinearRgb` and `EmissionColor`,
   explicit sRGB conversion helpers, and material importers that cross that
   boundary deliberately.
-- Thin executable entrypoints for Lumen Run, Studio, offline preview rendering,
-  Material Lab, and the networking probe.
+- Thin executable entrypoints for Lumen Run, Aster Grid Tactics, Studio,
+  offline preview rendering, Material Lab, and the networking probe.
 
 The current renderer/backend status is intentionally conservative. Use
 [docs/RENDERER_BACKEND_MATRIX.md](docs/RENDERER_BACKEND_MATRIX.md) as the truth
@@ -225,6 +225,8 @@ Run the sample game and tools:
 ./build/aster_quickstart --capture /tmp/aster_quickstart.ppm
 ./build/aster_lumen_run
 ./build/aster_lumen_run --capture-route classic-gauntlet
+./build/aster_grid_tactics --no-vsync
+./build/aster_grid_tactics --replay-self-test --seed 4242 --ticks 260
 ./build/aster_studio
 ./build/aster_material_lab --material showcases/material_lab/wet_rock.astermat --output /tmp/wet_rock.ppm
 cargo run -p aster_assetc --bin aster_materialc -- package --input showcases/material_lab/wet_rock.astermat --asset-root showcases/material_lab --output /tmp/aster_material_package
@@ -287,9 +289,11 @@ changes:
 
 ```bash
 ./build/aster_lumen_run --smoke-test --no-vsync
+./build/aster_grid_tactics --smoke-test --no-vsync
 ./build/aster_studio --smoke-test
 ./build/aster_lumen_run --frame-report --run-frames 240 --lag-budget-ms 16.7 --window-width 1280 --window-height 720 --msaa 0
 ./build/aster_lumen_run --frame-report --frame-report-route classic-gauntlet --run-frames 240 --window-width 1280 --window-height 720 --msaa 0
+./build/aster_grid_tactics --frame-report --run-frames 120 --no-vsync
 ```
 
 ## Refresh Regression Captures
@@ -309,6 +313,7 @@ mkdir -p assets/screenshots /tmp/aster_learning_shots
 ./build/aster_preview --scene industrial-pipe --output /tmp/aster_learning_shots/industrial_pipe.ppm --width 1280 --height 720 --samples 2
 ./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_run.ppm --capture-route classic-gauntlet --screenshot-frame 160 --capture-hud --msaa 0 --window-width 1280 --window-height 720
 ./build/aster_lumen_run --screenshot /tmp/aster_learning_shots/lumen_cave_interior.ppm --capture-route classic-gauntlet --screenshot-frame 160 --msaa 0 --window-width 1280 --window-height 720
+./build/aster_grid_tactics --screenshot /tmp/aster_learning_shots/aster_grid_tactics.ppm --screenshot-frame 16 --no-vsync
 
 sips -s format png /tmp/aster_learning_shots/mesh_lab.ppm --out assets/screenshots/mesh_lab.png
 sips -s format png /tmp/aster_learning_shots/lighting_lab.ppm --out assets/screenshots/lighting_lab.png
@@ -317,6 +322,7 @@ sips -s format png /tmp/aster_learning_shots/cave_conformance.ppm --out assets/s
 sips -s format png /tmp/aster_learning_shots/industrial_pipe.ppm --out assets/screenshots/industrial_pipe.png
 sips -s format png /tmp/aster_learning_shots/lumen_run.ppm --out assets/screenshots/lumen_run.png
 sips -s format png /tmp/aster_learning_shots/lumen_cave_interior.ppm --out assets/screenshots/lumen_cave_interior.png
+sips -s format png /tmp/aster_learning_shots/aster_grid_tactics.ppm --out assets/screenshots/aster_grid_tactics.png
 ```
 
 On non-macOS hosts, use an equivalent PPM-to-PNG encoder.

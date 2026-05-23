@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "prefab.grid.player",
+  "name": "Grid Player",
+  "entities": [
+    {
+      "id": "player",
+      "name": "Player Infiltrator",
+      "components": {
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "grid_actor": { "team": "player", "health": 1, "command_source": "lockstep" }
+      }
+    }
+  ]
+}

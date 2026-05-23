@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.grid_lab_wall {
+  schema_version: 1
+  name: "Aster Grid Lab Wall"
+  shading_model: LitPBR
+  surface_profile: corroded-metal
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  textures {
+    albedo: "../textures/grid_lab_albedo.ktx2"
+    normal: "../textures/grid_lab_normal.ktx2"
+    orm: "../textures/grid_lab_orm.ktx2"
+    height: "../textures/grid_lab_height.ktx2"
+  }
+
+  params {
+    base_color_r: 0.045
+    base_color_g: 0.058
+    base_color_b: 0.066
+    roughness: 0.74
+    metallic: 0.48
+    triplanar_scale: 5.8
+    detail_strength: 0.62
+    micro_normal_strength: 0.58
+    roughness_variation: 0.34
+    physical_texel_density: 1024
+    height_normal_coupling: 1.02
+    roughness_height_coupling: 0.78
+    macro_frequency_breakup: 0.64
+    micro_frequency_breakup: 0.80
+    height_shading: 0.42
+    pattern_depth: 0.22
+    pattern_contrast: 0.38
+    edge_wear: 0.34
+    pitting_density: 0.74
+    pitting_depth: 0.016
+    oxide_layering: 0.52
+    cavity_grime: 0.46
+    axial_scratches: 0.52
+    rust_bloom: 0.10
+    black_scab: 0.14
+  }
+
+  features {
+    triplanar: true
+    normal_map: true
+    orm_texture: true
+    height: true
+    decal_receiver: true
+  }
+
+  layers {
+    base: triplanar(albedo, normal, height)
+  }
+}

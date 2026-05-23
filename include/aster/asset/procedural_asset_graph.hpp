@@ -30,6 +30,50 @@ struct ProceduralAssetGraphEdge {
   std::string role;
 };
 
+struct ProceduralAssetGraphSocket {
+  std::string node_id;
+  std::string name;
+  std::string type;
+  std::string direction;
+  std::string role;
+  std::string default_value;
+};
+
+struct ProceduralAssetGraphZone {
+  std::string id;
+  std::string kind;
+  std::string input_node;
+  std::string output_node;
+  std::vector<std::string> items;
+};
+
+struct ProceduralAssetGraphBundleItem {
+  std::string bundle_id;
+  std::string name;
+  std::string type;
+  std::string source_node;
+};
+
+struct ProceduralAssetGraphBakeTarget {
+  std::string id;
+  std::string node_id;
+  std::string target;
+  std::string artifact_role;
+  std::uint32_t frame_start = 0u;
+  std::uint32_t frame_end = 0u;
+};
+
+struct ProceduralAssetGraphProofArtifact {
+  std::string id;
+  std::string role;
+  std::filesystem::path path;
+  std::string kind;
+  std::string hash;
+  std::uint32_t width = 0u;
+  std::uint32_t height = 0u;
+  std::vector<std::string> signal_tags;
+};
+
 struct ProceduralAssetGraphMeshDescriptor {
   std::string primitive;
   std::string uv_policy;
@@ -117,6 +161,12 @@ struct ProceduralAssetGraphPackage {
   ProceduralAssetGraphFactoryReport factory_report;
   ProceduralAssetGraphQualityReport quality;
   std::vector<MaterialDiagnostic> diagnostics;
+  std::map<std::string, std::string> metadata;
+  std::vector<ProceduralAssetGraphSocket> sockets;
+  std::vector<ProceduralAssetGraphZone> zones;
+  std::vector<ProceduralAssetGraphBundleItem> bundle_items;
+  std::vector<ProceduralAssetGraphBakeTarget> bake_targets;
+  std::vector<ProceduralAssetGraphProofArtifact> proof_artifacts;
 };
 
 [[nodiscard]] ProceduralAssetGraphPackage

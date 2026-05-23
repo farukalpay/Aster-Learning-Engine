@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "prefab.grid.extraction",
+  "name": "Extraction",
+  "entities": [
+    {
+      "id": "extraction",
+      "name": "Extraction",
+      "components": {
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "grid_extraction": { "requires_energy_nodes": 2, "requires_terminal": true }
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "action.grid.reroute_energy",
+  "name": "Reroute Energy",
+  "nodes": [
+    { "id": "route_node", "type": "set_flag", "parameters": { "flag": "grid.energy.rerouted", "value": "true" }, "tags": ["grid.energy", "node.reroute"] },
+    { "id": "pulse_feedback", "type": "emit_signal", "parameters": { "signal": "grid.energy.pulse", "style": "neon" }, "tags": ["sensory_feedback", "ui.feedback"] }
+  ],
+  "reaction_contracts": [
+    { "id": "energy_route_feedback", "minimum_score": 0.74, "required_channels": ["material_memory", "sensory_feedback", "ui_feedback"], "required_events": ["route_node", "pulse_feedback"] }
+  ]
+}

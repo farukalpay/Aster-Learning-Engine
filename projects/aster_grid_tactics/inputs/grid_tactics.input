@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "input.grid_tactics",
+  "name": "Aster Grid Tactics Input",
+  "bindings": [
+    { "command": "grid.move.left", "device": "keyboard", "key": "A", "scale": 1.0 },
+    { "command": "grid.move.right", "device": "keyboard", "key": "D", "scale": 1.0 },
+    { "command": "grid.move.up", "device": "keyboard", "key": "W", "scale": 1.0 },
+    { "command": "grid.move.down", "device": "keyboard", "key": "S", "scale": 1.0 },
+    { "command": "grid.interact", "device": "keyboard", "key": "E", "scale": 1.0 },
+    { "command": "grid.reset", "device": "keyboard", "key": "R", "scale": 1.0 }
+  ]
+}

@@ -7,7 +7,7 @@
 #include "aster/core/frame_time_stats.hpp"
 #include "aster/core/profiler.hpp"
 #include "aster/game_sdk/game_sdk.hpp"
-#include "aster/samples/lumen_run.hpp"
+#include "aster/samples/lumen_run/lumen_run.hpp"
 #include "aster/systems/third_person_camera.hpp"
 #include "aster/input/control_scheme.hpp"
 #include "aster/input/input_codes.hpp"

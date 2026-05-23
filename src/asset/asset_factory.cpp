@@ -3,8 +3,11 @@
 
 #include "aster/asset/asset_factory.hpp"
 
+#include "aster/asset/procedural_asset_graph.hpp"
+
 #include <algorithm>
 #include <bit>
+#include <cctype>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -124,6 +127,81 @@ findPhysicsProxy(const AsterAssetFoundryRecipe &recipe, const std::string &id) {
                                     return proxy.id == id;
                                   });
   return found == recipe.physics_proxies.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] bool textContains(const std::string &value, const std::string_view needle) {
+  return value.find(needle) != std::string::npos;
+}
+
+[[nodiscard]] std::string normalizedText(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  std::replace(value.begin(), value.end(), '_', '-');
+  return value;
+}
+
+[[nodiscard]] float graphMaterialParamOr(const ProceduralAssetGraphPackage &package,
+                                         const std::string_view key, const float fallback) {
+  const auto found = package.material.params.find(std::string(key));
+  return found == package.material.params.end() ? fallback : found->second;
+}
+
+[[nodiscard]] std::uint32_t graphMaterialU32Or(const ProceduralAssetGraphPackage &package,
+                                               const std::string_view key,
+                                               const std::uint32_t fallback) {
+  return static_cast<std::uint32_t>(
+      std::max(0.0f, std::round(graphMaterialParamOr(package, key, fallback))));
+}
+
+[[nodiscard]] AsterAssetFoundryPhysicsProxy boundsProxyForMesh(const CpuMesh &mesh,
+                                                               std::string id) {
+  Vec3 min{0.0f, 0.0f, 0.0f};
+  Vec3 max{0.0f, 0.0f, 0.0f};
+  if (!mesh.vertices.empty()) {
+    min = mesh.vertices.front().position;
+    max = min;
+    for (const Vertex &vertex : mesh.vertices) {
+      min.x = std::min(min.x, vertex.position.x);
+      min.y = std::min(min.y, vertex.position.y);
+      min.z = std::min(min.z, vertex.position.z);
+      max.x = std::max(max.x, vertex.position.x);
+      max.y = std::max(max.y, vertex.position.y);
+      max.z = std::max(max.z, vertex.position.z);
+    }
+  }
+  const Vec3 half_extents = (max - min) * 0.5f;
+  return {.id = std::move(id),
+          .label = "Aster graph runtime bounds proxy",
+          .kind = AsterAssetFoundryPhysicsProxyKind::BoundsBox,
+          .center = (min + max) * 0.5f,
+          .half_extents = {std::max(half_extents.x, 0.001f),
+                           std::max(half_extents.y, 0.001f),
+                           std::max(half_extents.z, 0.001f)},
+          .radius = std::max({half_extents.x, half_extents.y, half_extents.z, 0.001f}),
+          .length = std::max((max - min).z, 0.001f),
+          .triangle_budget = mesh.indices.size() / 3u,
+          .covers_render_bounds = true,
+          .query_enabled = true,
+          .material = {.friction = 0.72f, .restitution = 0.02f},
+          .filter = {.layer_bits = 1u, .collides_with = 0xffffffffu}};
+}
+
+[[nodiscard]] std::vector<AsterAssetFoundryProofArtifact> proofArtifactsFromGraph(
+    const ProceduralAssetGraphPackage &package) {
+  std::vector<AsterAssetFoundryProofArtifact> artifacts;
+  artifacts.reserve(package.proof_artifacts.size());
+  for (const ProceduralAssetGraphProofArtifact &artifact : package.proof_artifacts) {
+    artifacts.push_back({.id = artifact.id,
+                         .role = artifact.role,
+                         .path = artifact.path,
+                         .kind = artifact.kind,
+                         .hash = artifact.hash,
+                         .width = artifact.width,
+                         .height = artifact.height,
+                         .signal_tags = artifact.signal_tags});
+  }
+  return artifacts;
 }
 
 [[nodiscard]] AsterAssetFoundryDiagnosticSeverity severityFromMessage(
@@ -670,6 +748,24 @@ summarizeAsterAssetFoundryPhysicsProxies(const AsterAssetFoundryRecipe &recipe) 
   return summaries;
 }
 
+std::vector<AsterAssetFoundrySurfaceSignalSummary>
+summarizeAsterAssetFoundrySurfaceSignals(const AsterAssetFoundryBuildResult &result) {
+  std::vector<AsterAssetFoundrySurfaceSignalSummary> summaries;
+  for (const AsterAssetFoundrySurfaceCoverage &coverage : result.surface_coverages) {
+    summaries.reserve(summaries.size() + coverage.signals.size());
+    for (const AsterAssetFoundrySignalSample &sample : coverage.signals) {
+      const bool claimed = containsText(coverage.claimed_signals, sample.id);
+      const bool rejected = containsText(coverage.rejected_signals, sample.id);
+      summaries.push_back({.signal = sample.id,
+                           .average = sample.average,
+                           .coverage = sample.coverage,
+                           .status = claimed ? "claimed" : (rejected ? "rejected" : "needs-work"),
+                           .source = coverage.contract_id});
+    }
+  }
+  return summaries;
+}
+
 std::vector<AsterAssetFoundryVisualBriefRow>
 makeAsterAssetFoundryVisualBriefRows(const AsterAssetFoundryRecipe &recipe,
                                      const AsterAssetFoundryBuildResult &result) {
@@ -896,6 +992,7 @@ AsterAssetFoundryBuildResult buildAsterAssetFoundryRecipe(
   result.dependency_edges = recipe.dependency_edges;
   result.visual_brief_claims = recipe.visual_brief_claims;
   result.visual_brief_rejections = recipe.visual_brief_rejections;
+  result.proof_artifacts = recipe.proof_artifacts;
   result.quality_score = 100u;
   result.production_ready = true;
 
@@ -1098,6 +1195,164 @@ AsterAssetFoundryRecipe makeAsterPipeFoundryRecipe(AsterPipeAssetSpec spec,
 
   if (!pipe.collision_proxies.empty()) {
     recipe.physics_proxies.push_back(proxyFromPipe(pipe.collision_proxies.front(), spec));
+  }
+  return recipe;
+}
+
+AsterAssetFoundryRecipe makeAsterAssetFoundryRecipeFromGraph(
+    const ProceduralAssetGraphPackage &package,
+    std::vector<AsterAssetFoundryQualityDiagnostic> *diagnostics) {
+  const std::string primitive = normalizedText(package.mesh.primitive);
+  const bool pipe_graph =
+      textContains(primitive, "pipe") ||
+      containsText(package.factory_report.visual_brief_claims, "raised_weld_rings") ||
+      containsText(package.factory_report.visual_brief_claims, "open_hollow_rims");
+  AsterAssetFoundryRecipe recipe;
+  if (pipe_graph) {
+    AsterPipeAssetSpec spec{.asset_id = package.id.empty() ? package.asset_guid : package.id,
+                            .length = graphMaterialParamOr(package, "length", 5.2f),
+                            .outer_radius = graphMaterialParamOr(package, "outer_radius", 0.54f),
+                            .wall_thickness =
+                                graphMaterialParamOr(package, "wall_thickness", 0.090f),
+                            .radial_segments =
+                                static_cast<int>(graphMaterialU32Or(package, "radial_segments", 96u)),
+                            .length_segments =
+                                static_cast<int>(graphMaterialU32Or(package, "length_segments", 24u)),
+                            .include_longitudinal_seam = false,
+                            .include_flanges = textContains(primitive, "industrial"),
+                            .include_bolts = textContains(primitive, "industrial"),
+                            .bolt_count_per_flange =
+                                static_cast<int>(graphMaterialU32Or(package, "bolt_count", 10u)),
+                            .rust_strength =
+                                graphMaterialParamOr(package, "rust_strength",
+                                                     graphMaterialParamOr(package, "rust_bloom",
+                                                                          0.86f)),
+                            .wetness_strength = graphMaterialParamOr(package, "wetness", 0.24f),
+                            .pitting_density =
+                                graphMaterialParamOr(package, "pitting_density", 0.72f),
+                            .pitting_depth = graphMaterialParamOr(package, "pitting_depth", 0.0022f),
+                            .oxide_layering =
+                                graphMaterialParamOr(package, "oxide_layering", 0.86f),
+                            .cavity_grime_strength =
+                                graphMaterialParamOr(package, "cavity_grime", 0.70f),
+                            .edge_polish_strength =
+                                graphMaterialParamOr(package, "edge_polish", 0.36f),
+                            .weld_heat_tint_strength =
+                                graphMaterialParamOr(package, "weld_heat_tint", 0.48f),
+                            .axial_scratch_strength =
+                                graphMaterialParamOr(package, "axial_scratches", 0.66f),
+                            .rust_bloom_strength =
+                                graphMaterialParamOr(package, "rust_bloom", 0.86f),
+                            .black_scab_strength =
+                                graphMaterialParamOr(package, "black_scab", 0.74f),
+                            .paint_remnant_strength =
+                                graphMaterialParamOr(package, "paint_remnant", 0.18f),
+                            .weld_slag_strength =
+                                graphMaterialParamOr(package, "weld_slag", 0.82f),
+                            .rim_soot_strength =
+                                graphMaterialParamOr(package, "rim_soot", 0.88f),
+                            .wet_streak_count =
+                                static_cast<int>(graphMaterialU32Or(package, "wet_streaks", 7u))};
+    recipe = makeAsterPipeFoundryRecipe(
+        spec, textContains(primitive, "industrial") ? AsterPipeFoundryVariant::IndustrialHardware
+                                                    : AsterPipeFoundryVariant::ReferenceSilhouette);
+    recipe.label = package.name.empty() ? "Aster graph pipe foundry recipe" : package.name;
+    recipe.source_provenance_id = package.asset_guid.empty() ? package.id : package.asset_guid;
+  } else {
+    recipe.asset_id = package.id.empty() ? package.asset_guid : package.id;
+    recipe.label = package.name.empty() ? recipe.asset_id : package.name;
+    recipe.source_provenance_id = package.asset_guid;
+    recipe.source_mesh = proceduralAssetGraphMesh(package);
+    recipe.material = proceduralAssetGraphMaterial(package);
+    AsterAssetFoundryStage source;
+    source.id = "stage.graph.source";
+    source.kind = AsterAssetFoundryStageKind::SourceGeometry;
+    source.label = "Aster graph source mesh";
+    source.minimum_quality = 70u;
+    AsterAssetFoundryStage lod;
+    lod.id = "stage.graph.lod";
+    lod.kind = AsterAssetFoundryStageKind::LodRecipe;
+    lod.label = "Aster graph generated LODs";
+    lod.depends_on = {source.id};
+    lod.minimum_quality = 60u;
+    AsterAssetFoundryStage physics;
+    physics.id = "stage.graph.physics";
+    physics.kind = AsterAssetFoundryStageKind::PhysicsProxy;
+    physics.label = "Aster graph bounds proxy";
+    physics.depends_on = {lod.id};
+    physics.physics_proxy_id = "physics.graph.runtime-bounds";
+    physics.minimum_quality = 70u;
+    AsterAssetFoundryStage quality;
+    quality.id = "stage.graph.quality";
+    quality.kind = AsterAssetFoundryStageKind::QualityGate;
+    quality.label = "Aster graph quality gate";
+    quality.depends_on = {physics.id};
+    quality.minimum_quality = 60u;
+    AsterAssetFoundryStage package_stage;
+    package_stage.id = "stage.graph.package";
+    package_stage.kind = AsterAssetFoundryStageKind::Package;
+    package_stage.label = "Aster graph package handoff";
+    package_stage.depends_on = {quality.id};
+    package_stage.minimum_quality = 60u;
+    recipe.stages = {source, lod, physics, quality, package_stage};
+    recipe.physics_proxies.push_back(boundsProxyForMesh(recipe.source_mesh,
+                                                        "physics.graph.runtime-bounds"));
+  }
+
+  recipe.proof_artifacts = proofArtifactsFromGraph(package);
+  recipe.dependency_edges.clear();
+  for (const ProceduralAssetGraphEdge &edge : package.edges) {
+    recipe.dependency_edges.push_back("graph:" + edge.from + " -> " + edge.to + ":" + edge.role);
+  }
+  recipe.dependency_edges.push_back("asset_graph:" + package.id + " -> foundry_recipe");
+  if (!package.factory_report.stable_recipe_hash.empty()) {
+    recipe.dependency_edges.push_back("graph_factory_hash:" +
+                                      package.factory_report.stable_recipe_hash);
+  }
+  if (!package.factory_report.visual_brief_claims.empty()) {
+    recipe.visual_brief_claims = package.factory_report.visual_brief_claims;
+  }
+  if (!package.factory_report.visual_brief_rejections.empty()) {
+    recipe.visual_brief_rejections = package.factory_report.visual_brief_rejections;
+  }
+  if (recipe.visual_brief_claims.empty()) {
+    for (const ProceduralAssetGraphFactorySignalCoverage &signal :
+         package.factory_report.surface_signal_coverage) {
+      if (signal.status == "claimed") {
+        recipe.visual_brief_claims.push_back(signal.signal);
+      }
+    }
+  }
+  recipe.creative_variant_tags.push_back("graph-owned");
+  recipe.creative_variant_tags.push_back("headless-foundry");
+
+  if (diagnostics != nullptr) {
+    if (package.proof_artifacts.empty()) {
+      diagnostics->push_back({.severity = AsterAssetFoundryDiagnosticSeverity::Warning,
+                              .category = "proof",
+                              .stage_id = {},
+                              .message = "graph package does not list proof artifacts"});
+    }
+    for (const MaterialDiagnostic &diagnostic : package.diagnostics) {
+      diagnostics->push_back({.severity = diagnostic.severity == MaterialDiagnosticSeverity::Error
+                                              ? AsterAssetFoundryDiagnosticSeverity::Error
+                                              : AsterAssetFoundryDiagnosticSeverity::Warning,
+                              .category = "graph",
+                              .stage_id = {},
+                              .message = diagnostic.message});
+    }
+    for (const ProceduralAssetGraphNode &node : package.nodes) {
+      if (node.capability_status == "unsupported") {
+        diagnostics->push_back({.severity = AsterAssetFoundryDiagnosticSeverity::Warning,
+                                .category = "graph-node",
+                                .stage_id = node.id,
+                                .message = "unsupported node preserved as descriptor metadata"});
+      }
+    }
+    for (const AsterAssetFoundryQualityDiagnostic &diagnostic :
+         validateAsterAssetFoundryRecipe(recipe)) {
+      diagnostics->push_back(diagnostic);
+    }
   }
   return recipe;
 }

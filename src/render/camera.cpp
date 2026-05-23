@@ -150,6 +150,8 @@ Camera OrbitCamera::camera() const {
   Camera out;
   out.eye = position();
   out.target = target;
+  out.projection_mode = projection_mode;
+  out.orthographic_height = orthographic_height;
   out.vertical_fov = vertical_fov;
   out.near_plane = near_plane;
   out.far_plane = far_plane;

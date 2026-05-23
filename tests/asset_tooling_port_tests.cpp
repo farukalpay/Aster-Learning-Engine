@@ -4,6 +4,7 @@
 #include "test_support.hpp"
 
 #include "aster/asset/asset_io.hpp"
+#include "aster/asset/asset_factory.hpp"
 #include "aster/asset/asset_library.hpp"
 #include "aster/asset/asset_modifier_stack.hpp"
 #include "aster/asset/asset_registry.hpp"
@@ -399,6 +400,9 @@ void assertMeshIo() {
   const std::filesystem::path obj = dir / "tri.obj";
   {
     std::ofstream file(obj);
+    file << "o conduit_piece\n";
+    file << "g rim_band\n";
+    file << "usemtl rusted_metal\n";
     file << "v 0 0 0\nv 1 0 0\nv 0 1 0\n";
     file << "vt 0 0\nvt 1 0\nvt 0 1\n";
     file << "f 1/1 2/2 3/3\n";
@@ -406,6 +410,23 @@ void assertMeshIo() {
   const aster::AssetMeshImportResult imported = aster::importMeshAsset(obj);
   assert(imported.report.ok);
   assert(imported.mesh.indices.size() == 3u);
+  assert(imported.report.source.objects.size() == 1u);
+  assert(imported.report.source.objects.front() == "conduit_piece");
+  assert(imported.report.source.groups.front() == "rim_band");
+  assert(imported.report.source.materials.front() == "rusted_metal");
+  assert(imported.report.source.facets.size() == 1u);
+  assert(imported.report.source.facets.front().triangle_count == 1u);
+
+  aster::AssetMeshImportOptions scaled_options;
+  scaled_options.unit_scale = 2.0f;
+  scaled_options.source_up = aster::AssetMeshAxis::PositiveY;
+  scaled_options.source_forward = aster::AssetMeshAxis::PositiveZ;
+  scaled_options.target_up = aster::AssetMeshAxis::PositiveZ;
+  scaled_options.target_forward = aster::AssetMeshAxis::NegativeY;
+  const aster::AssetMeshImportResult normalized = aster::importMeshAsset(obj, scaled_options);
+  assert(normalized.report.ok);
+  assert(aster::assetMeshAxisName(aster::AssetMeshAxis::NegativeY) == "-y");
+  assert(std::abs(aster::length(normalized.mesh.vertices[1].position) - 2.0f) < 0.001f);
   const aster::AssetMeshIoReport exported =
       aster::exportMeshAssetObj(imported.mesh, dir / "tri_export.obj");
   assert(exported.ok);
@@ -432,6 +453,15 @@ void assertProceduralRuntime() {
   package.mesh.primitive = "sphere";
   package.quality.score = 96u;
   package.quality.production_ready = true;
+  package.factory_report.visual_brief_claims = {"runtime_graph_mesh"};
+  package.factory_report.visual_brief_rejections = {"empty_mesh"};
+  package.proof_artifacts.push_back({.id = "proof.runtime.preview",
+                                     .role = "preview",
+                                     .path = "tests/artifacts/asset_foundry_headless/preview.png",
+                                     .kind = "png",
+                                     .width = 64u,
+                                     .height = 64u,
+                                     .signal_tags = {"runtime", "graph"}});
   package.nodes.push_back({.id = "mesh.surface",
                            .kind = "mesh_primitive",
                            .role = "mesh",
@@ -442,12 +472,25 @@ void assertProceduralRuntime() {
                            .role = "modifier",
                            .params = {{"width", "0.02"}},
                            .capability_status = "runtime-procedural-reference"});
+  package.nodes.push_back({.id = "modifier.weighted",
+                           .kind = "weighted_normal",
+                           .role = "modifier",
+                           .capability_status = "runtime-reference"});
   const aster::ProceduralGraphEvaluationResult result =
       aster::evaluateProceduralAssetGraph(package);
   assert(result.production_ready);
   assert(!result.stable_provenance_id.empty());
   assert(!result.mesh.vertices.empty());
   assert(result.diagnostics.empty());
+
+  std::vector<aster::AsterAssetFoundryQualityDiagnostic> recipe_diagnostics;
+  const aster::AsterAssetFoundryRecipe recipe =
+      aster::makeAsterAssetFoundryRecipeFromGraph(package, &recipe_diagnostics);
+  const aster::AsterAssetFoundryBuildResult build =
+      aster::buildAsterAssetFoundryRecipe(recipe);
+  assert(!recipe.asset_id.empty());
+  assert(build.production_ready);
+  assert(build.proof_artifacts.size() == 1u);
 }
 
 void assertPreviewAndSimulation() {

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "prefab.grid.energy_node",
+  "name": "Energy Node",
+  "entities": [
+    {
+      "id": "energy_node",
+      "name": "Energy Node",
+      "components": {
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "interactable": { "action_graph": "action.grid.reroute_energy", "prompt_action": "Reroute", "prompt_subject": "Energy Node", "radius": 1.0 }
+      }
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+astergraph asset_graph.grid.energy_lens
+schema_version 1
+name "Aster Grid Energy Lens"
+material_id material.grid_energy_green
+surface_profile emissive-lens
+primitive cube
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy sphere
+lod_policy single-lod
+base_color 0.080 0.180 0.080
+roughness 0.24
+metallic 0.18
+param wetness 0.02
+param macro_variation 0.18
+param micro_normal_strength 0.16
+param roughness_variation 0.12
+param physical_texel_density 900
+param height_normal_coupling 0.34
+param roughness_height_coupling 0.24
+param macro_frequency_breakup 0.24
+param micro_frequency_breakup 0.36
+param height_shading 0.10
+param emission_r 0.72
+param emission_g 1.00
+param emission_b 0.22
+param emission_strength 2.35
+feature triplanar true
+feature normal_map true
+feature emissive true
+feature alpha_blend true
+preview environment neon-energy-node
+preview rig top-down-readability
+node mesh.lens mesh_primitive role=mesh primitive=cube
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=3.8
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=emissive-lens
+node mat.cells cellular role=ring_cells scale=7.0 strength=0.28
+node mat.emission baked_mask_preview role=emissive_lens strength=2.35
+node mat.normal normal_baker role=normal strength=0.16
+node mat.height height_baker role=height strength=0.10
+node collision.proxy collision_proxy role=collision shape=sphere
+node lod.single lod_generator role=lod policy=single-lod
+node perception.template world_perceptual_template role=perceptual profile=emissive-lens surface_response=energy-node-lens history_response=power-reroute-pulse-memory material_half_life_seconds=16 wetness_half_life_seconds=6 semantic_lod=0.90 streaming_cost=0.22 patch_channels=emissive_pulse,node_state,material_stability contact_channels=visual_occlusion,traversal_affordance,interaction_affordance residue_channels=electrical_residue,energy_state,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.cells material.assign ring_cells
+edge mat.emission material.assign emissive_lens
+edge mat.normal export.runtime normal
+edge mat.height export.runtime height
+edge perception.template export.runtime perceptual_template

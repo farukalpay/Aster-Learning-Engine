@@ -5,16 +5,22 @@
 #include "aster/asset/procedural_asset_graph.hpp"
 #include "aster/asset/procedural_graph_runtime.hpp"
 #include "aster/geometry/mesh_modeling.hpp"
+#include "aster/render/visual_regression.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <iterator>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #ifndef ASTER_SOURCE_DIR
 #define ASTER_SOURCE_DIR "."
@@ -38,6 +44,11 @@ std::string shellQuote(const std::filesystem::path &path) {
   }
   quoted += "'";
   return quoted;
+}
+
+std::string readText(const std::filesystem::path &path) {
+  std::ifstream file(path);
+  return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
 
 void requireCommand(const std::string &command) {
@@ -100,6 +111,197 @@ bool hasVisualBriefStatus(const aster::AsterAssetFoundryRecipeAudit &audit,
                      [&](const aster::AsterAssetFoundryVisualBriefRow &row) {
                        return row.signal == signal && row.status == status;
                      });
+}
+
+struct ArtifactImage {
+  std::uint32_t width = 0u;
+  std::uint32_t height = 0u;
+  std::vector<std::uint8_t> rgba8;
+};
+
+ArtifactImage makeImage(const std::uint32_t width, const std::uint32_t height,
+                        const std::array<std::uint8_t, 4u> color) {
+  ArtifactImage image;
+  image.width = width;
+  image.height = height;
+  image.rgba8.resize(static_cast<std::size_t>(width) * height * 4u);
+  for (std::size_t i = 0u; i + 3u < image.rgba8.size(); i += 4u) {
+    image.rgba8[i] = color[0];
+    image.rgba8[i + 1u] = color[1];
+    image.rgba8[i + 2u] = color[2];
+    image.rgba8[i + 3u] = color[3];
+  }
+  return image;
+}
+
+void putPixel(ArtifactImage &image, const int x, const int y,
+              const std::array<std::uint8_t, 4u> color) {
+  if (x < 0 || y < 0 || x >= static_cast<int>(image.width) ||
+      y >= static_cast<int>(image.height)) {
+    return;
+  }
+  const std::size_t offset =
+      (static_cast<std::size_t>(y) * image.width + static_cast<std::size_t>(x)) * 4u;
+  image.rgba8[offset] = color[0];
+  image.rgba8[offset + 1u] = color[1];
+  image.rgba8[offset + 2u] = color[2];
+  image.rgba8[offset + 3u] = color[3];
+}
+
+void fillRect(ArtifactImage &image, int x, int y, int width, int height,
+              const std::array<std::uint8_t, 4u> color) {
+  for (int row = 0; row < height; ++row) {
+    for (int col = 0; col < width; ++col) {
+      putPixel(image, x + col, y + row, color);
+    }
+  }
+}
+
+void drawLine(ArtifactImage &image, int x0, int y0, const int x1, const int y1,
+              const std::array<std::uint8_t, 4u> color) {
+  const int dx = std::abs(x1 - x0);
+  const int sx = x0 < x1 ? 1 : -1;
+  const int dy = -std::abs(y1 - y0);
+  const int sy = y0 < y1 ? 1 : -1;
+  int err = dx + dy;
+  while (true) {
+    putPixel(image, x0, y0, color);
+    if (x0 == x1 && y0 == y1) {
+      break;
+    }
+    const int e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      x0 += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      y0 += sy;
+    }
+  }
+}
+
+void assertImageProof(const ArtifactImage &image) {
+  assert(image.width >= 128u);
+  assert(image.height >= 96u);
+  std::size_t active = 0u;
+  for (std::size_t i = 0u; i + 3u < image.rgba8.size(); i += 4u) {
+    active += image.rgba8[i] > 48u || image.rgba8[i + 1u] > 48u || image.rgba8[i + 2u] > 48u
+                  ? 1u
+                  : 0u;
+  }
+  assert(active > image.width * image.height / 18u);
+}
+
+ArtifactImage makeGraphArtifact(const aster::AsterAssetFoundryRecipe &recipe,
+                                const aster::AsterAssetFoundryBuildResult &result) {
+  ArtifactImage image = makeImage(640u, 300u, {12u, 16u, 20u, 255u});
+  fillRect(image, 0, 0, 640, 40, {30u, 38u, 46u, 255u});
+  const int count = static_cast<int>(recipe.stages.size());
+  for (int i = 0; i < count; ++i) {
+    const int x = 28 + i * 86;
+    const int y = 112 + ((i % 2) * 34);
+    const bool passed = i < static_cast<int>(result.stage_reports.size()) &&
+                        result.stage_reports[static_cast<std::size_t>(i)].passed;
+    fillRect(image, x, y, 64, 44, passed ? std::array<std::uint8_t, 4u>{74u, 138u, 104u, 255u}
+                                         : std::array<std::uint8_t, 4u>{148u, 72u, 62u, 255u});
+    fillRect(image, x + 4, y + 4, 56, 8, {204u, 184u, 118u, 255u});
+    if (i > 0) {
+      drawLine(image, x - 22, y + 22, x, y + 22, {160u, 184u, 190u, 255u});
+    }
+  }
+  const int quality_width = static_cast<int>(std::clamp(result.quality_score, 0u, 100u)) * 5;
+  fillRect(image, 70, 246, quality_width, 18, {214u, 116u, 70u, 255u});
+  fillRect(image, 70 + quality_width, 246, 500 - quality_width, 18, {52u, 58u, 66u, 255u});
+  return image;
+}
+
+ArtifactImage makeSignalArtifact(const aster::AsterAssetFoundryBuildResult &result) {
+  ArtifactImage image = makeImage(640u, 360u, {15u, 18u, 22u, 255u});
+  const std::vector<aster::AsterAssetFoundrySurfaceSignalSummary> signals =
+      aster::summarizeAsterAssetFoundrySurfaceSignals(result);
+  int y = 30;
+  for (const aster::AsterAssetFoundrySurfaceSignalSummary &signal : signals) {
+    const int average = static_cast<int>(std::clamp(signal.average, 0.0f, 1.0f) * 420.0f);
+    const int coverage = static_cast<int>(std::clamp(signal.coverage, 0.0f, 1.0f) * 420.0f);
+    const bool rejected = signal.status == "rejected";
+    fillRect(image, 30, y, 420, 10, {44u, 48u, 54u, 255u});
+    fillRect(image, 30, y, average, 10,
+             rejected ? std::array<std::uint8_t, 4u>{94u, 124u, 182u, 255u}
+                      : std::array<std::uint8_t, 4u>{190u, 103u, 58u, 255u});
+    fillRect(image, 30, y + 13, coverage, 8, {199u, 165u, 84u, 255u});
+    y += 34;
+    if (y > 320) {
+      break;
+    }
+  }
+  fillRect(image, 500, 32, 62, 62, {192u, 87u, 45u, 255u});
+  fillRect(image, 520, 112, 78, 26, {50u, 52u, 56u, 255u});
+  fillRect(image, 512, 154, 56, 32, {150u, 120u, 72u, 255u});
+  return image;
+}
+
+ArtifactImage makeTopologyArtifact(const aster::CpuMesh &mesh) {
+  ArtifactImage image = makeImage(640u, 360u, {10u, 13u, 17u, 255u});
+  const aster::MeshBounds bounds = aster::calculateMeshBounds(mesh);
+  const float span_x = std::max(bounds.max.x - bounds.min.x, 0.001f);
+  const float span_z = std::max(bounds.max.z - bounds.min.z, 0.001f);
+  const auto project = [&](const aster::Vec3 position) {
+    const int x = 30 + static_cast<int>(((position.x - bounds.min.x) / span_x) * 580.0f);
+    const int y = 330 - static_cast<int>(((position.z - bounds.min.z) / span_z) * 300.0f);
+    return std::pair<int, int>{x, y};
+  };
+  for (std::size_t i = 0u; i + 2u < mesh.indices.size(); i += 3u) {
+    const auto a = project(mesh.vertices[mesh.indices[i]].position);
+    const auto b = project(mesh.vertices[mesh.indices[i + 1u]].position);
+    const auto c = project(mesh.vertices[mesh.indices[i + 2u]].position);
+    const std::array<std::uint8_t, 4u> color{
+        static_cast<std::uint8_t>(80u + (i / 3u) % 120u), 112u, 138u, 255u};
+    drawLine(image, a.first, a.second, b.first, b.second, color);
+    drawLine(image, b.first, b.second, c.first, c.second, color);
+    drawLine(image, c.first, c.second, a.first, a.second, color);
+  }
+  return image;
+}
+
+ArtifactImage makeProofBadgeArtifact(const aster::AsterAssetFoundryBuildResult &result) {
+  ArtifactImage image = makeImage(640u, 360u, {9u, 12u, 16u, 255u});
+  fillRect(image, 44, 42, 552, 80, result.production_ready
+                                     ? std::array<std::uint8_t, 4u>{46u, 118u, 82u, 255u}
+                                     : std::array<std::uint8_t, 4u>{128u, 66u, 58u, 255u});
+  const int quality = static_cast<int>(std::clamp(result.quality_score, 0u, 100u));
+  fillRect(image, 72, 150, quality * 5, 22, {210u, 118u, 58u, 255u});
+  fillRect(image, 72 + quality * 5, 150, 500 - quality * 5, 22, {45u, 50u, 58u, 255u});
+  const std::array<std::uint8_t, 4u> claim{186u, 134u, 72u, 255u};
+  const std::array<std::uint8_t, 4u> reject{86u, 118u, 176u, 255u};
+  for (std::size_t i = 0u; i < result.visual_brief_claims.size() && i < 7u; ++i) {
+    fillRect(image, 78 + static_cast<int>(i) * 68, 210, 46, 46, claim);
+    fillRect(image, 86 + static_cast<int>(i) * 68, 218, 30, 8, {240u, 198u, 112u, 255u});
+  }
+  for (std::size_t i = 0u; i < result.visual_brief_rejections.size() && i < 4u; ++i) {
+    fillRect(image, 112 + static_cast<int>(i) * 96, 284, 58, 26, reject);
+  }
+  drawLine(image, 44, 122, 596, 42, {148u, 174u, 182u, 255u});
+  drawLine(image, 44, 42, 596, 122, {148u, 174u, 182u, 255u});
+  return image;
+}
+
+ArtifactImage makeContactSheet(const std::vector<ArtifactImage> &images) {
+  ArtifactImage sheet = makeImage(1280u, 720u, {7u, 9u, 12u, 255u});
+  for (std::size_t index = 0u; index < images.size() && index < 4u; ++index) {
+    const ArtifactImage &source = images[index];
+    const int offset_x = index % 2u == 0u ? 0 : 640;
+    const int offset_y = index < 2u ? 0 : 360;
+    for (std::uint32_t y = 0u; y < std::min(source.height, 360u); ++y) {
+      for (std::uint32_t x = 0u; x < std::min(source.width, 640u); ++x) {
+        const std::size_t src = (static_cast<std::size_t>(y) * source.width + x) * 4u;
+        putPixel(sheet, offset_x + static_cast<int>(x), offset_y + static_cast<int>(y),
+                 {source.rgba8[src], source.rgba8[src + 1u], source.rgba8[src + 2u],
+                  source.rgba8[src + 3u]});
+      }
+    }
+  }
+  return sheet;
 }
 
 void assertFiniteMesh(const aster::CpuMesh &mesh) {
@@ -374,9 +576,102 @@ void testAssetGraphFactoryReport() {
   }
 }
 
+void writeArtifactPng(const std::filesystem::path &path, const ArtifactImage &image) {
+  assertImageProof(image);
+  aster::writeRgbaPng(path, static_cast<int>(image.width), static_cast<int>(image.height),
+                      image.rgba8);
+  assert(std::filesystem::exists(path));
+}
+
+void writeIndustrialConduitArtifacts(const std::filesystem::path &directory) {
+  std::filesystem::create_directories(directory);
+  aster::AsterPipeAssetSpec spec = testPipeSpec();
+  spec.asset_id = "asset.pipe.industrial_conduit_proof";
+  spec.length = 6.4f;
+  spec.outer_radius = 0.46f;
+  spec.wall_thickness = 0.082f;
+  spec.rust_strength = 1.0f;
+  spec.pitting_density = 1.22f;
+  spec.oxide_layering = 0.94f;
+  spec.cavity_grime_strength = 0.88f;
+  spec.axial_scratch_strength = 0.84f;
+  spec.weld_slag_strength = 0.92f;
+  spec.rim_soot_strength = 0.96f;
+  spec.include_longitudinal_seam = true;
+  aster::AsterAssetFoundryRecipe recipe = aster::makeAsterPipeFoundryRecipe(spec);
+  recipe.proof_artifacts.push_back({.id = "proof.industrial_conduit.graph",
+                                    .role = "graph",
+                                    .path = "industrial_conduit_graph.png",
+                                    .kind = "png",
+                                    .width = 640u,
+                                    .height = 300u,
+                                    .signal_tags = {"foundry", "stage-order"}});
+  recipe.proof_artifacts.push_back({.id = "proof.industrial_conduit.surface",
+                                    .role = "surface-signals",
+                                    .path = "industrial_conduit_surface_signals.png",
+                                    .kind = "png",
+                                    .width = 640u,
+                                    .height = 360u,
+                                    .signal_tags = {"rust", "oxide", "weld", "rim"}});
+  const aster::AsterAssetFoundryBuildResult result =
+      aster::buildAsterAssetFoundryRecipe(recipe);
+  assert(result.production_ready);
+  assert(hasClaim(result, "corroded_orange_brown_rust"));
+  assert(hasClaim(result, "dark_oxide_cavities"));
+  assert(hasClaim(result, "raised_weld_rings"));
+  assert(hasClaim(result, "open_hollow_rims"));
+  assert(hasRejectedSignal(result, "clean_plastic_surface"));
+  assert(hasRejectedSignal(result, "monochrome_material"));
+  const aster::MeshTopologyReport topology = aster::validateMeshTopology(result.mesh);
+  assert(topology.indexable());
+  assert(topology.degenerate_triangles == 0u);
+
+  ArtifactImage graph = makeGraphArtifact(recipe, result);
+  ArtifactImage signals = makeSignalArtifact(result);
+  ArtifactImage topology_image = makeTopologyArtifact(result.mesh);
+  ArtifactImage proof = makeProofBadgeArtifact(result);
+  ArtifactImage contact = makeContactSheet({graph, signals, topology_image, proof});
+  writeArtifactPng(directory / "industrial_conduit_graph.png", graph);
+  writeArtifactPng(directory / "industrial_conduit_surface_signals.png", signals);
+  writeArtifactPng(directory / "industrial_conduit_topology_overlay.png", topology_image);
+  writeArtifactPng(directory / "industrial_conduit_contact_sheet.png", contact);
+
+  std::ofstream readme(directory / "README.md");
+  readme << "# Aster Headless Foundry Artifacts\n\n";
+  readme << "Generated by `aster_asset_factory_tests write-artifacts`.\n\n";
+  readme << "- `industrial_conduit_graph.png`: recipe stage graph and quality bar.\n";
+  readme << "- `industrial_conduit_surface_signals.png`: required and rejected visual signals.\n";
+  readme << "- `industrial_conduit_topology_overlay.png`: render mesh topology projection.\n";
+  readme << "- `industrial_conduit_contact_sheet.png`: combined review sheet.\n\n";
+  readme << "Visual gate claims rust, oxide cavities, raised weld/rim contact detail, pitting, "
+            "and axial scratches while rejecting clean plastic and monochrome material reads.\n";
+  readme.close();
+  assert(std::filesystem::exists(directory / "README.md"));
+}
+
+void testIndustrialConduitArtifactWriter() {
+  const std::filesystem::path directory =
+      std::filesystem::temp_directory_path() / "aster_asset_foundry_headless_artifacts_test";
+  std::filesystem::remove_all(directory);
+  writeIndustrialConduitArtifacts(directory);
+  assert(std::filesystem::exists(directory / "industrial_conduit_graph.png"));
+  assert(std::filesystem::exists(directory / "industrial_conduit_surface_signals.png"));
+  assert(std::filesystem::exists(directory / "industrial_conduit_topology_overlay.png"));
+  assert(std::filesystem::exists(directory / "industrial_conduit_contact_sheet.png"));
+  const std::string readme = readText(directory / "README.md");
+  assert(readme.find("industrial_conduit_graph.png") != std::string::npos);
+  assert(readme.find("industrial_conduit_surface_signals.png") != std::string::npos);
+  std::filesystem::remove_all(directory);
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
+  if (argc > 1 && std::string_view(argv[1]) == "write-artifacts") {
+    writeIndustrialConduitArtifacts(std::filesystem::path(ASTER_SOURCE_DIR) / "tests" /
+                                    "artifacts" / "asset_foundry_headless");
+    return 0;
+  }
   std::cout << "asset_factory_tests: deterministic hash\n";
   testDeterministicRecipeHash();
   std::cout << "asset_factory_tests: recipe build\n";
@@ -393,6 +688,8 @@ int main() {
   testRegistryFactoryNodes();
   std::cout << "asset_factory_tests: graph factory report\n";
   testAssetGraphFactoryReport();
+  std::cout << "asset_factory_tests: industrial conduit artifacts\n";
+  testIndustrialConduitArtifactWriter();
   std::cout << "asset_factory_tests: passed\n";
   return 0;
 }

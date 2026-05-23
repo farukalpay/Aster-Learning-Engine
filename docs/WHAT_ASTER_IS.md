@@ -38,7 +38,7 @@ What it is not yet:
 | Internal engine modules | Repository source contracts | Renderer, RHI, scene, systems, asset runtime, geometry, UI, and sample support can evolve with the engine. |
 | Validation/debug surfaces | Diagnostic product surfaces | `FrameForensics`, `WorldForensics`, GraphicsCore7, frame reports, backend conformance, and material diagnostics explain visible results. |
 | Research/internal experiments | Not productized APIs | World Perception Ledger, belief/perceptual ABI work, and advanced continuity models are active research unless explicitly promoted. |
-| Showcases | Examples and regression content | Lumen Run, Material Lab, Pipe Lab, and Primate Lab demonstrate and stress contracts; they do not define the engine boundary. |
+| Showcases | Examples and regression content | Lumen Run, Aster Grid Tactics, Material Lab, Pipe Lab, and Primate Lab demonstrate and stress contracts; they do not define the engine boundary. |
 
 The current proof stack is valuable because it protects the first user value:
 draw something, inspect what happened, and trace visible behavior back to the

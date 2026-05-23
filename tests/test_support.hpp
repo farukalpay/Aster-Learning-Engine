@@ -20,7 +20,7 @@
 #include "aster/systems/inventory_system.hpp"
 #include "aster/systems/item_system.hpp"
 #include "aster/systems/light_system.hpp"
-#include "aster/samples/lumen_run.hpp"
+#include "aster/samples/lumen_run/lumen_run.hpp"
 #include "aster/systems/particle_system.hpp"
 #include "aster/systems/player_motion.hpp"
 #include "aster/systems/third_person_camera.hpp"

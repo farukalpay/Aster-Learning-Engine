@@ -166,6 +166,102 @@ void readFallbackArray(const Value &fallback, const std::string_view key,
   return edges;
 }
 
+[[nodiscard]] std::vector<std::string> stringArrayFrom(const Value &json,
+                                                       const std::string_view key) {
+  std::vector<std::string> out;
+  const Value *array = json.find(key);
+  if (array == nullptr || array->kind != Value::Kind::Array) {
+    return out;
+  }
+  out.reserve(array->array.size());
+  for (const Value &entry : array->array) {
+    if (entry.kind == Value::Kind::String) {
+      out.push_back(entry.string);
+    }
+  }
+  return out;
+}
+
+[[nodiscard]] std::vector<ProceduralAssetGraphSocket> socketsFrom(const Value &json) {
+  std::vector<ProceduralAssetGraphSocket> sockets;
+  if (const Value *array = arrayField(json, "sockets")) {
+    sockets.reserve(array->array.size());
+    for (const Value &socket_json : array->array) {
+      sockets.push_back({.node_id = asset_json::textOr(socket_json, "node_id"),
+                         .name = asset_json::textOr(socket_json, "name"),
+                         .type = asset_json::textOr(socket_json, "type"),
+                         .direction = asset_json::textOr(socket_json, "direction"),
+                         .role = asset_json::textOr(socket_json, "role"),
+                         .default_value = asset_json::textOr(socket_json, "default_value")});
+    }
+  }
+  return sockets;
+}
+
+[[nodiscard]] std::vector<ProceduralAssetGraphZone> zonesFrom(const Value &json) {
+  std::vector<ProceduralAssetGraphZone> zones;
+  if (const Value *array = arrayField(json, "zones")) {
+    zones.reserve(array->array.size());
+    for (const Value &zone_json : array->array) {
+      zones.push_back({.id = asset_json::textOr(zone_json, "id"),
+                       .kind = asset_json::textOr(zone_json, "kind"),
+                       .input_node = asset_json::textOr(zone_json, "input_node"),
+                       .output_node = asset_json::textOr(zone_json, "output_node"),
+                       .items = stringArrayFrom(zone_json, "items")});
+    }
+  }
+  return zones;
+}
+
+[[nodiscard]] std::vector<ProceduralAssetGraphBundleItem> bundleItemsFrom(const Value &json) {
+  std::vector<ProceduralAssetGraphBundleItem> items;
+  if (const Value *array = arrayField(json, "bundle_items")) {
+    items.reserve(array->array.size());
+    for (const Value &item_json : array->array) {
+      items.push_back({.bundle_id = asset_json::textOr(item_json, "bundle_id"),
+                       .name = asset_json::textOr(item_json, "name"),
+                       .type = asset_json::textOr(item_json, "type"),
+                       .source_node = asset_json::textOr(item_json, "source_node")});
+    }
+  }
+  return items;
+}
+
+[[nodiscard]] std::vector<ProceduralAssetGraphBakeTarget> bakeTargetsFrom(const Value &json) {
+  std::vector<ProceduralAssetGraphBakeTarget> targets;
+  if (const Value *array = arrayField(json, "bake_targets")) {
+    targets.reserve(array->array.size());
+    for (const Value &target_json : array->array) {
+      targets.push_back({.id = asset_json::textOr(target_json, "id"),
+                         .node_id = asset_json::textOr(target_json, "node_id"),
+                         .target = asset_json::textOr(target_json, "target"),
+                         .artifact_role = asset_json::textOr(target_json, "artifact_role"),
+                         .frame_start = asset_json::u32Or(target_json, "frame_start"),
+                         .frame_end = asset_json::u32Or(target_json, "frame_end")});
+    }
+  }
+  return targets;
+}
+
+[[nodiscard]] std::vector<ProceduralAssetGraphProofArtifact> proofArtifactsFrom(
+    const Value &json) {
+  std::vector<ProceduralAssetGraphProofArtifact> artifacts;
+  if (const Value *array = arrayField(json, "proof_artifacts")) {
+    artifacts.reserve(array->array.size());
+    for (const Value &artifact_json : array->array) {
+      artifacts.push_back({.id = asset_json::textOr(artifact_json, "id"),
+                           .role = asset_json::textOr(artifact_json, "role"),
+                           .path = asset_json::textOr(artifact_json, "path"),
+                           .kind = asset_json::textOr(artifact_json, "kind"),
+                           .hash = asset_json::textOr(artifact_json, "hash"),
+                           .width = asset_json::u32Or(artifact_json, "width"),
+                           .height = asset_json::u32Or(artifact_json, "height"),
+                           .signal_tags = stringArrayFrom(artifact_json, "signal_tags")});
+    }
+  }
+  return artifacts;
+}
+
 [[nodiscard]] float materialParamOr(const MaterialAsset &material, const std::string_view key,
                                     const float fallback) {
   const auto found = material.params.find(std::string(key));
@@ -214,22 +310,6 @@ void readFallbackArray(const Value &fallback, const std::string_view key,
     }
   }
   return session;
-}
-
-[[nodiscard]] std::vector<std::string> stringArrayFrom(const Value &json,
-                                                       const std::string_view key) {
-  std::vector<std::string> out;
-  const Value *array = json.find(key);
-  if (array == nullptr || array->kind != Value::Kind::Array) {
-    return out;
-  }
-  out.reserve(array->array.size());
-  for (const Value &entry : array->array) {
-    if (entry.kind == Value::Kind::String) {
-      out.push_back(entry.string);
-    }
-  }
-  return out;
 }
 
 [[nodiscard]] ProceduralAssetGraphFactoryReport factoryReportFrom(const Value &json) {
@@ -376,8 +456,16 @@ ProceduralAssetGraphPackage loadProceduralAssetGraphPackage(const std::filesyste
   package.name = asset_json::textOr(root, "name", package.id);
   package.source_path = asset_json::textOr(root, "source_path");
   package.runtime_model = asset_json::textOr(root, "runtime_model");
+  if (const Value *metadata = objectField(root, "metadata")) {
+    package.metadata = stringMapFrom(*metadata);
+  }
   package.nodes = nodesFrom(root);
   package.edges = edgesFrom(root);
+  package.sockets = socketsFrom(root);
+  package.zones = zonesFrom(root);
+  package.bundle_items = bundleItemsFrom(root);
+  package.bake_targets = bakeTargetsFrom(root);
+  package.proof_artifacts = proofArtifactsFrom(root);
   package.production_session = productionSessionFrom(root);
   package.factory_report = factoryReportFrom(root);
   package.quality = qualityFrom(root);

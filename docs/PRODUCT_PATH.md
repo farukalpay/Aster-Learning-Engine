@@ -86,9 +86,9 @@ that loop is complete.
 
 ## Samples And Showcases
 
-Lumen Run, Material Lab, Pipe Lab, Primate Lab, screenshot galleries, and lab
-scenes demonstrate or stress engine contracts. They should not define engine
-architecture by accident.
+Lumen Run, Aster Grid Tactics, Material Lab, Pipe Lab, Primate Lab, screenshot
+galleries, and lab scenes demonstrate or stress engine contracts. They should
+not define engine architecture by accident.
 
 Samples may prove:
 

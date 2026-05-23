@@ -392,12 +392,13 @@ set(ASTER_NET_SOURCES
 )
 
 set(ASTER_SAMPLES_SOURCES
-  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run.cpp"
-  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run_interaction.cpp"
-  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run_mining.cpp"
-  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run_scene.cpp"
-  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run_simulation.cpp"
-  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run_validation.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/aster_grid_tactics/aster_grid_tactics.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/lumen_run.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/interaction.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/mining.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/scene.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/simulation.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/validation.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/showcase_scenes.cpp"
 )
 
@@ -683,6 +684,12 @@ if(ASTER_BUILD_STUDIO)
   target_link_libraries(aster_lumen_run PRIVATE aster_engine_internal aster_game_sdk)
   target_compile_definitions(aster_lumen_run PRIVATE
     ASTER_LUMEN_RUN_PROJECT="${PROJECT_SOURCE_DIR}/projects/lumen_run/lumen_run.asterproj"
+  )
+
+  add_executable(aster_grid_tactics apps/samples/aster_grid_tactics/main.cpp)
+  target_link_libraries(aster_grid_tactics PRIVATE aster_engine_internal aster_game_sdk)
+  target_compile_definitions(aster_grid_tactics PRIVATE
+    ASTER_GRID_TACTICS_PROJECT="${PROJECT_SOURCE_DIR}/projects/aster_grid_tactics/aster_grid_tactics.asterproj"
   )
 endif()
 
@@ -973,7 +980,50 @@ if(ASTER_BUILD_TESTS)
   endforeach()
   aster_add_test(aster_systems_tests tests/systems_tests.cpp)
   aster_add_test(aster_physics_tests tests/physics_tests.cpp)
-  aster_add_test(aster_sample_tests tests/sample_tests.cpp)
+  aster_add_test(aster_lumen_run_tests tests/samples/lumen_run/lumen_run_tests.cpp)
+  aster_add_test(aster_grid_tactics_tests
+                 tests/samples/aster_grid_tactics/aster_grid_tactics_tests.cpp)
+  foreach(grid_tactics_case
+      scripted_run_reaches_victory
+      deterministic_replay_hashes_match
+      lockstep_command_channel_replays_script
+      scene_contains_gameplay_signals_and_renders
+      debug_grid_is_opt_in
+      hud_uses_player_facing_language
+      reset_restores_playable_state
+  )
+    add_test(NAME aster_grid_tactics_tests.${grid_tactics_case}
+             COMMAND aster_grid_tactics_tests ${grid_tactics_case})
+  endforeach()
+  if(ASTER_BUILD_STUDIO)
+    add_test(NAME aster_grid_tactics_smoke_test
+             COMMAND aster_grid_tactics --smoke-test --no-vsync)
+    add_test(NAME aster_grid_tactics_replay_self_test
+             COMMAND aster_grid_tactics --replay-self-test --seed 4242 --ticks 260)
+    add_test(NAME aster_grid_tactics_capture_test
+             COMMAND aster_grid_tactics --screenshot
+                     "${PROJECT_BINARY_DIR}/test-artifacts/aster_grid_tactics/grid_tactics.ppm"
+                     --screenshot-frame 16 --no-vsync)
+    add_test(NAME aster_grid_tactics_agent_plan
+      COMMAND "${CMAKE_COMMAND}" -E env ${ASTER_CARGO_ENV}
+              "${CARGO_EXECUTABLE}" run -p aster_assetc --bin aster_assetc --
+              agent-plan --project projects/aster_grid_tactics/aster_grid_tactics.asterproj
+              --output-schema
+    )
+    set_tests_properties(aster_grid_tactics_agent_plan PROPERTIES
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    )
+    add_test(NAME aster_grid_tactics_cook
+      COMMAND "${CMAKE_COMMAND}" -E env ${ASTER_CARGO_ENV}
+              "${CARGO_EXECUTABLE}" run -p aster_assetc --bin aster_assetc --
+              cook --project projects/aster_grid_tactics/aster_grid_tactics.asterproj
+              --platform desktop
+              --output "${PROJECT_BINARY_DIR}/test-artifacts/aster_grid_tactics/cooked"
+    )
+    set_tests_properties(aster_grid_tactics_cook PROPERTIES
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    )
+  endif()
   if(ASTER_BUILD_NETWORK)
     aster_add_test(aster_network_tests tests/network_tests.cpp)
     add_test(NAME aster_net_probe COMMAND aster_net_probe)

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "prefab.grid.turret",
+  "name": "Grid Turret",
+  "entities": [
+    {
+      "id": "turret",
+      "name": "Grid Turret",
+      "components": {
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "grid_turret": { "fire_ticks": 36, "disabled_by": "hack_terminal" }
+      }
+    }
+  ]
+}

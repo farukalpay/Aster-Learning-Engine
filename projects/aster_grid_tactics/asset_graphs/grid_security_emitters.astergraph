@@ -1,0 +1,54 @@
+astergraph asset_graph.grid.security_emitters
+schema_version 1
+name "Aster Grid Security Emitters"
+material_id material.grid_security_red
+surface_profile corroded-metal
+primitive cube
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy box
+lod_policy single-lod
+base_color 0.42 0.045 0.085
+roughness 0.52
+metallic 0.58
+param wetness 0.04
+param macro_variation 0.46
+param micro_normal_strength 0.44
+param roughness_variation 0.26
+param physical_texel_density 900
+param height_normal_coupling 0.86
+param roughness_height_coupling 0.60
+param macro_frequency_breakup 0.46
+param micro_frequency_breakup 0.70
+param height_shading 0.26
+param pitting_density 0.40
+param cavity_grime 0.24
+param emission_r 1.0
+param emission_g 0.08
+param emission_b 0.14
+param emission_strength 1.55
+feature triplanar true
+feature normal_map true
+feature emissive true
+preview environment neon-security
+preview rig top-down-threat
+node mesh.emitter mesh_primitive role=mesh primitive=cube
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=4.8
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.assign material_assignment role=material surface_profile=corroded-metal
+node mat.noise noise role=base_color scale=10.0 strength=0.24
+node mat.cavity cavity_dirt role=dirt strength=0.24
+node mat.edge edge_wear role=edge_wear strength=0.30
+node mat.emission baked_mask_preview role=emissive strength=1.55
+node mat.normal normal_baker role=normal strength=0.44
+node mat.height height_baker role=height strength=0.26
+node collision.proxy collision_proxy role=collision shape=box
+node lod.single lod_generator role=lod policy=single-lod
+node perception.template world_perceptual_template role=perceptual profile=corroded-metal surface_response=security-emitter-painted-metal history_response=alert-light-heat-memory material_half_life_seconds=24 wetness_half_life_seconds=10 semantic_lod=0.82 streaming_cost=0.30 patch_channels=emissive_pulse,edge_wear,threat_state contact_channels=contact_normal,visual_occlusion,cover_affordance residue_channels=heat_residue,alarm_salience,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.emission material.assign emissive
+edge mat.edge material.assign edge_wear
+edge mat.normal export.runtime normal
+edge mat.height export.runtime height
+edge perception.template export.runtime perceptual_template

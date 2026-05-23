@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "prefab.grid.guard",
+  "name": "Grid Guard",
+  "entities": [
+    {
+      "id": "guard",
+      "name": "Patrol Guard",
+      "components": {
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "grid_actor": { "team": "enemy", "vision_range": 5, "patrol_step_ticks": 18 }
+      }
+    }
+  ]
+}

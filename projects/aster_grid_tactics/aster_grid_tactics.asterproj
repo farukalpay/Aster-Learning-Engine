@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "name": "Aster Grid Tactics",
+  "startup_scene": "scene.grid_lab",
+  "assets": [
+    { "id": "scene.grid_lab", "kind": "scene", "path": "scenes/grid_lab.scene", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0001" },
+    { "id": "prefab.grid.player", "kind": "prefab", "path": "prefabs/player.prefab", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0002" },
+    { "id": "prefab.grid.guard", "kind": "prefab", "path": "prefabs/guard.prefab", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0003" },
+    { "id": "prefab.grid.terminal", "kind": "prefab", "path": "prefabs/terminal.prefab", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0004" },
+    { "id": "prefab.grid.energy_node", "kind": "prefab", "path": "prefabs/energy_node.prefab", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0005" },
+    { "id": "prefab.grid.security_door", "kind": "prefab", "path": "prefabs/security_door.prefab", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0006" },
+    { "id": "prefab.grid.turret", "kind": "prefab", "path": "prefabs/turret.prefab", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0007" },
+    { "id": "prefab.grid.extraction", "kind": "prefab", "path": "prefabs/extraction.prefab", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0008" },
+    { "id": "material.grid_lab_floor", "kind": "material", "path": "materials/grid_lab_floor.astermat", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0009" },
+    { "id": "material.grid_neon", "kind": "material", "path": "materials/grid_neon.astermat", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b000a" },
+    { "id": "material.grid_lab_wall", "kind": "material", "path": "materials/grid_lab_wall.astermat", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b000f" },
+    { "id": "material.grid_security_red", "kind": "material", "path": "materials/grid_security_red.astermat", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0010" },
+    { "id": "material.grid_operator_blue", "kind": "material", "path": "materials/grid_operator_blue.astermat", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0011" },
+    { "id": "material.grid_energy_green", "kind": "material", "path": "materials/grid_energy_green.astermat", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0012" },
+    { "id": "asset_graph.grid.floor_panels", "kind": "asset_graph", "path": "asset_graphs/grid_floor_panels.astergraph", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0013" },
+    { "id": "asset_graph.grid.security_emitters", "kind": "asset_graph", "path": "asset_graphs/grid_security_emitters.astergraph", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0014" },
+    { "id": "asset_graph.grid.cable_trench", "kind": "asset_graph", "path": "asset_graphs/grid_cable_trench.astergraph", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0015" },
+    { "id": "asset_graph.grid.energy_lens", "kind": "asset_graph", "path": "asset_graphs/grid_energy_lens.astergraph", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0016" },
+    { "id": "asset_graph.grid.extraction_gate", "kind": "asset_graph", "path": "asset_graphs/grid_extraction_gate.astergraph", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b0017" },
+    { "id": "action.grid.hack_terminal", "kind": "action_graph", "path": "actions/hack_terminal.action_graph", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b000b" },
+    { "id": "action.grid.reroute_energy", "kind": "action_graph", "path": "actions/reroute_energy.action_graph", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b000c" },
+    { "id": "input.grid_tactics", "kind": "input", "path": "inputs/grid_tactics.input", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b000d" },
+    { "id": "ui.grid_hud", "kind": "ui", "path": "ui/grid_hud.ui", "guid": "0a2f63c7a8f04f30b1711b2ed5dd4f168c6e62e6af8f4897b1c3e29c2e9b000e" }
+  ]
+}

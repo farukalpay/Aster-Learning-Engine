@@ -71,6 +71,8 @@ public:
   float yaw = radians(36.0f);
   float pitch = radians(18.0f);
   float radius = 6.2f;
+  CameraProjectionMode projection_mode = CameraProjectionMode::Perspective;
+  float orthographic_height = 8.0f;
   float vertical_fov = radians(54.0f);
   float near_plane = 0.05f;
   float far_plane = 120.0f;

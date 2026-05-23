@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "prefab.grid.security_door",
+  "name": "Security Door",
+  "entities": [
+    {
+      "id": "security_door",
+      "name": "Security Door",
+      "components": {
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "grid_door": { "starts_open": false, "blocks_sight": true }
+      }
+    }
+  ]
+}

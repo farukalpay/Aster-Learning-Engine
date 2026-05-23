@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.grid_lab_floor {
+  schema_version: 1
+  name: "Aster Grid Lab Floor"
+  shading_model: LitPBR
+  surface_profile: corroded-metal
+  blend_mode: Opaque
+  cull_mode: None
+  receives_decals: true
+  receives_shadows: true
+
+  textures {
+    albedo: "../textures/grid_lab_albedo.ktx2"
+    normal: "../textures/grid_lab_normal.ktx2"
+    orm: "../textures/grid_lab_orm.ktx2"
+    height: "../textures/grid_lab_height.ktx2"
+  }
+
+  params {
+    base_color_r: 0.070
+    base_color_g: 0.095
+    base_color_b: 0.105
+    roughness: 0.72
+    metallic: 0.42
+    triplanar_scale: 4.4
+    detail_strength: 0.42
+    micro_normal_strength: 0.46
+    roughness_variation: 0.22
+    physical_texel_density: 960
+    height_normal_coupling: 0.94
+    roughness_height_coupling: 0.76
+    macro_frequency_breakup: 0.46
+    micro_frequency_breakup: 0.62
+    height_shading: 0.30
+    pattern_depth: 0.12
+    pattern_contrast: 0.32
+    edge_wear: 0.28
+    pitting_density: 0.52
+    pitting_depth: 0.012
+    oxide_layering: 0.48
+    cavity_grime: 0.30
+    axial_scratches: 0.34
+    rust_bloom: 0.08
+  }
+
+  features {
+    triplanar: true
+    normal_map: true
+    orm_texture: true
+    height: true
+    decal_receiver: true
+  }
+}

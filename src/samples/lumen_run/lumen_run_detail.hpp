@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "aster/samples/lumen_run.hpp"
+#include "aster/samples/lumen_run/lumen_run.hpp"
 #include "aster/core/profiler.hpp"
 #include "aster/systems/player_motion.hpp"
 #include "aster/geometry/architectural_mesh.hpp"

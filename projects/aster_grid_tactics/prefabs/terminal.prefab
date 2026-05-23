@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "prefab.grid.terminal",
+  "name": "Hack Terminal",
+  "entities": [
+    {
+      "id": "terminal",
+      "name": "Hack Terminal",
+      "components": {
+        "mesh_renderer": { "mesh": "mesh.grid.quad", "material": "material.grid_neon" },
+        "interactable": { "action_graph": "action.grid.hack_terminal", "prompt_action": "Hack", "prompt_subject": "Terminal", "radius": 1.0 }
+      }
+    }
+  ]
+}
