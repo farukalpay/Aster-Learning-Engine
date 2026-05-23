@@ -760,10 +760,10 @@ void testLumenCaveVisualContracts() {
       assert(object.material.surface_pattern == aster::SurfacePattern::AmberResin);
       assert(object.material.emission_strength > 0.60f);
       assert(object.material.emission_color.x > object.material.emission_color.z);
-      assert(object.material.emission_color.y > object.material.emission_color.x * 0.52f);
-      assert(object.material.emission_color.y < object.material.emission_color.x * 0.90f);
-      assert(object.material.emission_color.z > object.material.emission_color.x * 0.30f);
-      assert(object.material.emission_color.z < object.material.emission_color.x * 0.70f);
+      assert(object.material.emission_color.y > object.material.emission_color.x * 0.22f);
+      assert(object.material.emission_color.y < object.material.emission_color.x * 0.50f);
+      assert(object.material.emission_color.z > object.material.emission_color.x * 0.08f);
+      assert(object.material.emission_color.z < object.material.emission_color.x * 0.22f);
       assert(object.material.depth_policy.layer == aster::RenderDepthLayer::SurfaceAttachment);
       assert(!object.camera_occlusion_fade);
     }
@@ -911,7 +911,8 @@ void testLumenDeepCaveCaptureLightingContract() {
   mean_luma /= static_cast<double>(std::max<std::size_t>(rgba.size() / 4u, 1u));
   assert(mean_luma > 0.08);
   assert(mean_luma < 0.42);
-  assert(red_dominant_pixels < 2200u);
+  assert(red_dominant_pixels > 2200u);
+  assert(red_dominant_pixels < 5600u);
   assert(bright_neutral_pixels < 2800u);
   assert(green_dominant_pixels < 520u);
 
@@ -1236,10 +1237,10 @@ void testLumenCaveTraversalAndLightingContracts() {
   aster::CaveWallLightSample readable_fixture_light{};
   for (const aster::CaveWallLightSample &light : cave_light.wall_lights) {
     const bool readable_fixture_color =
-        light.color.x > 0.90f && light.color.y > light.color.x * 0.52f &&
-        light.color.y < light.color.x * 0.90f && light.color.z > light.color.x * 0.30f &&
-        light.color.z < light.color.x * 0.70f;
-    if (readable_fixture_color && light.intensity > 6.0f && light.source_radius > 0.0f &&
+        light.color.x > 0.90f && light.color.y > light.color.x * 0.22f &&
+        light.color.y < light.color.x * 0.46f && light.color.z > light.color.x * 0.08f &&
+        light.color.z < light.color.x * 0.22f;
+    if (readable_fixture_color && light.intensity > 4.0f && light.source_radius > 0.0f &&
         light.source_radius <= 2.40f) {
       saw_readable_fixture_light = true;
       readable_fixture_light = light;

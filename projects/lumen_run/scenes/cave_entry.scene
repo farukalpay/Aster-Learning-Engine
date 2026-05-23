@@ -53,8 +53,8 @@
         "transform": { "translation": [2.4, 1.1, -1.5] },
         "mesh_renderer": { "mesh": "mesh.torch_wall", "material": "material.torch_flame" },
         "perceptual_binding": { "template": "asset_graph.material_lab.wet_decal_soot", "cell_anchor": "cave_entry.lit_wall", "residency_role": "fixture-light", "local_cause": "player-readable-safe-light", "traversal_role": "wall-mounted", "visual_occlusion_role": "light-source-contact", "acoustic_role": "metal-bracket-wall", "material_half_life_override": 10.0, "streaming_cost_override": 0.18 },
-        "light": { "kind": "point", "color": [1.0, 0.5, 0.2], "intensity": 5.8, "radius": 0.82 },
-        "torch_socket": { "color": [1.0, 0.5, 0.2], "intensity": 5.8, "radius": 0.82 },
+        "light": { "kind": "point", "color": [1.0, 0.42, 0.16], "intensity": 7.4, "radius": 1.08 },
+        "torch_socket": { "color": [1.0, 0.42, 0.16], "intensity": 7.4, "radius": 1.08 },
         "cave_debug": { "layers": ["lighting"], "color": [1.0, 0.5, 0.2] }
       }
     },

@@ -104,7 +104,7 @@
           "normal_up_bias": -0.10,
           "lens_offset": 0.095,
           "light_offset": 0.22,
-          "light_color": [1.0, 0.78, 0.56]
+          "light_color": [1.0, 0.32, 0.14]
         },
         {
           "id": "entry_right_industrial",
@@ -118,7 +118,7 @@
           "normal_up_bias": -0.10,
           "lens_offset": 0.095,
           "light_offset": 0.22,
-          "light_color": [1.0, 0.78, 0.56]
+          "light_color": [1.0, 0.32, 0.14]
         }
       ]
     },
@@ -184,7 +184,7 @@
           "normal_up_bias": -0.10,
           "lens_offset": 0.095,
           "light_offset": 0.22,
-          "light_color": [1.0, 0.78, 0.56]
+          "light_color": [1.0, 0.32, 0.14]
         },
         {
           "id": "deep_right_industrial",
@@ -198,7 +198,7 @@
           "normal_up_bias": -0.10,
           "lens_offset": 0.095,
           "light_offset": 0.22,
-          "light_color": [1.0, 0.78, 0.56]
+          "light_color": [1.0, 0.32, 0.14]
         }
       ]
     }

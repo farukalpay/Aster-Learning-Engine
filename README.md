@@ -119,10 +119,10 @@ Run built-in lab scenes when you want the inspected renderer path:
 
 ## What Is Included
 
-- A C-compatible ABI 6.6 engine kernel with `AsterWorld`, opaque handles, C++
-  RAII wrappers, strict validation events, explicit texture/material/render
-  target lifecycle, world/frame forensics, frame schedule reports, and an
-  install-tree `external_app_minimal/` proof.
+- A C-compatible ABI 7.0 engine kernel with `AsterWorld`, opaque handles, C++
+  RAII wrappers, strict validation events, rigid-body/frame-control telemetry,
+  explicit texture/material/render target lifecycle, world/frame forensics,
+  frame schedule reports, and an install-tree `external_app_minimal/` proof.
 - A draw-first C++ facade in `include/aster/aster.hpp` for `InitAster`,
   `Frame`, `BeginScene`, `DrawMesh`, `DrawLight`, and `EndScene` quickstarts.
 - A source-level game SDK for schema-versioned project, scene, prefab, material,

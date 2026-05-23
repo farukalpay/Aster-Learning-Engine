@@ -102,6 +102,24 @@ struct PhysicsMeshTriangle {
   Vec3 normal{0.0f, 1.0f, 0.0f};
 };
 
+struct PhysicsMeshAccelerationCell {
+  Vec3 bounds_min{};
+  Vec3 bounds_max{};
+  std::vector<std::uint32_t> triangle_indices;
+};
+
+struct PhysicsMeshAcceleration {
+  bool valid = false;
+  Vec3 bounds_min{};
+  Vec3 bounds_max{};
+  Vec3 cell_size{1.0f, 1.0f, 1.0f};
+  std::uint32_t cells_x = 1u;
+  std::uint32_t cells_y = 1u;
+  std::uint32_t cells_z = 1u;
+  std::uint32_t triangle_reference_count = 0u;
+  std::vector<PhysicsMeshAccelerationCell> cells;
+};
+
 struct PhysicsBody {
   PhysicsBodyType type = PhysicsBodyType::Static;
   PhysicsShapeType shape = PhysicsShapeType::Box;
@@ -135,6 +153,7 @@ struct PhysicsBody {
   Vec3 mesh_bounds_min{};
   Vec3 mesh_bounds_max{};
   std::vector<PhysicsMeshTriangle> mesh_triangles;
+  PhysicsMeshAcceleration mesh_acceleration{};
 };
 
 struct PhysicsContact {
@@ -242,6 +261,13 @@ struct PhysicsStepStats {
   std::uint32_t substeps = 0u;
   std::uint32_t solver_iterations = 0u;
   std::uint32_t queued_command_count = 0u;
+  std::uint32_t broadphase_rebuild_count = 0u;
+  std::uint32_t narrowphase_pair_tests = 0u;
+  std::uint32_t mesh_accelerated_body_count = 0u;
+  std::uint32_t mesh_acceleration_cell_visits = 0u;
+  std::uint32_t mesh_triangle_candidate_count = 0u;
+  std::uint32_t contact_island_count = 0u;
+  std::uint32_t warm_started_contacts = 0u;
 };
 
 struct PhysicsStepResult {
@@ -368,8 +394,10 @@ private:
   void buildBroadphasePairs();
   void solveConstraints(float dt);
   void solveCollisions();
+  void solveBroadphasePairs();
   void solvePair(PhysicsBodyHandle handle_a, PhysicsBody &body_a, PhysicsBodyHandle handle_b,
                  PhysicsBody &body_b);
+  [[nodiscard]] std::uint32_t contactIslandCount() const;
 
   PhysicsSettings settings_{};
   std::vector<PhysicsBody> bodies_;
@@ -379,6 +407,18 @@ private:
   std::vector<PhysicsBroadphasePair> broadphase_pairs_;
   std::vector<BufferedCommand> command_buffer_;
   PhysicsStepStats last_stats_{};
+  struct PersistentContactImpulse {
+    float normal_impulse = 0.0f;
+    float tangent_impulse = 0.0f;
+  };
+  std::vector<std::pair<std::uint64_t, PersistentContactImpulse>> previous_contact_impulses_;
+  std::vector<std::pair<std::uint64_t, PersistentContactImpulse>> contact_impulses_;
+  std::uint32_t current_solver_iteration_ = 0u;
+  std::uint32_t step_broadphase_rebuild_count_ = 0u;
+  std::uint32_t step_narrowphase_pair_tests_ = 0u;
+  std::uint32_t step_mesh_acceleration_cell_visits_ = 0u;
+  std::uint32_t step_mesh_triangle_candidate_count_ = 0u;
+  std::uint32_t step_warm_started_contacts_ = 0u;
 };
 
 [[nodiscard]] bool samePhysicsHandle(PhysicsBodyHandle lhs, PhysicsBodyHandle rhs);

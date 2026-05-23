@@ -623,7 +623,7 @@ void LumenRun::rebuildScene() {
       0.78f, SurfacePattern::WeatheredStone, {4.2f, 6.4f}, 0.024f, 0.56f, 0.05f);
   industrial_light_metal.cull_mode = FaceCullMode::Back;
   Material industrial_wall_lens =
-      material({0.92f, 0.56f, 0.30f}, {1.0f, 0.42f, 0.18f}, 0.34f, 0.0f, 0.34f, 0.26f, 6.0f, 0.02f,
+      material({0.78f, 0.30f, 0.14f}, {1.0f, 0.30f, 0.12f}, 0.34f, 0.0f, 0.34f, 0.26f, 6.0f, 0.02f,
                0.88f, SurfacePattern::AmberResin, {4.4f, 7.2f}, 0.010f, 0.50f, 0.04f);
   industrial_wall_lens.double_sided = true;
   industrial_wall_lens.alpha_mode = MaterialAlphaMode::Blend;

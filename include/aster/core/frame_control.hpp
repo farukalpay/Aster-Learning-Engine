@@ -19,12 +19,23 @@ struct FrameControlInput {
   double perception_seconds = 0.0;
   double physics_seconds = 0.0;
   double streaming_seconds = 0.0;
+  double frame_seconds_p95 = 0.0;
+  double frame_seconds_p99 = 0.0;
+  double frame_jitter_seconds = 0.0;
   std::uint32_t streaming_backlog_items = 0u;
   std::uint32_t perceptual_backlog_items = 0u;
   std::uint32_t active_dynamic_bodies = 0u;
   std::uint32_t active_contacts = 0u;
+  std::uint32_t contact_islands = 0u;
+  std::uint32_t warm_started_contacts = 0u;
+  std::uint32_t mesh_triangle_candidates = 0u;
+  std::uint32_t active_lights = 0u;
+  std::uint32_t visible_objects = 0u;
   double player_speed = 0.0;
   double cave_pressure = 0.0;
+  double region_pressure = 0.0;
+  double visibility_pressure = 0.0;
+  double light_pressure = 0.0;
 };
 
 struct FrameControlOutput {
@@ -35,10 +46,15 @@ struct FrameControlOutput {
   std::uint32_t perceptual_proof_interval_frames = 1u;
   std::uint32_t lighting_update_interval_frames = 1u;
   std::uint32_t visibility_hint_budget = 0u;
+  std::uint32_t active_light_budget = 0u;
+  std::uint32_t mesh_triangle_candidate_budget = 0u;
   float semantic_lod_bias = 0.0f;
   double pressure = 0.0;
   double optional_work_seconds = 0.0;
+  double physics_budget_seconds = 0.0;
+  double render_budget_seconds = 0.0;
   std::uint32_t degraded = 0u;
+  std::uint32_t quality_tier = 0u;
 };
 
 class FrameControlPolicy {

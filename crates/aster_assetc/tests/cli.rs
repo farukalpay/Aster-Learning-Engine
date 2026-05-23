@@ -556,6 +556,8 @@ fn agent_plan_reports_batch_contracts() {
     assert!(stdout.contains("aster.deny.git_reset_hard"));
     assert!(stdout.contains("\"handoff_policy\""));
     assert!(stdout.contains("Aster Agent Batch Report"));
+    assert!(stdout.contains("\"physics_performance_contract\""));
+    assert!(stdout.contains("mesh_triangle_candidate_count"));
     assert!(stdout.contains("Do not add third-party notice files"));
     assert!(stdout.contains("\"header_policy\""));
     assert!(stdout.contains("\"allowed_license_ids\""));

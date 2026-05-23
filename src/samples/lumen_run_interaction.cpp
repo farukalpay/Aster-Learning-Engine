@@ -119,11 +119,11 @@ void LumenRun::updateEquipmentVisuals(const float dt) {
   const bool torch_equipped = equipment_.isEquipped("torch");
   const Vec3 flame_position =
       hand_socket.position + rotateEuler({0.0f, 0.39f, 0.0f}, carry_rotation);
-  equipped_light_ = torch_equipped ? evaluateFlickerLight({.color = {1.0f, 0.50f, 0.20f},
-                                                           .intensity = 5.8f,
+  equipped_light_ = torch_equipped ? evaluateFlickerLight({.color = {1.0f, 0.42f, 0.16f},
+                                                           .intensity = 7.4f,
                                                            .amplitude = 0.22f,
                                                            .speed = 14.0f,
-                                                           .source_radius = 0.82f},
+                                                           .source_radius = 1.08f},
                                                           flame_position, status_.elapsed_seconds)
                                    : DynamicPointLight{};
 

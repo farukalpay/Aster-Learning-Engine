@@ -271,6 +271,57 @@ void testPhysicsStaticTriangleMeshContact() {
   expectNear(corridor_world.body(walker).position.y, 0.60f, 0.001f);
 }
 
+void testPhysicsMeshAccelerationAndWarmStartStats() {
+  aster::CpuMesh floor_mesh;
+  constexpr int segment_count = 64;
+  floor_mesh.vertices.reserve(static_cast<std::size_t>((segment_count + 1) * 2));
+  for (int i = 0; i <= segment_count; ++i) {
+    const float x = -16.0f + static_cast<float>(i) * 0.5f;
+    floor_mesh.vertices.push_back({{x, 0.0f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}});
+    floor_mesh.vertices.push_back({{x, 0.0f, 0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}});
+  }
+  for (int i = 0; i < segment_count; ++i) {
+    const std::uint32_t a = static_cast<std::uint32_t>(i * 2);
+    const std::uint32_t b = a + 1u;
+    const std::uint32_t c = a + 2u;
+    const std::uint32_t d = a + 3u;
+    floor_mesh.indices.insert(floor_mesh.indices.end(), {a, c, b, c, d, b});
+  }
+
+  aster::PhysicsWorld world;
+  world.setSettings({{0.0f, -9.81f, 0.0f}, 6, 1.0f / 120.0f});
+  aster::PhysicsBodyDesc floor_desc;
+  floor_desc.type = aster::PhysicsBodyType::Static;
+  floor_desc.shape = aster::PhysicsShapeType::TriangleMesh;
+  floor_desc.mesh = std::make_shared<const aster::CpuMesh>(floor_mesh);
+  [[maybe_unused]] const aster::PhysicsBodyHandle floor = world.addBody(floor_desc);
+
+  aster::PhysicsBodyDesc capsule_desc;
+  capsule_desc.type = aster::PhysicsBodyType::Dynamic;
+  capsule_desc.shape = aster::PhysicsShapeType::Capsule;
+  capsule_desc.position = {-14.0f, 0.39f, 0.0f};
+  capsule_desc.half_extents = {0.18f, 0.24f, 0.18f};
+  capsule_desc.radius = 0.18f;
+  capsule_desc.allow_sleep = false;
+  const aster::PhysicsBodyHandle capsule = world.addBody(capsule_desc);
+
+  const aster::PhysicsStepResult first = world.step({.dt = 1.0f / 120.0f,
+                                                     .max_substeps = 1,
+                                                     .solver_iterations_override = 6});
+  assert(first.stats.mesh_accelerated_body_count == 1u);
+  assert(first.stats.broadphase_rebuild_count == 1u);
+  assert(first.stats.mesh_acceleration_cell_visits > 0u);
+  assert(first.stats.mesh_triangle_candidate_count > 0u);
+  assert(first.stats.mesh_triangle_candidate_count < floor_mesh.indices.size() / 3u);
+  assert(first.stats.contact_island_count == 1u);
+
+  const aster::PhysicsStepResult second = world.step({.dt = 1.0f / 120.0f,
+                                                      .max_substeps = 1,
+                                                      .solver_iterations_override = 6});
+  assert(second.stats.warm_started_contacts > 0u);
+  assert(world.body(capsule).position.y > 0.35f);
+}
+
 void testPhysicsCharacterController() {
   aster::PhysicsWorld world;
   world.setSettings({{0.0f, -9.81f, 0.0f}, 8, 1.0f / 120.0f});
@@ -627,6 +678,7 @@ int main() {
   testRigidBodyAngularImpulseAndTorque();
   testRigidBodyCcdSphereStopsAtWall();
   testPhysicsStaticTriangleMeshContact();
+  testPhysicsMeshAccelerationAndWarmStartStats();
   testPhysicsCharacterController();
   testTerrainCharacterContact();
   testTerrainCharacterRaisesToSurface();

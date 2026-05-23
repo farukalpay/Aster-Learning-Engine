@@ -659,7 +659,8 @@ void testThirdPersonFollowController() {
   assert(pose.camera_pitch > aster::radians(28.0f));
   expectNear(pose.camera_target.y, 1.0f, 0.0001f);
   const aster::ThirdPersonFollowPose shifted =
-      aster::updateThirdPersonFollow(state, {.target_response = 12.0f},
+      aster::updateThirdPersonFollow(state, {.target_response = 12.0f,
+                                             .teleport_snap_distance = 12.0f},
                                      {.active = true,
                                       .focus_target = {10.0f, 1.0f, 0.0f},
                                       .fallback_yaw = 0.0f,
@@ -703,7 +704,7 @@ void testThirdPersonFollowController() {
   camera.radius = 4.0f;
   const aster::CameraRay ray =
       camera.screenRay({400.0f, 300.0f, 0.0f}, aster::Viewport{{}, {800.0f, 600.0f}});
-  assert(aster::length(ray.direction) > 0.99f);
+  assert(aster::length(ray.direction.value) > 0.99f);
   assert(ray.direction.z < -0.99f);
 }
 

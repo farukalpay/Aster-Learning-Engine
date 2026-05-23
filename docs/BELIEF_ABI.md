@@ -1,6 +1,6 @@
 # Belief ABI
 
-Status: stable in kernel ABI 6.6.0.
+Status: stable in kernel ABI 7.0.0.
 
 Belief ABI exposes Aster's player-believable world proof as typed C data. It
 stabilizes the internal Belief Extraction V1 report, the frame falseness report,
@@ -9,7 +9,7 @@ include C++ engine headers.
 
 ## Contract
 
-The stable belief surface is append-only:
+The stable belief surface remains size/version guarded inside the ABI 7 major:
 
 - `AsterBeliefFindingKind` names the canonical falseness categories.
 - `AsterBeliefFindingInfo` describes one failed belief check.
@@ -166,9 +166,9 @@ drift, and backend frames that do not prove native primitive consumption.
 
 ## Compatibility
 
-- ABI version is `6.6.0`.
-- Existing ABI 6.3 and 6.5 callers remain source-compatible because new inputs are tail
-  fields behind `size` checks.
+- ABI version is `7.0.0`.
+- ABI 7 intentionally opens a new major for frame-control and rigid-body telemetry. Within
+  the major, belief subrecords remain tail-field friendly behind `size` checks.
 - Existing `AsterFrameDiagnosticEvent` reporting remains available.
 - The scheduler bridge is report-only. It mirrors frame/runtime evidence and
   never mutates world state through the ABI.

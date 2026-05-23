@@ -2092,6 +2092,7 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
       caveSectionAt(player_position_, &proof_cave_sample) != nullptr &&
       proof_cave_sample.interior > 0.08f;
   const PhysicsStepStats proof_physics_stats = physics_.lastStats();
+  const CaveLightingState proof_cave_light = caveLightingStateAt(player_position_);
   const FrameControlOutput proof_control = frame_control_.evaluate(
       {.target_frame_seconds = 1.0 / 60.0,
        .frame_seconds = step * 1.75,
@@ -2103,16 +2104,28 @@ void LumenRun::advanceWorldProof(const float dt, const Vec2 move_axis, const boo
        .perceptual_backlog_items = static_cast<std::uint32_t>(scene_.objects().size()),
        .active_dynamic_bodies = proof_physics_stats.active_dynamic_bodies,
        .active_contacts = proof_physics_stats.contact_count,
+       .contact_islands = proof_physics_stats.contact_island_count,
+       .warm_started_contacts = proof_physics_stats.warm_started_contacts,
+       .mesh_triangle_candidates = proof_physics_stats.mesh_triangle_candidate_count,
+       .active_lights = static_cast<std::uint32_t>(proof_cave_light.wall_lights.size()),
+       .visible_objects = static_cast<std::uint32_t>(scene_.objects().size()),
        .player_speed = length(player_velocity_),
-       .cave_pressure = proof_inside_cave ? 0.95 : 0.48});
+       .cave_pressure = proof_inside_cave ? 0.95 : 0.48,
+       .region_pressure = proof_inside_cave ? 1.05 : 0.52,
+       .visibility_pressure = proof_inside_cave ? 0.72 : 0.30,
+       .light_pressure = proof_cave_light.wall_light});
   const std::uint64_t proof_epoch = next_world_epoch_;
   const std::uint32_t overload_proof_interval =
       proof_control.degraded != 0u || scene_.objects().size() > 420u ? 24u : 1u;
   const std::uint32_t proof_interval =
       std::max(overload_proof_interval, proof_control.perceptual_proof_interval_frames);
+  const bool torch_exposure_proof_frame =
+      proof_inside_cave && equippedLight().has_value() &&
+      (torch_exposure_field_.states().empty() || (proof_epoch % 4u) == 0u);
   const bool heavy_proof_frame =
       world_forensics_.perception_ledger.ledger_hash == 0u ||
-      (proof_epoch % static_cast<std::uint64_t>(proof_interval)) == 0u;
+      (proof_epoch % static_cast<std::uint64_t>(proof_interval)) == 0u ||
+      torch_exposure_proof_frame;
   if (heavy_proof_frame) {
     world_forensics_.perception_ledger = buildPerceptionLedgerReport(ledger_region);
     world_forensics_.perception_object_traces =
@@ -2976,8 +2989,8 @@ CaveLightingState LumenRun::caveLightingState() const {
 float LumenRun::heldTorchLightGain(const CaveLightingState &light) const {
   const float interior = clamp(light.interior, 0.0f, 1.0f);
   const float fixture = clamp(light.wall_light, 0.0f, 1.0f);
-  const float base_gain = 0.85f + 0.33f * interior;
-  const float fixture_damping = std::lerp(1.0f, 0.82f, fixture);
+  const float base_gain = 1.02f + 0.58f * interior;
+  const float fixture_damping = std::lerp(1.0f, 0.92f, fixture);
   return base_gain * fixture_damping;
 }
 
@@ -3125,23 +3138,27 @@ CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
   Vec3 wall_light_color = kCaveIndustrialRedLight;
   std::vector<CaveWallLightSample> wall_lights;
   wall_lights.reserve(candidates.size());
+  constexpr std::size_t kMaxBudgetedWallLights = 12u;
   for (const LightCandidate &candidate : candidates) {
     if (wall_lights.empty()) {
       wall_light_position = candidate.sample.position;
       wall_light_color = candidate.sample.color;
     }
+    if (wall_lights.size() >= kMaxBudgetedWallLights) {
+      continue;
+    }
     wall_lights.push_back(candidate.sample);
   }
 
   const float interior = best_sample.interior;
-  float wall_light = entrance_light * 0.20f;
+  float wall_light = entrance_light * 0.11f;
   for (const LightCandidate &candidate : candidates) {
     const float distance_sq =
         std::max(dot(candidate.sample.position - position, candidate.sample.position - position),
                  0.0001f);
     const float softened =
         std::max(distance_sq, candidate.sample.source_radius * candidate.sample.source_radius);
-    wall_light = std::max(wall_light, candidate.sample.intensity / softened * 0.035f);
+    wall_light = std::max(wall_light, candidate.sample.intensity / softened * 0.022f);
   }
   wall_light = clamp(wall_light, 0.0f, 1.0f);
   return {.interior = interior,

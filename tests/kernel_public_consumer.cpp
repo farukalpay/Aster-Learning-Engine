@@ -35,8 +35,8 @@ std::string toString(const AsterStringView view) {
 int main() {
   const AsterAbiVersion version = aster::kernel::abiVersion();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
-  assert(version.major == 6u);
-  assert(version.minor == 5u);
+  assert(version.major == 7u);
+  assert(version.minor == 0u);
 
   const auto normalized = aster::kernel::math::normalize({3.0f, 0.0f, 4.0f});
   assert(normalized);

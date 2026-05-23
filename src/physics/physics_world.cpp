@@ -301,6 +301,177 @@ std::vector<PhysicsMeshTriangle> prepareMeshTriangles(const CpuMesh &mesh,
   return triangles;
 }
 
+std::size_t accelerationCellIndex(const PhysicsMeshAcceleration &acceleration,
+                                  const std::uint32_t x, const std::uint32_t y,
+                                  const std::uint32_t z) {
+  return static_cast<std::size_t>(x) +
+         static_cast<std::size_t>(acceleration.cells_x) *
+             (static_cast<std::size_t>(y) +
+              static_cast<std::size_t>(acceleration.cells_y) * static_cast<std::size_t>(z));
+}
+
+std::uint32_t accelerationCellCoord(const float value, const float min_value,
+                                    const float cell_size, const std::uint32_t count) {
+  if (count <= 1u || cell_size <= kEpsilon) {
+    return 0u;
+  }
+  const float relative = (value - min_value) / cell_size;
+  const int coord = static_cast<int>(std::floor(relative));
+  return static_cast<std::uint32_t>(
+      std::clamp(coord, 0, static_cast<int>(std::max(count, 1u) - 1u)));
+}
+
+PhysicsMeshAcceleration buildMeshAcceleration(const std::vector<PhysicsMeshTriangle> &triangles,
+                                              const Aabb bounds) {
+  PhysicsMeshAcceleration acceleration;
+  if (triangles.size() < 16u) {
+    return acceleration;
+  }
+
+  const Vec3 extents = bounds.max - bounds.min;
+  const float safe_volume = std::max(extents.x, 0.05f) * std::max(extents.y, 0.05f) *
+                            std::max(extents.z, 0.05f);
+  const float target_cells = std::clamp(static_cast<float>(triangles.size()) / 24.0f, 1.0f, 768.0f);
+  const float preferred_cell_size =
+      std::clamp(std::cbrt(safe_volume / target_cells), 0.45f, 5.50f);
+  const auto axis_cell_count = [preferred_cell_size](const float extent) {
+    if (extent <= kEpsilon) {
+      return 1u;
+    }
+    return static_cast<std::uint32_t>(
+        std::clamp(static_cast<int>(std::ceil(extent / preferred_cell_size)), 1, 48));
+  };
+
+  acceleration.valid = true;
+  acceleration.bounds_min = bounds.min;
+  acceleration.bounds_max = bounds.max;
+  acceleration.cells_x = axis_cell_count(extents.x);
+  acceleration.cells_y = axis_cell_count(extents.y);
+  acceleration.cells_z = axis_cell_count(extents.z);
+  acceleration.cell_size = {
+      acceleration.cells_x > 0u ? std::max(extents.x, 0.05f) / acceleration.cells_x : 1.0f,
+      acceleration.cells_y > 0u ? std::max(extents.y, 0.05f) / acceleration.cells_y : 1.0f,
+      acceleration.cells_z > 0u ? std::max(extents.z, 0.05f) / acceleration.cells_z : 1.0f};
+  const std::size_t cell_count = static_cast<std::size_t>(acceleration.cells_x) *
+                                 static_cast<std::size_t>(acceleration.cells_y) *
+                                 static_cast<std::size_t>(acceleration.cells_z);
+  acceleration.cells.resize(cell_count);
+
+  for (std::uint32_t z = 0u; z < acceleration.cells_z; ++z) {
+    for (std::uint32_t y = 0u; y < acceleration.cells_y; ++y) {
+      for (std::uint32_t x = 0u; x < acceleration.cells_x; ++x) {
+        PhysicsMeshAccelerationCell &cell =
+            acceleration.cells[accelerationCellIndex(acceleration, x, y, z)];
+        cell.bounds_min = {bounds.min.x + acceleration.cell_size.x * static_cast<float>(x),
+                           bounds.min.y + acceleration.cell_size.y * static_cast<float>(y),
+                           bounds.min.z + acceleration.cell_size.z * static_cast<float>(z)};
+        cell.bounds_max = {
+            x + 1u == acceleration.cells_x
+                ? bounds.max.x
+                : bounds.min.x + acceleration.cell_size.x * static_cast<float>(x + 1u),
+            y + 1u == acceleration.cells_y
+                ? bounds.max.y
+                : bounds.min.y + acceleration.cell_size.y * static_cast<float>(y + 1u),
+            z + 1u == acceleration.cells_z
+                ? bounds.max.z
+                : bounds.min.z + acceleration.cell_size.z * static_cast<float>(z + 1u)};
+      }
+    }
+  }
+
+  for (std::uint32_t triangle_index = 0u; triangle_index < triangles.size(); ++triangle_index) {
+    const Aabb triangle_bounds = triangleAabb(triangles[triangle_index]);
+    const std::uint32_t min_x = accelerationCellCoord(
+        triangle_bounds.min.x, bounds.min.x, acceleration.cell_size.x, acceleration.cells_x);
+    const std::uint32_t max_x = accelerationCellCoord(
+        triangle_bounds.max.x, bounds.min.x, acceleration.cell_size.x, acceleration.cells_x);
+    const std::uint32_t min_y = accelerationCellCoord(
+        triangle_bounds.min.y, bounds.min.y, acceleration.cell_size.y, acceleration.cells_y);
+    const std::uint32_t max_y = accelerationCellCoord(
+        triangle_bounds.max.y, bounds.min.y, acceleration.cell_size.y, acceleration.cells_y);
+    const std::uint32_t min_z = accelerationCellCoord(
+        triangle_bounds.min.z, bounds.min.z, acceleration.cell_size.z, acceleration.cells_z);
+    const std::uint32_t max_z = accelerationCellCoord(
+        triangle_bounds.max.z, bounds.min.z, acceleration.cell_size.z, acceleration.cells_z);
+    for (std::uint32_t z = min_z; z <= max_z; ++z) {
+      for (std::uint32_t y = min_y; y <= max_y; ++y) {
+        for (std::uint32_t x = min_x; x <= max_x; ++x) {
+          acceleration.cells[accelerationCellIndex(acceleration, x, y, z)]
+              .triangle_indices.push_back(triangle_index);
+          ++acceleration.triangle_reference_count;
+        }
+      }
+    }
+  }
+
+  return acceleration;
+}
+
+std::vector<std::uint32_t> meshTriangleCandidatesForAabb(const PhysicsBody &mesh,
+                                                         const Aabb query_bounds,
+                                                         std::uint32_t *out_cell_visits) {
+  std::vector<std::uint32_t> candidates;
+  if (!mesh.mesh_acceleration.valid || mesh.mesh_acceleration.cells.empty()) {
+    candidates.reserve(mesh.mesh_triangles.size());
+    for (std::uint32_t index = 0u; index < mesh.mesh_triangles.size(); ++index) {
+      candidates.push_back(index);
+    }
+    return candidates;
+  }
+
+  const PhysicsMeshAcceleration &acceleration = mesh.mesh_acceleration;
+  const std::uint32_t min_x =
+      accelerationCellCoord(query_bounds.min.x, acceleration.bounds_min.x,
+                            acceleration.cell_size.x, acceleration.cells_x);
+  const std::uint32_t max_x =
+      accelerationCellCoord(query_bounds.max.x, acceleration.bounds_min.x,
+                            acceleration.cell_size.x, acceleration.cells_x);
+  const std::uint32_t min_y =
+      accelerationCellCoord(query_bounds.min.y, acceleration.bounds_min.y,
+                            acceleration.cell_size.y, acceleration.cells_y);
+  const std::uint32_t max_y =
+      accelerationCellCoord(query_bounds.max.y, acceleration.bounds_min.y,
+                            acceleration.cell_size.y, acceleration.cells_y);
+  const std::uint32_t min_z =
+      accelerationCellCoord(query_bounds.min.z, acceleration.bounds_min.z,
+                            acceleration.cell_size.z, acceleration.cells_z);
+  const std::uint32_t max_z =
+      accelerationCellCoord(query_bounds.max.z, acceleration.bounds_min.z,
+                            acceleration.cell_size.z, acceleration.cells_z);
+
+  for (std::uint32_t z = min_z; z <= max_z; ++z) {
+    for (std::uint32_t y = min_y; y <= max_y; ++y) {
+      for (std::uint32_t x = min_x; x <= max_x; ++x) {
+        const PhysicsMeshAccelerationCell &cell =
+            acceleration.cells[accelerationCellIndex(acceleration, x, y, z)];
+        const Aabb cell_bounds{cell.bounds_min, cell.bounds_max};
+        if (!(cell_bounds.min.x <= query_bounds.max.x &&
+              cell_bounds.max.x >= query_bounds.min.x &&
+              cell_bounds.min.y <= query_bounds.max.y &&
+              cell_bounds.max.y >= query_bounds.min.y &&
+              cell_bounds.min.z <= query_bounds.max.z &&
+              cell_bounds.max.z >= query_bounds.min.z)) {
+          continue;
+        }
+        if (out_cell_visits != nullptr) {
+          ++(*out_cell_visits);
+        }
+        candidates.insert(candidates.end(), cell.triangle_indices.begin(),
+                          cell.triangle_indices.end());
+      }
+    }
+  }
+  std::sort(candidates.begin(), candidates.end());
+  candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
+  return candidates;
+}
+
+std::uint64_t contactKey(const PhysicsBodyHandle a, const PhysicsBodyHandle b) {
+  const std::uint32_t first = std::min(a.index, b.index);
+  const std::uint32_t second = std::max(a.index, b.index);
+  return (static_cast<std::uint64_t>(first) << 32u) | static_cast<std::uint64_t>(second);
+}
+
 bool overlaps(const Aabb lhs, const Aabb rhs) {
   return lhs.min.x <= rhs.max.x && lhs.max.x >= rhs.min.x && lhs.min.y <= rhs.max.y &&
          lhs.max.y >= rhs.min.y && lhs.min.z <= rhs.max.z && lhs.max.z >= rhs.min.z;
@@ -555,13 +726,26 @@ ContactCandidate capsuleBoxContact(const PhysicsBody &capsule, const PhysicsBody
   return {true, closest, normal, penetration};
 }
 
-ContactCandidate sphereTriangleMeshContact(const PhysicsBody &sphere, const PhysicsBody &mesh) {
+ContactCandidate sphereTriangleMeshContact(const PhysicsBody &sphere, const PhysicsBody &mesh,
+                                           std::uint32_t *out_triangle_candidates = nullptr,
+                                           std::uint32_t *out_cell_visits = nullptr) {
   ContactCandidate best;
   float best_penetration = 0.0f;
   if (!sphereOverlapsAabb(sphere.position, sphere.radius, bodyAabb(mesh))) {
     return best;
   }
-  for (const PhysicsMeshTriangle &triangle : mesh.mesh_triangles) {
+  const Aabb query_bounds =
+      expandAabb({sphere.position, sphere.position}, std::max(sphere.radius, 0.0f));
+  const std::vector<std::uint32_t> candidates =
+      meshTriangleCandidatesForAabb(mesh, query_bounds, out_cell_visits);
+  if (out_triangle_candidates != nullptr) {
+    *out_triangle_candidates += static_cast<std::uint32_t>(candidates.size());
+  }
+  for (const std::uint32_t triangle_index : candidates) {
+    if (triangle_index >= mesh.mesh_triangles.size()) {
+      continue;
+    }
+    const PhysicsMeshTriangle &triangle = mesh.mesh_triangles[triangle_index];
     if (!sphereOverlapsAabb(sphere.position, sphere.radius, triangleAabb(triangle))) {
       continue;
     }
@@ -587,7 +771,9 @@ ContactCandidate sphereTriangleMeshContact(const PhysicsBody &sphere, const Phys
   return best;
 }
 
-ContactCandidate capsuleTriangleMeshContact(const PhysicsBody &capsule, const PhysicsBody &mesh) {
+ContactCandidate capsuleTriangleMeshContact(const PhysicsBody &capsule, const PhysicsBody &mesh,
+                                            std::uint32_t *out_triangle_candidates = nullptr,
+                                            std::uint32_t *out_cell_visits = nullptr) {
   ContactCandidate best;
   float best_penetration = 0.0f;
   const Vec3 segment_a{capsule.position.x, capsule.position.y - capsule.half_extents.y,
@@ -600,7 +786,16 @@ ContactCandidate capsuleTriangleMeshContact(const PhysicsBody &capsule, const Ph
     return best;
   }
 
-  for (const PhysicsMeshTriangle &triangle : mesh.mesh_triangles) {
+  const std::vector<std::uint32_t> candidates =
+      meshTriangleCandidatesForAabb(mesh, capsule_bounds, out_cell_visits);
+  if (out_triangle_candidates != nullptr) {
+    *out_triangle_candidates += static_cast<std::uint32_t>(candidates.size());
+  }
+  for (const std::uint32_t triangle_index : candidates) {
+    if (triangle_index >= mesh.mesh_triangles.size()) {
+      continue;
+    }
+    const PhysicsMeshTriangle &triangle = mesh.mesh_triangles[triangle_index];
     if (!overlaps(capsule_bounds, triangleAabb(triangle))) {
       continue;
     }
@@ -648,7 +843,9 @@ ContactCandidate boxBoxContact(const PhysicsBody &a, const PhysicsBody &b) {
   return {true, (a.position + b.position) * 0.5f, normal, penetration};
 }
 
-ContactCandidate contactFor(const PhysicsBody &a, const PhysicsBody &b) {
+ContactCandidate contactFor(const PhysicsBody &a, const PhysicsBody &b,
+                            std::uint32_t *out_triangle_candidates = nullptr,
+                            std::uint32_t *out_cell_visits = nullptr) {
   if (a.shape == PhysicsShapeType::Sphere && b.shape == PhysicsShapeType::Sphere) {
     return sphereSphereContact(a, b);
   }
@@ -669,18 +866,20 @@ ContactCandidate contactFor(const PhysicsBody &a, const PhysicsBody &b) {
     return contact;
   }
   if (a.shape == PhysicsShapeType::Sphere && b.shape == PhysicsShapeType::TriangleMesh) {
-    return sphereTriangleMeshContact(a, b);
+    return sphereTriangleMeshContact(a, b, out_triangle_candidates, out_cell_visits);
   }
   if (a.shape == PhysicsShapeType::TriangleMesh && b.shape == PhysicsShapeType::Sphere) {
-    ContactCandidate contact = sphereTriangleMeshContact(b, a);
+    ContactCandidate contact = sphereTriangleMeshContact(b, a, out_triangle_candidates,
+                                                         out_cell_visits);
     contact.normal = contact.normal * -1.0f;
     return contact;
   }
   if (a.shape == PhysicsShapeType::Capsule && b.shape == PhysicsShapeType::TriangleMesh) {
-    return capsuleTriangleMeshContact(a, b);
+    return capsuleTriangleMeshContact(a, b, out_triangle_candidates, out_cell_visits);
   }
   if (a.shape == PhysicsShapeType::TriangleMesh && b.shape == PhysicsShapeType::Capsule) {
-    ContactCandidate contact = capsuleTriangleMeshContact(b, a);
+    ContactCandidate contact = capsuleTriangleMeshContact(b, a, out_triangle_candidates,
+                                                          out_cell_visits);
     contact.normal = contact.normal * -1.0f;
     return contact;
   }
@@ -815,10 +1014,17 @@ bool raycastTriangleMesh(const Vec3 origin, const Vec3 direction, const float ma
   if (!rayTouchesAabb(origin, direction, max_distance, bodyAabb(mesh))) {
     return false;
   }
+  const Aabb query_bounds = segmentAabb(origin, origin + direction * max_distance);
+  const std::vector<std::uint32_t> candidates =
+      meshTriangleCandidatesForAabb(mesh, query_bounds, nullptr);
   bool found = false;
   float closest = max_distance;
   Vec3 closest_normal{};
-  for (const PhysicsMeshTriangle &triangle : mesh.mesh_triangles) {
+  for (const std::uint32_t triangle_index : candidates) {
+    if (triangle_index >= mesh.mesh_triangles.size()) {
+      continue;
+    }
+    const PhysicsMeshTriangle &triangle = mesh.mesh_triangles[triangle_index];
     if (!rayTouchesAabb(origin, direction, closest, triangleAabb(triangle))) {
       continue;
     }
@@ -902,10 +1108,16 @@ bool sphereCastTriangleMesh(const Vec3 origin, const Vec3 direction, const float
   if (!overlaps(swept_bounds, bodyAabb(mesh))) {
     return false;
   }
+  const std::vector<std::uint32_t> candidates =
+      meshTriangleCandidatesForAabb(mesh, swept_bounds, nullptr);
   bool found = false;
   float closest = max_distance;
   Vec3 closest_normal{};
-  for (const PhysicsMeshTriangle &triangle : mesh.mesh_triangles) {
+  for (const std::uint32_t triangle_index : candidates) {
+    if (triangle_index >= mesh.mesh_triangles.size()) {
+      continue;
+    }
+    const PhysicsMeshTriangle &triangle = mesh.mesh_triangles[triangle_index];
     if (!overlaps(swept_bounds, expandAabb(triangleAabb(triangle), radius))) {
       continue;
     }
@@ -960,6 +1172,14 @@ void PhysicsWorld::clear() {
   broadphase_pairs_.clear();
   command_buffer_.clear();
   last_stats_ = {};
+  previous_contact_impulses_.clear();
+  contact_impulses_.clear();
+  current_solver_iteration_ = 0u;
+  step_broadphase_rebuild_count_ = 0u;
+  step_narrowphase_pair_tests_ = 0u;
+  step_mesh_acceleration_cell_visits_ = 0u;
+  step_mesh_triangle_candidate_count_ = 0u;
+  step_warm_started_contacts_ = 0u;
 }
 
 void PhysicsWorld::setSettings(const PhysicsSettings settings) {
@@ -1027,6 +1247,7 @@ PhysicsBodyHandle PhysicsWorld::addBody(const PhysicsBodyDesc &desc) {
     }
     body.mesh_bounds_min = bounds.min;
     body.mesh_bounds_max = bounds.max;
+    body.mesh_acceleration = buildMeshAcceleration(body.mesh_triangles, bounds);
   }
 
   bodies_.push_back(body);
@@ -1076,6 +1297,8 @@ bool PhysicsWorld::removeBody(const PhysicsBodyHandle handle) {
   ++target.generation;
   contacts_.clear();
   broadphase_pairs_.clear();
+  previous_contact_impulses_.clear();
+  contact_impulses_.clear();
   return true;
 }
 
@@ -1268,15 +1491,24 @@ PhysicsStepResult PhysicsWorld::step(const PhysicsStepDesc &desc) {
       desc.solver_iterations_override > 0
           ? std::max(1, desc.solver_iterations_override)
           : settings_.solver_iterations;
+  previous_contact_impulses_ = std::move(contact_impulses_);
+  contact_impulses_.clear();
+  step_broadphase_rebuild_count_ = 0u;
+  step_narrowphase_pair_tests_ = 0u;
+  step_mesh_acceleration_cell_visits_ = 0u;
+  step_mesh_triangle_candidate_count_ = 0u;
+  step_warm_started_contacts_ = 0u;
   for (int i = 0; i < substeps; ++i) {
     flushCommands();
     applyFluidForces();
     integrate(h);
     resolveCcdSweeps();
+    buildBroadphasePairs();
     for (int iteration = 0; iteration < solver_iterations; ++iteration) {
+      current_solver_iteration_ = static_cast<std::uint32_t>(iteration);
       solveConstraints(h);
       contacts_.clear();
-      solveCollisions();
+      solveBroadphasePairs();
     }
     updateSleeping(h);
   }
@@ -1297,6 +1529,18 @@ PhysicsStepResult PhysicsWorld::step(const PhysicsStepDesc &desc) {
       ++stats.sleeping_dynamic_bodies;
     }
   }
+  for (const PhysicsBody &body : bodies_) {
+    if (body.active && body.shape == PhysicsShapeType::TriangleMesh &&
+        body.mesh_acceleration.valid) {
+      ++stats.mesh_accelerated_body_count;
+    }
+  }
+  stats.broadphase_rebuild_count = step_broadphase_rebuild_count_;
+  stats.narrowphase_pair_tests = step_narrowphase_pair_tests_;
+  stats.mesh_acceleration_cell_visits = step_mesh_acceleration_cell_visits_;
+  stats.mesh_triangle_candidate_count = step_mesh_triangle_candidate_count_;
+  stats.contact_island_count = contactIslandCount();
+  stats.warm_started_contacts = step_warm_started_contacts_;
   last_stats_ = stats;
   return {last_stats_};
 }
@@ -1678,6 +1922,7 @@ void PhysicsWorld::resolveCcdSweeps() {
 
 void PhysicsWorld::buildBroadphasePairs() {
   ASTER_PROFILE_SCOPE("PhysicsWorld::broadphase");
+  ++step_broadphase_rebuild_count_;
   broadphase_pairs_.clear();
   std::vector<BroadphaseEntry> entries;
   entries.reserve(bodies_.size());
@@ -1770,17 +2015,27 @@ void PhysicsWorld::solveConstraints(const float dt) {
 void PhysicsWorld::solveCollisions() {
   ASTER_PROFILE_SCOPE("PhysicsWorld::narrowphase");
   buildBroadphasePairs();
+  solveBroadphasePairs();
+}
+
+void PhysicsWorld::solveBroadphasePairs() {
+  ASTER_PROFILE_SCOPE("PhysicsWorld::solveBroadphasePairs");
   for (const PhysicsBroadphasePair &pair : broadphase_pairs_) {
     if (!valid(pair.body_a) || !valid(pair.body_b)) {
       continue;
     }
+    ++step_narrowphase_pair_tests_;
     solvePair(pair.body_a, bodies_[pair.body_a.index], pair.body_b, bodies_[pair.body_b.index]);
   }
 }
 
 void PhysicsWorld::solvePair(const PhysicsBodyHandle handle_a, PhysicsBody &body_a,
                              const PhysicsBodyHandle handle_b, PhysicsBody &body_b) {
-  ContactCandidate contact = contactFor(body_a, body_b);
+  std::uint32_t triangle_candidates = 0u;
+  std::uint32_t cell_visits = 0u;
+  ContactCandidate contact = contactFor(body_a, body_b, &triangle_candidates, &cell_visits);
+  step_mesh_triangle_candidate_count_ += triangle_candidates;
+  step_mesh_acceleration_cell_visits_ += cell_visits;
   if (!contact.hit || contact.penetration <= 0.0f) {
     return;
   }
@@ -1800,6 +2055,7 @@ void PhysicsWorld::solvePair(const PhysicsBodyHandle handle_a, PhysicsBody &body
     return;
   }
 
+  const std::uint64_t key = contactKey(handle_a, handle_b);
   const float correction_depth = std::max(contact.penetration - 0.0005f, 0.0f);
   const Vec3 correction = contact.normal * (correction_depth / inverse_mass_sum);
   if (inverse_mass_a > 0.0f) {
@@ -1811,10 +2067,34 @@ void PhysicsWorld::solvePair(const PhysicsBodyHandle handle_a, PhysicsBody &body
     wake(body_b);
   }
 
+  if (current_solver_iteration_ == 0u) {
+    const auto previous = std::find_if(
+        previous_contact_impulses_.begin(), previous_contact_impulses_.end(),
+        [key](const auto &entry) { return entry.first == key; });
+    if (previous != previous_contact_impulses_.end() &&
+        previous->second.normal_impulse > kEpsilon) {
+      const float warm_size =
+          std::min(previous->second.normal_impulse * 0.42f, contact.penetration * 8.0f + 0.18f);
+      if (warm_size > kEpsilon) {
+        const Vec3 warm_impulse = contact.normal * warm_size;
+        if (inverse_mass_a > 0.0f) {
+          applyImpulseAtPoint(body_a, warm_impulse, contact.point);
+        }
+        if (inverse_mass_b > 0.0f) {
+          applyImpulseAtPoint(body_b, -warm_impulse, contact.point);
+        }
+        physics_contact.normal_impulse += warm_size;
+        ++step_warm_started_contacts_;
+      }
+    }
+  }
+
   Vec3 relative_velocity =
       contactVelocity(body_a, contact.point) - contactVelocity(body_b, contact.point);
   const float normal_speed = dot(relative_velocity, contact.normal);
   if (normal_speed >= 0.0f) {
+    contact_impulses_.push_back(
+        {key, {std::max(physics_contact.normal_impulse, 0.0f), physics_contact.tangent_impulse}});
     contacts_.push_back(physics_contact);
     return;
   }
@@ -1832,12 +2112,14 @@ void PhysicsWorld::solvePair(const PhysicsBodyHandle handle_a, PhysicsBody &body
   if (inverse_mass_b > 0.0f) {
     applyImpulseAtPoint(body_b, -normal_impulse, contact.point);
   }
-  physics_contact.normal_impulse = normal_impulse_size;
+  physics_contact.normal_impulse += normal_impulse_size;
 
   relative_velocity = contactVelocity(body_a, contact.point) - contactVelocity(body_b, contact.point);
   Vec3 tangent = relative_velocity - contact.normal * dot(relative_velocity, contact.normal);
   const float tangent_length = length(tangent);
   if (tangent_length <= kEpsilon) {
+    contact_impulses_.push_back(
+        {key, {std::max(physics_contact.normal_impulse, 0.0f), physics_contact.tangent_impulse}});
     contacts_.push_back(physics_contact);
     return;
   }
@@ -1846,7 +2128,8 @@ void PhysicsWorld::solvePair(const PhysicsBodyHandle handle_a, PhysicsBody &body
   const float tangent_denominator =
       std::max(effectiveMassDenominator(body_a, body_b, contact.point, tangent), inverse_mass_sum);
   float tangent_impulse_size = -dot(relative_velocity, tangent) / tangent_denominator;
-  const float friction_limit = normal_impulse_size * clamp(material.friction, 0.0f, 1.0f);
+  const float friction_limit =
+      physics_contact.normal_impulse * clamp(material.friction, 0.0f, 1.0f);
   tangent_impulse_size = std::clamp(tangent_impulse_size, -friction_limit, friction_limit);
   const Vec3 tangent_impulse = tangent * tangent_impulse_size;
   if (inverse_mass_a > 0.0f) {
@@ -1856,7 +2139,71 @@ void PhysicsWorld::solvePair(const PhysicsBodyHandle handle_a, PhysicsBody &body
     applyImpulseAtPoint(body_b, -tangent_impulse, contact.point);
   }
   physics_contact.tangent_impulse = tangent_impulse_size;
+  contact_impulses_.push_back(
+      {key, {std::max(physics_contact.normal_impulse, 0.0f), physics_contact.tangent_impulse}});
   contacts_.push_back(physics_contact);
+}
+
+std::uint32_t PhysicsWorld::contactIslandCount() const {
+  if (contacts_.empty()) {
+    return 0u;
+  }
+
+  std::vector<int> parent(bodies_.size(), -1);
+  const auto activate = [&parent](const std::size_t index) {
+    if (index < parent.size() && parent[index] < 0) {
+      parent[index] = static_cast<int>(index);
+    }
+  };
+  auto find_root = [&parent](int index) {
+    int root = index;
+    while (parent[root] != root) {
+      root = parent[root];
+    }
+    while (parent[index] != index) {
+      const int next = parent[index];
+      parent[index] = root;
+      index = next;
+    }
+    return root;
+  };
+  const auto unite = [&parent, &find_root](const std::size_t lhs, const std::size_t rhs) {
+    if (lhs >= parent.size() || rhs >= parent.size() || parent[lhs] < 0 || parent[rhs] < 0) {
+      return;
+    }
+    const int root_lhs = find_root(static_cast<int>(lhs));
+    const int root_rhs = find_root(static_cast<int>(rhs));
+    if (root_lhs != root_rhs) {
+      parent[root_rhs] = root_lhs;
+    }
+  };
+
+  for (const PhysicsContact &contact : contacts_) {
+    if (contact.body_a.index >= bodies_.size() || contact.body_b.index >= bodies_.size()) {
+      continue;
+    }
+    const PhysicsBody &a = bodies_[contact.body_a.index];
+    const PhysicsBody &b = bodies_[contact.body_b.index];
+    if (!a.active || !b.active) {
+      continue;
+    }
+    activate(contact.body_a.index);
+    activate(contact.body_b.index);
+    unite(contact.body_a.index, contact.body_b.index);
+  }
+
+  std::vector<int> roots;
+  for (std::size_t index = 0u; index < bodies_.size(); ++index) {
+    if (parent[index] < 0 || bodies_[index].type != PhysicsBodyType::Dynamic ||
+        bodies_[index].sleeping) {
+      continue;
+    }
+    const int root = find_root(static_cast<int>(index));
+    if (std::find(roots.begin(), roots.end(), root) == roots.end()) {
+      roots.push_back(root);
+    }
+  }
+  return static_cast<std::uint32_t>(roots.size());
 }
 
 } // namespace aster

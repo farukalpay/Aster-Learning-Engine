@@ -8,9 +8,9 @@
       "name": "Torch Socket",
       "components": {
         "transform": {},
-        "torch_socket": { "color": [1.0, 0.5, 0.2], "intensity": 5.8, "radius": 0.82 },
-        "light": { "kind": "point", "color": [1.0, 0.5, 0.2], "intensity": 5.8, "radius": 0.82 },
-        "cave_debug": { "layers": ["lighting"], "color": [1.0, 0.5, 0.2] }
+        "torch_socket": { "color": [1.0, 0.42, 0.16], "intensity": 7.4, "radius": 1.08 },
+        "light": { "kind": "point", "color": [1.0, 0.42, 0.16], "intensity": 7.4, "radius": 1.08 },
+        "cave_debug": { "layers": ["lighting"], "color": [1.0, 0.42, 0.16] }
       }
     }
   ]

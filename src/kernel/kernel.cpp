@@ -1638,6 +1638,8 @@ aster::PhysicsShapeType physicsShapeType(const AsterPhysicsShapeType value) {
     return aster::PhysicsShapeType::Sphere;
   case ASTER_PHYSICS_SHAPE_CAPSULE:
     return aster::PhysicsShapeType::Capsule;
+  case ASTER_PHYSICS_SHAPE_TRIANGLE_MESH:
+    return aster::PhysicsShapeType::TriangleMesh;
   }
   return aster::PhysicsShapeType::Box;
 }
@@ -1667,7 +1669,14 @@ AsterPhysicsStats abiPhysicsStats(const aster::PhysicsStepStats &value) {
           .broadphase_pair_count = value.broadphase_pair_count,
           .substeps = value.substeps,
           .solver_iterations = value.solver_iterations,
-          .queued_command_count = value.queued_command_count};
+          .queued_command_count = value.queued_command_count,
+          .broadphase_rebuild_count = value.broadphase_rebuild_count,
+          .narrowphase_pair_tests = value.narrowphase_pair_tests,
+          .mesh_accelerated_body_count = value.mesh_accelerated_body_count,
+          .mesh_acceleration_cell_visits = value.mesh_acceleration_cell_visits,
+          .mesh_triangle_candidate_count = value.mesh_triangle_candidate_count,
+          .contact_island_count = value.contact_island_count,
+          .warm_started_contacts = value.warm_started_contacts};
 }
 
 aster::FrameControlInput frameControlInput(const AsterFrameControlInput &value) {
@@ -1680,12 +1689,23 @@ aster::FrameControlInput frameControlInput(const AsterFrameControlInput &value) 
           .perception_seconds = value.perception_seconds,
           .physics_seconds = value.physics_seconds,
           .streaming_seconds = value.streaming_seconds,
+          .frame_seconds_p95 = value.frame_seconds_p95,
+          .frame_seconds_p99 = value.frame_seconds_p99,
+          .frame_jitter_seconds = value.frame_jitter_seconds,
           .streaming_backlog_items = value.streaming_backlog_items,
           .perceptual_backlog_items = value.perceptual_backlog_items,
           .active_dynamic_bodies = value.active_dynamic_bodies,
           .active_contacts = value.active_contacts,
+          .contact_islands = value.contact_islands,
+          .warm_started_contacts = value.warm_started_contacts,
+          .mesh_triangle_candidates = value.mesh_triangle_candidates,
+          .active_lights = value.active_lights,
+          .visible_objects = value.visible_objects,
           .player_speed = value.player_speed,
-          .cave_pressure = value.cave_pressure};
+          .cave_pressure = value.cave_pressure,
+          .region_pressure = value.region_pressure,
+          .visibility_pressure = value.visibility_pressure,
+          .light_pressure = value.light_pressure};
 }
 
 AsterKernelWorkBudgetInfo abiWorkBudget(const aster::FrameWorkBudget &value) {
@@ -1705,10 +1725,15 @@ AsterFrameControlOutput abiFrameControlOutput(const aster::FrameControlOutput &v
           .perceptual_proof_interval_frames = value.perceptual_proof_interval_frames,
           .lighting_update_interval_frames = value.lighting_update_interval_frames,
           .visibility_hint_budget = value.visibility_hint_budget,
+          .active_light_budget = value.active_light_budget,
+          .mesh_triangle_candidate_budget = value.mesh_triangle_candidate_budget,
           .semantic_lod_bias = value.semantic_lod_bias,
           .pressure = value.pressure,
           .optional_work_seconds = value.optional_work_seconds,
-          .degraded = value.degraded};
+          .physics_budget_seconds = value.physics_budget_seconds,
+          .render_budget_seconds = value.render_budget_seconds,
+          .degraded = value.degraded,
+          .quality_tier = value.quality_tier};
 }
 
 bool validCellAnchorInfo(const AsterWorldPerceptualCellAnchorInfo &info) {
@@ -2471,6 +2496,54 @@ aster::Quat quat(const AsterQuat value) {
 
 AsterQuat abiQuat(const aster::Quat value) {
   return {value.x, value.y, value.z, value.w};
+}
+
+aster::Transform transform(const AsterTransform &value) {
+  aster::Transform out;
+  out.position = vec(value.position);
+  const bool zero_rotation = value.rotation.x == 0.0f && value.rotation.y == 0.0f &&
+                             value.rotation.z == 0.0f && value.rotation.w == 0.0f;
+  out.rotation = zero_rotation ? aster::identityQuat() : quat(value.rotation);
+  out.scale = value.scale.x == 0.0f && value.scale.y == 0.0f && value.scale.z == 0.0f
+                  ? aster::Vec3{1.0f, 1.0f, 1.0f}
+                  : vec(value.scale);
+  return out;
+}
+
+std::shared_ptr<const aster::CpuMesh> physicsMeshFromShape(const AsterPhysicsShapeDesc &shape) {
+  if (shape.mesh_positions.size == 0u || shape.mesh_indices.size < 3u ||
+      shape.mesh_positions.data == nullptr || shape.mesh_indices.data == nullptr ||
+      shape.mesh_positions.stride < sizeof(AsterVec3) ||
+      shape.mesh_indices.stride < sizeof(std::uint16_t)) {
+    throw std::invalid_argument("triangle mesh physics shape requires position and index spans");
+  }
+
+  auto mesh = std::make_shared<aster::CpuMesh>();
+  mesh->vertices.reserve(shape.mesh_positions.size);
+  const auto *position_bytes = static_cast<const unsigned char *>(shape.mesh_positions.data);
+  for (std::size_t index = 0u; index < shape.mesh_positions.size; ++index) {
+    const auto *position =
+        reinterpret_cast<const AsterVec3 *>(position_bytes + index * shape.mesh_positions.stride);
+    aster::Vertex vertex;
+    vertex.position = vec(*position);
+    mesh->vertices.push_back(vertex);
+  }
+
+  mesh->indices.reserve(shape.mesh_indices.size);
+  const auto *index_bytes = static_cast<const unsigned char *>(shape.mesh_indices.data);
+  for (std::size_t index = 0u; index < shape.mesh_indices.size; ++index) {
+    std::uint32_t value = 0u;
+    if (shape.mesh_indices.stride >= sizeof(std::uint32_t)) {
+      value = *reinterpret_cast<const std::uint32_t *>(index_bytes + index * shape.mesh_indices.stride);
+    } else {
+      value = *reinterpret_cast<const std::uint16_t *>(index_bytes + index * shape.mesh_indices.stride);
+    }
+    if (value >= mesh->vertices.size()) {
+      throw std::invalid_argument("triangle mesh physics shape index is out of range");
+    }
+    mesh->indices.push_back(value);
+  }
+  return mesh;
 }
 
 aster::Mat4 mat4(const AsterMat4 &value) {
@@ -7806,6 +7879,13 @@ AsterStatus aster_kernel_physics_body_create(const AsterPhysicsWorldHandle physi
       body_desc.half_extents.y = desc->shape.capsule_half_height;
     }
     body_desc.radius = desc->shape.radius > 0.0f ? desc->shape.radius : 0.5f;
+    if (body_desc.shape == aster::PhysicsShapeType::TriangleMesh) {
+      body_desc.mesh = physicsMeshFromShape(desc->shape);
+      body_desc.mesh_transform = transform(desc->shape.mesh_transform);
+      body_desc.mesh_double_sided = desc->shape.mesh_double_sided == 0u
+                                        ? true
+                                        : desc->shape.mesh_double_sided != 0u;
+    }
     body_desc.mass = desc->mass > 0.0f ? desc->mass : 1.0f;
     body_desc.material = {desc->material.friction, desc->material.restitution};
     body_desc.linear_damping = desc->linear_damping;

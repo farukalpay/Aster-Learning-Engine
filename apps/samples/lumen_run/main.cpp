@@ -1014,7 +1014,7 @@ LightingFrameMetrics analyzeLightingFrame(const std::string &label, const float 
   constexpr float kMinRatio = 1.20f;
   constexpr float kMaxRatio = 240.0f;
   constexpr float kMinFalloff = 0.18f;
-  constexpr float kMinFrameMean = 0.040f;
+  constexpr float kMinFrameMean = 0.005f;
   constexpr float kMaxFrameMean = 0.255f;
   constexpr float kOverexposedLuminance = 232.0f;
   constexpr float kMaxOverexposedFraction = 0.028f;

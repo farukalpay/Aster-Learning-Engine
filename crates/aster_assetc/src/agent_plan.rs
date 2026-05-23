@@ -262,6 +262,40 @@ fn ownership_boundaries() -> Vec<Value> {
     ]
 }
 
+fn physics_performance_contract(assets: &[Value]) -> Value {
+    let physics_asset_count = assets
+        .iter()
+        .filter(|asset| {
+            asset
+                .get("domains")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .any(|domain| domain.as_str() == Some("physics"))
+        })
+        .count();
+    json!({
+        "target_frame_seconds": 1.0 / 60.0,
+        "target_frame_hz": 60,
+        "physics_asset_count": physics_asset_count,
+        "required_kernel_stats": [
+            "broadphase_rebuild_count",
+            "narrowphase_pair_tests",
+            "mesh_accelerated_body_count",
+            "mesh_acceleration_cell_visits",
+            "mesh_triangle_candidate_count",
+            "contact_island_count",
+            "warm_started_contacts"
+        ],
+        "collision_cook_policy": "static mesh collision must use cooked acceleration before sample runtime shortcuts",
+        "risk_rules": [
+            "large cave, terrain, and castle meshes must report triangle candidate counts",
+            "frame governor decisions must be driven by kernel ABI stats",
+            "sample content may prove engine behavior but must not define engine architecture"
+        ]
+    })
+}
+
 fn dirty_worktree(project: &Path) -> String {
     let repo = workspace_root_for(project);
     std::process::Command::new("git")
@@ -747,6 +781,7 @@ pub fn agent_plan_report_json(
         "handoff_policy": handoff_policy(),
         "header_policy": header_policy(),
         "ownership_boundaries": ownership_boundaries(),
+        "physics_performance_contract": physics_performance_contract(&assets),
         "dirty_worktree": dirty_worktree(project),
         "validation": validation,
         "diagnostics": diagnostics,

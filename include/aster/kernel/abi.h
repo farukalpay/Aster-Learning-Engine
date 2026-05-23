@@ -23,8 +23,8 @@
 extern "C" {
 #endif
 
-#define ASTER_KERNEL_ABI_MAJOR 6u
-#define ASTER_KERNEL_ABI_MINOR 7u
+#define ASTER_KERNEL_ABI_MAJOR 7u
+#define ASTER_KERNEL_ABI_MINOR 0u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -897,7 +897,8 @@ typedef enum AsterPhysicsBodyType {
 typedef enum AsterPhysicsShapeType {
   ASTER_PHYSICS_SHAPE_BOX = 0,
   ASTER_PHYSICS_SHAPE_SPHERE = 1,
-  ASTER_PHYSICS_SHAPE_CAPSULE = 2
+  ASTER_PHYSICS_SHAPE_CAPSULE = 2,
+  ASTER_PHYSICS_SHAPE_TRIANGLE_MESH = 3
 } AsterPhysicsShapeType;
 
 typedef struct AsterPhysicsMaterial {
@@ -919,6 +920,10 @@ typedef struct AsterPhysicsShapeDesc {
   AsterVec3 half_extents;
   float radius;
   float capsule_half_height;
+  AsterSpan mesh_positions;
+  AsterSpan mesh_indices;
+  AsterTransform mesh_transform;
+  uint32_t mesh_double_sided;
 } AsterPhysicsShapeDesc;
 
 typedef struct AsterPhysicsWorldDesc {
@@ -984,6 +989,13 @@ typedef struct AsterPhysicsStats {
   uint32_t substeps;
   uint32_t solver_iterations;
   uint32_t queued_command_count;
+  uint32_t broadphase_rebuild_count;
+  uint32_t narrowphase_pair_tests;
+  uint32_t mesh_accelerated_body_count;
+  uint32_t mesh_acceleration_cell_visits;
+  uint32_t mesh_triangle_candidate_count;
+  uint32_t contact_island_count;
+  uint32_t warm_started_contacts;
 } AsterPhysicsStats;
 
 typedef struct AsterPhysicsStepResult {
@@ -2041,12 +2053,23 @@ typedef struct AsterFrameControlInput {
   double perception_seconds;
   double physics_seconds;
   double streaming_seconds;
+  double frame_seconds_p95;
+  double frame_seconds_p99;
+  double frame_jitter_seconds;
   uint32_t streaming_backlog_items;
   uint32_t perceptual_backlog_items;
   uint32_t active_dynamic_bodies;
   uint32_t active_contacts;
+  uint32_t contact_islands;
+  uint32_t warm_started_contacts;
+  uint32_t mesh_triangle_candidates;
+  uint32_t active_lights;
+  uint32_t visible_objects;
   double player_speed;
   double cave_pressure;
+  double region_pressure;
+  double visibility_pressure;
+  double light_pressure;
 } AsterFrameControlInput;
 
 typedef struct AsterKernelWorkBudgetInfo {
@@ -2066,10 +2089,15 @@ typedef struct AsterFrameControlOutput {
   uint32_t perceptual_proof_interval_frames;
   uint32_t lighting_update_interval_frames;
   uint32_t visibility_hint_budget;
+  uint32_t active_light_budget;
+  uint32_t mesh_triangle_candidate_budget;
   float semantic_lod_bias;
   double pressure;
   double optional_work_seconds;
+  double physics_budget_seconds;
+  double render_budget_seconds;
   uint32_t degraded;
+  uint32_t quality_tier;
 } AsterFrameControlOutput;
 
 typedef struct AsterFrameForensicsCounts {

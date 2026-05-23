@@ -341,9 +341,9 @@ void testPublicApiBoundaryIsFrozen() {
 void testStatusAndEngineLifecycle() {
   const AsterAbiVersion version = aster_kernel_abi_version();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
-  assert(version.major == 6u);
+  assert(version.major == 7u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 7u);
+  assert(version.minor == 0u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -366,23 +366,34 @@ void testStatusAndEngineLifecycle() {
 }
 
 void testPhysicsAndFrameControlAbi7Contracts() {
-  AsterFrameControlInput control_input{sizeof(AsterFrameControlInput),
-                                       ASTER_KERNEL_STRUCT_VERSION_1,
-                                       1.0 / 60.0,
-                                       0.030,
-                                       0.020,
-                                       0.009,
-                                       0.0005,
-                                       0.0002,
-                                       0.004,
-                                       0.003,
-                                       0.002,
-                                       72u,
-                                       48u,
-                                       3u,
-                                       12u,
-                                       4.0,
-                                       0.8};
+  AsterFrameControlInput control_input{};
+  control_input.size = sizeof(AsterFrameControlInput);
+  control_input.version = ASTER_KERNEL_STRUCT_VERSION_1;
+  control_input.target_frame_seconds = 1.0 / 60.0;
+  control_input.frame_seconds = 0.030;
+  control_input.update_seconds = 0.020;
+  control_input.render_seconds = 0.009;
+  control_input.hud_seconds = 0.0005;
+  control_input.swap_seconds = 0.0002;
+  control_input.perception_seconds = 0.004;
+  control_input.physics_seconds = 0.003;
+  control_input.streaming_seconds = 0.002;
+  control_input.frame_seconds_p95 = 0.034;
+  control_input.frame_seconds_p99 = 0.038;
+  control_input.frame_jitter_seconds = 0.004;
+  control_input.streaming_backlog_items = 72u;
+  control_input.perceptual_backlog_items = 48u;
+  control_input.active_dynamic_bodies = 3u;
+  control_input.active_contacts = 12u;
+  control_input.contact_islands = 2u;
+  control_input.mesh_triangle_candidates = 1024u;
+  control_input.active_lights = 36u;
+  control_input.visible_objects = 180u;
+  control_input.player_speed = 4.0;
+  control_input.cave_pressure = 0.8;
+  control_input.region_pressure = 0.9;
+  control_input.visibility_pressure = 0.6;
+  control_input.light_pressure = 0.5;
   AsterFrameControlOutput control_output{};
   assert(aster_kernel_frame_control_evaluate(&control_input, &control_output).code ==
          ASTER_STATUS_OK);
@@ -390,6 +401,8 @@ void testPhysicsAndFrameControlAbi7Contracts() {
   assert(control_output.degraded == 1u);
   assert(control_output.physics_max_substeps >= 1u);
   assert(control_output.perceptual_proof_interval_frames >= 1u);
+  assert(control_output.active_light_budget >= 1u);
+  assert(control_output.mesh_triangle_candidate_budget >= 1u);
 
   AsterPhysicsWorldHandle world = nullptr;
   AsterPhysicsWorldDesc world_desc{sizeof(AsterPhysicsWorldDesc),
@@ -449,6 +462,37 @@ void testPhysicsAndFrameControlAbi7Contracts() {
   assert(stats.active_dynamic_bodies == 1u);
 
   assert(aster_kernel_physics_body_destroy(world, body).code == ASTER_STATUS_OK);
+  const AsterVec3 mesh_vertices[] = {
+      {-0.5f, 0.0f, -0.5f}, {0.5f, 0.0f, -0.5f}, {0.5f, 0.0f, 0.5f},
+      {-0.5f, 0.0f, 0.5f}};
+  const std::uint32_t mesh_indices[] = {0u, 1u, 2u, 0u, 2u, 3u};
+  AsterPhysicsBodyDesc mesh_desc{};
+  mesh_desc.size = sizeof(AsterPhysicsBodyDesc);
+  mesh_desc.version = ASTER_KERNEL_STRUCT_VERSION_1;
+  mesh_desc.type = ASTER_PHYSICS_BODY_STATIC;
+  mesh_desc.shape.size = sizeof(AsterPhysicsShapeDesc);
+  mesh_desc.shape.version = ASTER_KERNEL_STRUCT_VERSION_1;
+  mesh_desc.shape.type = ASTER_PHYSICS_SHAPE_TRIANGLE_MESH;
+  mesh_desc.shape.mesh_positions = {mesh_vertices, 4u, sizeof(AsterVec3)};
+  mesh_desc.shape.mesh_indices = {mesh_indices, 6u, sizeof(std::uint32_t)};
+  mesh_desc.shape.mesh_transform = {{0.0f, 0.0f, 0.0f},
+                                    {0.0f, 0.0f, 0.0f, 1.0f},
+                                    {1.0f, 1.0f, 1.0f}};
+  AsterPhysicsBodyHandle mesh_body{};
+  assert(aster_kernel_physics_body_create(world, &mesh_desc, &mesh_body).code ==
+         ASTER_STATUS_OK);
+  AsterPhysicsHit ray_hit{};
+  const AsterPhysicsRayDesc ray_desc{sizeof(AsterPhysicsRayDesc),
+                                     ASTER_KERNEL_STRUCT_VERSION_1,
+                                     {0.0f, 1.0f, 0.0f},
+                                     {0.0f, -1.0f, 0.0f},
+                                     2.0f,
+                                     0xffffffffu,
+                                     0u,
+                                     {}};
+  assert(aster_kernel_physics_raycast(world, &ray_desc, &ray_hit).code == ASTER_STATUS_OK);
+  assert(ray_hit.hit == 1u);
+  assert(ray_hit.body.index == mesh_body.index);
   assert(aster_kernel_physics_world_destroy(world).code == ASTER_STATUS_OK);
 }
 

@@ -400,14 +400,24 @@ void testFrameControlPolicyContracts() {
                        .perceptual_backlog_items = 64u,
                        .active_dynamic_bodies = 12u,
                        .active_contacts = 18u,
+                       .contact_islands = 4u,
+                       .mesh_triangle_candidates = 3072u,
+                       .active_lights = 54u,
+                       .visible_objects = 260u,
                        .player_speed = 4.8,
-                       .cave_pressure = 1.0});
+                       .cave_pressure = 1.0,
+                       .region_pressure = 1.1,
+                       .visibility_pressure = 0.8,
+                       .light_pressure = 0.7});
   assert(pressured.pressure > spare.pressure);
   assert(pressured.physics_max_substeps <= spare.physics_max_substeps);
   assert(pressured.physics_solver_iterations <= spare.physics_solver_iterations);
   assert(pressured.perceptual_proof_interval_frames >= spare.perceptual_proof_interval_frames);
   assert(pressured.streaming_budget.max_seconds <= spare.streaming_budget.max_seconds);
   assert(pressured.semantic_lod_bias >= spare.semantic_lod_bias);
+  assert(pressured.active_light_budget <= spare.active_light_budget);
+  assert(pressured.mesh_triangle_candidate_budget <= spare.mesh_triangle_candidate_budget);
+  assert(pressured.quality_tier >= spare.quality_tier);
 
   const aster::FrameControlOutput deterministic_a =
       aster::evaluateFrameControl({.target_frame_seconds = 1.0 / 60.0,
@@ -418,8 +428,15 @@ void testFrameControlPolicyContracts() {
                                    .perceptual_backlog_items = 64u,
                                    .active_dynamic_bodies = 12u,
                                    .active_contacts = 18u,
+                                   .contact_islands = 4u,
+                                   .mesh_triangle_candidates = 3072u,
+                                   .active_lights = 54u,
+                                   .visible_objects = 260u,
                                    .player_speed = 4.8,
-                                   .cave_pressure = 1.0});
+                                   .cave_pressure = 1.0,
+                                   .region_pressure = 1.1,
+                                   .visibility_pressure = 0.8,
+                                   .light_pressure = 0.7});
   const aster::FrameControlOutput deterministic_b =
       aster::evaluateFrameControl({.target_frame_seconds = 1.0 / 60.0,
                                    .frame_seconds = 0.031,
@@ -429,8 +446,15 @@ void testFrameControlPolicyContracts() {
                                    .perceptual_backlog_items = 64u,
                                    .active_dynamic_bodies = 12u,
                                    .active_contacts = 18u,
+                                   .contact_islands = 4u,
+                                   .mesh_triangle_candidates = 3072u,
+                                   .active_lights = 54u,
+                                   .visible_objects = 260u,
                                    .player_speed = 4.8,
-                                   .cave_pressure = 1.0});
+                                   .cave_pressure = 1.0,
+                                   .region_pressure = 1.1,
+                                   .visibility_pressure = 0.8,
+                                   .light_pressure = 0.7});
   assert(deterministic_a.physics_max_substeps == deterministic_b.physics_max_substeps);
   assert(deterministic_a.perceptual_proof_interval_frames ==
          deterministic_b.perceptual_proof_interval_frames);

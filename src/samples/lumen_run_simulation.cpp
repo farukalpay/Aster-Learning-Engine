@@ -220,6 +220,7 @@ void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const b
   const bool in_authored_cave = !cave_floor_supports_.empty() &&
                                 inside_cave_support_envelope(physics_.body(player_body_).position);
   const PhysicsStepStats previous_physics_stats = physics_.lastStats();
+  const CaveLightingState cave_light_budget = caveLightingStateAt(physics_.body(player_body_).position);
   const FrameControlOutput frame_control = frame_control_.evaluate(
       {.target_frame_seconds = 1.0 / 60.0,
        .frame_seconds = dt,
@@ -230,8 +231,16 @@ void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const b
        .perceptual_backlog_items = static_cast<std::uint32_t>(scene_.objects().size() / 8u),
        .active_dynamic_bodies = previous_physics_stats.active_dynamic_bodies,
        .active_contacts = previous_physics_stats.contact_count,
+       .contact_islands = previous_physics_stats.contact_island_count,
+       .warm_started_contacts = previous_physics_stats.warm_started_contacts,
+       .mesh_triangle_candidates = previous_physics_stats.mesh_triangle_candidate_count,
+       .active_lights = static_cast<std::uint32_t>(cave_light_budget.wall_lights.size()),
+       .visible_objects = static_cast<std::uint32_t>(scene_.objects().size()),
        .player_speed = length(physics_.body(player_body_).velocity),
-       .cave_pressure = in_authored_cave ? 0.72 : 0.18});
+       .cave_pressure = in_authored_cave ? 0.72 : 0.18,
+       .region_pressure = in_authored_cave ? 0.82 : 0.22,
+       .visibility_pressure = in_authored_cave ? 0.55 : 0.16,
+       .light_pressure = cave_light_budget.wall_light});
   (void)physics_.step({.dt = dt,
                        .max_substeps = static_cast<int>(frame_control.physics_max_substeps),
                        .solver_iterations_override =
