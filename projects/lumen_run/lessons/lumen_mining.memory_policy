@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "id": "memory.policy.lumen_mining",
+  "lesson": "lesson.lumen_mining",
+  "objective_id": "lesson.lumen_mining.durable_memory",
+  "budgets": {
+    "token_budget": 4096,
+    "byte_budget": 65536,
+    "time_budget_ms": 30000
+  },
+  "provider": {
+    "kind": "generic_json_http",
+    "url_env": "ASTER_MEMORY_PROVIDER_URL",
+    "method": "POST",
+    "headers": {
+      "authorization": "env:ASTER_MEMORY_PROVIDER_AUTHORIZATION"
+    },
+    "timeout_ms": 30000
+  },
+  "allowed_actions": ["read", "write", "evict", "replay", "scaffold", "stop"],
+  "graph_query_presets": [
+    {
+      "id": "recent_lumen_mining_memory",
+      "subject": "lesson.lumen_mining",
+      "semantic_key": "mining_loop",
+      "limit": 32
+    }
+  ],
+  "success_metrics": [
+    "objective_coverage",
+    "workflow_coverage",
+    "memory_hit_rate",
+    "conflict_resolution_rate",
+    "eviction_budget_savings",
+    "regression_replay_match"
+  ]
+}

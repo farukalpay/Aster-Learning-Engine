@@ -2,8 +2,10 @@
 // Copyright (c) 2026 Faruk Alpay
 
 #include "aster/learning/learning_runtime.hpp"
+#include "aster/learning/memory_controller.hpp"
 
 #include <cassert>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
@@ -120,6 +122,122 @@ void testMissingWorkflowEvaluation() {
   assert(report.workflow_coverage < 1.0f);
 }
 
+void testMemoryControllerReducerBudgetConflictAndReplay() {
+  const std::filesystem::path store_path =
+      std::filesystem::temp_directory_path() / "aster_learning_memory_controller.sqlite";
+  std::filesystem::remove(store_path);
+
+  aster::WorldState world({.fixed_step_seconds = 1.0 / 60.0});
+  (void)world.appendTypedTrace({.domain = aster::TypedTraceDomain::Learning,
+                                .kind = aster::TypedTraceEventKind::StateWrite,
+                                .tick = 1u,
+                                .subject = "entity.player",
+                                .key = "lesson.lumen_mining.tool",
+                                .payload = "pickaxe_missing",
+                                .value_hash = 101u});
+
+  aster::MemoryController controller(
+      {.controller_id = "learning.memory.reducer",
+       .store_path = store_path,
+       .objective_id = "objective.memory.reducer",
+       .budget = {.token_budget = 256u, .byte_budget = 4096u, .time_budget_ms = 25.0},
+       .provider = {},
+       .trace_window = 8u});
+  const aster::MemoryControllerStepDesc write_step{
+      .task = "write",
+      .subject = "entity.player",
+      .semantic_key = "lesson.lumen_mining.tool",
+      .budget = {.token_budget = 128u, .byte_budget = 1024u, .time_budget_ms = 10.0},
+      .allowed_actions = {aster::MemoryActionKind::Write, aster::MemoryActionKind::Stop}};
+  const aster::MemoryDecision first = controller.step(world, write_step);
+  assert(first.action == aster::MemoryActionKind::Write);
+  assert(first.status == aster::MemoryDecisionStatus::Accepted);
+  assert(first.decision_hash != 0u);
+
+  (void)world.appendTypedTrace({.domain = aster::TypedTraceDomain::Learning,
+                                .kind = aster::TypedTraceEventKind::StateWrite,
+                                .tick = 2u,
+                                .subject = "entity.player",
+                                .key = "lesson.lumen_mining.tool",
+                                .payload = "pickaxe_ready",
+                                .value_hash = 202u});
+  const aster::MemoryDecision second = controller.step(world, write_step);
+  assert(second.action == aster::MemoryActionKind::Write);
+  const aster::MemoryGraphQueryResult graph =
+      controller.queryGraph({.store_path = store_path,
+                             .subject = "entity.player",
+                             .semantic_key = "lesson.lumen_mining.tool",
+                             .limit = 8u});
+  assert(graph.diagnostic.empty());
+  assert(graph.node_count >= 1u);
+  assert(graph.conflict_count >= 1u);
+
+  const aster::MemoryDecision replay =
+      controller.step(world, {.task = "resolve_conflict",
+                              .subject = "entity.player",
+                              .semantic_key = "lesson.lumen_mining.tool",
+                              .budget = {.token_budget = 128u,
+                                         .byte_budget = 2048u,
+                                         .time_budget_ms = 10.0},
+                              .allowed_actions = {aster::MemoryActionKind::Replay,
+                                                  aster::MemoryActionKind::Stop}});
+  assert(replay.action == aster::MemoryActionKind::Replay);
+  assert(replay.rationale.find("conflict") != std::string::npos);
+
+  const aster::MemoryBenchmarkReport report = controller.benchmarkReport("suite.memory.reducer");
+  assert(report.case_count == 3u);
+  assert(report.regression_replay_count == 1u);
+  assert(report.passed);
+  std::filesystem::remove(store_path);
+}
+
+void testMemoryControllerBudgetedEvictionAndProviderBlock() {
+  aster::WorldState world({.fixed_step_seconds = 1.0 / 60.0});
+  (void)world.appendTypedTrace(
+      {.domain = aster::TypedTraceDomain::Learning,
+       .kind = aster::TypedTraceEventKind::StateWrite,
+       .subject = "entity.player",
+       .key = "lesson.lumen_mining.long_window",
+       .payload = "a trace payload large enough to exceed a tiny byte budget",
+       .value_hash = 303u});
+
+  aster::MemoryController evicting(
+      {.controller_id = "learning.memory.evict",
+       .objective_id = "objective.memory.evict",
+       .budget = {.token_budget = 64u, .byte_budget = 1u, .time_budget_ms = 5.0},
+       .provider = {},
+       .trace_window = 8u});
+  const aster::MemoryDecision evict =
+      evicting.step(world, {.task = "pressure",
+                            .subject = "entity.player",
+                            .semantic_key = "lesson.lumen_mining.long_window",
+                            .budget = {.token_budget = 64u, .byte_budget = 1u, .time_budget_ms = 5.0},
+                            .allowed_actions = {aster::MemoryActionKind::Evict,
+                                                aster::MemoryActionKind::Stop}});
+  assert(evict.action == aster::MemoryActionKind::Evict);
+  assert(evict.saved_bytes > 0u);
+
+  aster::MemoryProviderConfig required_provider;
+  required_provider.require_provider = true;
+  aster::MemoryController blocked(
+      {.controller_id = "learning.memory.required_provider",
+       .objective_id = "objective.memory.required_provider",
+       .budget = {.token_budget = 64u, .byte_budget = 1024u, .time_budget_ms = 5.0},
+       .provider = required_provider,
+       .trace_window = 8u});
+  const aster::MemoryDecision decision =
+      blocked.step(world, {.task = "provider_required",
+                           .subject = "entity.player",
+                           .semantic_key = "lesson.lumen_mining.tool",
+                           .budget = {.token_budget = 64u,
+                                      .byte_budget = 1024u,
+                                      .time_budget_ms = 5.0},
+                           .allowed_actions = {aster::MemoryActionKind::Write,
+                                               aster::MemoryActionKind::Stop}});
+  assert(decision.status == aster::MemoryDecisionStatus::Blocked);
+  assert(decision.provider_status == "provider_url_missing");
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -138,6 +256,12 @@ int main(int argc, char **argv) {
   }
   if (test == "missing_workflow_evaluation" || test == "all") {
     testMissingWorkflowEvaluation();
+  }
+  if (test == "memory_controller_reducer" || test == "all") {
+    testMemoryControllerReducerBudgetConflictAndReplay();
+  }
+  if (test == "memory_controller_provider_block" || test == "all") {
+    testMemoryControllerBudgetedEvictionAndProviderBlock();
   }
   std::cout << "learning_runtime_tests passed.\n";
   return 0;

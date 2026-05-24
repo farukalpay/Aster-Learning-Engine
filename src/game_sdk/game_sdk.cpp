@@ -1627,6 +1627,12 @@ AssetKind parseAssetKind(const std::string_view value) {
   if (value == "lesson" || value == "learning_lesson") {
     return AssetKind::Lesson;
   }
+  if (value == "memory_policy") {
+    return AssetKind::MemoryPolicy;
+  }
+  if (value == "memory_benchmark" || value == "memory_bench") {
+    return AssetKind::MemoryBenchmark;
+  }
   return AssetKind::Unknown;
 }
 
@@ -1656,6 +1662,10 @@ std::string_view assetKindName(const AssetKind kind) {
     return "asset_graph";
   case AssetKind::Lesson:
     return "lesson";
+  case AssetKind::MemoryPolicy:
+    return "memory_policy";
+  case AssetKind::MemoryBenchmark:
+    return "memory_benchmark";
   case AssetKind::Unknown:
     return "unknown";
   }

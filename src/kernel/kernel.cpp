@@ -8,6 +8,7 @@
 #include "aster/core/frame_control.hpp"
 #include "aster/core/world_state.hpp"
 #include "aster/game_sdk/game_sdk.hpp"
+#include "aster/learning/memory_controller.hpp"
 #include "aster/math/geometry.hpp"
 #include "aster/math/quat.hpp"
 #include "aster/math/transform.hpp"
@@ -66,6 +67,7 @@ constexpr std::uint32_t kPipelineCacheMagic = 0x41545043u;
 constexpr std::uint32_t kFrameScheduleMagic = 0x41544653u;
 constexpr std::uint32_t kWorldMagic = 0x41545744u;
 constexpr std::uint32_t kSystemWorldMagic = 0x41545357u;
+constexpr std::uint32_t kMemoryControllerMagic = 0x41544d43u;
 constexpr std::uint32_t kAuthoringDocumentMagic = 0x41544144u;
 constexpr std::uint32_t kAuthoringExecutionMagic = 0x41544145u;
 constexpr std::uint32_t kPhysicsWorldMagic = 0x41545057u;
@@ -349,6 +351,17 @@ struct AsterSystemWorldHandle__ {
 
   AsterSystemWorldHandle__(AsterEngineHandle engine, aster::WorldStateConfig config)
       : owner(engine), world(std::move(config)) {}
+};
+
+struct AsterMemoryControllerHandle__ {
+  std::uint32_t magic = kMemoryControllerMagic;
+  AsterEngineHandle owner = nullptr;
+  aster::MemoryController controller;
+  std::list<std::string> string_scratch;
+
+  AsterMemoryControllerHandle__(AsterEngineHandle engine,
+                                aster::MemoryControllerOptions options)
+      : owner(engine), controller(std::move(options)) {}
 };
 
 struct AsterAuthoringDocumentHandle__ {
@@ -1179,6 +1192,10 @@ bool validSystemWorld(const AsterSystemWorldHandle world) {
   return world != nullptr && world->magic == kSystemWorldMagic;
 }
 
+bool validMemoryController(const AsterMemoryControllerHandle controller) {
+  return controller != nullptr && controller->magic == kMemoryControllerMagic;
+}
+
 bool validWorld(const AsterWorldHandle world) {
   return world != nullptr && world->magic == kWorldMagic;
 }
@@ -1222,6 +1239,11 @@ AsterStringView authoringScratch(AsterAuthoringActionExecutionHandle execution, 
 AsterStringView systemWorldScratch(AsterSystemWorldHandle world, std::string text) {
   world->string_scratch.push_back(std::move(text));
   return viewFromString(world->string_scratch.back());
+}
+
+AsterStringView memoryControllerScratch(AsterMemoryControllerHandle controller, std::string text) {
+  controller->string_scratch.push_back(std::move(text));
+  return viewFromString(controller->string_scratch.back());
 }
 
 AsterStringView worldScratch(AsterWorldHandle world, std::string text) {
@@ -1268,6 +1290,8 @@ AsterAuthoringAssetKind authoringAssetKind(const aster::sdk::AssetKind kind) {
   case aster::sdk::AssetKind::AssetGraph:
     return ASTER_AUTHORING_ASSET_GRAPH;
   case aster::sdk::AssetKind::Lesson:
+  case aster::sdk::AssetKind::MemoryPolicy:
+  case aster::sdk::AssetKind::MemoryBenchmark:
     return ASTER_AUTHORING_ASSET_UNKNOWN;
   case aster::sdk::AssetKind::Unknown:
     return ASTER_AUTHORING_ASSET_UNKNOWN;
@@ -1336,6 +1360,90 @@ AsterSystemTraceEventKind abiWorldTraceEventKind(const aster::WorldTraceEventKin
   }
 }
 
+AsterTypedTraceDomain abiTypedTraceDomain(const aster::TypedTraceDomain domain) {
+  return static_cast<AsterTypedTraceDomain>(static_cast<std::uint32_t>(domain));
+}
+
+aster::TypedTraceDomain typedTraceDomainFromAbi(const AsterTypedTraceDomain domain) {
+  switch (domain) {
+  case ASTER_TYPED_TRACE_LEARNING:
+    return aster::TypedTraceDomain::Learning;
+  case ASTER_TYPED_TRACE_MEMORY:
+    return aster::TypedTraceDomain::Memory;
+  case ASTER_TYPED_TRACE_PERCEPTUAL:
+    return aster::TypedTraceDomain::Perceptual;
+  case ASTER_TYPED_TRACE_CAUSALITY:
+    return aster::TypedTraceDomain::Causality;
+  case ASTER_TYPED_TRACE_RESIDENCY:
+    return aster::TypedTraceDomain::Residency;
+  case ASTER_TYPED_TRACE_RENDER:
+    return aster::TypedTraceDomain::Render;
+  case ASTER_TYPED_TRACE_ASSET:
+    return aster::TypedTraceDomain::Asset;
+  case ASTER_TYPED_TRACE_AI:
+    return aster::TypedTraceDomain::Ai;
+  case ASTER_TYPED_TRACE_BENCHMARK:
+    return aster::TypedTraceDomain::Benchmark;
+  case ASTER_TYPED_TRACE_TOOL:
+    return aster::TypedTraceDomain::Tool;
+  case ASTER_TYPED_TRACE_GAMEPLAY:
+  default:
+    return aster::TypedTraceDomain::Gameplay;
+  }
+}
+
+AsterTypedTraceEventKind abiTypedTraceEventKind(const aster::TypedTraceEventKind kind) {
+  return static_cast<AsterTypedTraceEventKind>(static_cast<std::uint32_t>(kind));
+}
+
+aster::TypedTraceEventKind typedTraceEventKindFromAbi(const AsterTypedTraceEventKind kind) {
+  switch (kind) {
+  case ASTER_TYPED_TRACE_STATE_READ:
+    return aster::TypedTraceEventKind::StateRead;
+  case ASTER_TYPED_TRACE_STATE_WRITE:
+    return aster::TypedTraceEventKind::StateWrite;
+  case ASTER_TYPED_TRACE_REDUCER_APPLIED:
+    return aster::TypedTraceEventKind::ReducerApplied;
+  case ASTER_TYPED_TRACE_MEMORY_READ:
+    return aster::TypedTraceEventKind::MemoryRead;
+  case ASTER_TYPED_TRACE_MEMORY_WRITE:
+    return aster::TypedTraceEventKind::MemoryWrite;
+  case ASTER_TYPED_TRACE_MEMORY_EVICT:
+    return aster::TypedTraceEventKind::MemoryEvict;
+  case ASTER_TYPED_TRACE_MEMORY_REPLAY:
+    return aster::TypedTraceEventKind::MemoryReplay;
+  case ASTER_TYPED_TRACE_SCAFFOLD_DECISION:
+    return aster::TypedTraceEventKind::ScaffoldDecision;
+  case ASTER_TYPED_TRACE_PROVIDER_REQUEST:
+    return aster::TypedTraceEventKind::ProviderRequest;
+  case ASTER_TYPED_TRACE_PROVIDER_RESPONSE:
+    return aster::TypedTraceEventKind::ProviderResponse;
+  case ASTER_TYPED_TRACE_GRAPH_NODE:
+    return aster::TypedTraceEventKind::GraphNode;
+  case ASTER_TYPED_TRACE_GRAPH_EDGE:
+    return aster::TypedTraceEventKind::GraphEdge;
+  case ASTER_TYPED_TRACE_BENCHMARK_CASE:
+    return aster::TypedTraceEventKind::BenchmarkCase;
+  case ASTER_TYPED_TRACE_BENCHMARK_ABLATION:
+    return aster::TypedTraceEventKind::BenchmarkAblation;
+  case ASTER_TYPED_TRACE_STOP:
+    return aster::TypedTraceEventKind::Stop;
+  case ASTER_TYPED_TRACE_VALIDATION_ERROR:
+    return aster::TypedTraceEventKind::ValidationError;
+  case ASTER_TYPED_TRACE_INPUT:
+  default:
+    return aster::TypedTraceEventKind::Input;
+  }
+}
+
+AsterMemoryActionKind abiMemoryActionKind(const aster::MemoryActionKind kind) {
+  return static_cast<AsterMemoryActionKind>(static_cast<std::uint32_t>(kind));
+}
+
+AsterMemoryDecisionStatus abiMemoryDecisionStatus(const aster::MemoryDecisionStatus status) {
+  return static_cast<AsterMemoryDecisionStatus>(static_cast<std::uint32_t>(status));
+}
+
 AsterSystemEntityHandle abiWorldEntity(const aster::WorldEntityHandle handle) {
   return {.id = handle.id, .generation = handle.generation};
 }
@@ -1348,6 +1456,124 @@ aster::WorldComponentAccess worldComponentAccess(const AsterSystemComponentAcces
   return {.component = stringFromView(access.component),
           .subject = stringFromView(access.subject),
           .mode = worldAccessMode(access.mode)};
+}
+
+aster::TypedTraceEvent typedTraceEventFromAbi(const AsterTypedTraceEvent &event) {
+  return {.domain = typedTraceDomainFromAbi(event.domain),
+          .kind = typedTraceEventKindFromAbi(event.kind),
+          .sequence = event.sequence,
+          .tick = event.tick,
+          .subject = stringFromView(event.subject),
+          .key = stringFromView(event.semantic_key),
+          .payload = stringFromView(event.payload),
+          .value_hash = event.value_hash,
+          .parent_trace_hash = event.parent_trace_hash,
+          .trace_hash = event.trace_hash};
+}
+
+void fillTypedTraceEvent(AsterSystemWorldHandle world, const aster::TypedTraceEvent &event,
+                         AsterTypedTraceEvent *out_event) {
+  out_event->size = sizeof(AsterTypedTraceEvent);
+  out_event->version = ASTER_KERNEL_STRUCT_VERSION_1;
+  out_event->domain = abiTypedTraceDomain(event.domain);
+  out_event->kind = abiTypedTraceEventKind(event.kind);
+  out_event->sequence = event.sequence;
+  out_event->tick = event.tick;
+  out_event->subject = systemWorldScratch(world, event.subject);
+  out_event->semantic_key = systemWorldScratch(world, event.key);
+  out_event->payload = systemWorldScratch(world, event.payload);
+  out_event->value_hash = event.value_hash;
+  out_event->parent_trace_hash = event.parent_trace_hash;
+  out_event->trace_hash = event.trace_hash;
+}
+
+aster::MemoryBudget memoryBudgetFromAbi(const AsterMemoryBudget &budget) {
+  if (budget.size == 0u) {
+    return {};
+  }
+  return {.token_budget = budget.token_budget,
+          .byte_budget = budget.byte_budget,
+          .time_budget_ms = budget.time_budget_ms};
+}
+
+aster::MemoryProviderConfig memoryProviderFromAbi(const AsterMemoryProviderConfig &provider) {
+  if (provider.size == 0u) {
+    return {};
+  }
+  return {.url = stringFromView(provider.url),
+          .method = stringFromView(provider.method).empty() ? "POST" : stringFromView(provider.method),
+          .headers_json = stringFromView(provider.headers_json),
+          .extra_json = stringFromView(provider.extra_json),
+          .timeout_ms = provider.timeout_ms == 0u ? 30000u : provider.timeout_ms,
+          .require_provider = provider.require_provider != 0u};
+}
+
+aster::MemoryControllerOptions memoryControllerOptionsFromAbi(
+    const AsterMemoryControllerDesc &desc) {
+  return {.controller_id = stringFromView(desc.controller_id).empty()
+                                ? "aster.memory_controller"
+                                : stringFromView(desc.controller_id),
+          .store_path = stringFromView(desc.store_path),
+          .objective_id = stringFromView(desc.objective_id),
+          .budget = memoryBudgetFromAbi(desc.budget),
+          .provider = memoryProviderFromAbi(desc.provider),
+          .trace_window = desc.trace_window == 0u ? 16u : desc.trace_window};
+}
+
+std::vector<aster::MemoryActionKind> allowedMemoryActions(
+    const AsterMemoryControllerStepDesc &desc) {
+  std::vector<aster::MemoryActionKind> actions;
+  if (desc.allow_read != 0u) {
+    actions.push_back(aster::MemoryActionKind::Read);
+  }
+  if (desc.allow_write != 0u) {
+    actions.push_back(aster::MemoryActionKind::Write);
+  }
+  if (desc.allow_evict != 0u) {
+    actions.push_back(aster::MemoryActionKind::Evict);
+  }
+  if (desc.allow_replay != 0u) {
+    actions.push_back(aster::MemoryActionKind::Replay);
+  }
+  if (desc.allow_scaffold != 0u) {
+    actions.push_back(aster::MemoryActionKind::Scaffold);
+  }
+  if (desc.allow_stop != 0u) {
+    actions.push_back(aster::MemoryActionKind::Stop);
+  }
+  return actions;
+}
+
+aster::MemoryControllerStepDesc memoryStepDescFromAbi(
+    const AsterMemoryControllerStepDesc &desc) {
+  return {.task = stringFromView(desc.task),
+          .subject = stringFromView(desc.subject),
+          .semantic_key = stringFromView(desc.semantic_key),
+          .budget = memoryBudgetFromAbi(desc.budget),
+          .allowed_actions = allowedMemoryActions(desc)};
+}
+
+void fillMemoryDecisionInfo(AsterMemoryControllerHandle controller,
+                            const aster::MemoryDecision &decision,
+                            AsterMemoryDecisionInfo *out_decision) {
+  out_decision->size = sizeof(AsterMemoryDecisionInfo);
+  out_decision->version = ASTER_KERNEL_STRUCT_VERSION_1;
+  out_decision->sequence = decision.sequence;
+  out_decision->tick = decision.tick;
+  out_decision->action = abiMemoryActionKind(decision.action);
+  out_decision->status = abiMemoryDecisionStatus(decision.status);
+  out_decision->subject = memoryControllerScratch(controller, decision.subject);
+  out_decision->semantic_key = memoryControllerScratch(controller, decision.semantic_key);
+  out_decision->rationale = memoryControllerScratch(controller, decision.rationale);
+  out_decision->provider_status = memoryControllerScratch(controller, decision.provider_status);
+  out_decision->artifact_path = memoryControllerScratch(controller, decision.artifact_path);
+  out_decision->confidence = decision.confidence;
+  out_decision->success_score = decision.success_score;
+  out_decision->token_cost = decision.token_cost;
+  out_decision->byte_cost = decision.byte_cost;
+  out_decision->saved_bytes = decision.saved_bytes;
+  out_decision->provider_status_code = decision.provider_status_code;
+  out_decision->decision_hash = decision.decision_hash;
 }
 
 std::vector<aster::WorldComponentAccess> worldComponentAccesses(const AsterSpan span,
@@ -4633,6 +4859,208 @@ AsterStatus aster_kernel_system_world_replay_trace(const AsterSystemWorldHandle 
   return report.matched ? aster_kernel_status_ok()
                         : makeStatus(ASTER_STATUS_VALIDATION_ERROR,
                                      "world replay hash mismatch");
+}
+
+AsterStatus aster_kernel_system_world_typed_trace_counts(
+    const AsterSystemWorldHandle world, AsterTypedTraceCounts *out_counts) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(out_counts)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "typed trace counts version is not supported");
+  }
+  const aster::WorldTraceCounts counts = world->world.counts();
+  out_counts->event_count = counts.typed_event_count;
+  out_counts->tick = counts.tick;
+  out_counts->typed_trace_hash = counts.typed_trace_hash;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_typed_trace_event(
+    const AsterSystemWorldHandle world, const std::size_t index,
+    AsterTypedTraceEvent *out_event) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(out_event)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "typed trace event version is not supported");
+  }
+  const aster::TypedTraceEvent *event = world->world.typedTraceEvent(index);
+  if (event == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "typed trace event index is out of range");
+  }
+  fillTypedTraceEvent(world, *event, out_event);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_system_world_typed_trace_append(
+    const AsterSystemWorldHandle world, const AsterTypedTraceEvent *event,
+    AsterTypedTraceEvent *out_event) {
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(event) || !validStruct(out_event)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "typed trace event version is not supported");
+  }
+  if (!validStringView(event->subject) || !validStringView(event->semantic_key) ||
+      !validStringView(event->payload)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "typed trace string view is invalid");
+  }
+  const aster::TypedTraceEvent appended =
+      world->world.appendTypedTrace(typedTraceEventFromAbi(*event));
+  fillTypedTraceEvent(world, appended, out_event);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_memory_controller_create(
+    const AsterEngineHandle engine, const AsterMemoryControllerDesc *desc,
+    AsterMemoryControllerHandle *out_controller) {
+  if (out_controller == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_controller is null");
+  }
+  *out_controller = nullptr;
+  if (!validEngine(engine)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "engine handle is invalid");
+  }
+  if (!validStruct(desc)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "memory controller desc version is not supported");
+  }
+  if (!validStringView(desc->controller_id) || !validStringView(desc->store_path) ||
+      !validStringView(desc->objective_id) || !validStringView(desc->provider.url) ||
+      !validStringView(desc->provider.method) || !validStringView(desc->provider.headers_json) ||
+      !validStringView(desc->provider.extra_json)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "memory controller string view is invalid");
+  }
+  auto *controller =
+      new (std::nothrow) AsterMemoryControllerHandle__(engine, memoryControllerOptionsFromAbi(*desc));
+  if (controller == nullptr) {
+    return makeStatus(ASTER_STATUS_OUT_OF_MEMORY, "memory controller allocation failed");
+  }
+  *out_controller = controller;
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_memory_controller_step(
+    const AsterMemoryControllerHandle controller, const AsterSystemWorldHandle world,
+    const AsterMemoryControllerStepDesc *desc, AsterMemoryDecisionInfo *out_decision) {
+  if (!validMemoryController(controller)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "memory controller handle is invalid");
+  }
+  if (!validSystemWorld(world)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "system world handle is invalid");
+  }
+  if (!validStruct(desc) || !validStruct(out_decision)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "memory controller step version is not supported");
+  }
+  if (!validStringView(desc->task) || !validStringView(desc->subject) ||
+      !validStringView(desc->semantic_key)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "memory step string view is invalid");
+  }
+  const aster::MemoryDecision decision =
+      controller->controller.step(world->world, memoryStepDescFromAbi(*desc));
+  fillMemoryDecisionInfo(controller, decision, out_decision);
+  return decision.status == aster::MemoryDecisionStatus::ProviderError
+             ? makeStatus(ASTER_STATUS_VALIDATION_ERROR, "memory provider request failed")
+         : decision.status == aster::MemoryDecisionStatus::Blocked
+             ? makeStatus(ASTER_STATUS_VALIDATION_ERROR, "memory controller is blocked")
+             : aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_memory_controller_decision_count(
+    const AsterMemoryControllerHandle controller, std::size_t *out_count) {
+  if (!validMemoryController(controller)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "memory controller handle is invalid");
+  }
+  if (out_count == nullptr) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "out_count is null");
+  }
+  *out_count = controller->controller.decisions().size();
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_memory_controller_decision(
+    const AsterMemoryControllerHandle controller, const std::size_t index,
+    AsterMemoryDecisionInfo *out_decision) {
+  if (!validMemoryController(controller)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "memory controller handle is invalid");
+  }
+  if (!validStruct(out_decision)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "memory decision info version is not supported");
+  }
+  const std::vector<aster::MemoryDecision> &decisions = controller->controller.decisions();
+  if (index >= decisions.size()) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "memory decision index is out of range");
+  }
+  fillMemoryDecisionInfo(controller, decisions[index], out_decision);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_memory_graph_query(
+    const AsterMemoryControllerHandle controller, const AsterGraphQueryDesc *desc,
+    AsterGraphQueryResult *out_result) {
+  if (!validMemoryController(controller)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "memory controller handle is invalid");
+  }
+  if (!validStruct(desc) || !validStruct(out_result)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH, "graph query version is not supported");
+  }
+  if (!validStringView(desc->store_path) || !validStringView(desc->subject) ||
+      !validStringView(desc->semantic_key)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "graph query string view is invalid");
+  }
+  const aster::MemoryGraphQueryResult result = controller->controller.queryGraph(
+      {.store_path = stringFromView(desc->store_path),
+       .subject = stringFromView(desc->subject),
+       .semantic_key = stringFromView(desc->semantic_key),
+       .limit = desc->limit == 0u ? 16u : desc->limit});
+  out_result->node_count = result.node_count;
+  out_result->edge_count = result.edge_count;
+  out_result->conflict_count = result.conflict_count;
+  out_result->query_hash = result.query_hash;
+  out_result->json = memoryControllerScratch(controller, result.json);
+  out_result->diagnostic = memoryControllerScratch(controller, result.diagnostic);
+  return result.diagnostic.empty() ? aster_kernel_status_ok()
+                                   : makeStatus(ASTER_STATUS_VALIDATION_ERROR,
+                                                "memory graph query failed");
+}
+
+AsterStatus aster_kernel_memory_benchmark_export(
+    const AsterMemoryControllerHandle controller, AsterMemoryBenchmarkReport *out_report) {
+  if (!validMemoryController(controller)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "memory controller handle is invalid");
+  }
+  if (!validStruct(out_report)) {
+    return makeStatus(ASTER_STATUS_ABI_MISMATCH,
+                      "memory benchmark report version is not supported");
+  }
+  const aster::MemoryBenchmarkReport report = controller->controller.benchmarkReport();
+  out_report->suite_id = memoryControllerScratch(controller, report.suite_id);
+  out_report->store_path = memoryControllerScratch(controller, report.store_path.string());
+  out_report->artifact_path = memoryControllerScratch(controller, report.artifact_path.string());
+  out_report->blocked = report.blocked ? 1u : 0u;
+  out_report->passed = report.passed ? 1u : 0u;
+  out_report->case_count = report.case_count;
+  out_report->ablation_count = report.ablation_count;
+  out_report->regression_replay_count = report.regression_replay_count;
+  out_report->score = report.score;
+  out_report->report_hash = report.report_hash;
+  out_report->diagnostic = memoryControllerScratch(controller, report.diagnostic);
+  return aster_kernel_status_ok();
+}
+
+AsterStatus aster_kernel_memory_controller_destroy(AsterMemoryControllerHandle controller) {
+  if (!validMemoryController(controller)) {
+    return makeStatus(ASTER_STATUS_INVALID_ARGUMENT, "memory controller handle is invalid");
+  }
+  controller->magic = kRetiredMagic;
+  delete controller;
+  return aster_kernel_status_ok();
 }
 
 AsterStatus aster_kernel_window_create(const AsterWindowDesc *desc,

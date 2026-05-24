@@ -30,6 +30,8 @@
     { "id": "action.mine.cave_skitter", "kind": "action_graph", "path": "actions/mine_cave_skitter.action_graph", "guid": "0e8a986589bb2ca535bd7ccd1e8951fed5ccb731a0a5a252f3335424cee98489" },
     { "id": "input.lumen_run", "kind": "input", "path": "inputs/lumen_run.input", "guid": "e9fe1781df3d815225e3acf57ef203b935c6981768479cae061b209b37e4afd9" },
     { "id": "ui.hud", "kind": "ui", "path": "ui/hud.ui", "guid": "c8c71b2adc145738cc628c09914c89831cdb1c6134492c117cf89f07f3e4eb8a" },
-    { "id": "lesson.lumen_mining", "kind": "lesson", "path": "lessons/lumen_mining.lesson", "guid": "d4aa9e6b9b12684f326b152f0c12fdd70f3f6e8d44e1c7ddcbe5efdbb7bd1511" }
+    { "id": "lesson.lumen_mining", "kind": "lesson", "path": "lessons/lumen_mining.lesson", "guid": "d4aa9e6b9b12684f326b152f0c12fdd70f3f6e8d44e1c7ddcbe5efdbb7bd1511" },
+    { "id": "memory.policy.lumen_mining", "kind": "memory_policy", "path": "lessons/lumen_mining.memory_policy", "guid": "af2e64cb0eab4b1d8f5ac5fb343af688ad607d165c49c2555d20a1746c8f3e52" },
+    { "id": "memory.bench.lumen_mining", "kind": "memory_benchmark", "path": "lessons/lumen_mining.memory_benchmark", "guid": "fd66bf450c594d29bb6a9d16d97cb6f41ef546cc6e00f2ab3402bbd1141e4a1a" }
   ]
 }

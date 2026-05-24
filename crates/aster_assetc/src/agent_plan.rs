@@ -19,7 +19,9 @@ fn asset_domain(kind: &str) -> Vec<&'static str> {
         "material" | "texture" => vec!["material", "rendering"],
         "item" => vec!["item", "systems"],
         "action_graph" => vec!["action_graph", "systems"],
-        "lesson" => vec!["learning", "systems"],
+        "lesson" | "memory_policy" | "memory_benchmark" | "memory_bench" => {
+            vec!["learning", "systems"]
+        }
         "input" | "input_map" => vec!["systems", "ui"],
         "ui" => vec!["ui"],
         _ => vec!["unknown"],

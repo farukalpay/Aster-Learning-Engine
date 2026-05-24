@@ -84,13 +84,14 @@ diagnostic kinds for math contracts, non-finite world matrices, singular normal
 matrices, negative-scale tangent flips, projection/backend convention drift, and
 robust predicate uncertainty.
 
-ABI 7.1 keeps that binary boundary and expands proof access without renumbering
-existing enums or handles. Public consumers can now query fixed-layout rows for
-the frame debugger timeline, material binding traces, asset frame traces,
-resource provenance, regression gallery entries, pipeline signature evidence,
-and material residency evidence. `AsterFrameForensicsDetailCounts` appends the
-matching row counts behind `size` checks, so older consumers continue to see the
-ABI 7.0 prefix while newer consumers can walk the full renderer proof model.
+ABI 8.0 keeps that binary boundary and adds durable learning state. Public
+consumers can still query the ABI 7.1 renderer proof rows, and can now append
+and query typed trace events on `AsterSystemWorldHandle`, step an opaque
+`AsterMemoryControllerHandle`, inspect memory decisions, query graph-store
+results, and export replayable benchmark summaries. `AsterFrameForensicsDetailCounts`
+still appends renderer row counts behind `size` checks; ABI 8.0 adds the memory
+contract as new fixed-layout structs and functions rather than exposing internal
+C++ modules.
 The C++ wrapper in `aster/kernel/api.hpp` mirrors those accessors as convenience
 methods only; ownership, allocation, and native backend objects remain internal.
 
@@ -186,7 +187,7 @@ is enforced at the build/export level first: `aster_kernel` installs only
 implementation internally, while public consumers still see only opaque handles,
 status values, fixed-layout descriptors, shader compiler artifacts, validation
 events, world forensics, render targets/captures, frame stats, frame schedules,
-and ABI 7.1 renderer proof rows. The
+ABI 7.1 renderer proof rows, and ABI 8.0 typed trace/memory controller rows. The
 install-tree smoke test builds `external_app_minimal/` from the installed
 `aster::kernel` target and verifies private implementation header directories
 are not installed. Future subsystem work should either stay internal, be

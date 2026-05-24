@@ -25,5 +25,35 @@ the diagnose -> design -> teach -> evaluate workflow, grounds scaffold decisions
 in declared evidence and learner-state hypotheses, and passes pedagogical safety
 checks such as false-mastery rejection and no gameplay-forcing scaffolds.
 
-The stable kernel C ABI is unchanged. The new public surface is the Game SDK
-lesson/trace contract and the `aster_assetc` lesson proof commands.
+Durable memory proof extends that lesson contract with typed traces, a real
+SQLite graph/memory store, and provider-backed controller decisions:
+
+```bash
+cargo run -p aster_assetc --bin aster_assetc -- memory-proof-run \
+  --project projects/lumen_run/lumen_run.asterproj \
+  --policy memory.policy.lumen_mining \
+  --trace projects/lumen_run/lessons/lumen_mining.trace.jsonl \
+  --store /tmp/aster_lumen_memory.sqlite \
+  --output /tmp/aster_lumen_memory_proof \
+  --output-schema
+
+cargo run -p aster_assetc --bin aster_assetc -- memory-bench-run \
+  --project projects/lumen_run/lumen_run.asterproj \
+  --suite memory.bench.lumen_mining \
+  --store /tmp/aster_lumen_memory.sqlite \
+  --output /tmp/aster_lumen_memory_bench \
+  --output-schema
+```
+
+`memory-bench-run` requires a real Generic JSON HTTP provider through
+`ASTER_MEMORY_PROVIDER_URL` or `--provider-url`. Auth and model headers are
+configuration/env only; secrets are not written into trace or benchmark
+artifacts. If no provider is available, the benchmark is blocked rather than
+replaced by a local fake server.
+
+ABI 8.0 promotes the learning runtime into the kernel boundary. Public
+consumers can append/query typed trace events on `AsterSystemWorldHandle`, create
+and step an `AsterMemoryControllerHandle`, query SQLite-backed graph results,
+inspect controller decisions, and export replayable benchmark summaries. The
+Game SDK adds memory policy and memory benchmark asset kinds; Lumen Run carries
+sample policy/suite assets without defining engine defaults.

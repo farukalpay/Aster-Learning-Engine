@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "aster/core/typed_trace.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -111,6 +113,7 @@ struct WorldTransactionInfo {
 
 struct WorldTraceCounts {
   std::size_t event_count = 0u;
+  std::size_t typed_event_count = 0u;
   std::size_t entity_count = 0u;
   std::size_t live_entity_count = 0u;
   std::size_t transaction_count = 0u;
@@ -119,6 +122,7 @@ struct WorldTraceCounts {
   double time_seconds = 0.0;
   std::uint64_t world_hash = 0u;
   std::uint64_t trace_hash = 0u;
+  std::uint64_t typed_trace_hash = 0u;
 };
 
 enum class ResidencyDecisionKind : std::uint32_t {
@@ -200,7 +204,10 @@ public:
 
   [[nodiscard]] WorldTraceCounts counts() const;
   [[nodiscard]] const std::vector<WorldTraceEvent> &traceEvents() const noexcept;
+  [[nodiscard]] const std::vector<TypedTraceEvent> &typedTraceEvents() const noexcept;
   [[nodiscard]] std::vector<WorldTraceEvent> validationEvents() const;
+  [[nodiscard]] const TypedTraceEvent *typedTraceEvent(std::size_t index) const noexcept;
+  TypedTraceEvent appendTypedTrace(TypedTraceEvent event);
 
   [[nodiscard]] bool saveSnapshot(const std::filesystem::path &path, std::string *diagnostic);
   [[nodiscard]] WorldMigrationReport loadSnapshot(const std::filesystem::path &path);
@@ -214,6 +221,7 @@ public:
   [[nodiscard]] double timeSeconds() const noexcept;
   [[nodiscard]] std::uint64_t worldHash() const noexcept;
   [[nodiscard]] std::uint64_t traceHash() const noexcept;
+  [[nodiscard]] std::uint64_t typedTraceHash() const noexcept;
 
 private:
   struct EntityRecord {
@@ -246,13 +254,16 @@ private:
   double time_seconds_ = 0.0;
   std::uint64_t world_hash_ = 0u;
   std::uint64_t trace_hash_ = 0u;
+  std::uint64_t typed_trace_hash_ = 0u;
   std::uint64_t next_entity_id_ = 1u;
   std::uint64_t next_transaction_id_ = 1u;
   std::uint64_t next_event_sequence_ = 1u;
+  std::uint64_t next_typed_trace_sequence_ = 1u;
   std::vector<EntityRecord> entities_;
   std::vector<TransactionRecord> transactions_;
   std::vector<WorldComponentAccess> committed_accesses_this_tick_;
   std::vector<WorldTraceEvent> trace_events_;
+  std::vector<TypedTraceEvent> typed_trace_events_;
 };
 
 [[nodiscard]] const char *worldComponentAccessModeName(WorldComponentAccessMode mode);

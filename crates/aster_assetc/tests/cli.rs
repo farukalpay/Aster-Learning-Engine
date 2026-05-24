@@ -1004,6 +1004,87 @@ fn learning_proof_run_writes_lumen_bundle_and_failures() {
 }
 
 #[test]
+fn memory_proof_and_bench_commands_use_sqlite_and_block_without_provider() {
+    let output_dir = fixture_dir();
+    let bench_dir = fixture_dir();
+    fs::create_dir_all(&output_dir).expect("memory proof output");
+    fs::create_dir_all(&bench_dir).expect("memory bench output");
+    let proof_store = output_dir.join("memory-proof.sqlite");
+    let bench_store = bench_dir.join("memory-bench.sqlite");
+    let binary = env!("CARGO_BIN_EXE_aster_assetc");
+
+    let proof = Command::new(binary)
+        .arg("memory-proof-run")
+        .arg("--project")
+        .arg(lumen_project())
+        .arg("--policy")
+        .arg("memory.policy.lumen_mining")
+        .arg("--trace")
+        .arg(lumen_learning_trace())
+        .arg("--store")
+        .arg(&proof_store)
+        .arg("--output")
+        .arg(&output_dir)
+        .arg("--output-schema")
+        .output()
+        .expect("run memory proof");
+    assert!(
+        proof.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&proof.stdout),
+        String::from_utf8_lossy(&proof.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&proof.stdout);
+    assert!(stdout.contains("\"kind\": \"aster_memory_proof_run\""));
+    assert!(stdout.contains("\"status\": \"passed\""));
+    assert!(stdout.contains("\"trace_node_count\": 7"));
+    assert!(stdout.contains("No fake provider response is generated"));
+    assert!(output_dir.join("memory-proof-run.json").exists());
+
+    let bench = Command::new(binary)
+        .arg("memory-bench-run")
+        .arg("--project")
+        .arg(lumen_project())
+        .arg("--suite")
+        .arg("memory.bench.lumen_mining")
+        .arg("--store")
+        .arg(&bench_store)
+        .arg("--output")
+        .arg(&bench_dir)
+        .arg("--output-schema")
+        .output()
+        .expect("run blocked memory bench");
+    assert!(!bench.status.success());
+    let bench_stdout = String::from_utf8_lossy(&bench.stdout);
+    assert!(bench_stdout.contains("\"kind\": \"aster_memory_benchmark_run\""));
+    assert!(bench_stdout.contains("\"status\": \"blocked\""));
+    assert!(bench_stdout.contains("no fake provider is used"));
+    let bench_report = bench_dir.join("memory-bench-run.json");
+    assert!(bench_report.exists());
+
+    let compare = Command::new(binary)
+        .arg("memory-bench-compare")
+        .arg("--before")
+        .arg(&bench_report)
+        .arg("--after")
+        .arg(&bench_report)
+        .arg("--output-schema")
+        .output()
+        .expect("run memory bench compare");
+    assert!(
+        compare.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&compare.stdout),
+        String::from_utf8_lossy(&compare.stderr)
+    );
+    assert!(String::from_utf8_lossy(&compare.stdout)
+        .contains("\"kind\": \"aster_memory_benchmark_compare\""));
+
+    fs::remove_dir_all(&output_dir).ok();
+    fs::remove_dir_all(&bench_dir).ok();
+}
+
+#[test]
 fn strict_cook_fails_broken_material_and_skips_runtime_outputs() {
     let project = write_broken_material_project();
     let output_dir = project.parent().unwrap().join("cooked/desktop");

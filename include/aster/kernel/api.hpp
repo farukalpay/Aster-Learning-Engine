@@ -454,6 +454,34 @@ public:
     return Result<AsterSystemTraceEvent>(std::move(event));
   }
 
+  [[nodiscard]] Result<AsterTypedTraceCounts> typedTraceCounts() const noexcept {
+    AsterTypedTraceCounts counts{sizeof(AsterTypedTraceCounts), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_system_world_typed_trace_counts(handle_, &counts));
+    if (!status) {
+      return Result<AsterTypedTraceCounts>(status);
+    }
+    return Result<AsterTypedTraceCounts>(std::move(counts));
+  }
+
+  [[nodiscard]] Result<AsterTypedTraceEvent> typedTraceEvent(const size_t index) const noexcept {
+    AsterTypedTraceEvent event{sizeof(AsterTypedTraceEvent), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_system_world_typed_trace_event(handle_, index, &event));
+    if (!status) {
+      return Result<AsterTypedTraceEvent>(status);
+    }
+    return Result<AsterTypedTraceEvent>(std::move(event));
+  }
+
+  [[nodiscard]] Result<AsterTypedTraceEvent> appendTypedTrace(
+      const AsterTypedTraceEvent &event) noexcept {
+    AsterTypedTraceEvent out{sizeof(AsterTypedTraceEvent), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_system_world_typed_trace_append(handle_, &event, &out));
+    if (!status) {
+      return Result<AsterTypedTraceEvent>(status);
+    }
+    return Result<AsterTypedTraceEvent>(std::move(out));
+  }
+
   [[nodiscard]] Status saveSnapshot(const AsterWorldSnapshotDesc &desc) noexcept {
     return Status(aster_kernel_system_world_save_snapshot(handle_, &desc));
   }
@@ -489,6 +517,104 @@ public:
 
 private:
   AsterSystemWorldHandle handle_ = nullptr;
+};
+
+class MemoryController {
+public:
+  MemoryController() = default;
+  explicit MemoryController(AsterMemoryControllerHandle handle) noexcept : handle_(handle) {}
+
+  MemoryController(MemoryController &&other) noexcept
+      : handle_(std::exchange(other.handle_, nullptr)) {}
+  MemoryController &operator=(MemoryController &&other) noexcept {
+    if (this != &other) {
+      reset();
+      handle_ = std::exchange(other.handle_, nullptr);
+    }
+    return *this;
+  }
+
+  MemoryController(const MemoryController &) = delete;
+  MemoryController &operator=(const MemoryController &) = delete;
+
+  ~MemoryController() {
+    reset();
+  }
+
+  [[nodiscard]] static Result<MemoryController>
+  create(const Engine &engine, const AsterMemoryControllerDesc &desc) noexcept {
+    AsterMemoryControllerHandle handle = nullptr;
+    const Status status(aster_kernel_memory_controller_create(engine.get(), &desc, &handle));
+    if (!status) {
+      return Result<MemoryController>(status);
+    }
+    return Result<MemoryController>(MemoryController(handle));
+  }
+
+  [[nodiscard]] AsterMemoryControllerHandle get() const noexcept {
+    return handle_;
+  }
+
+  [[nodiscard]] Result<AsterMemoryDecisionInfo>
+  step(SystemWorld &world, const AsterMemoryControllerStepDesc &desc) noexcept {
+    AsterMemoryDecisionInfo decision{sizeof(AsterMemoryDecisionInfo),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(
+        aster_kernel_memory_controller_step(handle_, world.get(), &desc, &decision));
+    if (!status) {
+      return Result<AsterMemoryDecisionInfo>(status);
+    }
+    return Result<AsterMemoryDecisionInfo>(std::move(decision));
+  }
+
+  [[nodiscard]] Result<size_t> decisionCount() const noexcept {
+    size_t count = 0u;
+    const Status status(aster_kernel_memory_controller_decision_count(handle_, &count));
+    if (!status) {
+      return Result<size_t>(status);
+    }
+    return Result<size_t>(std::move(count));
+  }
+
+  [[nodiscard]] Result<AsterMemoryDecisionInfo> decision(const size_t index) const noexcept {
+    AsterMemoryDecisionInfo value{sizeof(AsterMemoryDecisionInfo),
+                                  ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_memory_controller_decision(handle_, index, &value));
+    if (!status) {
+      return Result<AsterMemoryDecisionInfo>(status);
+    }
+    return Result<AsterMemoryDecisionInfo>(std::move(value));
+  }
+
+  [[nodiscard]] Result<AsterGraphQueryResult> queryGraph(
+      const AsterGraphQueryDesc &desc) const noexcept {
+    AsterGraphQueryResult value{sizeof(AsterGraphQueryResult), ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_memory_graph_query(handle_, &desc, &value));
+    if (!status) {
+      return Result<AsterGraphQueryResult>(status);
+    }
+    return Result<AsterGraphQueryResult>(std::move(value));
+  }
+
+  [[nodiscard]] Result<AsterMemoryBenchmarkReport> benchmarkReport() const noexcept {
+    AsterMemoryBenchmarkReport value{sizeof(AsterMemoryBenchmarkReport),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+    const Status status(aster_kernel_memory_benchmark_export(handle_, &value));
+    if (!status) {
+      return Result<AsterMemoryBenchmarkReport>(status);
+    }
+    return Result<AsterMemoryBenchmarkReport>(std::move(value));
+  }
+
+  void reset() noexcept {
+    if (handle_ != nullptr) {
+      (void)aster_kernel_memory_controller_destroy(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+private:
+  AsterMemoryControllerHandle handle_ = nullptr;
 };
 
 class Window {

@@ -48,7 +48,7 @@ their own native pass data exists. Object visibility, object-to-cluster
 membership traces, and last-frame perceptual primitive traces are recorded for
 frame-debugger queries.
 
-ABI 7.1 exposes the same proof data to public consumers through fixed-layout
+ABI 8.0 exposes the same proof data to public consumers through fixed-layout
 accessors for debugger timeline events, material bindings, asset traces,
 resource provenance, regression gallery entries, pipeline signatures, and
 material residency. The accessors report zero rows only when the producer has not

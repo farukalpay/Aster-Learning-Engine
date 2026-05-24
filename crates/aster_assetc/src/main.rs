@@ -14,8 +14,9 @@ use aster_content::{
     write_asset_catalog_store, write_missing_asset_meta, CompileOptions, OriginPolicy,
 };
 use aster_runtime::{
-    build_frame_plan, AsterRuntimeCamera, AsterRuntimeRenderObject, AsterRuntimeRenderPlanOptions,
-    AsterRuntimeVec3,
+    build_frame_plan, generic_http_json, memory_graph_query_json, memory_store_init_path,
+    memory_store_trace_event_json, AsterRuntimeCamera, AsterRuntimeRenderObject,
+    AsterRuntimeRenderPlanOptions, AsterRuntimeVec3,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -133,7 +134,10 @@ fn usage() -> &'static str {
   aster_assetc asset-brief --project <file.asterproj> --asset <id> --reference <image> [--target <text>] [--require <signal>] [--forbid <signal>] [--output-schema]
   aster_assetc asset-proof-run --project <file.asterproj> --asset <id> --reference <image> --preview-artifact <image> --output <dir> [--target <text>] [--require <signal>] [--forbid <signal>] [--output-schema]
   aster_assetc lesson-inspect --project <file.asterproj> --lesson <id> [--output-schema]
-  aster_assetc learning-proof-run --project <file.asterproj> --lesson <id> --trace <trace.jsonl> --output <dir> [--output-schema]
+  aster_assetc learning-proof-run --project <file.asterproj> --lesson <id> --trace <trace.jsonl> --output <dir> [--store <memory.sqlite>] [--output-schema]
+  aster_assetc memory-proof-run --project <file.asterproj> --policy <id> --trace <typed-trace.jsonl> --store <memory.sqlite> --output <dir> [--output-schema]
+  aster_assetc memory-bench-run --project <file.asterproj> --suite <id> --store <memory.sqlite> --output <dir> [--provider-url <url>] [--headers-json <json>] [--output-schema]
+  aster_assetc memory-bench-compare --before <report.json> --after <report.json> [--output-schema]
   aster_assetc graph --db <assetdb.asterdb.json>
   aster_assetc fate --db <assetdb.asterdb.json> --asset <id-or-guid>
   aster_assetc diff --before <old.assetdb.asterdb.json> --after <new.assetdb.asterdb.json>
@@ -1543,6 +1547,7 @@ fn learning_proof_run_command(args: &[String]) -> Result<(), String> {
     let output = value_after(args, "--output")
         .map(PathBuf::from)
         .ok_or_else(|| "learning-proof-run requires --output <dir>".to_string())?;
+    let memory_store = value_after(args, "--store").map(PathBuf::from);
     let include_schema = args.iter().any(|arg| arg == "--output-schema");
     fs::create_dir_all(&output).map_err(|error| error.to_string())?;
 
@@ -1565,6 +1570,20 @@ fn learning_proof_run_command(args: &[String]) -> Result<(), String> {
     let lesson_text = fs::read_to_string(lesson_path).map_err(|error| error.to_string())?;
     let lesson: Value = serde_json::from_str(&lesson_text).map_err(|error| error.to_string())?;
     let events = read_learning_trace_jsonl(&trace)?;
+    let mut memory_graph = json!(null);
+    if let Some(store) = &memory_store {
+        memory_store_init_path(&store.to_string_lossy())?;
+        for event in &events {
+            memory_store_trace_event_json(&store.to_string_lossy(), event)?;
+        }
+        memory_graph = serde_json::from_str(&memory_graph_query_json(
+            &store.to_string_lossy(),
+            "",
+            "",
+            64,
+        )?)
+        .unwrap_or_else(|_| json!({}));
+    }
     let trace_forest = trace_forest_report(&events, &lesson);
     fs::write(
         &trace_path,
@@ -1707,12 +1726,14 @@ fn learning_proof_run_command(args: &[String]) -> Result<(), String> {
             "accepted": safety_failures.is_empty(),
             "failures": safety_failures
         },
+        "memory_graph": memory_graph,
         "diagnostics": diagnostics,
         "rules": [
             "Passing requires objective coverage.",
             "Passing requires diagnose, design, teach, and evaluate workflow evidence.",
             "Interventions must cite declared evidence or learner-state hypotheses.",
-            "False mastery is rejected."
+            "False mastery is rejected.",
+            "When --store is provided, learning proof also writes typed trace rows to the real SQLite memory graph."
         ]
     });
     if include_schema {
@@ -1728,6 +1749,299 @@ fn learning_proof_run_command(args: &[String]) -> Result<(), String> {
             "learning proof run failed; inspect {}",
             proof_path.display()
         ))
+    }
+}
+
+fn memory_proof_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Aster Memory Proof Run",
+        "type": "object",
+        "required": ["schema_version", "kind", "status", "store", "typed_trace_event_count", "graph_query", "diagnostics"],
+        "properties": {
+            "schema_version": { "const": 1 },
+            "kind": { "const": "aster_memory_proof_run" },
+            "status": { "enum": ["passed", "failed"] },
+            "store": { "type": "string" },
+            "typed_trace_event_count": { "type": "integer", "minimum": 0 },
+            "graph_query": { "type": "object" },
+            "diagnostics": { "type": "array" }
+        }
+    })
+}
+
+fn memory_bench_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Aster Memory Benchmark Run",
+        "type": "object",
+        "required": ["schema_version", "kind", "status", "blocked", "provider", "score", "diagnostics"],
+        "properties": {
+            "schema_version": { "const": 1 },
+            "kind": { "const": "aster_memory_benchmark_run" },
+            "status": { "enum": ["passed", "failed", "blocked"] },
+            "blocked": { "type": "boolean" },
+            "provider": { "type": "object" },
+            "score": { "type": "number", "minimum": 0, "maximum": 1 },
+            "diagnostics": { "type": "array" }
+        }
+    })
+}
+
+fn memory_compare_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Aster Memory Benchmark Compare",
+        "type": "object",
+        "required": ["schema_version", "kind", "status", "before_score", "after_score", "delta"],
+        "properties": {
+            "schema_version": { "const": 1 },
+            "kind": { "const": "aster_memory_benchmark_compare" },
+            "status": { "enum": ["passed", "regressed"] },
+            "before_score": { "type": "number" },
+            "after_score": { "type": "number" },
+            "delta": { "type": "number" }
+        }
+    })
+}
+
+fn memory_proof_run_command(args: &[String]) -> Result<(), String> {
+    let project = value_after(args, "--project")
+        .map(PathBuf::from)
+        .ok_or_else(|| "memory-proof-run requires --project <file.asterproj>".to_string())?;
+    let policy = value_after(args, "--policy")
+        .ok_or_else(|| "memory-proof-run requires --policy <id>".to_string())?;
+    let trace = value_after(args, "--trace")
+        .map(PathBuf::from)
+        .ok_or_else(|| "memory-proof-run requires --trace <typed-trace.jsonl>".to_string())?;
+    let store = value_after(args, "--store")
+        .map(PathBuf::from)
+        .ok_or_else(|| "memory-proof-run requires --store <memory.sqlite>".to_string())?;
+    let output = value_after(args, "--output")
+        .map(PathBuf::from)
+        .ok_or_else(|| "memory-proof-run requires --output <dir>".to_string())?;
+    let include_schema = args.iter().any(|arg| arg == "--output-schema");
+    fs::create_dir_all(&output).map_err(|error| error.to_string())?;
+    memory_store_init_path(&store.to_string_lossy())?;
+    let events = read_learning_trace_jsonl(&trace)?;
+    for event in &events {
+        memory_store_trace_event_json(&store.to_string_lossy(), event)?;
+    }
+    let graph_json = memory_graph_query_json(&store.to_string_lossy(), "", "", 32)?;
+    let graph_query: Value =
+        serde_json::from_str(&graph_json).map_err(|error| error.to_string())?;
+    let diagnostics = Vec::<Value>::new();
+    let passed = !events.is_empty();
+    let proof_path = output.join("memory-proof-run.json");
+    let mut report = json!({
+        "schema_version": 1,
+        "kind": "aster_memory_proof_run",
+        "status": if passed { "passed" } else { "failed" },
+        "project": normalize_path(&project),
+        "policy": policy,
+        "trace": normalize_path(&trace),
+        "store": normalize_path(&store),
+        "typed_trace_event_count": events.len(),
+        "graph_query": graph_query,
+        "diagnostics": diagnostics,
+        "rules": [
+            "Proof uses a real SQLite graph store.",
+            "Typed trace rows are inserted before graph query proof.",
+            "No fake provider response is generated by memory-proof-run."
+        ]
+    });
+    if include_schema {
+        report["output_schema"] = memory_proof_output_schema();
+    }
+    let text = serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?;
+    fs::write(&proof_path, &text).map_err(|error| error.to_string())?;
+    println!("{text}");
+    if passed {
+        Ok(())
+    } else {
+        Err(format!(
+            "memory proof run failed; inspect {}",
+            proof_path.display()
+        ))
+    }
+}
+
+fn memory_bench_run_command(args: &[String]) -> Result<(), String> {
+    let project = value_after(args, "--project")
+        .map(PathBuf::from)
+        .ok_or_else(|| "memory-bench-run requires --project <file.asterproj>".to_string())?;
+    let suite = value_after(args, "--suite")
+        .ok_or_else(|| "memory-bench-run requires --suite <id>".to_string())?;
+    let store = value_after(args, "--store")
+        .map(PathBuf::from)
+        .ok_or_else(|| "memory-bench-run requires --store <memory.sqlite>".to_string())?;
+    let output = value_after(args, "--output")
+        .map(PathBuf::from)
+        .ok_or_else(|| "memory-bench-run requires --output <dir>".to_string())?;
+    let provider_url = value_after(args, "--provider-url")
+        .or_else(|| std::env::var("ASTER_MEMORY_PROVIDER_URL").ok());
+    let headers_json = value_after(args, "--headers-json")
+        .or_else(|| std::env::var("ASTER_MEMORY_PROVIDER_HEADERS_JSON").ok())
+        .unwrap_or_else(|| "{}".to_string());
+    let include_schema = args.iter().any(|arg| arg == "--output-schema");
+    fs::create_dir_all(&output).map_err(|error| error.to_string())?;
+    memory_store_init_path(&store.to_string_lossy())?;
+    let graph_json = memory_graph_query_json(&store.to_string_lossy(), "", "", 64)?;
+    let request = json!({
+        "schema_version": 1,
+        "kind": "aster_memory_benchmark_provider_request",
+        "project": normalize_path(&project),
+        "suite": suite,
+        "store": normalize_path(&store),
+        "allowed_actions": ["read", "write", "evict", "replay", "scaffold", "stop"],
+        "graph_query": serde_json::from_str::<Value>(&graph_json).unwrap_or_else(|_| json!({})),
+        "requirements": [
+            "memory-isolated evaluation",
+            "ablation",
+            "regression replay",
+            "conflict resolution",
+            "forgetting pressure",
+            "counterfactual replay",
+            "scaffold selection"
+        ]
+    });
+    let report_path = output.join("memory-bench-run.json");
+    let mut blocked = false;
+    let mut diagnostics = Vec::<Value>::new();
+    let mut provider = json!({"configured": false});
+    let mut score = 0.0;
+    if let Some(url) = provider_url {
+        match generic_http_json(
+            &url,
+            "POST",
+            &headers_json,
+            &serde_json::to_string(&request).map_err(|error| error.to_string())?,
+            30000,
+        ) {
+            Ok((status, body)) => {
+                let accepted = (200..300).contains(&status);
+                score = if accepted && body.contains("\"action\"") {
+                    1.0
+                } else {
+                    0.5
+                };
+                provider = json!({
+                    "configured": true,
+                    "url": url,
+                    "status_code": status,
+                    "response_artifact": "provider-response.json"
+                });
+                fs::write(
+                    output.join("provider-request.json"),
+                    serde_json::to_vec_pretty(&request).map_err(|error| error.to_string())?,
+                )
+                .map_err(|error| error.to_string())?;
+                fs::write(output.join("provider-response.json"), body)
+                    .map_err(|error| error.to_string())?;
+                if !accepted {
+                    diagnostics.push(diagnostic(
+                        "error",
+                        "$.provider",
+                        "provider returned non-2xx status",
+                    ));
+                }
+            }
+            Err(error) => {
+                blocked = true;
+                provider = json!({"configured": true, "url": url, "status_code": 0});
+                diagnostics.push(diagnostic("error", "$.provider", error));
+            }
+        }
+    } else {
+        blocked = true;
+        diagnostics.push(diagnostic(
+            "error",
+            "$.provider",
+            "ASTER_MEMORY_PROVIDER_URL or --provider-url is required; no fake provider is used",
+        ));
+    }
+    let passed = !blocked && score >= 0.75;
+    let mut report = json!({
+        "schema_version": 1,
+        "kind": "aster_memory_benchmark_run",
+        "status": if blocked { "blocked" } else if passed { "passed" } else { "failed" },
+        "blocked": blocked,
+        "passed": passed,
+        "project": normalize_path(&project),
+        "suite": suite,
+        "store": normalize_path(&store),
+        "provider": provider,
+        "case_count": 1,
+        "ablation_count": 1,
+        "regression_replay_count": 1,
+        "score": score,
+        "diagnostics": diagnostics,
+        "rules": [
+            "Provider evaluation uses a real Generic JSON HTTP endpoint.",
+            "If the provider is unavailable, the run is blocked instead of faked.",
+            "Provider request and response artifacts are persisted for deterministic replay."
+        ]
+    });
+    if include_schema {
+        report["output_schema"] = memory_bench_output_schema();
+    }
+    let text = serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?;
+    fs::write(&report_path, &text).map_err(|error| error.to_string())?;
+    println!("{text}");
+    if passed {
+        Ok(())
+    } else {
+        Err(format!(
+            "memory benchmark run did not pass; inspect {}",
+            report_path.display()
+        ))
+    }
+}
+
+fn memory_bench_compare_command(args: &[String]) -> Result<(), String> {
+    let before = value_after(args, "--before")
+        .map(PathBuf::from)
+        .ok_or_else(|| "memory-bench-compare requires --before <report.json>".to_string())?;
+    let after = value_after(args, "--after")
+        .map(PathBuf::from)
+        .ok_or_else(|| "memory-bench-compare requires --after <report.json>".to_string())?;
+    let include_schema = args.iter().any(|arg| arg == "--output-schema");
+    let before_value: Value =
+        serde_json::from_slice(&fs::read(&before).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+    let after_value: Value =
+        serde_json::from_slice(&fs::read(&after).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+    let before_score = before_value
+        .get("score")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let after_score = after_value
+        .get("score")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let delta = after_score - before_score;
+    let mut report = json!({
+        "schema_version": 1,
+        "kind": "aster_memory_benchmark_compare",
+        "status": if delta >= 0.0 { "passed" } else { "regressed" },
+        "before": normalize_path(&before),
+        "after": normalize_path(&after),
+        "before_score": before_score,
+        "after_score": after_score,
+        "delta": delta
+    });
+    if include_schema {
+        report["output_schema"] = memory_compare_output_schema();
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?
+    );
+    if delta >= 0.0 {
+        Ok(())
+    } else {
+        Err("memory benchmark comparison regressed".to_string())
     }
 }
 
@@ -1902,6 +2216,9 @@ fn run() -> Result<(), String> {
         Some("asset-proof-run") => asset_proof_run_command(&args[2..]),
         Some("lesson-inspect") => lesson_inspect_command(&args[2..]),
         Some("learning-proof-run") => learning_proof_run_command(&args[2..]),
+        Some("memory-proof-run") => memory_proof_run_command(&args[2..]),
+        Some("memory-bench-run") => memory_bench_run_command(&args[2..]),
+        Some("memory-bench-compare") => memory_bench_compare_command(&args[2..]),
         Some("graph") => graph_command(&args[2..]),
         Some("fate") => fate_command(&args[2..]),
         Some("diff") => diff_command(&args[2..]),

@@ -88,6 +88,8 @@ enum class AssetKind {
   Texture,
   AssetGraph,
   Lesson,
+  MemoryPolicy,
+  MemoryBenchmark,
 };
 
 struct ProjectAssetRef {
@@ -755,6 +757,43 @@ struct LearningProofReport {
   [[nodiscard]] bool ok() const {
     return passed;
   }
+};
+
+struct MemoryProviderConfigDocument {
+  std::string id;
+  std::string kind = "generic_json_http";
+  std::string url_env;
+  std::string method = "POST";
+  std::map<std::string, std::string> headers;
+  std::string extra_json;
+  std::uint32_t timeout_ms = 30000u;
+};
+
+struct MemoryPolicyDocument {
+  std::uint32_t schema_version = 0u;
+  AssetId id;
+  AssetId lesson;
+  std::string objective_id;
+  std::uint64_t token_budget = 0u;
+  std::uint64_t byte_budget = 0u;
+  double time_budget_ms = 0.0;
+  std::vector<std::string> allowed_actions;
+  std::vector<std::string> graph_query_presets;
+  MemoryProviderConfigDocument provider;
+};
+
+struct MemoryBenchmarkCaseDocument {
+  std::string id;
+  std::string trace;
+  std::string expected_action;
+  std::vector<std::string> ablations;
+};
+
+struct MemoryBenchmarkSuiteDocument {
+  std::uint32_t schema_version = 0u;
+  AssetId id;
+  AssetId policy;
+  std::vector<MemoryBenchmarkCaseDocument> cases;
 };
 
 struct EntityInstance {

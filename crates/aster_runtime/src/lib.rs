@@ -2,8 +2,14 @@
 // Copyright (c) 2026 Faruk Alpay
 
 use std::cmp::Ordering;
+use std::ffi::CString;
+use std::io::Read;
+use std::os::raw::c_char;
 use std::slice;
 use std::time::Instant;
+
+use rusqlite::{params, Connection};
+use serde_json::json;
 
 const ASTER_RENDER_FLAG_FADE_ELIGIBLE: u32 = 1 << 0;
 const ASTER_RENDER_QUEUE_TRANSLUCENT: u32 = 2;
@@ -809,6 +815,656 @@ pub extern "C" fn aster_runtime_measure_mesh_cut(
     1
 }
 
+fn abi_string(ptr: *const c_char, len: usize) -> Result<String, String> {
+    if ptr.is_null() {
+        if len == 0 {
+            return Ok(String::new());
+        }
+        return Err("string pointer is null".to_string());
+    }
+    let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len) };
+    String::from_utf8(bytes.to_vec()).map_err(|error| error.to_string())
+}
+
+fn write_diagnostic(ptr: *mut c_char, len: usize, text: &str) {
+    if ptr.is_null() || len == 0 {
+        return;
+    }
+    let bytes = text.as_bytes();
+    let n = bytes.len().min(len.saturating_sub(1));
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, n);
+        *ptr.add(n) = 0;
+    }
+}
+
+fn alloc_c_string(text: String) -> *mut c_char {
+    CString::new(text)
+        .unwrap_or_else(|_| CString::new("string contained interior nul").expect("static cstr"))
+        .into_raw()
+}
+
+fn memory_store_schema(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        PRAGMA journal_mode = WAL;
+        CREATE TABLE IF NOT EXISTS typed_trace_events (
+          sequence INTEGER NOT NULL,
+          tick INTEGER NOT NULL,
+          domain INTEGER NOT NULL,
+          kind INTEGER NOT NULL,
+          subject TEXT NOT NULL,
+          semantic_key TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          value_hash INTEGER NOT NULL,
+          trace_hash INTEGER NOT NULL PRIMARY KEY
+        );
+        CREATE TABLE IF NOT EXISTS memory_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          subject TEXT NOT NULL,
+          semantic_key TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          value_hash INTEGER NOT NULL,
+          first_sequence INTEGER NOT NULL,
+          last_sequence INTEGER NOT NULL,
+          byte_cost INTEGER NOT NULL,
+          active INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS graph_nodes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          subject TEXT NOT NULL,
+          semantic_key TEXT NOT NULL,
+          node_kind TEXT NOT NULL,
+          value_hash INTEGER NOT NULL,
+          trace_hash INTEGER NOT NULL,
+          payload TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS graph_edges (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          source_subject TEXT NOT NULL,
+          target_subject TEXT NOT NULL,
+          semantic_key TEXT NOT NULL,
+          edge_kind TEXT NOT NULL,
+          evidence_hash INTEGER NOT NULL,
+          payload TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS memory_conflicts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          subject TEXT NOT NULL,
+          semantic_key TEXT NOT NULL,
+          previous_hash INTEGER NOT NULL,
+          new_hash INTEGER NOT NULL,
+          decision_sequence INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS provider_calls (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          status_code INTEGER NOT NULL,
+          request_json TEXT NOT NULL,
+          response_json TEXT NOT NULL,
+          diagnostic TEXT NOT NULL,
+          created_unix_ms INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+        );
+        CREATE TABLE IF NOT EXISTS memory_decisions (
+          sequence INTEGER NOT NULL PRIMARY KEY,
+          tick INTEGER NOT NULL,
+          action INTEGER NOT NULL,
+          status INTEGER NOT NULL,
+          subject TEXT NOT NULL,
+          semantic_key TEXT NOT NULL,
+          rationale TEXT NOT NULL,
+          confidence REAL NOT NULL,
+          success_score REAL NOT NULL,
+          token_cost INTEGER NOT NULL,
+          byte_cost INTEGER NOT NULL,
+          saved_bytes INTEGER NOT NULL,
+          provider_json TEXT NOT NULL,
+          decision_hash INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS benchmark_runs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          suite_id TEXT NOT NULL,
+          score REAL NOT NULL,
+          blocked INTEGER NOT NULL,
+          report_json TEXT NOT NULL
+        );
+        "#,
+    )
+}
+
+pub fn memory_store_init_path(path: &str) -> Result<(), String> {
+    let conn = Connection::open(path).map_err(|error| error.to_string())?;
+    memory_store_schema(&conn).map_err(|error| error.to_string())
+}
+
+pub fn memory_store_trace_event_json(
+    db_path: &str,
+    event: &serde_json::Value,
+) -> Result<(), String> {
+    let conn = Connection::open(db_path).map_err(|error| error.to_string())?;
+    memory_store_schema(&conn).map_err(|error| error.to_string())?;
+    let sequence = event
+        .get("sequence")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let tick = event
+        .get("tick")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let domain = event
+        .get("domain")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1);
+    let kind = event
+        .get("kind")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_else(|| {
+            if event.get("scaffold_id").is_some() {
+                8
+            } else {
+                2
+            }
+        });
+    let subject = event
+        .get("subject")
+        .or_else(|| event.get("lesson"))
+        .or_else(|| event.get("objective_id"))
+        .or_else(|| event.get("evidence_id"))
+        .or_else(|| event.get("stage"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("learning_trace");
+    let semantic_key = event
+        .get("semantic_key")
+        .or_else(|| event.get("key"))
+        .or_else(|| event.get("evidence_id"))
+        .or_else(|| event.get("objective_id"))
+        .or_else(|| event.get("scaffold_id"))
+        .or_else(|| event.get("event"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("learning_event");
+    let owned_payload;
+    let payload = if let Some(payload) = event.get("payload").and_then(serde_json::Value::as_str) {
+        payload
+    } else {
+        owned_payload = serde_json::to_string(event).map_err(|error| error.to_string())?;
+        &owned_payload
+    };
+    let value_hash = event
+        .get("value_hash")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_else(|| sequence.wrapping_mul(1_099_511_621));
+    let trace_hash = event
+        .get("trace_hash")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_else(|| value_hash ^ tick ^ domain ^ kind);
+    conn.execute(
+        "INSERT OR IGNORE INTO typed_trace_events
+         (sequence,tick,domain,kind,subject,semantic_key,payload,value_hash,trace_hash)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        params![
+            sequence as i64,
+            tick as i64,
+            domain as i64,
+            kind as i64,
+            subject,
+            semantic_key,
+            payload,
+            value_hash as i64,
+            trace_hash as i64
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    conn.execute(
+        "INSERT INTO graph_nodes
+         (subject,semantic_key,node_kind,value_hash,trace_hash,payload)
+         VALUES (?1,?2,'typed_trace',?3,?4,?5)",
+        params![
+            subject,
+            semantic_key,
+            value_hash as i64,
+            trace_hash as i64,
+            payload
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[no_mangle]
+pub extern "C" fn aster_runtime_free_string(value: *mut c_char) {
+    if value.is_null() {
+        return;
+    }
+    unsafe {
+        drop(CString::from_raw(value));
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn aster_runtime_memory_store_init(
+    db_path: *const c_char,
+    db_path_len: usize,
+    diagnostic: *mut c_char,
+    diagnostic_len: usize,
+) -> u32 {
+    let result = abi_string(db_path, db_path_len).and_then(|path| memory_store_init_path(&path));
+    match result {
+        Ok(()) => 1,
+        Err(error) => {
+            write_diagnostic(diagnostic, diagnostic_len, &error);
+            0
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn aster_runtime_memory_store_trace_event(
+    db_path: *const c_char,
+    db_path_len: usize,
+    domain: u32,
+    kind: u32,
+    sequence: u64,
+    tick: u64,
+    subject: *const c_char,
+    subject_len: usize,
+    semantic_key: *const c_char,
+    semantic_key_len: usize,
+    payload: *const c_char,
+    payload_len: usize,
+    value_hash: u64,
+    trace_hash: u64,
+    diagnostic: *mut c_char,
+    diagnostic_len: usize,
+) -> u32 {
+    let result = (|| -> Result<(), String> {
+        let path = abi_string(db_path, db_path_len)?;
+        let subject = abi_string(subject, subject_len)?;
+        let semantic_key = abi_string(semantic_key, semantic_key_len)?;
+        let payload = abi_string(payload, payload_len)?;
+        let conn = Connection::open(path).map_err(|error| error.to_string())?;
+        memory_store_schema(&conn).map_err(|error| error.to_string())?;
+        conn.execute(
+            "INSERT OR IGNORE INTO typed_trace_events
+             (sequence,tick,domain,kind,subject,semantic_key,payload,value_hash,trace_hash)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![
+                sequence as i64,
+                tick as i64,
+                domain as i64,
+                kind as i64,
+                subject,
+                semantic_key,
+                payload,
+                value_hash as i64,
+                trace_hash as i64
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+        conn.execute(
+            "INSERT INTO graph_nodes
+             (subject,semantic_key,node_kind,value_hash,trace_hash,payload)
+             VALUES (?1,?2,'typed_trace',?3,?4,?5)",
+            params![
+                subject,
+                semantic_key,
+                value_hash as i64,
+                trace_hash as i64,
+                payload
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => 1,
+        Err(error) => {
+            write_diagnostic(diagnostic, diagnostic_len, &error);
+            0
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn aster_runtime_memory_store_decision(
+    db_path: *const c_char,
+    db_path_len: usize,
+    sequence: u64,
+    tick: u64,
+    action: u32,
+    status: u32,
+    subject: *const c_char,
+    subject_len: usize,
+    semantic_key: *const c_char,
+    semantic_key_len: usize,
+    rationale: *const c_char,
+    rationale_len: usize,
+    confidence: f32,
+    success_score: f32,
+    token_cost: u64,
+    byte_cost: u64,
+    saved_bytes: u64,
+    provider_json: *const c_char,
+    provider_json_len: usize,
+    decision_hash: u64,
+    diagnostic: *mut c_char,
+    diagnostic_len: usize,
+) -> u32 {
+    let result = (|| -> Result<(), String> {
+        let path = abi_string(db_path, db_path_len)?;
+        let subject = abi_string(subject, subject_len)?;
+        let semantic_key = abi_string(semantic_key, semantic_key_len)?;
+        let rationale = abi_string(rationale, rationale_len)?;
+        let provider_json = abi_string(provider_json, provider_json_len)?;
+        let conn = Connection::open(path).map_err(|error| error.to_string())?;
+        memory_store_schema(&conn).map_err(|error| error.to_string())?;
+        if action == 1 {
+            let previous: Option<i64> = conn
+                .query_row(
+                    "SELECT value_hash FROM memory_items
+                     WHERE subject=?1 AND semantic_key=?2 AND active=1
+                     ORDER BY id DESC LIMIT 1",
+                    params![subject, semantic_key],
+                    |row| row.get(0),
+                )
+                .ok();
+            if let Some(previous_hash) = previous {
+                if previous_hash != decision_hash as i64 {
+                    conn.execute(
+                        "INSERT INTO memory_conflicts
+                         (subject,semantic_key,previous_hash,new_hash,decision_sequence)
+                         VALUES (?1,?2,?3,?4,?5)",
+                        params![
+                            subject,
+                            semantic_key,
+                            previous_hash,
+                            decision_hash as i64,
+                            sequence as i64
+                        ],
+                    )
+                    .map_err(|error| error.to_string())?;
+                }
+            }
+            conn.execute(
+                "INSERT INTO memory_items
+                 (subject,semantic_key,payload,value_hash,first_sequence,last_sequence,byte_cost,active)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,1)",
+                params![
+                    subject,
+                    semantic_key,
+                    rationale,
+                    decision_hash as i64,
+                    sequence as i64,
+                    sequence as i64,
+                    byte_cost as i64
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+        } else if action == 2 {
+            conn.execute(
+                "UPDATE memory_items SET active=0 WHERE subject=?1 AND semantic_key=?2",
+                params![subject, semantic_key],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        conn.execute(
+            "INSERT OR REPLACE INTO memory_decisions
+             (sequence,tick,action,status,subject,semantic_key,rationale,confidence,success_score,
+              token_cost,byte_cost,saved_bytes,provider_json,decision_hash)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+            params![
+                sequence as i64,
+                tick as i64,
+                action as i64,
+                status as i64,
+                subject,
+                semantic_key,
+                rationale,
+                confidence as f64,
+                success_score as f64,
+                token_cost as i64,
+                byte_cost as i64,
+                saved_bytes as i64,
+                provider_json,
+                decision_hash as i64
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => 1,
+        Err(error) => {
+            write_diagnostic(diagnostic, diagnostic_len, &error);
+            0
+        }
+    }
+}
+
+pub fn memory_graph_query_json(
+    db_path: &str,
+    subject: &str,
+    semantic_key: &str,
+    limit: usize,
+) -> Result<String, String> {
+    let conn = Connection::open(db_path).map_err(|error| error.to_string())?;
+    memory_store_schema(&conn).map_err(|error| error.to_string())?;
+    let memory_item_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memory_items
+             WHERE (?1='' OR subject=?1) AND (?2='' OR semantic_key=?2) AND active=1",
+            params![subject, semantic_key],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let trace_node_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM graph_nodes
+             WHERE (?1='' OR subject=?1) AND (?2='' OR semantic_key=?2)",
+            params![subject, semantic_key],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let conflict_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM memory_conflicts
+             WHERE (?1='' OR subject=?1) AND (?2='' OR semantic_key=?2)",
+            params![subject, semantic_key],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let mut items = Vec::new();
+    let mut stmt = conn
+        .prepare(
+            "SELECT subject, semantic_key, payload, value_hash, byte_cost
+             FROM memory_items
+             WHERE (?1='' OR subject=?1) AND (?2='' OR semantic_key=?2) AND active=1
+             ORDER BY id DESC LIMIT ?3",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![subject, semantic_key, limit as i64], |row| {
+            Ok(json!({
+                "subject": row.get::<_, String>(0)?,
+                "semantic_key": row.get::<_, String>(1)?,
+                "payload": row.get::<_, String>(2)?,
+                "value_hash": row.get::<_, i64>(3)?,
+                "byte_cost": row.get::<_, i64>(4)?,
+            }))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        items.push(row.map_err(|error| error.to_string())?);
+    }
+    let mut trace_nodes = Vec::new();
+    let mut trace_stmt = conn
+        .prepare(
+            "SELECT subject, semantic_key, node_kind, value_hash, trace_hash, payload
+             FROM graph_nodes
+             WHERE (?1='' OR subject=?1) AND (?2='' OR semantic_key=?2)
+             ORDER BY id DESC LIMIT ?3",
+        )
+        .map_err(|error| error.to_string())?;
+    let trace_rows = trace_stmt
+        .query_map(params![subject, semantic_key, limit as i64], |row| {
+            Ok(json!({
+                "subject": row.get::<_, String>(0)?,
+                "semantic_key": row.get::<_, String>(1)?,
+                "node_kind": row.get::<_, String>(2)?,
+                "value_hash": row.get::<_, i64>(3)?,
+                "trace_hash": row.get::<_, i64>(4)?,
+                "payload": row.get::<_, String>(5)?,
+            }))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in trace_rows {
+        trace_nodes.push(row.map_err(|error| error.to_string())?);
+    }
+    let value = json!({
+        "schema_version": 1,
+        "kind": "aster_memory_graph_query",
+        "node_count": memory_item_count + trace_node_count,
+        "memory_item_count": memory_item_count,
+        "trace_node_count": trace_node_count,
+        "edge_count": conflict_count,
+        "conflict_count": conflict_count,
+        "items": items,
+        "trace_nodes": trace_nodes,
+    });
+    serde_json::to_string(&value).map_err(|error| error.to_string())
+}
+
+#[no_mangle]
+pub extern "C" fn aster_runtime_memory_graph_query(
+    db_path: *const c_char,
+    db_path_len: usize,
+    subject: *const c_char,
+    subject_len: usize,
+    semantic_key: *const c_char,
+    semantic_key_len: usize,
+    limit: usize,
+    out_json: *mut *mut c_char,
+    diagnostic: *mut c_char,
+    diagnostic_len: usize,
+) -> u32 {
+    if out_json.is_null() {
+        write_diagnostic(diagnostic, diagnostic_len, "out_json is null");
+        return 0;
+    }
+    let result = (|| -> Result<String, String> {
+        let path = abi_string(db_path, db_path_len)?;
+        let subject = abi_string(subject, subject_len)?;
+        let semantic_key = abi_string(semantic_key, semantic_key_len)?;
+        memory_graph_query_json(&path, &subject, &semantic_key, limit)
+    })();
+    match result {
+        Ok(json) => {
+            unsafe {
+                *out_json = alloc_c_string(json);
+            }
+            1
+        }
+        Err(error) => {
+            write_diagnostic(diagnostic, diagnostic_len, &error);
+            0
+        }
+    }
+}
+
+pub fn generic_http_json(
+    url: &str,
+    method: &str,
+    headers_json: &str,
+    body_json: &str,
+    timeout_ms: u32,
+) -> Result<(u16, String), String> {
+    let timeout = std::time::Duration::from_millis(timeout_ms.max(1) as u64);
+    let agent = ureq::AgentBuilder::new().timeout(timeout).build();
+    let method = method.to_ascii_uppercase();
+    let mut request = match method.as_str() {
+        "GET" => agent.get(url),
+        "PUT" => agent.put(url),
+        "PATCH" => agent.request("PATCH", url),
+        "DELETE" => agent.delete(url),
+        _ => agent.post(url),
+    };
+    if !headers_json.trim().is_empty() {
+        let headers: serde_json::Value =
+            serde_json::from_str(headers_json).map_err(|error| error.to_string())?;
+        if let Some(object) = headers.as_object() {
+            for (key, value) in object {
+                if let Some(value) = value.as_str() {
+                    let header_value = if let Some(env_key) = value.strip_prefix("env:") {
+                        std::env::var(env_key)
+                            .map_err(|_| format!("missing env header {env_key}"))?
+                    } else {
+                        value.to_string()
+                    };
+                    request = request.set(key, &header_value);
+                }
+            }
+        }
+    }
+    request = request.set("content-type", "application/json");
+    let response = if method == "GET" {
+        request.call()
+    } else {
+        request.send_string(body_json)
+    }
+    .map_err(|error| error.to_string())?;
+    let status = response.status();
+    let mut reader = response.into_reader();
+    let mut body = String::new();
+    reader
+        .read_to_string(&mut body)
+        .map_err(|error| error.to_string())?;
+    Ok((status, body))
+}
+
+#[no_mangle]
+pub extern "C" fn aster_runtime_generic_http_json(
+    url: *const c_char,
+    url_len: usize,
+    method: *const c_char,
+    method_len: usize,
+    headers_json: *const c_char,
+    headers_json_len: usize,
+    body_json: *const c_char,
+    body_json_len: usize,
+    timeout_ms: u32,
+    out_status_code: *mut u32,
+    out_body: *mut *mut c_char,
+    diagnostic: *mut c_char,
+    diagnostic_len: usize,
+) -> u32 {
+    if out_status_code.is_null() || out_body.is_null() {
+        write_diagnostic(diagnostic, diagnostic_len, "HTTP output pointers are null");
+        return 0;
+    }
+    let result = (|| -> Result<(u16, String), String> {
+        let url = abi_string(url, url_len)?;
+        let method = abi_string(method, method_len)?;
+        let headers_json = abi_string(headers_json, headers_json_len)?;
+        let body_json = abi_string(body_json, body_json_len)?;
+        generic_http_json(&url, &method, &headers_json, &body_json, timeout_ms)
+    })();
+    match result {
+        Ok((status, body)) => {
+            unsafe {
+                *out_status_code = status as u32;
+                *out_body = alloc_c_string(body);
+            }
+            1
+        }
+        Err(error) => {
+            unsafe {
+                *out_status_code = 0;
+                *out_body = std::ptr::null_mut();
+            }
+            write_diagnostic(diagnostic, diagnostic_len, &error);
+            0
+        }
+    }
+}
+
 pub mod software_raster {
     #[derive(Clone, Copy, Debug, Default)]
     pub struct RasterVertex {
@@ -985,6 +1641,136 @@ mod tests {
             near_plane: 0.01,
             far_plane: 20.0,
         }
+    }
+
+    fn temp_memory_db(name: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{name}_{nanos}.sqlite"))
+    }
+
+    fn remove_sqlite_family(path: &std::path::Path) {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+    }
+
+    #[test]
+    fn memory_store_schema_conflicts_and_graph_queries_use_real_sqlite() {
+        let path = temp_memory_db("aster_runtime_memory_store");
+        let db = path.to_string_lossy().to_string();
+        memory_store_init_path(&db).expect("sqlite schema initializes");
+        memory_store_trace_event_json(
+            &db,
+            &json!({
+                "sequence": 1,
+                "tick": 1,
+                "domain": 1,
+                "kind": 5,
+                "subject": "entity.player",
+                "semantic_key": "lesson.lumen_mining.tool",
+                "payload": "pickaxe_missing",
+                "value_hash": 101,
+                "trace_hash": 1001
+            }),
+        )
+        .expect("trace event persists");
+
+        let subject = "entity.player";
+        let key = "lesson.lumen_mining.tool";
+        let first_rationale = "typed trace produced a memory write";
+        let second_rationale = "new trace supersedes the prior write";
+        let mut diagnostic = [0i8; 512];
+        let ok = aster_runtime_memory_store_decision(
+            db.as_ptr() as *const c_char,
+            db.len(),
+            1,
+            1,
+            1,
+            0,
+            subject.as_ptr() as *const c_char,
+            subject.len(),
+            key.as_ptr() as *const c_char,
+            key.len(),
+            first_rationale.as_ptr() as *const c_char,
+            first_rationale.len(),
+            0.8,
+            0.9,
+            32,
+            64,
+            0,
+            b"{}".as_ptr() as *const c_char,
+            2,
+            11,
+            diagnostic.as_mut_ptr(),
+            diagnostic.len(),
+        );
+        assert_eq!(ok, 1);
+        let ok = aster_runtime_memory_store_decision(
+            db.as_ptr() as *const c_char,
+            db.len(),
+            2,
+            2,
+            1,
+            0,
+            subject.as_ptr() as *const c_char,
+            subject.len(),
+            key.as_ptr() as *const c_char,
+            key.len(),
+            second_rationale.as_ptr() as *const c_char,
+            second_rationale.len(),
+            0.7,
+            0.8,
+            32,
+            64,
+            0,
+            b"{}".as_ptr() as *const c_char,
+            2,
+            12,
+            diagnostic.as_mut_ptr(),
+            diagnostic.len(),
+        );
+        assert_eq!(ok, 1);
+
+        let result = memory_graph_query_json(&db, subject, key, 8).expect("graph query");
+        let value: serde_json::Value = serde_json::from_str(&result).expect("json result");
+        assert_eq!(value["kind"], "aster_memory_graph_query");
+        assert_eq!(value["node_count"], 3);
+        assert_eq!(value["memory_item_count"], 2);
+        assert_eq!(value["trace_node_count"], 1);
+        assert_eq!(value["conflict_count"], 1);
+        assert_eq!(value["items"].as_array().expect("items").len(), 2);
+        assert_eq!(
+            value["trace_nodes"].as_array().expect("trace nodes").len(),
+            1
+        );
+        remove_sqlite_family(&path);
+    }
+
+    #[test]
+    fn generic_json_http_provider_rejects_invalid_config_without_fake_server() {
+        let invalid_headers = generic_http_json(
+            "https://provider.invalid/aster-memory",
+            "POST",
+            "{",
+            "{\"schema_version\":1}",
+            1,
+        );
+        assert!(invalid_headers.is_err());
+
+        let missing_env_header = generic_http_json(
+            "https://provider.invalid/aster-memory",
+            "POST",
+            "{\"authorization\":\"env:ASTER_TEST_HEADER_THAT_SHOULD_NOT_EXIST\"}",
+            "{\"schema_version\":1}",
+            1,
+        );
+        assert!(missing_env_header.is_err());
+        assert!(missing_env_header
+            .unwrap_err()
+            .contains("missing env header ASTER_TEST_HEADER_THAT_SHOULD_NOT_EXIST"));
     }
 
     #[test]

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "memory.bench.lumen_mining",
+  "policy": "memory.policy.lumen_mining",
+  "cases": [
+    {
+      "id": "memgym.isolated_mining_loop",
+      "trace": "lessons/lumen_mining.trace.jsonl",
+      "expected_action": "write",
+      "ablations": ["no_retrieval", "no_write", "no_replay"]
+    },
+    {
+      "id": "memgym.conflict_tool_affordance",
+      "trace": "lessons/lumen_mining.trace.jsonl",
+      "expected_action": "replay",
+      "ablations": ["stale_tool_memory", "no_conflict_edges"]
+    },
+    {
+      "id": "memgym.forgetting_pressure",
+      "trace": "lessons/lumen_mining.trace.jsonl",
+      "expected_action": "evict",
+      "ablations": ["unbounded_memory", "no_budget"]
+    }
+  ],
+  "regression_replay": {
+    "requires_persisted_provider_response": true,
+    "artifact": "memory-bench-run/provider-response.json"
+  }
+}

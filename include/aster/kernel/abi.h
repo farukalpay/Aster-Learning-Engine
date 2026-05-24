@@ -23,8 +23,8 @@
 extern "C" {
 #endif
 
-#define ASTER_KERNEL_ABI_MAJOR 7u
-#define ASTER_KERNEL_ABI_MINOR 1u
+#define ASTER_KERNEL_ABI_MAJOR 8u
+#define ASTER_KERNEL_ABI_MINOR 0u
 #define ASTER_KERNEL_ABI_PATCH 0u
 #define ASTER_KERNEL_STRUCT_VERSION_1 1u
 
@@ -74,6 +74,7 @@ typedef struct AsterMaterialHandle__ *AsterMaterialHandle;
 typedef struct AsterPhysicsWorldHandle__ *AsterPhysicsWorldHandle;
 typedef struct AsterWorldHandle__ *AsterWorldHandle;
 typedef struct AsterSystemWorldHandle__ *AsterSystemWorldHandle;
+typedef struct AsterMemoryControllerHandle__ *AsterMemoryControllerHandle;
 typedef struct AsterSampleAppHandle__ *AsterSampleAppHandle;
 typedef struct AsterShaderArtifactHandle__ *AsterShaderArtifactHandle;
 typedef struct AsterRenderPipelineHandle__ *AsterRenderPipelineHandle;
@@ -545,6 +546,56 @@ typedef enum AsterSystemTraceEventKind {
   ASTER_SYSTEM_TRACE_REPLAY = 15,
   ASTER_SYSTEM_TRACE_VALIDATION_ERROR = 16
 } AsterSystemTraceEventKind;
+
+typedef enum AsterTypedTraceDomain {
+  ASTER_TYPED_TRACE_GAMEPLAY = 0,
+  ASTER_TYPED_TRACE_LEARNING = 1,
+  ASTER_TYPED_TRACE_MEMORY = 2,
+  ASTER_TYPED_TRACE_PERCEPTUAL = 3,
+  ASTER_TYPED_TRACE_CAUSALITY = 4,
+  ASTER_TYPED_TRACE_RESIDENCY = 5,
+  ASTER_TYPED_TRACE_RENDER = 6,
+  ASTER_TYPED_TRACE_ASSET = 7,
+  ASTER_TYPED_TRACE_AI = 8,
+  ASTER_TYPED_TRACE_BENCHMARK = 9,
+  ASTER_TYPED_TRACE_TOOL = 10
+} AsterTypedTraceDomain;
+
+typedef enum AsterTypedTraceEventKind {
+  ASTER_TYPED_TRACE_INPUT = 0,
+  ASTER_TYPED_TRACE_STATE_READ = 1,
+  ASTER_TYPED_TRACE_STATE_WRITE = 2,
+  ASTER_TYPED_TRACE_REDUCER_APPLIED = 3,
+  ASTER_TYPED_TRACE_MEMORY_READ = 4,
+  ASTER_TYPED_TRACE_MEMORY_WRITE = 5,
+  ASTER_TYPED_TRACE_MEMORY_EVICT = 6,
+  ASTER_TYPED_TRACE_MEMORY_REPLAY = 7,
+  ASTER_TYPED_TRACE_SCAFFOLD_DECISION = 8,
+  ASTER_TYPED_TRACE_PROVIDER_REQUEST = 9,
+  ASTER_TYPED_TRACE_PROVIDER_RESPONSE = 10,
+  ASTER_TYPED_TRACE_GRAPH_NODE = 11,
+  ASTER_TYPED_TRACE_GRAPH_EDGE = 12,
+  ASTER_TYPED_TRACE_BENCHMARK_CASE = 13,
+  ASTER_TYPED_TRACE_BENCHMARK_ABLATION = 14,
+  ASTER_TYPED_TRACE_STOP = 15,
+  ASTER_TYPED_TRACE_VALIDATION_ERROR = 16
+} AsterTypedTraceEventKind;
+
+typedef enum AsterMemoryActionKind {
+  ASTER_MEMORY_ACTION_READ = 0,
+  ASTER_MEMORY_ACTION_WRITE = 1,
+  ASTER_MEMORY_ACTION_EVICT = 2,
+  ASTER_MEMORY_ACTION_REPLAY = 3,
+  ASTER_MEMORY_ACTION_SCAFFOLD = 4,
+  ASTER_MEMORY_ACTION_STOP = 5
+} AsterMemoryActionKind;
+
+typedef enum AsterMemoryDecisionStatus {
+  ASTER_MEMORY_DECISION_ACCEPTED = 0,
+  ASTER_MEMORY_DECISION_REJECTED = 1,
+  ASTER_MEMORY_DECISION_BLOCKED = 2,
+  ASTER_MEMORY_DECISION_PROVIDER_ERROR = 3
+} AsterMemoryDecisionStatus;
 
 typedef enum AsterResidencyDecisionKind {
   ASTER_RESIDENCY_KEEP = 0,
@@ -1989,6 +2040,131 @@ typedef struct AsterSystemTraceEvent {
   uint64_t trace_hash;
 } AsterSystemTraceEvent;
 
+typedef struct AsterTypedTraceCounts {
+  size_t size;
+  uint32_t version;
+  size_t event_count;
+  uint64_t tick;
+  uint64_t typed_trace_hash;
+} AsterTypedTraceCounts;
+
+typedef struct AsterTypedTraceEvent {
+  size_t size;
+  uint32_t version;
+  AsterTypedTraceDomain domain;
+  AsterTypedTraceEventKind kind;
+  uint64_t sequence;
+  uint64_t tick;
+  AsterStringView subject;
+  AsterStringView semantic_key;
+  AsterStringView payload;
+  uint64_t value_hash;
+  uint64_t parent_trace_hash;
+  uint64_t trace_hash;
+} AsterTypedTraceEvent;
+
+typedef struct AsterMemoryBudget {
+  size_t size;
+  uint32_t version;
+  uint64_t token_budget;
+  uint64_t byte_budget;
+  double time_budget_ms;
+} AsterMemoryBudget;
+
+typedef struct AsterMemoryProviderConfig {
+  size_t size;
+  uint32_t version;
+  AsterStringView url;
+  AsterStringView method;
+  AsterStringView headers_json;
+  AsterStringView extra_json;
+  uint32_t timeout_ms;
+  uint32_t require_provider;
+} AsterMemoryProviderConfig;
+
+typedef struct AsterMemoryControllerDesc {
+  size_t size;
+  uint32_t version;
+  AsterStringView controller_id;
+  AsterStringView store_path;
+  AsterStringView objective_id;
+  AsterMemoryBudget budget;
+  AsterMemoryProviderConfig provider;
+  size_t trace_window;
+} AsterMemoryControllerDesc;
+
+typedef struct AsterMemoryControllerStepDesc {
+  size_t size;
+  uint32_t version;
+  AsterStringView task;
+  AsterStringView subject;
+  AsterStringView semantic_key;
+  AsterMemoryBudget budget;
+  uint32_t allow_read;
+  uint32_t allow_write;
+  uint32_t allow_evict;
+  uint32_t allow_replay;
+  uint32_t allow_scaffold;
+  uint32_t allow_stop;
+} AsterMemoryControllerStepDesc;
+
+typedef struct AsterMemoryDecisionInfo {
+  size_t size;
+  uint32_t version;
+  uint64_t sequence;
+  uint64_t tick;
+  AsterMemoryActionKind action;
+  AsterMemoryDecisionStatus status;
+  AsterStringView subject;
+  AsterStringView semantic_key;
+  AsterStringView rationale;
+  AsterStringView provider_status;
+  AsterStringView artifact_path;
+  float confidence;
+  float success_score;
+  uint64_t token_cost;
+  uint64_t byte_cost;
+  uint64_t saved_bytes;
+  uint64_t provider_status_code;
+  uint64_t decision_hash;
+} AsterMemoryDecisionInfo;
+
+typedef struct AsterGraphQueryDesc {
+  size_t size;
+  uint32_t version;
+  AsterStringView store_path;
+  AsterStringView subject;
+  AsterStringView semantic_key;
+  size_t limit;
+} AsterGraphQueryDesc;
+
+typedef struct AsterGraphQueryResult {
+  size_t size;
+  uint32_t version;
+  size_t node_count;
+  size_t edge_count;
+  size_t conflict_count;
+  uint64_t query_hash;
+  AsterStringView json;
+  AsterStringView diagnostic;
+} AsterGraphQueryResult;
+
+typedef struct AsterMemoryBenchmarkReport {
+  size_t size;
+  uint32_t version;
+  AsterStringView suite_id;
+  AsterStringView store_path;
+  AsterStringView artifact_path;
+  uint32_t blocked;
+  uint32_t passed;
+  size_t case_count;
+  size_t ablation_count;
+  size_t regression_replay_count;
+  float score;
+  uint64_t report_hash;
+  AsterStringView diagnostic;
+} AsterMemoryBenchmarkReport;
+
 typedef struct AsterAssetLineageInfo {
   size_t size;
   uint32_t version;
@@ -2734,6 +2910,31 @@ ASTER_KERNEL_API AsterStatus aster_kernel_system_world_load_snapshot(
 ASTER_KERNEL_API AsterStatus aster_kernel_system_world_replay_trace(
     AsterSystemWorldHandle world, const AsterWorldSnapshotDesc *desc,
     AsterWorldReplayReport *out_report);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_typed_trace_counts(
+    AsterSystemWorldHandle world, AsterTypedTraceCounts *out_counts);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_typed_trace_event(
+    AsterSystemWorldHandle world, size_t index, AsterTypedTraceEvent *out_event);
+ASTER_KERNEL_API AsterStatus aster_kernel_system_world_typed_trace_append(
+    AsterSystemWorldHandle world, const AsterTypedTraceEvent *event,
+    AsterTypedTraceEvent *out_event);
+
+ASTER_KERNEL_API AsterStatus aster_kernel_memory_controller_create(
+    AsterEngineHandle engine, const AsterMemoryControllerDesc *desc,
+    AsterMemoryControllerHandle *out_controller);
+ASTER_KERNEL_API AsterStatus aster_kernel_memory_controller_step(
+    AsterMemoryControllerHandle controller, AsterSystemWorldHandle world,
+    const AsterMemoryControllerStepDesc *desc, AsterMemoryDecisionInfo *out_decision);
+ASTER_KERNEL_API AsterStatus aster_kernel_memory_controller_decision_count(
+    AsterMemoryControllerHandle controller, size_t *out_count);
+ASTER_KERNEL_API AsterStatus aster_kernel_memory_controller_decision(
+    AsterMemoryControllerHandle controller, size_t index, AsterMemoryDecisionInfo *out_decision);
+ASTER_KERNEL_API AsterStatus aster_kernel_memory_graph_query(
+    AsterMemoryControllerHandle controller, const AsterGraphQueryDesc *desc,
+    AsterGraphQueryResult *out_result);
+ASTER_KERNEL_API AsterStatus aster_kernel_memory_benchmark_export(
+    AsterMemoryControllerHandle controller, AsterMemoryBenchmarkReport *out_report);
+ASTER_KERNEL_API AsterStatus aster_kernel_memory_controller_destroy(
+    AsterMemoryControllerHandle controller);
 
 ASTER_KERNEL_API AsterStatus aster_kernel_window_create(const AsterWindowDesc *desc,
                                                         AsterWindowHandle *out_window);

@@ -44,7 +44,7 @@ include(CheckIncludeFileCXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-set(ASTER_KERNEL_PACKAGE_VERSION "6.5.0")
+set(ASTER_KERNEL_PACKAGE_VERSION "8.0.0")
 
 if(WIN32 AND NOT MINGW)
   set(ASTER_RUST_STATICLIB_NAME "aster_runtime.lib")
@@ -145,6 +145,7 @@ set(ASTER_GAME_SDK_SOURCES
 
 set(ASTER_LEARNING_SOURCES
   "${PROJECT_SOURCE_DIR}/src/learning/learning_runtime.cpp"
+  "${PROJECT_SOURCE_DIR}/src/learning/memory_controller.cpp"
 )
 
 set(ASTER_CORE_SOURCES
@@ -161,6 +162,7 @@ set(ASTER_CORE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/perceptual_world_runtime.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/profiler.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/session_journal.cpp"
+  "${PROJECT_SOURCE_DIR}/src/core/typed_trace.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/work_budget.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/world_perception_ledger.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/world_perceptual_primitive.cpp"
@@ -830,6 +832,8 @@ if(ASTER_BUILD_TESTS)
       unsupported_scaffold_rationale
       false_mastery_rejected
       missing_workflow_evaluation
+      memory_controller_reducer
+      memory_controller_provider_block
   )
     add_test(NAME aster_learning_runtime.${learning_runtime_case}
              COMMAND aster_learning_runtime_tests ${learning_runtime_case})

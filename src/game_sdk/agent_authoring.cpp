@@ -984,6 +984,8 @@ std::vector<AsterAgentDomain> asterAgentDomainsForAssetKind(const AssetKind kind
   case AssetKind::Ui:
     return {AsterAgentDomain::Ui};
   case AssetKind::Lesson:
+  case AssetKind::MemoryPolicy:
+  case AssetKind::MemoryBenchmark:
     return {AsterAgentDomain::Learning, AsterAgentDomain::Systems};
   case AssetKind::Unknown:
     return {AsterAgentDomain::Unknown};
@@ -1226,12 +1228,15 @@ AsterAgentTaskBoard planAsterAgentAuthoringBatches(
   learning.id = "batch.learning_contracts";
   learning.title = "Bind learning contracts";
   learning.policy = AsterAgentBatchPolicy::ReviewGate;
-  if (hasAssetKind(project, {AssetKind::Lesson})) {
+  if (hasAssetKind(project, {AssetKind::Lesson, AssetKind::MemoryPolicy,
+                             AssetKind::MemoryBenchmark})) {
     learning.tasks.push_back(makeTask(
         "agent.learning_proof_contracts", "Learning proof contracts",
-        "Tie lesson objectives, learner-state hypotheses, scaffolds, and evidence to project proof.",
+        "Tie lesson objectives, memory policy, graph store, scaffolds, and evidence to project proof.",
         {AsterAgentDomain::Learning, AsterAgentDomain::Systems},
-        {"agent.normalize_authoring_surface"}, assetPathsFor(project, {AssetKind::Lesson}),
+        {"agent.normalize_authoring_surface"},
+        assetPathsFor(project, {AssetKind::Lesson, AssetKind::MemoryPolicy,
+                                AssetKind::MemoryBenchmark}),
         AsterAgentTaskStatus::Planned, 55, 3u));
   }
   if (!learning.tasks.empty()) {

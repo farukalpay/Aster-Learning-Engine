@@ -98,9 +98,16 @@ WorldState::WorldState(WorldStateConfig config) : config_(std::move(config)) {
   world_hash_ = fnvAppend(world_hash_, config_.seed);
   world_hash_ = fnvAppend(world_hash_, config_.label);
   trace_hash_ = fnvAppend(kFnvOffset, "aster.world.trace.v1");
+  typed_trace_hash_ = fnvAppend(kFnvOffset, "aster.world.typed-trace.v1");
 }
 
 WorldEntityHandle WorldState::createEntity(std::string label) {
+  appendTypedTrace({.domain = TypedTraceDomain::Gameplay,
+                    .kind = TypedTraceEventKind::StateWrite,
+                    .tick = current_tick_,
+                    .subject = label,
+                    .key = "entity.create",
+                    .payload = "create entity"});
   EntityRecord record;
   record.handle = {.id = next_entity_id_++, .generation = 1u};
   record.label = std::move(label);
@@ -126,6 +133,12 @@ bool WorldState::destroyEntity(const WorldEntityHandle handle, std::string reaso
     appendValidation("entity.destroy", "stale or unknown entity handle");
     return false;
   }
+  appendTypedTrace({.domain = TypedTraceDomain::Gameplay,
+                    .kind = TypedTraceEventKind::StateWrite,
+                    .tick = current_tick_,
+                    .subject = record->label,
+                    .key = "entity.destroy",
+                    .payload = reason});
   record->alive = false;
   ++record->handle.generation;
   mixWorld("entity.destroy", handle.id);
@@ -170,6 +183,13 @@ WorldTickResult WorldState::tick(WorldTickDesc desc) {
     desc.delta_seconds = config_.fixed_step_seconds > 0.0 ? config_.fixed_step_seconds
                                                           : 1.0 / 60.0;
   }
+  appendTypedTrace({.domain = TypedTraceDomain::Gameplay,
+                    .kind = TypedTraceEventKind::Input,
+                    .tick = desc.tick,
+                    .subject = "simulation",
+                    .key = "tick",
+                    .payload = "input=" + hexHash(desc.input_event_hash),
+                    .value_hash = desc.input_event_hash});
   const std::size_t before = trace_events_.size();
   current_tick_ = desc.tick;
   time_seconds_ += desc.delta_seconds;
@@ -228,9 +248,23 @@ void WorldState::noteRenderableExtraction(const std::uint64_t extraction_hash,
                                           const std::uint64_t frame_submission_hash,
                                           const std::uint64_t perceptual_truth_hash) {
   if (perceptual_truth_hash != 0u) {
+    appendTypedTrace({.domain = TypedTraceDomain::Perceptual,
+                      .kind = TypedTraceEventKind::ReducerApplied,
+                      .tick = current_tick_,
+                      .subject = "world-perceptual-truth",
+                      .key = "perceptual_truth_hash",
+                      .payload = hexHash(perceptual_truth_hash),
+                      .value_hash = perceptual_truth_hash});
     notePerceptualTruth(perceptual_truth_hash);
   }
   if (extraction_hash != 0u) {
+    appendTypedTrace({.domain = TypedTraceDomain::Render,
+                      .kind = TypedTraceEventKind::ReducerApplied,
+                      .tick = current_tick_,
+                      .subject = "world-render-extraction",
+                      .key = "extraction_hash",
+                      .payload = hexHash(extraction_hash),
+                      .value_hash = extraction_hash});
     mixWorld("render.extraction", extraction_hash);
     appendEvent({.kind = WorldTraceEventKind::RenderableExtraction,
                  .tick = current_tick_,
@@ -253,6 +287,13 @@ void WorldState::notePerceptualTruth(const std::uint64_t perceptual_truth_hash) 
     return;
   }
   mixWorld("perceptual.truth", perceptual_truth_hash);
+  appendTypedTrace({.domain = TypedTraceDomain::Perceptual,
+                    .kind = TypedTraceEventKind::GraphNode,
+                    .tick = current_tick_,
+                    .subject = "world-perceptual-truth",
+                    .key = "truth_hash",
+                    .payload = hexHash(perceptual_truth_hash),
+                    .value_hash = perceptual_truth_hash});
   appendEvent({.kind = WorldTraceEventKind::RenderableExtraction,
                .tick = current_tick_,
                .label = "world-perceptual-truth",
@@ -262,6 +303,14 @@ void WorldState::notePerceptualTruth(const std::uint64_t perceptual_truth_hash) 
 
 void WorldState::noteRegionGate(const std::uint64_t region_id, const bool accepted,
                                 const std::uint64_t report_hash, std::string diagnostic) {
+  appendTypedTrace({.domain = TypedTraceDomain::Perceptual,
+                    .kind = accepted ? TypedTraceEventKind::ReducerApplied
+                                     : TypedTraceEventKind::ValidationError,
+                    .tick = current_tick_,
+                    .subject = hexHash(region_id),
+                    .key = "generated-region-gate",
+                    .payload = diagnostic,
+                    .value_hash = report_hash});
   mixWorld("region.gate.id", region_id);
   mixWorld("region.gate.report", report_hash);
   mixWorld("region.gate.verdict", accepted ? "accepted" : "quarantined");
@@ -278,6 +327,12 @@ void WorldState::noteRegionGate(const std::uint64_t region_id, const bool accept
 }
 
 WorldTransactionInfo WorldState::beginTransaction(WorldTransactionDesc desc) {
+  appendTypedTrace({.domain = TypedTraceDomain::Gameplay,
+                    .kind = TypedTraceEventKind::StateRead,
+                    .tick = current_tick_,
+                    .subject = desc.label,
+                    .key = "transaction.begin",
+                    .payload = desc.provenance});
   TransactionRecord record;
   record.info.transaction_id = next_transaction_id_++;
   record.info.access_count = desc.accesses.size();
@@ -321,6 +376,15 @@ bool WorldState::appendAccess(const std::uint64_t transaction_id, WorldComponent
     appendValidation("transaction.append", "component access requires component and subject");
     return false;
   }
+  appendTypedTrace({.domain = TypedTraceDomain::Gameplay,
+                    .kind = access.mode == WorldComponentAccessMode::Write
+                                ? TypedTraceEventKind::StateWrite
+                                : TypedTraceEventKind::StateRead,
+                    .tick = current_tick_,
+                    .subject = access.subject,
+                    .key = access.component,
+                    .payload = worldComponentAccessModeName(access.mode),
+                    .value_hash = accessStamp(access)});
   record->info.deterministic_stamp = fnvAppend(record->info.deterministic_stamp, accessStamp(access));
   record->accesses.push_back(std::move(access));
   record->info.access_count = record->accesses.size();
@@ -337,6 +401,13 @@ WorldTransactionInfo WorldState::commitTransaction(const std::uint64_t transacti
   for (const WorldComponentAccess &access : record->accesses) {
     WorldComponentAccess conflict;
     if (hasAccessHazard(access, &conflict)) {
+      appendTypedTrace({.domain = TypedTraceDomain::Gameplay,
+                        .kind = TypedTraceEventKind::ValidationError,
+                        .tick = current_tick_,
+                        .subject = access.subject,
+                        .key = access.component,
+                        .payload = "component access hazard",
+                        .value_hash = accessStamp(access)});
       record->active = false;
       record->info.committed = false;
       record->info.diagnostic = "component access hazard: " + access.subject + "." +
@@ -357,6 +428,13 @@ WorldTransactionInfo WorldState::commitTransaction(const std::uint64_t transacti
   }
 
   record->info.parent_world_hash = world_hash_;
+  appendTypedTrace({.domain = TypedTraceDomain::Gameplay,
+                    .kind = TypedTraceEventKind::ReducerApplied,
+                    .tick = current_tick_,
+                    .subject = record->label,
+                    .key = "transaction.commit",
+                    .payload = record->provenance,
+                    .value_hash = record->info.deterministic_stamp});
   mixWorld("transaction.commit", record->info.transaction_id);
   mixWorld("transaction.label", record->label);
   mixWorld("transaction.provenance", record->provenance);
@@ -395,6 +473,12 @@ WorldTransactionInfo WorldState::abortTransaction(const std::uint64_t transactio
   record->active = false;
   record->info.committed = false;
   record->info.diagnostic = reason;
+  appendTypedTrace({.domain = TypedTraceDomain::Gameplay,
+                    .kind = TypedTraceEventKind::ReducerApplied,
+                    .tick = current_tick_,
+                    .subject = record->label,
+                    .key = "transaction.abort",
+                    .payload = reason});
   appendEvent({.kind = WorldTraceEventKind::TransactionAbort,
                .tick = current_tick_,
                .transaction_id = record->info.transaction_id,
@@ -413,6 +497,7 @@ WorldTraceCounts WorldState::counts() const {
         return event.kind == WorldTraceEventKind::ValidationError;
       });
   return {.event_count = trace_events_.size(),
+          .typed_event_count = typed_trace_events_.size(),
           .entity_count = entities_.size(),
           .live_entity_count = live,
           .transaction_count = transactions_.size(),
@@ -420,11 +505,16 @@ WorldTraceCounts WorldState::counts() const {
           .tick = current_tick_,
           .time_seconds = time_seconds_,
           .world_hash = world_hash_,
-          .trace_hash = trace_hash_};
+          .trace_hash = trace_hash_,
+          .typed_trace_hash = typed_trace_hash_};
 }
 
 const std::vector<WorldTraceEvent> &WorldState::traceEvents() const noexcept {
   return trace_events_;
+}
+
+const std::vector<TypedTraceEvent> &WorldState::typedTraceEvents() const noexcept {
+  return typed_trace_events_;
 }
 
 std::vector<WorldTraceEvent> WorldState::validationEvents() const {
@@ -437,6 +527,26 @@ std::vector<WorldTraceEvent> WorldState::validationEvents() const {
   return out;
 }
 
+const TypedTraceEvent *WorldState::typedTraceEvent(const std::size_t index) const noexcept {
+  return index < typed_trace_events_.size() ? &typed_trace_events_[index] : nullptr;
+}
+
+TypedTraceEvent WorldState::appendTypedTrace(TypedTraceEvent event) {
+  event.sequence = next_typed_trace_sequence_++;
+  if (event.tick == 0u) {
+    event.tick = current_tick_;
+  }
+  event.parent_trace_hash = typed_trace_hash_;
+  if (event.value_hash == 0u) {
+    event.value_hash = fnvAppend(kFnvOffset, event.key);
+    event.value_hash = fnvAppend(event.value_hash, event.payload);
+  }
+  typed_trace_hash_ = hashTypedTraceEvent(event, typed_trace_hash_);
+  event.trace_hash = typed_trace_hash_;
+  typed_trace_events_.push_back(event);
+  return event;
+}
+
 bool WorldState::saveSnapshot(const std::filesystem::path &path, std::string *diagnostic) {
   std::ofstream output(path);
   if (!output.good()) {
@@ -446,6 +556,12 @@ bool WorldState::saveSnapshot(const std::filesystem::path &path, std::string *di
     appendValidation("snapshot.save", "could not open snapshot for writing");
     return false;
   }
+  appendTypedTrace({.domain = TypedTraceDomain::Gameplay,
+                    .kind = TypedTraceEventKind::MemoryReplay,
+                    .tick = current_tick_,
+                    .subject = "snapshot",
+                    .key = "snapshot.save",
+                    .payload = path.string()});
   appendEvent({.kind = WorldTraceEventKind::SnapshotSaved,
                .tick = current_tick_,
                .label = "snapshot",
@@ -522,6 +638,13 @@ WorldMigrationReport WorldState::loadSnapshot(const std::filesystem::path &path)
   entities_ = std::move(loaded_entities);
   transactions_.clear();
   committed_accesses_this_tick_.clear();
+  appendTypedTrace({.domain = TypedTraceDomain::Gameplay,
+                    .kind = TypedTraceEventKind::MemoryReplay,
+                    .tick = current_tick_,
+                    .subject = "snapshot",
+                    .key = "snapshot.load",
+                    .payload = path.string(),
+                    .value_hash = world_hash_});
   appendEvent({.kind = WorldTraceEventKind::SnapshotLoaded,
                .tick = current_tick_,
                .label = "snapshot",
@@ -550,6 +673,13 @@ WorldReplayReport WorldState::replaySnapshot(const std::filesystem::path &path,
   const bool matched = migration.world_hash != 0u &&
                        (expected_world_hash == 0u ||
                         migration.world_hash == expected_world_hash);
+  appendTypedTrace({.domain = TypedTraceDomain::Benchmark,
+                    .kind = TypedTraceEventKind::MemoryReplay,
+                    .tick = current_tick_,
+                    .subject = "snapshot-replay",
+                    .key = matched ? "replay.matched" : "replay.mismatch",
+                    .payload = path.string(),
+                    .value_hash = migration.world_hash});
   appendEvent({.kind = WorldTraceEventKind::Replay,
                .tick = current_tick_,
                .label = "snapshot-replay",
@@ -624,6 +754,15 @@ WorldState::planResidency(const ResidencyBudget budget, const std::vector<Reside
   }
 
   for (const ResidencyDecision &decision : decisions) {
+    appendTypedTrace({.domain = TypedTraceDomain::Residency,
+                      .kind = decision.decision == ResidencyDecisionKind::Evict
+                                  ? TypedTraceEventKind::MemoryEvict
+                                  : TypedTraceEventKind::ReducerApplied,
+                      .tick = current_tick_,
+                      .subject = decision.asset_id,
+                      .key = residencyDecisionKindName(decision.decision),
+                      .payload = decision.reason,
+                      .value_hash = decision.byte_cost});
     mixWorld("residency", decision.asset_id);
     mixWorld("residency.decision", static_cast<std::uint64_t>(decision.decision));
     appendEvent({.kind = WorldTraceEventKind::ResidencyDecision,
@@ -649,6 +788,10 @@ std::uint64_t WorldState::worldHash() const noexcept {
 
 std::uint64_t WorldState::traceHash() const noexcept {
   return trace_hash_;
+}
+
+std::uint64_t WorldState::typedTraceHash() const noexcept {
+  return typed_trace_hash_;
 }
 
 WorldState::EntityRecord *WorldState::entityRecord(const WorldEntityHandle handle) {

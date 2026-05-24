@@ -59,6 +59,16 @@ static_assert(std::is_standard_layout_v<AsterSystemTransactionDesc>);
 static_assert(std::is_standard_layout_v<AsterSystemTransactionInfo>);
 static_assert(std::is_standard_layout_v<AsterSystemTraceCounts>);
 static_assert(std::is_standard_layout_v<AsterSystemTraceEvent>);
+static_assert(std::is_standard_layout_v<AsterTypedTraceCounts>);
+static_assert(std::is_standard_layout_v<AsterTypedTraceEvent>);
+static_assert(std::is_standard_layout_v<AsterMemoryBudget>);
+static_assert(std::is_standard_layout_v<AsterMemoryProviderConfig>);
+static_assert(std::is_standard_layout_v<AsterMemoryControllerDesc>);
+static_assert(std::is_standard_layout_v<AsterMemoryControllerStepDesc>);
+static_assert(std::is_standard_layout_v<AsterMemoryDecisionInfo>);
+static_assert(std::is_standard_layout_v<AsterGraphQueryDesc>);
+static_assert(std::is_standard_layout_v<AsterGraphQueryResult>);
+static_assert(std::is_standard_layout_v<AsterMemoryBenchmarkReport>);
 static_assert(std::is_standard_layout_v<AsterActor>);
 static_assert(std::is_standard_layout_v<AsterStimulus>);
 static_assert(std::is_standard_layout_v<AsterAffordance>);
@@ -350,9 +360,9 @@ void testPublicApiBoundaryIsFrozen() {
 void testStatusAndEngineLifecycle() {
   const AsterAbiVersion version = aster_kernel_abi_version();
   assert(version.major == ASTER_KERNEL_ABI_MAJOR);
-  assert(version.major == 7u);
+  assert(version.major == 8u);
   assert(version.minor == ASTER_KERNEL_ABI_MINOR);
-  assert(version.minor == 1u);
+  assert(version.minor == 0u);
   assert(version.patch == ASTER_KERNEL_ABI_PATCH);
 
   AsterEngineHandle engine = nullptr;
@@ -2725,6 +2735,137 @@ void testSystemWorldCompatibilityContracts() {
   }
   assert(saw_scheduler_hazard);
 
+  AsterTypedTraceCounts typed_counts{sizeof(AsterTypedTraceCounts),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_system_world_typed_trace_counts(world, &typed_counts).code ==
+         ASTER_STATUS_OK);
+  assert(typed_counts.event_count > 0u);
+  assert(typed_counts.tick == counts.tick);
+  assert(typed_counts.typed_trace_hash != 0u);
+  AsterTypedTraceEvent first_typed_event{sizeof(AsterTypedTraceEvent),
+                                         ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_system_world_typed_trace_event(world, 0u, &first_typed_event).code ==
+         ASTER_STATUS_OK);
+  assert(first_typed_event.trace_hash != 0u);
+
+  const std::string memory_subject = "entity.player";
+  const std::string memory_key = "lesson.lumen_mining.tool";
+  const std::string memory_payload = "{\"evidence\":\"pickaxe_ready\"}";
+  const AsterTypedTraceEvent memory_event{sizeof(AsterTypedTraceEvent),
+                                          ASTER_KERNEL_STRUCT_VERSION_1,
+                                          ASTER_TYPED_TRACE_LEARNING,
+                                          ASTER_TYPED_TRACE_STATE_WRITE,
+                                          0u,
+                                          counts.tick,
+                                          {memory_subject.data(), memory_subject.size()},
+                                          {memory_key.data(), memory_key.size()},
+                                          {memory_payload.data(), memory_payload.size()},
+                                          0xA57E00000000F001ull,
+                                          0u,
+                                          0u};
+  AsterTypedTraceEvent appended_memory_event{sizeof(AsterTypedTraceEvent),
+                                             ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_system_world_typed_trace_append(world, &memory_event,
+                                                      &appended_memory_event)
+             .code == ASTER_STATUS_OK);
+  assert(appended_memory_event.domain == ASTER_TYPED_TRACE_LEARNING);
+  assert(appended_memory_event.kind == ASTER_TYPED_TRACE_STATE_WRITE);
+  assert(toString(appended_memory_event.semantic_key) == memory_key);
+  assert(appended_memory_event.sequence == typed_counts.event_count + 1u);
+
+  AsterTypedTraceCounts after_append_typed_counts{sizeof(AsterTypedTraceCounts),
+                                                  ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_system_world_typed_trace_counts(world, &after_append_typed_counts).code ==
+         ASTER_STATUS_OK);
+  assert(after_append_typed_counts.event_count == typed_counts.event_count + 1u);
+  assert(after_append_typed_counts.typed_trace_hash != typed_counts.typed_trace_hash);
+
+  const std::filesystem::path memory_store_path =
+      std::filesystem::temp_directory_path() / "aster_kernel_memory_controller.sqlite";
+  std::filesystem::remove(memory_store_path);
+  const std::string memory_store = memory_store_path.string();
+  const std::string memory_controller_id = "kernel.memory.contract";
+  const std::string memory_objective = "objective.memory.contract";
+  const std::string post_method = "POST";
+  AsterMemoryControllerHandle memory_controller = nullptr;
+  AsterMemoryControllerDesc memory_desc{};
+  memory_desc.size = sizeof(AsterMemoryControllerDesc);
+  memory_desc.version = ASTER_KERNEL_STRUCT_VERSION_1;
+  memory_desc.controller_id = {memory_controller_id.data(), memory_controller_id.size()};
+  memory_desc.store_path = {memory_store.data(), memory_store.size()};
+  memory_desc.objective_id = {memory_objective.data(), memory_objective.size()};
+  memory_desc.budget = {sizeof(AsterMemoryBudget),
+                        ASTER_KERNEL_STRUCT_VERSION_1,
+                        512u,
+                        4096u,
+                        25.0};
+  memory_desc.provider = {sizeof(AsterMemoryProviderConfig),
+                          ASTER_KERNEL_STRUCT_VERSION_1,
+                          {},
+                          {post_method.data(), post_method.size()},
+                          {},
+                          {},
+                          1000u,
+                          0u};
+  memory_desc.trace_window = 8u;
+  assert(aster_kernel_memory_controller_create(engine, &memory_desc, &memory_controller).code ==
+         ASTER_STATUS_OK);
+  assert(memory_controller != nullptr);
+
+  const std::string memory_task = "write";
+  AsterMemoryControllerStepDesc memory_step{};
+  memory_step.size = sizeof(AsterMemoryControllerStepDesc);
+  memory_step.version = ASTER_KERNEL_STRUCT_VERSION_1;
+  memory_step.task = {memory_task.data(), memory_task.size()};
+  memory_step.subject = {memory_subject.data(), memory_subject.size()};
+  memory_step.semantic_key = {memory_key.data(), memory_key.size()};
+  memory_step.budget = {sizeof(AsterMemoryBudget),
+                        ASTER_KERNEL_STRUCT_VERSION_1,
+                        128u,
+                        1024u,
+                        10.0};
+  memory_step.allow_write = 1u;
+  memory_step.allow_stop = 1u;
+  AsterMemoryDecisionInfo memory_decision{sizeof(AsterMemoryDecisionInfo),
+                                          ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_memory_controller_step(memory_controller, world, &memory_step,
+                                             &memory_decision)
+             .code == ASTER_STATUS_OK);
+  assert(memory_decision.action == ASTER_MEMORY_ACTION_WRITE);
+  assert(memory_decision.status == ASTER_MEMORY_DECISION_ACCEPTED);
+  assert(memory_decision.decision_hash != 0u);
+  assert(toString(memory_decision.rationale).find("durable memory write") !=
+         std::string::npos);
+  size_t memory_decision_count = 0u;
+  assert(aster_kernel_memory_controller_decision_count(memory_controller,
+                                                       &memory_decision_count)
+             .code == ASTER_STATUS_OK);
+  assert(memory_decision_count == 1u);
+
+  AsterGraphQueryDesc graph_query{};
+  graph_query.size = sizeof(AsterGraphQueryDesc);
+  graph_query.version = ASTER_KERNEL_STRUCT_VERSION_1;
+  graph_query.store_path = {memory_store.data(), memory_store.size()};
+  graph_query.subject = {memory_subject.data(), memory_subject.size()};
+  graph_query.semantic_key = {memory_key.data(), memory_key.size()};
+  graph_query.limit = 4u;
+  AsterGraphQueryResult graph_result{sizeof(AsterGraphQueryResult),
+                                     ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_memory_graph_query(memory_controller, &graph_query, &graph_result).code ==
+         ASTER_STATUS_OK);
+  assert(graph_result.node_count >= 1u);
+  assert(toString(graph_result.json).find(memory_key) != std::string::npos);
+
+  AsterMemoryBenchmarkReport memory_report{sizeof(AsterMemoryBenchmarkReport),
+                                           ASTER_KERNEL_STRUCT_VERSION_1};
+  assert(aster_kernel_memory_benchmark_export(memory_controller, &memory_report).code ==
+         ASTER_STATUS_OK);
+  assert(memory_report.case_count == 1u);
+  assert(memory_report.passed == 1u);
+  assert(toString(memory_report.store_path) == memory_store);
+  assert(aster_kernel_memory_controller_destroy(memory_controller).code == ASTER_STATUS_OK);
+  std::filesystem::remove(memory_store_path);
+
   const std::filesystem::path snapshot_path =
       std::filesystem::temp_directory_path() / "aster_kernel_world_snapshot_v53.txt";
   const std::string snapshot = snapshot_path.string();
@@ -2826,6 +2967,16 @@ void testManifestNamesMatchLinkedApi() {
       "aster_kernel_system_world_save_snapshot",
       "aster_kernel_system_world_load_snapshot",
       "aster_kernel_system_world_replay_trace",
+      "aster_kernel_system_world_typed_trace_counts",
+      "aster_kernel_system_world_typed_trace_event",
+      "aster_kernel_system_world_typed_trace_append",
+      "aster_kernel_memory_controller_create",
+      "aster_kernel_memory_controller_step",
+      "aster_kernel_memory_controller_decision_count",
+      "aster_kernel_memory_controller_decision",
+      "aster_kernel_memory_graph_query",
+      "aster_kernel_memory_benchmark_export",
+      "aster_kernel_memory_controller_destroy",
       "aster_kernel_window_create",
       "aster_kernel_window_poll",
       "aster_kernel_window_swap",
@@ -3012,6 +3163,16 @@ void testManifestNamesMatchLinkedApi() {
   (void)&aster_kernel_system_world_save_snapshot;
   (void)&aster_kernel_system_world_load_snapshot;
   (void)&aster_kernel_system_world_replay_trace;
+  (void)&aster_kernel_system_world_typed_trace_counts;
+  (void)&aster_kernel_system_world_typed_trace_event;
+  (void)&aster_kernel_system_world_typed_trace_append;
+  (void)&aster_kernel_memory_controller_create;
+  (void)&aster_kernel_memory_controller_step;
+  (void)&aster_kernel_memory_controller_decision_count;
+  (void)&aster_kernel_memory_controller_decision;
+  (void)&aster_kernel_memory_graph_query;
+  (void)&aster_kernel_memory_benchmark_export;
+  (void)&aster_kernel_memory_controller_destroy;
   (void)&aster_kernel_window_create;
   (void)&aster_kernel_window_poll;
   (void)&aster_kernel_window_swap;

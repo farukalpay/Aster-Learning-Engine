@@ -31,7 +31,12 @@ surfaces.
 6. Inspect the learning contract:
    run `cargo run -p aster_assetc --bin aster_assetc -- learning-proof-run --project projects/lumen_run/lumen_run.asterproj --lesson lesson.lumen_mining --trace projects/lumen_run/lessons/lumen_mining.trace.jsonl --output /tmp/aster_lumen_learning_proof --output-schema`,
    then read [LEARNING_CONTRACT.md](LEARNING_CONTRACT.md).
-7. Read proof-heavy and research surfaces last:
+7. Inspect durable memory:
+   run `cargo run -p aster_assetc --bin aster_assetc -- memory-proof-run --project projects/lumen_run/lumen_run.asterproj --policy memory.policy.lumen_mining --trace projects/lumen_run/lessons/lumen_mining.trace.jsonl --store /tmp/aster_lumen_memory.sqlite --output /tmp/aster_lumen_memory_proof --output-schema`.
+   For provider-backed benchmark validation, set `ASTER_MEMORY_PROVIDER_URL`
+   and auth headers, then run `memory-bench-run`; without a real provider the
+   benchmark reports `blocked` and does not use a fake endpoint.
+8. Read proof-heavy and research surfaces last:
    `FrameForensics`, `WorldForensics`, GraphicsCore7, perception-ledger,
    belief/perceptual ABI, and world-continuity docs explain diagnostics and
    experiments after the first draw and public API boundaries are clear.
@@ -51,8 +56,11 @@ surfaces.
 - `tests/golden/render/*.ppm` are deterministic software-reference baselines.
 - `aster_materialc`, `aster_texturec`, and `aster_assetc` expose material,
   texture, bundle, project, and generated-region checks separately.
-- `lesson-inspect` and `learning-proof-run` expose objective, learner-state,
-  scaffold, intervention, safety, and workflow proof for learning content.
+- `lesson-inspect`, `learning-proof-run`, `memory-proof-run`,
+  `memory-bench-run`, and `memory-bench-compare` expose objective,
+  learner-state, scaffold, intervention, safety, workflow, typed trace, SQLite
+  memory graph, provider artifact, ablation, and regression replay proof for
+  learning content.
 - For agent-led content work, read [AGENT_AUTHORING.md](AGENT_AUTHORING.md) and
   generate an `aster_assetc agent-plan` report before editing broad project
   content.

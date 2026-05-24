@@ -4,6 +4,7 @@
 #include "aster/game_sdk/game_sdk.hpp"
 
 #include <cassert>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -36,6 +37,14 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(findAsset(project.value, "prefab.supply_chest") != nullptr);
   assert(findAsset(project.value, "action.chest.open") != nullptr);
   assert(findAsset(project.value, "lesson.lumen_mining") != nullptr);
+  const aster::sdk::ProjectAssetRef *memory_policy =
+      findAsset(project.value, "memory.policy.lumen_mining");
+  const aster::sdk::ProjectAssetRef *memory_benchmark =
+      findAsset(project.value, "memory.bench.lumen_mining");
+  assert(memory_policy != nullptr);
+  assert(memory_policy->kind == aster::sdk::AssetKind::MemoryPolicy);
+  assert(memory_benchmark != nullptr);
+  assert(memory_benchmark->kind == aster::sdk::AssetKind::MemoryBenchmark);
 
   const auto scene = aster::sdk::loadSceneDocument(project_root / "scenes" / "cave_entry.scene");
   assert(scene.ok());
@@ -357,8 +366,11 @@ void testAgentWorkspacePlanning() {
 }
 
 void testAgentRunbookInstructionsAndCommandPolicy() {
+  const auto unique_suffix =
+      std::chrono::steady_clock::now().time_since_epoch().count();
   const std::filesystem::path temp_root =
-      std::filesystem::temp_directory_path() / "aster_agent_runbook_public_consumer";
+      std::filesystem::temp_directory_path() /
+      ("aster_agent_runbook_public_consumer_" + std::to_string(unique_suffix));
   std::filesystem::remove_all(temp_root);
   std::filesystem::create_directories(temp_root / "projects" / "demo" / "scenes");
   {
@@ -597,6 +609,13 @@ void testLearningLessonContract() {
   assert(aster::sdk::summarizeLearningProofFailures(bad_proof).find(
              "unsupported interventions") != std::string::npos);
   assert(aster::sdk::parseAssetKind("lesson") == aster::sdk::AssetKind::Lesson);
+  assert(aster::sdk::parseAssetKind("memory_policy") ==
+         aster::sdk::AssetKind::MemoryPolicy);
+  assert(aster::sdk::parseAssetKind("memory_benchmark") ==
+         aster::sdk::AssetKind::MemoryBenchmark);
+  assert(aster::sdk::assetKindName(aster::sdk::AssetKind::MemoryPolicy) == "memory_policy");
+  assert(aster::sdk::assetKindName(aster::sdk::AssetKind::MemoryBenchmark) ==
+         "memory_benchmark");
 }
 
 void testCaveWorldGateReportDocumentParse() {
