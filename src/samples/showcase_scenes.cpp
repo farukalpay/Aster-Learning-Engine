@@ -3,6 +3,7 @@
 
 #include "aster/samples/showcase_scenes.hpp"
 
+#include "aster/asset/construction_yard_asset.hpp"
 #include "aster/asset/pipe_runtime_asset.hpp"
 #include "aster/geometry/architectural_mesh.hpp"
 #include "aster/geometry/cable_mesh.hpp"
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstddef>
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -580,6 +582,84 @@ Scene makeMaterialLabShowcaseScene() {
     scene.objects().push_back(object);
   }
 
+  return scene;
+}
+
+Scene makeMaterialLabForkliftShowcaseScene() {
+  Scene scene = makeMaterialLabShowcaseScene();
+  auto &objects = scene.objects();
+  objects.erase(std::remove_if(objects.begin(), objects.end(),
+                               [](const RenderObject &object) {
+                                 return object.name.find("material sphere") != std::string::npos;
+                               }),
+                objects.end());
+
+  const Material forklift_paint =
+      material({0.86f, 0.44f, 0.10f}, {}, 0.58f, 0.34f, 0.0f, 0.42f, 4.4f, 0.16f,
+               0.88f, SurfacePattern::FiberStrands, {3.2f, 2.6f}, 0.08f, 0.34f, 0.045f,
+               {.macro_variation = 0.50f,
+                .micro_normal_strength = 0.26f,
+                .roughness_variation = 0.30f,
+                .physical_texel_density = 768.0f,
+                .height_normal_coupling = 0.68f,
+                .roughness_height_coupling = 0.60f,
+                .macro_frequency_breakup = 0.48f,
+                .micro_frequency_breakup = 0.52f,
+                .paint_remnant = 0.20f,
+                .edge_polish = 0.24f,
+                .height_shading = 0.16f});
+  const Material forklift_rubber =
+      material({0.015f, 0.013f, 0.012f}, {}, 0.92f, 0.0f, 0.0f, 0.22f, 2.6f, 0.04f,
+               0.84f, SurfacePattern::None, {4.8f, 8.0f}, 0.10f, 0.28f, 0.04f,
+               {.macro_variation = 0.26f,
+                .micro_normal_strength = 0.22f,
+                .roughness_variation = 0.18f,
+                .physical_texel_density = 640.0f,
+                .height_normal_coupling = 0.45f,
+                .roughness_height_coupling = 0.42f});
+  const Material forklift_steel =
+      material({0.46f, 0.45f, 0.39f}, {}, 0.64f, 0.72f, 0.0f, 0.34f, 5.6f, 0.18f,
+               0.86f, SurfacePattern::FiberStrands, {8.0f, 2.0f}, 0.055f, 0.32f, 0.04f,
+               {.macro_variation = 0.34f,
+                .micro_normal_strength = 0.18f,
+                .roughness_variation = 0.26f,
+                .physical_texel_density = 820.0f,
+                .height_normal_coupling = 0.52f,
+                .roughness_height_coupling = 0.48f,
+                .edge_polish = 0.18f});
+
+  const auto material_for_slot = [&](const std::string &slot) -> Material {
+    if (slot == "forklift.rubber") {
+      return forklift_rubber;
+    }
+    if (slot == "forklift.steel") {
+      return forklift_steel;
+    }
+    return forklift_paint;
+  };
+  const Vec3 forklift_base{-0.30f, labSoilHeightAt(-0.30f, 1.14f) + 0.010f, 1.14f};
+  const float forklift_yaw = radians(-23.0f);
+  const float c = std::cos(forklift_yaw);
+  const float s = std::sin(forklift_yaw);
+  const auto rotate_yaw = [&](const Vec3 value) {
+    return Vec3{value.x * c + value.z * s, value.y, -value.x * s + value.z * c};
+  };
+  const AsterConstructionYardAsset forklift = makeAsterConstructionForkliftAsset();
+  for (const AsterConstructionAssetPart &part : forklift.parts) {
+    RenderObject object;
+    object.name = "material lab forklift " + part.name;
+    object.primitive = MeshPrimitive::Box;
+    object.custom_mesh = std::make_shared<const CpuMesh>(part.mesh);
+    object.transform.position = forklift_base + rotate_yaw(part.local_position);
+    object.transform.rotation = quatFromEulerXyz(
+        {part.local_rotation.x, forklift_yaw + part.local_rotation.y, part.local_rotation.z});
+    object.transform.scale = part.local_scale;
+    object.material = material_for_slot(part.material_slot);
+    object.casts_contact_shadow = true;
+    object.contact_shadow_strength = part.material_slot == "forklift.rubber" ? 1.10f : 0.82f;
+    object.contact_shadow_radius_scale = part.material_slot == "forklift.rubber" ? 1.34f : 1.10f;
+    scene.objects().push_back(std::move(object));
+  }
   return scene;
 }
 

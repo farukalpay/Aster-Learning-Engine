@@ -108,6 +108,12 @@ void appendQuad(CpuMesh &mesh, const Vec3 a, const Vec3 b, const Vec3 c, const V
   return mesh;
 }
 
+[[nodiscard]] CpuMesh makeCylinderX(const int segments, const float radius, const float depth) {
+  CpuMesh mesh;
+  appendMesh(mesh, makeCylinder(segments, radius, depth), {}, {0.0f, 0.0f, kPi * 0.5f});
+  return mesh;
+}
+
 [[nodiscard]] CpuMesh makeForkliftTireMesh(const int segments, const float outer_radius,
                                            const float inner_radius, const float depth) {
   if (segments < 8 || outer_radius <= inner_radius || inner_radius <= 0.0f || depth <= 0.0f) {
@@ -121,14 +127,14 @@ void appendQuad(CpuMesh &mesh, const Vec3 a, const Vec3 b, const Vec3 c, const V
   for (int i = 0; i < segments; ++i) {
     const float a0 = static_cast<float>(i) / static_cast<float>(segments) * kPi * 2.0f;
     const float a1 = static_cast<float>(i + 1) / static_cast<float>(segments) * kPi * 2.0f;
-    const Vec3 o0{std::cos(a0) * outer_radius, -half, std::sin(a0) * outer_radius};
-    const Vec3 o1{std::cos(a1) * outer_radius, -half, std::sin(a1) * outer_radius};
-    const Vec3 o2{std::cos(a1) * outer_radius, half, std::sin(a1) * outer_radius};
-    const Vec3 o3{std::cos(a0) * outer_radius, half, std::sin(a0) * outer_radius};
-    const Vec3 i0{std::cos(a0) * inner_radius, -half, std::sin(a0) * inner_radius};
-    const Vec3 i1{std::cos(a1) * inner_radius, -half, std::sin(a1) * inner_radius};
-    const Vec3 i2{std::cos(a1) * inner_radius, half, std::sin(a1) * inner_radius};
-    const Vec3 i3{std::cos(a0) * inner_radius, half, std::sin(a0) * inner_radius};
+    const Vec3 o0{-half, std::cos(a0) * outer_radius, std::sin(a0) * outer_radius};
+    const Vec3 o1{-half, std::cos(a1) * outer_radius, std::sin(a1) * outer_radius};
+    const Vec3 o2{half, std::cos(a1) * outer_radius, std::sin(a1) * outer_radius};
+    const Vec3 o3{half, std::cos(a0) * outer_radius, std::sin(a0) * outer_radius};
+    const Vec3 i0{-half, std::cos(a0) * inner_radius, std::sin(a0) * inner_radius};
+    const Vec3 i1{-half, std::cos(a1) * inner_radius, std::sin(a1) * inner_radius};
+    const Vec3 i2{half, std::cos(a1) * inner_radius, std::sin(a1) * inner_radius};
+    const Vec3 i3{half, std::cos(a0) * inner_radius, std::sin(a0) * inner_radius};
     appendQuad(mesh, o0, o1, o2, o3);
     appendQuad(mesh, i1, i0, i3, i2);
     appendQuad(mesh, o3, o2, i2, i3);
@@ -140,9 +146,9 @@ void appendQuad(CpuMesh &mesh, const Vec3 a, const Vec3 b, const Vec3 c, const V
   for (int i = 0; i < tread_count; ++i) {
     const float angle = (static_cast<float>(i) + 0.5f) / static_cast<float>(tread_count) *
                         kPi * 2.0f;
-    const Vec3 radial_center = rotateY({0.0f, 0.0f, outer_radius + 0.025f}, angle);
-    appendMesh(mesh, tread, radial_center, {0.0f, angle + (i % 2 == 0 ? 0.16f : -0.16f), 0.0f},
-               {0.18f, depth * 0.82f, 0.065f});
+    const Vec3 radial_center = rotateX({0.0f, outer_radius + 0.025f, 0.0f}, angle);
+    appendMesh(mesh, tread, radial_center, {angle, 0.0f, i % 2 == 0 ? 0.12f : -0.12f},
+               {depth * 0.82f, 0.070f, 0.18f});
   }
   return mesh;
 }
@@ -224,7 +230,7 @@ AsterConstructionYardAsset makeAsterConstructionForkliftAsset(
   asset.asset_id = std::move(spec.asset_id);
   const CpuMesh box = makeBox();
   const CpuMesh tire = makeForkliftTireMesh(24, 0.50f, 0.24f, 0.40f);
-  const CpuMesh wheel_hub = makeCylinder(18, 0.24f, 0.46f);
+  const CpuMesh wheel_hub = makeCylinderX(18, 0.24f, 0.46f);
 
   addPart(asset, "low-poly forklift main orange chassis", "forklift.paint", box,
           {0.0f, 0.48f, 0.02f}, {}, {spec.body_width, 0.54f, spec.body_length * 0.56f});
@@ -255,25 +261,21 @@ AsterConstructionYardAsset makeAsterConstructionForkliftAsset(
   addPart(asset, "forklift right fork tine", "forklift.steel", box, {0.23f, 0.37f, 2.02f},
           {}, {0.11f, 0.08f, 1.40f});
   addPart(asset, "forklift left rear wheel treaded tire", "forklift.rubber", tire,
-          {-0.66f, 0.29f, -0.78f},
-          {0.0f, 0.0f, kPi * 0.5f}, {0.56f, 0.56f, 0.56f});
+          {-0.66f, 0.29f, -0.78f}, {}, {0.56f, 0.56f, 0.56f});
   addPart(asset, "forklift left rear wheel steel rim", "forklift.steel", wheel_hub,
-          {-0.66f, 0.29f, -0.78f}, {0.0f, 0.0f, kPi * 0.5f}, {0.56f, 0.56f, 0.56f});
+          {-0.66f, 0.29f, -0.78f}, {}, {0.56f, 0.56f, 0.56f});
   addPart(asset, "forklift right rear wheel treaded tire", "forklift.rubber", tire,
-          {0.66f, 0.29f, -0.78f},
-          {0.0f, 0.0f, kPi * 0.5f}, {0.56f, 0.56f, 0.56f});
+          {0.66f, 0.29f, -0.78f}, {}, {0.56f, 0.56f, 0.56f});
   addPart(asset, "forklift right rear wheel steel rim", "forklift.steel", wheel_hub,
-          {0.66f, 0.29f, -0.78f}, {0.0f, 0.0f, kPi * 0.5f}, {0.56f, 0.56f, 0.56f});
+          {0.66f, 0.29f, -0.78f}, {}, {0.56f, 0.56f, 0.56f});
   addPart(asset, "forklift left front wheel treaded tire", "forklift.rubber", tire,
-          {-0.66f, 0.24f, 0.78f},
-          {0.0f, 0.0f, kPi * 0.5f}, {0.46f, 0.46f, 0.46f});
+          {-0.66f, 0.24f, 0.78f}, {}, {0.46f, 0.46f, 0.46f});
   addPart(asset, "forklift left front wheel steel rim", "forklift.steel", wheel_hub,
-          {-0.66f, 0.24f, 0.78f}, {0.0f, 0.0f, kPi * 0.5f}, {0.46f, 0.46f, 0.46f});
+          {-0.66f, 0.24f, 0.78f}, {}, {0.46f, 0.46f, 0.46f});
   addPart(asset, "forklift right front wheel treaded tire", "forklift.rubber", tire,
-          {0.66f, 0.24f, 0.78f},
-          {0.0f, 0.0f, kPi * 0.5f}, {0.46f, 0.46f, 0.46f});
+          {0.66f, 0.24f, 0.78f}, {}, {0.46f, 0.46f, 0.46f});
   addPart(asset, "forklift right front wheel steel rim", "forklift.steel", wheel_hub,
-          {0.66f, 0.24f, 0.78f}, {0.0f, 0.0f, kPi * 0.5f}, {0.46f, 0.46f, 0.46f});
+          {0.66f, 0.24f, 0.78f}, {}, {0.46f, 0.46f, 0.46f});
   return asset;
 }
 

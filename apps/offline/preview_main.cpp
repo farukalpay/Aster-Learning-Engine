@@ -35,6 +35,9 @@ aster::Scene makeScene(const std::string &scene_name) {
   if (scene_name == "material-lab") {
     return aster::makeMaterialLabShowcaseScene();
   }
+  if (scene_name == "material-lab-forklift") {
+    return aster::makeMaterialLabForkliftShowcaseScene();
+  }
   if (scene_name == "mesh-lab") {
     return aster::makeMeshLabShowcaseScene();
   }
@@ -75,6 +78,14 @@ aster::OrbitCamera makeCamera(const std::string &scene_name) {
     camera.pitch = aster::radians(17.0f);
     camera.radius = 7.05f;
     camera.vertical_fov = aster::radians(42.0f);
+    return camera;
+  }
+  if (scene_name == "material-lab-forklift") {
+    camera.target = {-0.18f, 0.86f, 1.28f};
+    camera.yaw = aster::radians(21.0f);
+    camera.pitch = aster::radians(12.0f);
+    camera.radius = 6.25f;
+    camera.vertical_fov = aster::radians(40.0f);
     return camera;
   }
   if (scene_name == "mesh-lab") {
@@ -180,7 +191,7 @@ aster::RendererSettings makeSettings(const std::string &scene_name) {
     settings.atmosphere.fog_end = 20.0f;
     settings.atmosphere.fog_strength = 0.12f;
   }
-  if (scene_name == "material-lab") {
+  if (scene_name == "material-lab" || scene_name == "material-lab-forklift") {
     settings.exposure = 1.10f;
     settings.ambient_strength = 0.30f;
     settings.ambient_floor = 0.016f;

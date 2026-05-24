@@ -92,7 +92,7 @@ what the viewer is seeing.
 
 ![Primate anatomy research model](assets/screenshots/cercopithecidae_model.png)
 
-![Clean cave material showcase](assets/screenshots/clean_cave_showcase.png)
+![Material Lab forklift showcase](assets/screenshots/material_lab_forklift.png)
 
 Engine contract batch visuals live in
 [tests/artifacts/engine_contract_batch1](tests/artifacts/engine_contract_batch1/README.md).
@@ -142,7 +142,7 @@ Run built-in lab scenes when you want the inspected renderer path:
 ./build/aster_preview --scene lighting-lab --output /tmp/lighting_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene scene-lab --output /tmp/scene_lab.ppm --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene cercopithecidae --output /tmp/cercopithecidae_model.ppm --width 1280 --height 720 --samples 2
-./build/aster_preview --scene clean-cave --output /tmp/clean_cave_showcase.ppm --width 1280 --height 720 --samples 2
+./build/aster_preview --scene material-lab-forklift --output assets/screenshots/material_lab_forklift.png --width 1280 --height 720 --samples 2
 ./build/aster_preview --scene cave-conformance --output /tmp/cave_conformance.ppm --width 1280 --height 720 --samples 2
 ```
 
