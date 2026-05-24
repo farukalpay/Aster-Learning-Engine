@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.lumen_run.forklift_steel {
+  schema_version: 1
+  name: "Forklift Scuffed Steel"
+  shading_model: Unlit
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  params {
+    base_color_r: 0.44
+    base_color_g: 0.45
+    base_color_b: 0.42
+    roughness: 0.42
+    metallic: 0.78
+    edge_wear: 0.46
+    ambient_occlusion: 0.80
+    macro_variation: 0.20
+    micro_normal_strength: 0.18
+    roughness_variation: 0.18
+    height_shading: 0.05
+  }
+
+  features {
+    procedural_surface: true
+    contact_shadows: true
+  }
+}

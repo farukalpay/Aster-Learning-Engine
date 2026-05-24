@@ -1353,6 +1353,150 @@ void testLumenClassicGauntletVisibleAndAutomapped() {
   assert(!run.classicTransitionWipe().column_progress.empty());
 }
 
+void testLumenConstructionYardPlacementAndAssets() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  assert(run.caveWorldGateAccepted());
+
+  const auto count_construction_objects = [](const aster::Scene &scene) {
+    return static_cast<std::size_t>(std::count_if(
+        scene.objects().begin(), scene.objects().end(), [](const aster::RenderObject &object) {
+          return object.name.find("Construction forklift") != std::string::npos ||
+                 object.name.find("Construction pipe pallet") != std::string::npos ||
+                 object.name.find("Recycler shredder") != std::string::npos ||
+                 object.name.find("Shredded scrap output") != std::string::npos;
+        }));
+  };
+
+  bool forklift_visible = false;
+  bool pallet_visible = false;
+  bool shredder_visible = false;
+  bool scrap_pool_present = false;
+  bool treaded_forklift_tire_visible = false;
+  bool forklift_wheel_rim_visible = false;
+  bool raw_runtime_dependency = false;
+  for (const aster::RenderObject &object : run.scene().objects()) {
+    forklift_visible = forklift_visible ||
+                       object.name.find("Construction forklift") != std::string::npos;
+    pallet_visible =
+        pallet_visible || object.name.find("Construction pipe pallet") != std::string::npos;
+    shredder_visible =
+        shredder_visible || object.name.find("Recycler shredder") != std::string::npos;
+    scrap_pool_present =
+        scrap_pool_present || object.name.find("Shredded scrap output") != std::string::npos;
+    treaded_forklift_tire_visible =
+        treaded_forklift_tire_visible ||
+        object.name.find("Construction forklift forklift left rear wheel treaded tire") !=
+            std::string::npos;
+    forklift_wheel_rim_visible =
+        forklift_wheel_rim_visible ||
+        object.name.find("Construction forklift forklift left rear wheel steel rim") !=
+            std::string::npos;
+    raw_runtime_dependency = raw_runtime_dependency || object.name.find(".glb") != std::string::npos ||
+                             object.name.find(".fbx") != std::string::npos ||
+                             object.material_asset_id.find(".glb") != std::string::npos ||
+                             object.material_asset_id.find(".fbx") != std::string::npos;
+  }
+  assert(forklift_visible);
+  assert(treaded_forklift_tire_visible);
+  assert(forklift_wheel_rim_visible);
+  assert(pallet_visible);
+  assert(shredder_visible);
+  assert(scrap_pool_present);
+  assert(!raw_runtime_dependency);
+  assert(aster::length(run.constructionForkliftPosition() - run.constructionShredderPosition()) >
+         3.5f);
+  const std::size_t construction_object_count = count_construction_objects(run.scene());
+  assert(construction_object_count > 0u);
+  assert(std::abs(run.constructionForkliftPosition().y -
+                  run.constructionShredderPosition().y) < 0.45f);
+  run.reset();
+  assert(count_construction_objects(run.scene()) == construction_object_count);
+  assert(std::abs(run.constructionForkliftPosition().y -
+                  run.constructionShredderPosition().y) < 0.45f);
+  assert(run.sceneTraceReport().valid);
+}
+
+void testLumenConstructionForkliftPickupDropAndShredder() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  const aster::Vec3 forklift = run.constructionForkliftPosition();
+  const float forklift_grounded_y = forklift.y;
+  run.relocatePlayer(forklift + aster::Vec3{-0.95f, 0.0f, -0.35f}, aster::radians(90.0f));
+  aster::Vec3 focus_origin = run.playerPosition() + aster::Vec3{0.0f, 0.62f, 0.0f};
+  run.updateInteractionFocus(focus_origin, aster::normalize(forklift - focus_origin),
+                             1.0f / 60.0f);
+  aster::FocusPromptModel prompt = run.focusPromptModel();
+  assert(prompt.visible);
+  assert(prompt.action == "Enter");
+  assert(prompt.subject == "Forklift");
+  run.interactFocused();
+  assert(run.constructionForkliftMounted());
+  run.update(1.0f / 60.0f, {0.0f, 0.0f}, false, false);
+  const aster::Vec3 mounted_forklift = run.constructionForkliftPosition();
+  const aster::Vec3 forklift_forward{
+      std::sin(aster::radians(90.0f)), 0.0f, std::cos(aster::radians(90.0f))};
+  run.update(1.0f / 60.0f, {0.0f, 1.0f}, false, false);
+  assert(aster::dot(run.constructionForkliftPosition() - mounted_forklift, forklift_forward) >
+         0.020f);
+  const aster::Vec3 forward_test_position = run.constructionForkliftPosition();
+  run.update(1.0f / 60.0f, {0.0f, -1.0f}, false, false);
+  assert(aster::dot(run.constructionForkliftPosition() - forward_test_position,
+                    forklift_forward) < -0.020f);
+  bool forklift_seated_pose = false;
+  const aster::Quat forklift_facing =
+      aster::axisAngle({0.0f, 1.0f, 0.0f}, aster::radians(90.0f));
+  const aster::Quat inverse_forklift_facing = aster::inverse(forklift_facing).value;
+  for (const aster::RenderObject &object : run.scene().objects()) {
+    if (object.name == "left leg" || object.name == "right leg") {
+      const aster::Vec3 local_rotation =
+          aster::eulerXyz(inverse_forklift_facing * object.transform.rotation);
+      forklift_seated_pose = forklift_seated_pose || local_rotation.x > 0.55f;
+    }
+  }
+  assert(forklift_seated_pose);
+  run.update(1.0f / 60.0f, {0.0f, 1.0f}, false, true);
+  assert(std::abs(run.constructionForkliftPosition().y - forklift_grounded_y) < 0.12f);
+
+  for (int i = 0; i < 8; ++i) {
+    run.update(1.0f / 60.0f, {0.0f, 0.0f}, false, true);
+  }
+  assert(run.constructionPalletAttached());
+
+  focus_origin = run.playerPosition() + aster::Vec3{0.0f, 0.62f, 0.0f};
+  run.updateInteractionFocus(focus_origin,
+                             aster::normalize(run.constructionPalletPosition() - focus_origin),
+                             1.0f / 60.0f);
+  prompt = run.focusPromptModel();
+  assert(prompt.visible);
+  assert(prompt.action == "Drop");
+  run.interactFocused();
+  assert(!run.constructionPalletAttached());
+
+  for (int i = 0; i < 34; ++i) {
+    run.update(1.0f / 60.0f, {0.0f, 0.0f}, false, true);
+  }
+  assert(run.constructionPalletAttached());
+
+  for (int i = 0; i < 100; ++i) {
+    run.update(1.0f / 60.0f, {0.0f, 1.0f}, false, i < 28);
+  }
+  run.updateRenderInterpolation(1.0f);
+  assert(aster::length(run.playerRenderPosition() - run.playerPosition()) < 0.035f);
+  assert(run.constructionShredderActive() || run.constructionShredderConsumedPipeCount() > 0);
+  assert(run.constructionShredderConsumedPipeCount() > 0);
+  assert(run.constructionScrapFragmentCount() > 0u);
+
+  const aster::Vec3 exit_focus = run.constructionForkliftPosition() + aster::Vec3{0.0f, 1.20f, 0.0f};
+  run.updateInteractionFocus(run.playerPosition() + aster::Vec3{0.0f, 0.42f, 0.0f},
+                             aster::normalize(exit_focus - run.playerPosition()),
+                             1.0f / 60.0f);
+  run.interactFocused();
+  assert(!run.constructionForkliftMounted());
+  run.update(1.0f / 60.0f, {0.0f, 0.0f}, false, false);
+  const float player_support = aster::LumenTuning{}.player_height * 0.5f;
+  const float player_foot_y = run.playerPosition().y - player_support;
+  assert(std::abs(player_foot_y - run.constructionForkliftPosition().y) < 0.34f);
+}
+
 } // namespace
 
 struct NamedSampleTest {
@@ -1398,6 +1542,10 @@ int main(const int argc, const char **argv) {
       {"lumen_pond_wall_light_is_mounted_outside_water", testLumenPondWallLightIsMountedOutsideWater},
       {"lumen_classic_gauntlet_visible_and_automapped",
        testLumenClassicGauntletVisibleAndAutomapped},
+      {"lumen_construction_yard_placement_and_assets",
+       testLumenConstructionYardPlacementAndAssets},
+      {"lumen_construction_forklift_pickup_drop_and_shredder",
+       testLumenConstructionForkliftPickupDropAndShredder},
   };
   bool ran = false;
   for (const NamedSampleTest &test : tests) {

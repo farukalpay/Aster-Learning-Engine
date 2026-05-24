@@ -210,6 +210,7 @@ set(ASTER_ASSET_SOURCES
   "${PROJECT_SOURCE_DIR}/src/asset/asset_production_model.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/asset_registry.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/compiled_scene_asset.cpp"
+  "${PROJECT_SOURCE_DIR}/src/asset/construction_yard_asset.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/content_pack.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/derived_asset_cache.cpp"
   "${PROJECT_SOURCE_DIR}/src/asset/legacy_lump_archive.cpp"
@@ -399,6 +400,7 @@ set(ASTER_NET_SOURCES
 
 set(ASTER_SAMPLES_SOURCES
   "${PROJECT_SOURCE_DIR}/src/samples/aster_grid_tactics/aster_grid_tactics.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/construction_yard.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/lumen_run.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/interaction.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/mining.cpp"

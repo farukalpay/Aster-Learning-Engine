@@ -1,0 +1,52 @@
+astergraph asset_graph.lumen_run.pipe_pallet
+schema_version 1
+name "Lumen Run Rusted Pipe Pallet"
+material_id material.lumen_run.rusted_pipe_pallet
+surface_profile corroded-metal
+primitive pipe-pallet
+uv_policy pipe-pallet-packed
+tangent_policy validate-or-generate
+collision_proxy pallet-fork-pockets
+lod_policy lod0-lod1
+base_color 0.36 0.18 0.08
+roughness 0.74
+metallic 0.42
+param rust_strength 0.86
+param physical_texel_density 896
+param height_normal_coupling 0.72
+param roughness_height_coupling 0.66
+param macro_frequency_breakup 0.52
+param micro_frequency_breakup 0.58
+feature normal_map true
+preview environment lumen-construction-yard
+preview rig pallet-low-three-quarter
+preview artifact /tmp/lumen_run_construction_yard.ppm
+node mesh.pallet mesh_primitive role=mesh primitive=pipe-pallet pipe_count=8 pipe_length=2.55 pipe_outer_radius=0.145
+node uv.pallet uv_policy role=uv mapping=pipe-pallet-packed texel_density=896
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.pipe material_assignment role=material slot=pipe.rusted surface_profile=corroded-metal
+node material.wood material_assignment role=material slot=pallet.wood surface_profile=weathered-wood
+node collision.proxy collision_proxy role=collision shape=pallet-fork-pockets triangles=64
+node lod.chain lod_generator role=lod policy=lod0-lod1 levels=2
+node gameplay.attach prefab_variant role=prefab variant=fork-pocket-align-and-attach
+node claim.pipes visual_brief_claim role=quality signal=rusted_hollow_pipes
+node claim.stack visual_brief_claim role=quality signal=stacked_pallet_arrangement
+node claim.grounded visual_brief_claim role=quality signal=grounded_contact_shadows
+node reject.raw visual_brief_rejection role=quality signal=raw_glb_fbx_runtime_dependency
+node perception.template world_perceptual_template role=perceptual profile=rusted-pipe-cargo surface_response=corroded-hollow-pipes history_response=forklift-cargo-contact material_half_life_seconds=34 wetness_half_life_seconds=18 semantic_lod=0.84 streaming_cost=0.30 patch_channels=rust,pallet_wood,material_stability contact_channels=fork_pocket_alignment,visual_occlusion,traversal_affordance residue_channels=rust_dust,pipe_clatter,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mesh.pallet uv.pallet uv_contract
+edge uv.pallet tangent.validate tangent_contract
+edge mesh.pallet material.pipe material_slot
+edge mesh.pallet material.wood material_slot
+edge mesh.pallet collision.proxy collision_source
+edge mesh.pallet lod.chain lod_source
+edge collision.proxy gameplay.attach gameplay_socket
+edge claim.pipes diagnostic.quality visual_brief
+edge claim.stack diagnostic.quality visual_brief
+edge claim.grounded diagnostic.quality visual_brief
+edge reject.raw diagnostic.quality forbidden_signal
+edge perception.template export.runtime perceptual_template
+edge lod.chain export.runtime runtime_lods
+edge diagnostic.quality export.runtime cook_report

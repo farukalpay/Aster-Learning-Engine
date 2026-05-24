@@ -313,6 +313,7 @@ void LumenRun::updateSceneObjects(const float animation_dt) {
   auto &objects = scene_.objects();
 
   const bool preview = player_preview_yaw_enabled_;
+  const bool seated = construction_forklift_.mounted && !preview;
   const AvatarPose player_pose = updateAvatarAnimator(
       player_avatar_animator_, {.max_stride_amplitude = 0.62f, .vertical_bob_amplitude = 0.017f},
       {.position = avatarPosePosition(),
@@ -327,7 +328,8 @@ void LumenRun::updateSceneObjects(const float animation_dt) {
        .pointing_enabled = player_avatar_point_enabled_ && !preview,
        .mouth_open = preview ? 0.0f : player_mouth_open_,
        .swim_blend = preview ? 0.0f : player_swim_blend_,
-       .climb_blend = preview ? 0.0f : player_climb_blend_},
+       .climb_blend = preview ? 0.0f : player_climb_blend_,
+       .seated_blend = seated ? 1.0f : 0.0f},
       animation_dt);
   player_avatar_pose_ = player_pose;
   player_avatar_pose_valid_ = true;
@@ -387,6 +389,7 @@ void LumenRun::updateSceneObjects(const float animation_dt) {
   updateChestVisuals(animation_dt);
   updateEquipmentVisuals(animation_dt);
   updateClassicGauntletVisuals(animation_dt);
+  updateConstructionYardVisuals(animation_dt);
   updateCaveVisuals(animation_dt);
   updateCaveSkitterVisuals(animation_dt);
   updateFishingVisual();
@@ -468,11 +471,32 @@ TerrainSurfaceSample LumenRun::sampleCaveFloorSupport(const SurfaceSupportQuery 
 
 TerrainSurfaceSample LumenRun::sampleWorldSupport(const SurfaceSupportQuery &query) const {
   const TerrainSurfaceSample world = support_surfaces_.sample(query);
+  const auto cave_support_allowed = [this, &query]() {
+    if (!std::isfinite(query.reference_y)) {
+      return false;
+    }
+    const Vec3 reference{query.world_position.x, query.reference_y, query.world_position.y};
+    for (const CaveFloorSupportSurface &floor : cave_floor_supports_) {
+      const CaveInteriorSample sample = sampleCaveInteriorVolume(floor.tunnel, reference);
+      if (sample.tunnel_t >= floor.tunnel.collision_start_t - 0.04f &&
+          sample.lateral <= sample.half_width * 1.10f && sample.vertical >= -0.80f &&
+          sample.vertical <= sample.height * 1.80f) {
+        return true;
+      }
+    }
+    return false;
+  };
+  if (!cave_support_allowed()) {
+    return world;
+  }
   const TerrainSurfaceSample cave_floor = sampleCaveFloorSupport(query);
   if (!cave_floor.valid) {
     return world;
   }
-  return cave_floor;
+  if (!world.valid) {
+    return cave_floor;
+  }
+  return cave_floor.height > world.height ? cave_floor : world;
 }
 
 void LumenRun::updateFishingVisual() {

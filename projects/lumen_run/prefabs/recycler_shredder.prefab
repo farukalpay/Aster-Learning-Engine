@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "prefab.lumen_run.recycler_shredder",
+  "name": "Recycler Shredder",
+  "entities": [
+    {
+      "id": "recycler_shredder.root",
+      "name": "Recycler Shredder Root",
+      "components": {
+        "transform": { "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 1.5708, 0.0] },
+        "mesh_renderer": { "mesh": "asset_graph.lumen_run.recycler_shredder", "material": "material.lumen_run.shredder_blue_metal" },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.recycler_shredder", "cell_anchor": "lumen.construction_yard", "residency_role": "destruction-machine", "local_cause": "pipe-pallet-shredding", "traversal_role": "hazard-intake-output", "visual_occlusion_role": "blue-industrial-machine", "acoustic_role": "metal-shredder", "material_half_life_override": 30.0, "streaming_cost_override": 0.36 },
+        "collider": { "shape": "box", "half_extents": [0.90, 0.74, 1.58], "layer": "world.machine" },
+        "rigid_body": { "type": "static", "mass": 0.0, "gravity_enabled": false },
+        "interactable": {
+          "tags": ["construction.machine.recycler_shredder", "interaction.feed_cargo"],
+          "action_graph": "action.construction.shredder.feed",
+          "prompt_action": "Feed",
+          "prompt_subject": "Recycler",
+          "radius": 1.05,
+          "max_distance": 14.0
+        }
+      }
+    }
+  ]
+}

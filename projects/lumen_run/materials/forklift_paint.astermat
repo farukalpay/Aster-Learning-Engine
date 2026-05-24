@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.lumen_run.forklift_paint {
+  schema_version: 1
+  name: "Forklift Weathered Orange Paint"
+  shading_model: Unlit
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  params {
+    base_color_r: 0.86
+    base_color_g: 0.45
+    base_color_b: 0.13
+    roughness: 0.54
+    metallic: 0.36
+    edge_wear: 0.42
+    ambient_occlusion: 0.82
+    macro_variation: 0.28
+    micro_normal_strength: 0.24
+    roughness_variation: 0.24
+    height_shading: 0.10
+  }
+
+  features {
+    procedural_surface: true
+    contact_shadows: true
+  }
+}

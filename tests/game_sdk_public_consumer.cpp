@@ -27,6 +27,16 @@ const aster::sdk::ProjectAssetRef *findAsset(const aster::sdk::ProjectDocument &
   return nullptr;
 }
 
+const aster::sdk::EntityDefinition *findEntity(const aster::sdk::SceneDocument &scene,
+                                               const std::string &id) {
+  for (const aster::sdk::EntityDefinition &entity : scene.entities) {
+    if (entity.id == id) {
+      return &entity;
+    }
+  }
+  return nullptr;
+}
+
 void testLumenProjectAuthoringDocumentsLoad() {
   const std::filesystem::path project_root = sourceRoot() / "projects" / "lumen_run";
   const auto project = aster::sdk::loadProjectDocument(project_root / "lumen_run.asterproj");
@@ -49,7 +59,23 @@ void testLumenProjectAuthoringDocumentsLoad() {
   const auto scene = aster::sdk::loadSceneDocument(project_root / "scenes" / "cave_entry.scene");
   assert(scene.ok());
   assert(scene.value.id == "scene.cave_entry");
-  assert(scene.value.entities.size() == 4u);
+  assert(scene.value.entities.size() >= 7u);
+  const aster::sdk::EntityDefinition *construction_forklift =
+      findEntity(scene.value, "construction_forklift");
+  const aster::sdk::EntityDefinition *construction_pipe_pallet =
+      findEntity(scene.value, "construction_pipe_pallet");
+  const aster::sdk::EntityDefinition *recycler_shredder =
+      findEntity(scene.value, "recycler_shredder");
+  assert(construction_forklift != nullptr);
+  assert(construction_pipe_pallet != nullptr);
+  assert(recycler_shredder != nullptr);
+  assert(construction_forklift->components.collider.has_value());
+  assert(construction_forklift->components.interactable.has_value());
+  assert(construction_forklift->components.perceptual_binding.has_value());
+  assert(construction_pipe_pallet->components.collider.has_value());
+  assert(construction_pipe_pallet->components.interactable.has_value());
+  assert(recycler_shredder->components.collider.has_value());
+  assert(recycler_shredder->components.interactable.has_value());
 
   const auto cave = aster::sdk::loadCaveDocument(project_root / "caves" / "cave_entry.cave");
   assert(cave.ok());

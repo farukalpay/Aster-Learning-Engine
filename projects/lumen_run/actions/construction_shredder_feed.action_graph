@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "action.construction.shredder.feed",
+  "name": "Feed Recycler Shredder",
+  "nodes": [
+    {
+      "id": "feed_shredder",
+      "type": "emit_event",
+      "parameters": {
+        "event": "construction.shredder.feed_loaded_pallet",
+        "shredder": "target"
+      },
+      "tags": ["interaction.vehicle", "construction_yard", "destruction_sequence"]
+    },
+    {
+      "id": "emit_scrap",
+      "type": "spawn_effect",
+      "parameters": {
+        "effect": "sparks_dust_scrap_output",
+        "asset": "asset_graph.lumen_run.shredded_metal_scrap"
+      }
+    }
+  ]
+}

@@ -60,6 +60,7 @@ struct AvatarPose {
   float mouth_open = 0.0f;
   float swim_blend = 0.0f;
   float climb_blend = 0.0f;
+  float seated_blend = 0.0f;
   float point_yaw_offset = 0.0f;
   float point_pitch_offset = 0.0f;
   float point_blend = 0.0f;
@@ -105,6 +106,7 @@ struct AvatarAnimatorInput {
   float mouth_open = 0.0f;
   float swim_blend = 0.0f;
   float climb_blend = 0.0f;
+  float seated_blend = 0.0f;
 };
 
 struct AvatarAnimatorState {
@@ -117,6 +119,7 @@ struct AvatarAnimatorState {
   float mouth_open = 0.0f;
   float swim_blend = 0.0f;
   float climb_blend = 0.0f;
+  float seated_blend = 0.0f;
   float point_yaw_offset = 0.0f;
   float point_pitch_offset = 0.0f;
   float point_blend = 0.0f;

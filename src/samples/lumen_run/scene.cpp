@@ -3,6 +3,7 @@
 
 #include "lumen_run_detail.hpp"
 
+#include "aster/asset/construction_yard_asset.hpp"
 #include "aster/asset/pipe_runtime_asset.hpp"
 
 namespace aster {
@@ -271,6 +272,11 @@ void LumenRun::rebuildScene() {
   cave_webs_.clear();
   scenery_collision_boxes_.clear();
   mining_fracture_shards_.clear();
+  construction_forklift_.parts.clear();
+  construction_pallet_.parts.clear();
+  construction_shredder_.parts.clear();
+  construction_scrap_.clear();
+  construction_scrap_cursor_ = 0;
   prism_relay_core_object_ = 0;
   prism_relay_core_valid_ = false;
   prism_relay_ring_objects_.clear();
@@ -661,6 +667,46 @@ void LumenRun::rebuildScene() {
       material({0.055f, 0.038f, 0.020f}, {0.0f, 0.0f, 0.0f}, 0.78f, 0.0f, 0.0f, 0.18f, 5.0f, 0.12f,
                0.98f, SurfacePattern::FiberStrands, {3.4f, 8.2f}, 0.004f, 0.34f, 0.08f);
   sign_ink.double_sided = true;
+  Material forklift_paint =
+      material({0.86f, 0.45f, 0.13f}, {0.010f, 0.004f, 0.001f}, 0.54f, 0.36f, 0.010f, 0.42f,
+               10.0f, 0.36f, 0.82f, SurfacePattern::WeatheredMetal, {6.0f, 10.0f}, 0.026f,
+               0.70f, 0.055f,
+               {.macro_variation = 0.28f,
+                .micro_normal_strength = 0.24f,
+                .roughness_variation = 0.24f,
+                .height_shading = 0.10f});
+  forklift_paint.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material construction_rubber =
+      material({0.025f, 0.024f, 0.022f}, {0.0f, 0.0f, 0.0f}, 0.82f, 0.0f, 0.0f, 0.72f, 14.0f,
+               0.22f, 0.88f, SurfacePattern::WeatheredMetal, {9.0f, 13.0f}, 0.018f, 0.46f,
+               0.05f);
+  construction_rubber.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material construction_steel =
+      material({0.44f, 0.45f, 0.42f}, {0.010f, 0.010f, 0.009f}, 0.42f, 0.78f, 0.012f, 0.46f,
+               15.0f, 0.20f, 0.80f, SurfacePattern::WeatheredMetal, {8.0f, 13.0f}, 0.018f,
+               0.56f, 0.050f);
+  construction_steel.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material shredder_blue =
+      material({0.07f, 0.23f, 0.42f}, {0.004f, 0.012f, 0.020f}, 0.58f, 0.48f, 0.006f, 0.54f,
+               10.0f, 0.42f, 0.82f, SurfacePattern::WeatheredMetal, {5.0f, 9.0f}, 0.030f,
+               0.76f, 0.050f,
+               {.macro_variation = 0.34f,
+                .micro_normal_strength = 0.28f,
+                .roughness_variation = 0.28f,
+                .height_shading = 0.12f});
+  shredder_blue.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material hazard_yellow =
+      material({0.94f, 0.70f, 0.12f}, {0.030f, 0.018f, 0.002f}, 0.48f, 0.18f, 0.020f, 0.34f,
+               7.0f, 0.34f, 0.88f, SurfacePattern::WeatheredMetal, {6.0f, 12.0f}, 0.012f,
+               0.52f, 0.040f);
+  hazard_yellow.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material rusted_pipe_material = makeAsterPipeMaterial("pipe.body");
+  rusted_pipe_material.camera_occlusion = CameraOcclusionPolicy::Solid;
+  Material scrap_material =
+      material({0.48f, 0.39f, 0.31f}, {0.08f, 0.055f, 0.032f}, 0.38f, 0.76f, 0.024f, 0.64f,
+               12.0f, 0.52f, 0.82f, SurfacePattern::WeatheredMetal, {8.0f, 16.0f}, 0.018f,
+               0.64f, 0.060f);
+  scrap_material.camera_occlusion = CameraOcclusionPolicy::Solid;
   const Material marsh_soil = makeSupportSurfaceMaterial(
       material({0.22f, 0.25f, 0.16f}, {0.0f, 0.0f, 0.0f}, 0.97f, 0.0f, 0.0f, 0.86f, 9.2f, 0.18f,
                0.94f, SurfacePattern::GrassSoil, {6.8f, 8.6f}, 0.070f, 0.78f, 0.08f));
@@ -757,6 +803,7 @@ void LumenRun::rebuildScene() {
       object.casts_contact_shadow = false;
       object.camera_occlusion_fade = false;
       object.perceptual_truth_mode = RenderPerceptualTruthMode::Compatibility;
+      object.lod.max_distance = 0.001f;
     }
     cave_debug_overlay_objects_.push_back(
         {index, layer, scale, visible_opacity, visible_emission});
@@ -778,6 +825,16 @@ void LumenRun::rebuildScene() {
       object.casts_contact_shadow = true;
       object.contact_shadow_strength = strength;
       object.contact_shadow_radius_scale = radius_scale;
+    }
+    return object_index;
+  };
+
+  const auto setObjectLod = [&](const std::size_t object_index, const float max_distance,
+                                const float min_projected_radius = 0.0f) {
+    if (object_index < scene_.objects().size()) {
+      RenderObject &object = scene_.objects()[object_index];
+      object.lod.max_distance = std::max(max_distance, 0.0f);
+      object.lod.min_projected_radius = std::max(min_projected_radius, 0.0f);
     }
     return object_index;
   };
@@ -1018,12 +1075,16 @@ void LumenRun::rebuildScene() {
     const Vec3 rotation{0.0f, yaw, 0.0f};
     const Vec3 base =
         length(placement.mount_position) > 0.0001f ? placement.mount_position : placement.position;
-    visual.backplate = keepCameraSolid(appendScenery("Industrial red cave wall light backplate",
-                                                     MeshPrimitive::Box, base + normal * 0.018f,
-                                                     {0.48f, 0.30f, 0.036f}, rotation, metal));
-    visual.lens = keepCameraSolid(appendScenery("Industrial amber cave wall light glowing lens",
-                                                MeshPrimitive::Box, placement.lens_position,
-                                                {0.42f, 0.24f, 0.044f}, rotation, lens));
+    visual.backplate = setObjectLod(
+        keepCameraSolid(appendScenery("Industrial red cave wall light backplate",
+                                      MeshPrimitive::Box, base + normal * 0.018f,
+                                      {0.48f, 0.30f, 0.036f}, rotation, metal)),
+        18.0f, 0.006f);
+    visual.lens = setObjectLod(
+        keepCameraSolid(appendScenery("Industrial amber cave wall light glowing lens",
+                                      MeshPrimitive::Box, placement.lens_position,
+                                      {0.42f, 0.24f, 0.044f}, rotation, lens)),
+        22.0f, 0.005f);
     if (visual.lens < scene_.objects().size()) {
       applyIndustrialLensColor(scene_.objects()[visual.lens].material, placement.light_color);
     }
@@ -1031,16 +1092,18 @@ void LumenRun::rebuildScene() {
     constexpr std::array<float, 5> kVerticalOffsets{-0.30f, -0.15f, 0.0f, 0.15f, 0.30f};
     for (std::size_t i = 0; i < visual.vertical_guards.size(); ++i) {
       const Vec3 rib_center = base + normal * 0.105f + right * kVerticalOffsets[i];
-      visual.vertical_guards[i] = keepCameraSolid(
+      visual.vertical_guards[i] = setObjectLod(keepCameraSolid(
           appendBeam("Industrial red cave wall light vertical guard", rib_center - up * 0.235f,
-                     rib_center + up * 0.235f, 0.018f, metal));
+                     rib_center + up * 0.235f, 0.018f, metal)),
+                                              14.0f, 0.007f);
     }
     constexpr std::array<float, 3> kHorizontalOffsets{-0.17f, 0.0f, 0.17f};
     for (std::size_t i = 0; i < visual.horizontal_guards.size(); ++i) {
       const Vec3 rib_center = base + normal * 0.125f + up * kHorizontalOffsets[i];
-      visual.horizontal_guards[i] = keepCameraSolid(
+      visual.horizontal_guards[i] = setObjectLod(keepCameraSolid(
           appendBeam("Industrial red cave wall light horizontal guard", rib_center - right * 0.385f,
-                     rib_center + right * 0.385f, 0.016f, metal));
+                     rib_center + right * 0.385f, 0.016f, metal)),
+                                                14.0f, 0.007f);
     }
     return visual;
   };
@@ -1054,8 +1117,9 @@ void LumenRun::rebuildScene() {
     const float pitch = std::atan2(-n.y, std::max(std::sqrt(n.x * n.x + n.z * n.z), 0.0001f));
     const Vec3 center = surface + n * lift;
     const Vec3 scale{std::max(size.x, 0.02f), std::max(size.y, 0.02f), 0.0025f};
-    keepCameraSolid(appendScenery(name, MeshPrimitive::Box, center, scale, {pitch, yaw, 0.0f},
-                                  decal));
+    return setObjectLod(keepCameraSolid(appendScenery(name, MeshPrimitive::Box, center, scale,
+                                                      {pitch, yaw, 0.0f}, decal)),
+                        12.0f, 0.006f);
   };
 
   const auto appendFloorDecal = [&](const char *name, const Vec3 center, const Vec3 tangent,
@@ -1064,8 +1128,10 @@ void LumenRun::rebuildScene() {
     const Vec3 t = length(tangent) > 0.0001f ? normalize(tangent) : Vec3{0.0f, 0.0f, -1.0f};
     const float yaw = std::atan2(t.x, t.z);
     const Vec3 scale{std::max(size.x, 0.04f), 0.0025f, std::max(size.y, 0.04f)};
-    keepCameraSolid(appendScenery(name, MeshPrimitive::Box, center + Vec3{0.0f, lift, 0.0f}, scale,
-                                  {0.0f, yaw, 0.0f}, decal));
+    return setObjectLod(keepCameraSolid(appendScenery(name, MeshPrimitive::Box,
+                                                      center + Vec3{0.0f, lift, 0.0f}, scale,
+                                                      {0.0f, yaw, 0.0f}, decal)),
+                        12.0f, 0.006f);
   };
 
   const auto appendCaveAgingPass = [&](const AuthoredCaveSection &section,
@@ -1325,10 +1391,11 @@ void LumenRun::rebuildScene() {
     skitter.state.temperament =
         0.22f + 0.26f * static_cast<float>(skitter_index) +
         0.08f * std::sin(static_cast<float>(skitter_index) * 1.73f);
-    skitter.object_index = appendGeneratedScenery("Cave skitter arachnid", cave_skitter_mesh,
-                                                  skitter.state.position, {1.0f, 1.0f, 1.0f},
-                                                  {0.0f, skitter.state.facing_yaw, 0.0f},
-                                                  cave_skitter_material);
+    skitter.object_index = setObjectLod(
+        appendGeneratedScenery("Cave skitter arachnid", cave_skitter_mesh,
+                               skitter.state.position, {1.0f, 1.0f, 1.0f},
+                               {0.0f, skitter.state.facing_yaw, 0.0f}, cave_skitter_material),
+        18.0f, 0.010f);
     enableContactShadow(skitter.object_index, 0.42f, 0.82f);
     appendCaveDebugOverlay("Cave debug skitter spawn volume", MeshPrimitive::Sphere,
                            skitter.state.position, {0.34f, 0.20f, 0.34f}, {},
@@ -2028,10 +2095,8 @@ void LumenRun::rebuildScene() {
   decorative_ground_surfaces.addMesh({cave_portal_floor_mesh, {}, 0.46f});
   const std::shared_ptr<const CpuMesh> cave_floor_mesh =
       makeSharedMesh(std::move(cave_complex.floor_mesh));
-  support_surfaces_.addMesh({cave_floor_mesh, {}, 0.36f});
   const std::shared_ptr<const CpuMesh> deep_cave_floor_mesh =
       makeSharedMesh(std::move(deep_cave_complex.floor_mesh));
-  support_surfaces_.addMesh({deep_cave_floor_mesh, {}, 0.36f});
   cave_floor_supports_.push_back({.tunnel = cave_spec.tunnel,
                                   .manifold = cave_manifold,
                                   .floor_mesh = cave_floor_mesh,
@@ -2117,7 +2182,9 @@ void LumenRun::rebuildScene() {
         rotation = {0.0f, std::atan2(feature.normal.x, feature.normal.z), 0.0f};
         break;
       }
-      keepCameraSolid(appendScenery(name, primitive, position, scale, rotation, feature_material));
+      setObjectLod(keepCameraSolid(appendScenery(name, primitive, position, scale, rotation,
+                                                feature_material)),
+                   18.0f, 0.010f);
       if (mineral_accent) {
         appendWallDecal("Fresh broken mineral interior",
                         feature.position + feature.normal * std::max(scale.y * 0.22f, 0.04f),
@@ -2316,6 +2383,141 @@ void LumenRun::rebuildScene() {
                   {0.0f, static_cast<float>(i) * 0.61f, 0.0f}, cave_mouth_stone);
   }
 
+  const auto constructionMaterialForSlot = [&](const std::string &slot) -> Material {
+    if (slot == "forklift.paint") {
+      return forklift_paint;
+    }
+    if (slot == "forklift.rubber") {
+      return construction_rubber;
+    }
+    if (slot == "forklift.steel" || slot == "shredder.steel") {
+      return construction_steel;
+    }
+    if (slot == "shredder.blue_metal") {
+      return shredder_blue;
+    }
+    if (slot == "shredder.hazard") {
+      return hazard_yellow;
+    }
+    if (slot == "pipe.rusted") {
+      return rusted_pipe_material;
+    }
+    if (slot == "scrap.metal") {
+      return scrap_material;
+    }
+    if (slot == "pallet.shadow") {
+      Material pocket = construction_rubber;
+      pocket.opacity = 0.46f;
+      pocket.alpha_mode = MaterialAlphaMode::Blend;
+      pocket.depth_write = MaterialDepthWrite::Enabled;
+      return pocket;
+    }
+    return sign_wood;
+  };
+  const auto terrainGroundAt = [&](const Vec3 probe, const float lift) {
+    TerrainSurfaceSample ground = sampleTerrain(terrain_, {probe.x, probe.z});
+    if (!ground.valid) {
+      ground = groundDrapeSurface({probe.x, probe.z});
+    }
+    return Vec3{probe.x, (ground.valid ? ground.height : cave_floor_y) + lift, probe.z};
+  };
+  const auto appendConstructionPart =
+      [&](const std::string &asset_id, const std::string &prefix,
+          const AsterConstructionAssetPart &part, const Vec3 base, const float yaw,
+          std::vector<ConstructionVisualPart> &parts, const bool hidden = false) {
+        Material part_material = constructionMaterialForSlot(part.material_slot);
+        RenderObject object;
+        object.name = prefix + part.name;
+        object.primitive = MeshPrimitive::Box;
+        object.custom_mesh = makeSharedMesh(part.mesh);
+        object.transform.position = hidden ? Vec3{0.0f, -24.0f, 0.0f}
+                                           : base + rotateYaw(part.local_position, yaw);
+        object.transform.rotation = quatFromEulerXyz(
+            {part.local_rotation.x, yaw + part.local_rotation.y, part.local_rotation.z});
+        object.transform.scale = hidden ? Vec3{0.001f, 0.001f, 0.001f} : part.local_scale;
+        object.material = part_material;
+        object.material_asset_id = asset_id + "/" + part.material_slot;
+        object.camera_occlusion_fade = allowsCameraOcclusionFade(part_material);
+        const std::size_t index = appendObject(object);
+        scenery_objects_.push_back(index);
+        enableContactShadow(index, part.material_slot == "pipe.rusted" ? 0.42f : 0.36f, 0.88f);
+        parts.push_back({index, part.local_position, part.local_rotation, part.local_scale,
+                         part.name});
+        return index;
+      };
+
+  const Vec3 yard_anchor = terrainGroundAt(cave_entrance + Vec3{4.85f, 0.0f, 4.45f}, 0.0f);
+  construction_forklift_.position =
+      terrainGroundAt(yard_anchor + Vec3{-2.42f, 0.0f, -0.36f}, 0.005f);
+  construction_forklift_.yaw = kPi * 0.5f;
+  construction_forklift_.fork_height = 0.28f;
+  construction_forklift_.mounted = false;
+  construction_forklift_.wheel_spin = 0.0f;
+  construction_forklift_.steer_angle = 0.0f;
+  construction_pallet_.position =
+      terrainGroundAt(yard_anchor + Vec3{-0.66f, 0.0f, -0.36f}, 0.0f);
+  construction_pallet_.yaw = kPi * 0.5f;
+  construction_pallet_.attached = false;
+  construction_pallet_.consumed = false;
+  construction_pallet_.attach_cooldown = 0.0f;
+  construction_pallet_.visible_pipe_count = 8;
+  construction_shredder_.position =
+      terrainGroundAt(yard_anchor + Vec3{2.78f, 0.0f, -0.36f}, 0.0f);
+  construction_shredder_.yaw = kPi * 0.5f;
+  construction_shredder_.active = false;
+  construction_shredder_.shred_timer = 0.0f;
+  construction_shredder_.consumed_pipe_count = 0;
+
+  Material yard_soil = marsh_soil;
+  yard_soil.base_color = LinearRgb{{0.28f, 0.265f, 0.22f}};
+  yard_soil.roughness = 0.94f;
+  const Vec3 yard_pad_center = yard_anchor + Vec3{0.25f, -0.018f, -0.36f};
+  const Vec3 yard_pad_scale{6.70f, 0.035f, 3.18f};
+  appendScenery("Construction yard compacted gravel pad", MeshPrimitive::Box,
+                yard_pad_center, yard_pad_scale, {0.0f, 0.0f, 0.0f}, yard_soil);
+  support_surfaces_.addBox({yard_pad_center, yard_pad_scale * 0.50f});
+  const AsterConstructionYardAsset forklift_asset = makeAsterConstructionForkliftAsset();
+  for (const AsterConstructionAssetPart &part : forklift_asset.parts) {
+    appendConstructionPart(forklift_asset.asset_id, "Construction forklift ", part,
+                           construction_forklift_.position, construction_forklift_.yaw,
+                           construction_forklift_.parts);
+  }
+  const AsterConstructionYardAsset pallet_asset = makeAsterPipePalletAsset();
+  for (const AsterConstructionAssetPart &part : pallet_asset.parts) {
+    appendConstructionPart(pallet_asset.asset_id, "Construction pipe pallet ", part,
+                           construction_pallet_.position, construction_pallet_.yaw,
+                           construction_pallet_.parts);
+  }
+  const AsterConstructionYardAsset shredder_asset = makeAsterRecyclerShredderAsset();
+  for (const AsterConstructionAssetPart &part : shredder_asset.parts) {
+    appendConstructionPart(shredder_asset.asset_id, "Recycler shredder ", part,
+                           construction_shredder_.position, construction_shredder_.yaw,
+                           construction_shredder_.parts);
+  }
+  const AsterConstructionYardAsset scrap_asset = makeAsterShreddedMetalScrapAsset();
+  for (const AsterConstructionAssetPart &part : scrap_asset.parts) {
+    const std::size_t index =
+        appendConstructionPart(scrap_asset.asset_id, "Shredded scrap output ", part,
+                               construction_shredder_.position +
+                                   rotateYaw({0.0f, 0.68f, 1.96f}, construction_shredder_.yaw),
+                               construction_shredder_.yaw, construction_shredder_.parts, true);
+    construction_scrap_.push_back({.object_index = index,
+                                   .age = 1.0f,
+                                   .lifetime = 1.0f,
+                                   .base_scale = 1.0f,
+                                   .active = false});
+    construction_shredder_.parts.pop_back();
+  }
+  for (int i = 0; i < 3; ++i) {
+    const Vec3 barrier =
+        yard_anchor + Vec3{-2.05f + static_cast<float>(i) * 1.88f, 0.22f, 1.36f};
+    appendScenery("Construction yard striped safety barrier", MeshPrimitive::Box, barrier,
+                  {0.72f, 0.12f, 0.08f}, {0.0f, kPi * 0.5f, 0.0f}, hazard_yellow);
+    scenery_collision_boxes_.push_back({barrier, {0.72f, 0.12f, 0.08f}});
+  }
+  scenery_collision_boxes_.push_back(
+      {construction_shredder_.position + Vec3{0.0f, 0.74f, 0.0f}, {0.90f, 0.74f, 1.58f}});
+
   const Vec2 cave_route_min = pathRouteMin(cave_path_specs) - Vec2{1.58f, 1.58f};
   const Vec2 cave_route_max = pathRouteMax(cave_path_specs) + Vec2{1.58f, 1.58f};
   const Vec2 cave_entrance_planar{cave_entrance.x, cave_entrance.z};
@@ -2424,9 +2626,10 @@ void LumenRun::rebuildScene() {
       const float yaw = std::atan2(ore.normal.x, ore.normal.z);
       const Vec3 ore_position = ore.position + ore.normal * std::max(ore.radius * 0.16f, 0.035f);
       const Vec3 ore_scale = ore.scale * 0.92f;
-      const std::size_t index =
+      const std::size_t index = setObjectLod(
           keepCameraSolid(appendScenery("Coal ore vein node", MeshPrimitive::Rock, ore_position,
-                                        ore_scale, {0.0f, yaw, 0.0f}, coal_ore_material));
+                                        ore_scale, {0.0f, yaw, 0.0f}, coal_ore_material)),
+          18.0f, 0.010f);
       coal_ores_.push_back({ore_position, ore.normal, ore_scale, ore.radius, kCoalOreMaxHealth,
                             kCoalOreMaxHealth, 2, index, false, 0.0f});
       appendWallDecal("Mining scratch decals around coal seam",

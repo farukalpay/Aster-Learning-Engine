@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.lumen_run.shredder_blue_metal {
+  schema_version: 1
+  name: "Recycler Shredder Weathered Blue Metal"
+  shading_model: Unlit
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  params {
+    base_color_r: 0.07
+    base_color_g: 0.23
+    base_color_b: 0.42
+    roughness: 0.58
+    metallic: 0.48
+    edge_wear: 0.54
+    ambient_occlusion: 0.82
+    macro_variation: 0.34
+    micro_normal_strength: 0.28
+    roughness_variation: 0.28
+    height_shading: 0.12
+  }
+
+  features {
+    procedural_surface: true
+    hazard_decal_receiver: true
+    contact_shadows: true
+  }
+}

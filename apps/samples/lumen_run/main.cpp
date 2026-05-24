@@ -1444,7 +1444,7 @@ aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_
   model.controls.entries = {
       {"W", "Forward", true},        {"A", "Left", true},
       {"S", "Back", true},           {"D", "Right", true},
-      {"Space", "Jump!", true},      {"Left Shift", "Run", true},
+      {"Space", "Jump / Fork up", true},      {"Left Shift", "Run / Fork down", true},
       {"Mouse", "Look", true},       {"E", "Interact", true},
       {"1-6", "Equip", true},        {"Command+Click", "Point", false},
       {"Mouse Wheel", "Zoom", true}, {"Tab", "Inventory", false},
@@ -1538,6 +1538,13 @@ int main(int argc, char **argv) {
     const bool deep_cave_capture = playback_route == "deep-cave";
     const bool deep_cave_stress_capture = playback_route == "deep-cave-stress";
     const bool classic_gauntlet_capture = playback_route == "classic-gauntlet";
+    const bool construction_yard_seat_capture = playback_route == "construction-yard-seat";
+    const bool construction_yard_shred_capture = playback_route == "construction-yard-shred";
+    const bool construction_yard_exit_capture = playback_route == "construction-yard-exit";
+    const bool construction_yard_capture = playback_route == "construction-yard" ||
+                                           construction_yard_seat_capture ||
+                                           construction_yard_shred_capture ||
+                                           construction_yard_exit_capture;
     const float deep_cave_capture_progress =
         argumentFloat(argc, argv, "--deep-cave-progress", 16.0f);
     const float deep_cave_capture_look_ahead =
@@ -1695,6 +1702,51 @@ int main(int argc, char **argv) {
     } else if (classic_gauntlet_capture && !player_position_override) {
       game.relocatePlayer(game.classicGauntletEntryPosition(),
                           game.classicGauntletCameraYaw());
+    } else if (construction_yard_capture && !player_position_override) {
+      const aster::Vec3 forklift = game.constructionForkliftPosition();
+      game.relocatePlayer(forklift + aster::Vec3{-0.95f, 0.0f, -0.35f}, aster::radians(90.0f));
+      const aster::Vec3 focus_origin = game.playerPosition() + aster::Vec3{0.0f, 0.62f, 0.0f};
+      game.updateInteractionFocus(focus_origin, aster::normalize(forklift - focus_origin),
+                                  1.0f / 60.0f);
+      game.interactFocused();
+      const auto advance_construction_capture = [&](const int frame_index) {
+        aster::Vec2 yard_axis{};
+        if (!construction_yard_seat_capture) {
+          const bool shredding_started = game.constructionShredderActive() ||
+                                         game.constructionShredderConsumedPipeCount() > 0;
+          yard_axis = shredding_started ? aster::Vec2{} : aster::Vec2{0.0f, 1.0f};
+        }
+        game.update(1.0f / 60.0f, yard_axis, false,
+                    !construction_yard_seat_capture && frame_index < 44);
+      };
+      if (construction_yard_seat_capture) {
+        for (int i = 0; i < 10; ++i) {
+          advance_construction_capture(i);
+        }
+      } else if (construction_yard_shred_capture) {
+        for (int i = 0; i < 190; ++i) {
+          advance_construction_capture(i);
+          if (game.constructionShredderConsumedPipeCount() >= 2 &&
+              game.constructionScrapFragmentCount() > 0u) {
+            break;
+          }
+        }
+      } else {
+        for (int i = 0; i < 150; ++i) {
+          advance_construction_capture(i);
+        }
+      }
+      if (construction_yard_exit_capture && game.constructionForkliftMounted()) {
+        const aster::Vec3 exit_focus =
+            game.constructionForkliftPosition() + aster::Vec3{0.0f, 1.20f, 0.0f};
+        game.updateInteractionFocus(game.playerPosition() + aster::Vec3{0.0f, 0.42f, 0.0f},
+                                    aster::normalize(exit_focus - game.playerPosition()),
+                                    1.0f / 60.0f);
+        game.interactFocused();
+        for (int i = 0; i < 18; ++i) {
+          game.update(1.0f / 60.0f, {}, false, false);
+        }
+      }
     } else if (player_at_prism_relay_for_capture) {
       const aster::Vec3 base = game.prismRelayBasePosition();
       game.relocatePlayer(base + aster::Vec3{1.45f, 0.0f, 1.10f},
@@ -1745,31 +1797,70 @@ int main(int argc, char **argv) {
                      : aster::Vec3{argumentFloat(argc, argv, "--camera-target-x", 2.25f),
                                    argumentFloat(argc, argv, "--camera-target-y", 0.48f),
                                    argumentFloat(argc, argv, "--camera-target-z", -0.95f)}));
-      camera.pitch = aster::radians(argumentFloat(
-          argc, argv, "--camera-pitch-deg",
-          cave_entry_capture
-              ? 12.0f
-              : (classic_gauntlet_capture
-                     ? 8.0f
-                     : ((deep_cave_capture || deep_cave_stress_capture) ? 6.0f : 28.0f))));
-      camera.yaw = aster::radians(argumentFloat(
-          argc, argv, "--camera-yaw-deg",
-          cave_entry_capture
-              ? 0.0f
-              : (classic_gauntlet_capture
-                     ? aster::degrees(game.classicGauntletCameraYaw())
-                     : ((deep_cave_capture || deep_cave_stress_capture) ? 180.0f : -31.0f))));
-      camera.radius =
-          argumentFloat(argc, argv, "--camera-radius",
-                        cave_entry_capture ? 7.2f
-                                           : (classic_gauntlet_capture
-                                                  ? 5.4f
-                                                  : ((deep_cave_capture ||
-                                                      deep_cave_stress_capture)
-                                                         ? 2.70f
-                                                         : 7.8f)));
+      if (construction_yard_capture) {
+        if (construction_yard_seat_capture) {
+          scripted_camera_target =
+              game.constructionForkliftPosition() + aster::Vec3{-0.42f, 1.20f, -0.20f};
+        } else if (construction_yard_exit_capture) {
+          scripted_camera_target = game.playerPosition() + aster::Vec3{0.0f, 0.42f, 0.0f};
+        } else if (construction_yard_shred_capture) {
+          scripted_camera_target =
+              game.constructionShredderPosition() + aster::Vec3{1.10f, 0.72f, -0.10f};
+        } else {
+          scripted_camera_target =
+              (game.constructionForkliftPosition() + game.constructionPalletPosition() +
+               game.constructionShredderPosition()) /
+                  3.0f +
+              aster::Vec3{0.0f, 0.70f, 0.0f};
+        }
+      }
+      float default_camera_pitch_deg = 28.0f;
+      float default_camera_yaw_deg = -31.0f;
+      float default_camera_radius = 7.8f;
+      float default_camera_fov_deg = 54.0f;
+      if (construction_yard_seat_capture) {
+        default_camera_pitch_deg = 6.0f;
+        default_camera_yaw_deg = -24.0f;
+        default_camera_radius = 3.20f;
+        default_camera_fov_deg = 42.0f;
+      } else if (construction_yard_exit_capture) {
+        default_camera_pitch_deg = 7.0f;
+        default_camera_yaw_deg = 70.0f;
+        default_camera_radius = 4.60f;
+        default_camera_fov_deg = 46.0f;
+      } else if (construction_yard_shred_capture) {
+        default_camera_pitch_deg = 9.0f;
+        default_camera_yaw_deg = 20.0f;
+        default_camera_radius = 6.00f;
+        default_camera_fov_deg = 46.0f;
+      } else if (construction_yard_capture) {
+        default_camera_pitch_deg = 11.0f;
+        default_camera_yaw_deg = -62.0f;
+        default_camera_radius = 7.6f;
+        default_camera_fov_deg = 50.0f;
+      } else if (cave_entry_capture) {
+        default_camera_pitch_deg = 12.0f;
+        default_camera_yaw_deg = 0.0f;
+        default_camera_radius = 7.2f;
+        default_camera_fov_deg = 46.0f;
+      } else if (classic_gauntlet_capture) {
+        default_camera_pitch_deg = 8.0f;
+        default_camera_yaw_deg = aster::degrees(game.classicGauntletCameraYaw());
+        default_camera_radius = 5.4f;
+      } else if (deep_cave_capture || deep_cave_stress_capture) {
+        default_camera_pitch_deg = 6.0f;
+        default_camera_yaw_deg = 180.0f;
+        default_camera_radius = 2.70f;
+      }
+      camera.pitch =
+          aster::radians(argumentFloat(argc, argv, "--camera-pitch-deg",
+                                       default_camera_pitch_deg));
+      camera.yaw =
+          aster::radians(argumentFloat(argc, argv, "--camera-yaw-deg", default_camera_yaw_deg));
+      camera.radius = argumentFloat(argc, argv, "--camera-radius", default_camera_radius);
       camera.vertical_fov = aster::radians(std::clamp(
-          argumentFloat(argc, argv, "--camera-fov-deg", cave_entry_capture ? 46.0f : 54.0f), 18.0f,
+          argumentFloat(argc, argv, "--camera-fov-deg", default_camera_fov_deg),
+          18.0f,
           72.0f));
     }
     float gameplay_camera_radius = camera.radius;
@@ -2064,6 +2155,10 @@ int main(int argc, char **argv) {
           axis = caveEntryAxis(static_cast<float>(elapsed));
           run = caveEntryRun(static_cast<float>(elapsed));
           jump = false;
+        } else if (construction_yard_capture) {
+          axis = {};
+          run = false;
+          jump = false;
         } else if (deep_cave_capture || deep_cave_stress_capture || classic_gauntlet_capture) {
           axis = {};
           run = false;
@@ -2102,7 +2197,9 @@ int main(int argc, char **argv) {
         game.update(static_cast<float>(frame_dt), axis, run, jump);
       } else if (!pause_open) {
         const float movement_camera_yaw = camera_follow_pose.camera_yaw;
-        const aster::Vec2 world_axis = aster::cameraRelativeMoveAxis(axis, movement_camera_yaw);
+        const aster::Vec2 world_axis = game.constructionForkliftMounted()
+                                           ? axis
+                                           : aster::cameraRelativeMoveAxis(axis, movement_camera_yaw);
         const std::size_t simulation_steps = simulation_clock.advance(frame_dt);
         for (std::size_t step = 0; step < simulation_steps; ++step) {
           const bool step_jump = jump_buffered;
@@ -2123,6 +2220,22 @@ int main(int argc, char **argv) {
       const aster::Vec3 player = game.playerRenderPosition();
       if (cave_entry_capture) {
         scripted_camera_target = caveEntryCameraTarget(player, static_cast<float>(elapsed));
+      } else if (construction_yard_capture) {
+        if (construction_yard_seat_capture) {
+          scripted_camera_target =
+              game.constructionForkliftPosition() + aster::Vec3{-0.42f, 1.20f, -0.20f};
+        } else if (construction_yard_exit_capture) {
+          scripted_camera_target = player + aster::Vec3{0.0f, 0.42f, 0.0f};
+        } else if (construction_yard_shred_capture) {
+          scripted_camera_target =
+              game.constructionShredderPosition() + aster::Vec3{1.10f, 0.72f, -0.10f};
+        } else {
+          scripted_camera_target =
+              (game.constructionForkliftPosition() + game.constructionPalletPosition() +
+               game.constructionShredderPosition()) /
+                  3.0f +
+              aster::Vec3{0.0f, 0.70f, 0.0f};
+        }
       } else if (classic_gauntlet_capture) {
         scripted_camera_target = game.classicGauntletLookTarget();
       } else if (deep_cave_capture || deep_cave_stress_capture) {

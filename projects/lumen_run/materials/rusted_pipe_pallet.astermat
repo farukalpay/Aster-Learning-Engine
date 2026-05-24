@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.lumen_run.rusted_pipe_pallet {
+  schema_version: 1
+  name: "Rusted Pipe Pallet"
+  shading_model: Unlit
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  params {
+    base_color_r: 0.36
+    base_color_g: 0.18
+    base_color_b: 0.08
+    roughness: 0.74
+    metallic: 0.42
+    rust_strength: 0.86
+    pitting_density: 0.72
+    ambient_occlusion: 0.84
+    macro_variation: 0.52
+    micro_normal_strength: 0.34
+    roughness_variation: 0.32
+    height_shading: 0.18
+  }
+
+  features {
+    procedural_surface: true
+    hollow_pipe_rims: true
+    contact_shadows: true
+  }
+}

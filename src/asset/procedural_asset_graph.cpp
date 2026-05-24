@@ -4,6 +4,7 @@
 #include "aster/asset/procedural_asset_graph.hpp"
 
 #include "aster/asset/asset_foundry.hpp"
+#include "aster/asset/construction_yard_asset.hpp"
 #include "aster/asset/json_document.hpp"
 #include "aster/asset/pipe_runtime_asset.hpp"
 #include "aster/geometry/procedural_modeling.hpp"
@@ -570,6 +571,21 @@ CpuMesh proceduralAssetGraphMesh(const ProceduralAssetGraphPackage &package) {
         primitive == "industrial-pipe" ? AsterPipeFoundryVariant::IndustrialHardware
                                        : AsterPipeFoundryVariant::ReferenceSilhouette;
     return buildAsterAssetFoundryRecipe(makeAsterPipeFoundryRecipe(spec, variant)).mesh;
+  }
+  if (primitive == "construction-forklift" || primitive == "forklift" ||
+      primitive == "low-poly-forklift") {
+    return makeAsterConstructionForkliftMesh({.asset_id = package.id});
+  }
+  if (primitive == "recycler-shredder" || primitive == "industrial-shredder" ||
+      primitive == "scrap-shredder") {
+    return makeAsterRecyclerShredderMesh({.asset_id = package.id});
+  }
+  if (primitive == "pipe-pallet" || primitive == "rusted-pipe-pallet") {
+    return makeAsterPipePalletMesh({.asset_id = package.id});
+  }
+  if (primitive == "shredded-metal-scrap" || primitive == "scrap-shards" ||
+      primitive == "crushed-pipe-fragments") {
+    return makeAsterShreddedMetalScrapMesh({.asset_id = package.id});
   }
   if (primitive == "sphere" || primitive == "uv-sphere") {
     return makeUvSphere(materialParamIntOr(package.material, "segments", 32),

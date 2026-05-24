@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.lumen_run.shredded_metal_scrap {
+  schema_version: 1
+  name: "Shredded Rusted Metal Scrap"
+  shading_model: Unlit
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  params {
+    base_color_r: 0.48
+    base_color_g: 0.39
+    base_color_b: 0.31
+    roughness: 0.64
+    metallic: 0.76
+    edge_wear: 0.64
+    ambient_occlusion: 0.82
+    macro_variation: 0.48
+    micro_normal_strength: 0.28
+    roughness_variation: 0.26
+    height_shading: 0.10
+  }
+
+  features {
+    procedural_surface: true
+    spark_emission_ready: true
+    contact_shadows: true
+  }
+}

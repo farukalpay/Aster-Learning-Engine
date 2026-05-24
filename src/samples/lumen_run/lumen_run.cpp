@@ -428,6 +428,11 @@ void LumenRun::reset() {
   equipped_item_parts_.clear();
   placed_rocks_.clear();
   scenery_collision_boxes_.clear();
+  construction_forklift_ = {};
+  construction_pallet_ = {};
+  construction_shredder_ = {};
+  construction_scrap_.clear();
+  construction_scrap_cursor_ = 0;
   torch_particle_visuals_.clear();
   mining_fracture_shards_.clear();
   coal_ores_.clear();
@@ -559,7 +564,12 @@ void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
     clearAvatarPointTarget();
   }
 
-  updatePlayerPhysics(step, move_axis, run_requested, jump_requested);
+  if (construction_forklift_.mounted) {
+    updateConstructionYard(step, move_axis, run_requested, jump_requested);
+  } else {
+    updatePlayerPhysics(step, move_axis, run_requested, jump_requested);
+    updateConstructionYard(step, {}, false, false);
+  }
   enforceWorldBounds();
   updateChestInteractionState();
   updatePrismRelay(step);
@@ -618,7 +628,12 @@ void LumenRun::noteRenderExtraction(const std::uint64_t extraction_hash,
   world_forensics_.world_hash = world_state_.worldHash();
   world_forensics_.trace_hash = world_state_.traceHash();
   world_forensics_.perceptual_schedule = buildPerceptualScheduleReport(frame_cost_ms);
-  refreshWorldPerceptualPrimitives();
+  const bool needs_perceptual_seed =
+      world_forensics_.perceptual_primitives.empty() ||
+      world_forensics_.perceptual_causality_graph.graph_hash == 0u;
+  if (needs_perceptual_seed) {
+    refreshWorldPerceptualPrimitives();
+  }
   world_state_.notePerceptualTruth(world_forensics_.perceptual_causality_graph.graph_hash);
   world_forensics_.belief_report = buildBeliefExtractionReport();
   refreshWorldTruthAuditHash();
@@ -2457,10 +2472,12 @@ void LumenRun::updateCaveDebugOverlayVisibility() {
       object.transform.scale = overlay_entry.visible_scale;
       object.material.opacity = overlay_entry.visible_opacity;
       object.material.emission_strength = overlay_entry.visible_emission;
+      object.lod.max_distance = 0.0f;
     } else {
       object.transform.scale = {0.001f, 0.001f, 0.001f};
       object.material.opacity = 0.0f;
       object.material.emission_strength = 0.0f;
+      object.lod.max_distance = 0.001f;
     }
   }
 }
@@ -2554,7 +2571,7 @@ void LumenRun::clearAvatarPointTarget() {
 void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_direction,
                                       const float dt) {
   std::vector<InteractionTarget> targets;
-  targets.reserve(3u + coal_ores_.size() + cave_webs_.size() + cave_skitters_.size());
+  targets.reserve(6u + coal_ores_.size() + cave_webs_.size() + cave_skitters_.size());
   const Vec3 chest_focus = chest_base_ + Vec3{0.0f, 0.46f, 0.0f};
   const bool player_near_chest = length(player_position_ - chest_focus) < kChestInteractionDistance;
   std::string action = "Open";
@@ -2593,6 +2610,53 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                      .max_distance = 14.0f,
                      .proximity_distance = kPrismRelayInteractionDistance,
                      .enabled = player_near_relay});
+
+  const Vec3 forklift_focus =
+      construction_forklift_.position + rotateYaw({0.0f, 1.20f, -0.24f},
+                                                  construction_forklift_.yaw);
+  const bool player_near_forklift =
+      construction_forklift_.mounted || length(player_position_ - forklift_focus) <= 2.55f;
+  targets.push_back({.id = "lumen.construction.forklift",
+                     .action_graph = "action.construction.forklift.toggle",
+                     .kind = InteractionTargetKind::Item,
+                     .action_label = construction_forklift_.mounted ? "Exit" : "Enter",
+                     .subject_label = "Forklift",
+                     .position = forklift_focus,
+                     .radius = construction_forklift_.mounted ? 0.46f : 1.05f,
+                     .max_distance = 14.0f,
+                     .proximity_distance = 2.55f,
+                     .enabled = player_near_forklift});
+
+  if (!construction_pallet_.consumed) {
+    const Vec3 pallet_focus = construction_pallet_.position + Vec3{0.0f, 0.54f, 0.0f};
+    targets.push_back({.id = "lumen.construction.pipe_pallet",
+                       .action_graph = "action.construction.pallet.attach",
+                       .kind = InteractionTargetKind::Item,
+                       .action_label = construction_pallet_.attached ? "Drop" : "Lift",
+                       .subject_label = "Pipe Pallet",
+                       .position = pallet_focus,
+                       .radius = 0.92f,
+                       .max_distance = 14.0f,
+                       .proximity_distance = 2.70f,
+                       .enabled = construction_forklift_.mounted &&
+                                  length(player_position_ - pallet_focus) <= 3.20f});
+  }
+
+  const Vec3 shredder_focus =
+      construction_shredder_.position + rotateYaw({0.0f, 1.14f, -1.05f},
+                                                  construction_shredder_.yaw);
+  targets.push_back({.id = "lumen.construction.recycler_shredder",
+                     .action_graph = "action.construction.shredder.feed",
+                     .kind = InteractionTargetKind::Item,
+                     .action_label = construction_shredder_.active ? "Shredding" : "Feed",
+                     .subject_label = "Recycler",
+                     .position = shredder_focus,
+                     .radius = 1.05f,
+                     .max_distance = 14.0f,
+                     .proximity_distance = 3.10f,
+                     .enabled = construction_forklift_.mounted &&
+                                construction_pallet_.attached &&
+                                length(player_position_ - shredder_focus) <= 3.40f});
 
   focused_cave_web_index_ = 0;
   focused_cave_web_valid_ = false;
@@ -2733,7 +2797,22 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
 void LumenRun::interactFocused() {
   const InteractionFocus &focus = interaction_.focus();
   if (!focus.visible) {
+    if (construction_forklift_.mounted) {
+      toggleConstructionForkliftMount();
+    }
     return;
+  }
+  if (construction_forklift_.mounted) {
+    const bool mounted_pallet_action =
+        focus.action_graph == "action.construction.pallet.attach" &&
+        construction_pallet_.attached;
+    const bool mounted_feed_action =
+        focus.action_graph == "action.construction.shredder.feed" &&
+        construction_pallet_.attached;
+    if (!mounted_pallet_action && !mounted_feed_action) {
+      toggleConstructionForkliftMount();
+      return;
+    }
   }
 
   if (focus.kind == InteractionTargetKind::Container &&
@@ -2753,6 +2832,25 @@ void LumenRun::interactFocused() {
       focus.action_graph == "action.relay.activate") {
     activatePrismRelay();
     setAvatarPointTarget(prismRelayFocusPosition());
+    return;
+  }
+  if (focus.kind == InteractionTargetKind::Item &&
+      focus.action_graph == "action.construction.forklift.toggle") {
+    toggleConstructionForkliftMount();
+    return;
+  }
+  if (focus.kind == InteractionTargetKind::Item &&
+      focus.action_graph == "action.construction.pallet.attach") {
+    if (construction_pallet_.attached) {
+      dropConstructionPallet();
+    } else {
+      (void)tryAttachConstructionPallet();
+    }
+    return;
+  }
+  if (focus.kind == InteractionTargetKind::Item &&
+      focus.action_graph == "action.construction.shredder.feed") {
+    (void)triggerConstructionShredder();
     return;
   }
   if (focus.kind == InteractionTargetKind::Item && focus.action_graph == "action.mine.coal_ore") {
@@ -2899,6 +2997,40 @@ int LumenRun::torchCount() const {
 
 Vec3 LumenRun::supplyCratePosition() const {
   return supply_crate_base_;
+}
+
+Vec3 LumenRun::constructionForkliftPosition() const {
+  return construction_forklift_.position;
+}
+
+Vec3 LumenRun::constructionPalletPosition() const {
+  return construction_pallet_.position;
+}
+
+Vec3 LumenRun::constructionShredderPosition() const {
+  return construction_shredder_.position;
+}
+
+bool LumenRun::constructionForkliftMounted() const {
+  return construction_forklift_.mounted;
+}
+
+bool LumenRun::constructionPalletAttached() const {
+  return construction_pallet_.attached;
+}
+
+bool LumenRun::constructionShredderActive() const {
+  return construction_shredder_.active;
+}
+
+int LumenRun::constructionShredderConsumedPipeCount() const {
+  return construction_shredder_.consumed_pipe_count;
+}
+
+std::size_t LumenRun::constructionScrapFragmentCount() const {
+  return static_cast<std::size_t>(std::count_if(
+      construction_scrap_.begin(), construction_scrap_.end(),
+      [](const ConstructionScrapVisual &scrap) { return scrap.active; }));
 }
 
 FocusPromptModel LumenRun::focusPromptModel() const {

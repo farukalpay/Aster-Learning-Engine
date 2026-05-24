@@ -1,0 +1,47 @@
+astergraph asset_graph.lumen_run.shredded_metal_scrap
+schema_version 1
+name "Lumen Run Shredded Metal Scrap"
+material_id material.lumen_run.shredded_metal_scrap
+surface_profile corroded-metal
+primitive shredded-metal-scrap
+uv_policy shard-local-uv
+tangent_policy validate-or-generate
+collision_proxy particle-visual-bounds
+lod_policy single-lod
+base_color 0.48 0.39 0.31
+roughness 0.64
+metallic 0.76
+param physical_texel_density 896
+param height_normal_coupling 0.60
+param roughness_height_coupling 0.58
+param macro_frequency_breakup 0.48
+param micro_frequency_breakup 0.54
+feature normal_map true
+preview environment lumen-construction-yard
+preview rig output-chute-fragments
+preview artifact /tmp/lumen_run_construction_yard.ppm
+node mesh.scrap mesh_primitive role=mesh primitive=shredded-metal-scrap shard_count=18
+node uv.scrap uv_policy role=uv mapping=shard-local-uv texel_density=896
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.scrap material_assignment role=material slot=scrap.metal surface_profile=corroded-metal
+node collision.proxy collision_proxy role=collision shape=particle-visual-bounds triangles=18
+node lod.single lod_generator role=lod policy=single-lod levels=1
+node gameplay.eject prefab_variant role=prefab variant=shredder-output-burst
+node claim.fragments visual_brief_claim role=quality signal=metal_fragments_output
+node claim.motion visual_brief_claim role=quality signal=sparks_dust_scrap_ejection
+node reject.raw visual_brief_rejection role=quality signal=raw_glb_fbx_runtime_dependency
+node perception.template world_perceptual_template role=perceptual profile=shredded-rusted-metal surface_response=hot-scratched-scrap history_response=shredder-output-residue material_half_life_seconds=18 wetness_half_life_seconds=8 semantic_lod=0.70 streaming_cost=0.18 patch_channels=heated_edge,scratched_metal,material_stability contact_channels=fragment_ejection,visual_occlusion residue_channels=sparks_dust,metal_scrap_output,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mesh.scrap uv.scrap uv_contract
+edge uv.scrap tangent.validate tangent_contract
+edge mesh.scrap material.scrap material_slot
+edge mesh.scrap collision.proxy collision_source
+edge mesh.scrap lod.single lod_source
+edge collision.proxy gameplay.eject gameplay_particle
+edge claim.fragments diagnostic.quality visual_brief
+edge claim.motion diagnostic.quality visual_brief
+edge reject.raw diagnostic.quality forbidden_signal
+edge perception.template export.runtime perceptual_template
+edge lod.single export.runtime runtime_lods
+edge diagnostic.quality export.runtime cook_report

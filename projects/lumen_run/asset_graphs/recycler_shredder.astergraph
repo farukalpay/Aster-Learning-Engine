@@ -1,0 +1,55 @@
+astergraph asset_graph.lumen_run.recycler_shredder
+schema_version 1
+name "Lumen Run Recycler Shredder"
+material_id material.lumen_run.shredder_blue_metal
+surface_profile corroded-metal
+primitive recycler-shredder
+uv_policy packed-industrial-yard
+tangent_policy validate-or-generate
+collision_proxy static-shredder-intake-output
+lod_policy lod0-lod1
+base_color 0.07 0.23 0.42
+roughness 0.58
+metallic 0.48
+param physical_texel_density 768
+param height_normal_coupling 0.64
+param roughness_height_coupling 0.60
+param macro_frequency_breakup 0.46
+param micro_frequency_breakup 0.44
+feature normal_map true
+preview environment lumen-construction-yard
+preview rig shredder-front-output
+preview artifact /tmp/lumen_run_construction_yard.ppm
+node mesh.shredder mesh_primitive role=mesh primitive=recycler-shredder length=3.95 width=1.55 chamber_height=1.18
+node uv.shredder uv_policy role=uv mapping=packed-industrial-yard texel_density=768
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.blue material_assignment role=material slot=shredder.blue_metal surface_profile=weathered-blue-metal
+node material.steel material_assignment role=material slot=shredder.steel surface_profile=machined-worn-steel
+node material.hazard material_assignment role=material slot=shredder.hazard surface_profile=scuffed-hazard-paint
+node collision.proxy collision_proxy role=collision shape=static-shredder-intake-output triangles=128
+node lod.chain lod_generator role=lod policy=lod0-lod1 levels=2
+node gameplay.feed prefab_variant role=prefab variant=pipe-feed-shredder
+node claim.hopper visual_brief_claim role=quality signal=hopper_teeth_output_chute
+node claim.blue visual_brief_claim role=quality signal=blue_weathered_metal
+node claim.hazard visual_brief_claim role=quality signal=hazard_signage
+node claim.grounded visual_brief_claim role=quality signal=grounded_contact_shadows
+node reject.raw visual_brief_rejection role=quality signal=raw_glb_fbx_runtime_dependency
+node perception.template world_perceptual_template role=perceptual profile=industrial-recycler-machine surface_response=weathered-blue-metal history_response=shredder-hazard-event-memory material_half_life_seconds=30 wetness_half_life_seconds=12 semantic_lod=0.86 streaming_cost=0.36 patch_channels=blue_paint_wear,hazard_panel,material_stability contact_channels=intake_trigger,visual_occlusion,traversal_affordance residue_channels=sparks_dust,metal_scrap_output,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mesh.shredder uv.shredder uv_contract
+edge uv.shredder tangent.validate tangent_contract
+edge mesh.shredder material.blue material_slot
+edge mesh.shredder material.steel material_slot
+edge mesh.shredder material.hazard material_slot
+edge mesh.shredder collision.proxy collision_source
+edge mesh.shredder lod.chain lod_source
+edge collision.proxy gameplay.feed gameplay_trigger
+edge claim.hopper diagnostic.quality visual_brief
+edge claim.blue diagnostic.quality visual_brief
+edge claim.hazard diagnostic.quality visual_brief
+edge claim.grounded diagnostic.quality visual_brief
+edge reject.raw diagnostic.quality forbidden_signal
+edge perception.template export.runtime perceptual_template
+edge lod.chain export.runtime runtime_lods
+edge diagnostic.quality export.runtime cook_report

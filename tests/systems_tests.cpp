@@ -602,6 +602,26 @@ void testAvatarRigSceneBinding() {
   }
   assert(saw_head_turn);
   assert(saw_open_mouth);
+  aster::applyAvatarPose(scene, rig, instance,
+                         {.position = {1.0f, 0.5f, -2.0f},
+                          .facing_yaw = aster::radians(45.0f),
+                          .seated_blend = 1.0f});
+  bool saw_seated_leg = false;
+  bool saw_seated_arm = false;
+  for (std::size_t i = 0; i < rig.parts.size(); ++i) {
+    const std::size_t object_index = instance.object_indices[i];
+    const aster::Vec3 rotation = aster::eulerXyz(scene.objects()[object_index].transform.rotation);
+    if (rig.parts[i].joint == aster::AvatarJoint::LeftLeg ||
+        rig.parts[i].joint == aster::AvatarJoint::RightLeg) {
+      saw_seated_leg = saw_seated_leg || rotation.x > 0.55f;
+    }
+    if (rig.parts[i].joint == aster::AvatarJoint::LeftArm ||
+        rig.parts[i].joint == aster::AvatarJoint::RightArm) {
+      saw_seated_arm = saw_seated_arm || rotation.x < -0.30f;
+    }
+  }
+  assert(saw_seated_leg);
+  assert(saw_seated_arm);
 
   aster::AvatarAnimatorState animator;
   const aster::AvatarPose pose =
@@ -641,6 +661,18 @@ void testAvatarRigSceneBinding() {
                                    .swim_blend = 1.0f},
                                   1.0f / 30.0f);
   assert(swim_pose.swim_blend > 0.0f);
+  aster::AvatarAnimatorState seated_animator;
+  const aster::AvatarPose seated_pose =
+      aster::updateAvatarAnimator(seated_animator, {},
+                                  {.position = {0.0f, 1.0f, 0.0f},
+                                   .velocity = {3.0f, 0.0f, 0.0f},
+                                   .desired_facing_yaw = aster::radians(90.0f),
+                                   .has_facing_target = true,
+                                   .max_planar_speed = 3.0f,
+                                   .seated_blend = 1.0f},
+                                  1.0f / 30.0f);
+  assert(seated_pose.seated_blend > 0.99f);
+  assert(seated_pose.stride_amplitude < 0.001f);
 }
 
 void testThirdPersonFollowController() {

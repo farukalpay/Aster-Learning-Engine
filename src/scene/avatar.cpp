@@ -94,6 +94,30 @@ float jointSwing(const aster::AvatarJoint joint, const float gait_phase,
 aster::Vec3 jointRotation(const aster::AvatarJoint joint, const aster::AvatarPose &pose,
                           const float stride) {
   aster::Vec3 rotation{jointSwing(joint, pose.gait_phase, stride), 0.0f, 0.0f};
+  const float seated = std::clamp(pose.seated_blend, 0.0f, 1.0f);
+  if (seated > 0.0f) {
+    switch (joint) {
+    case aster::AvatarJoint::Torso:
+      rotation.x = rotation.x * (1.0f - seated) + (-0.16f) * seated;
+      break;
+    case aster::AvatarJoint::LeftArm:
+      rotation = rotation * (1.0f - seated) + aster::Vec3{-0.64f, -0.18f, 0.22f} * seated;
+      break;
+    case aster::AvatarJoint::RightArm:
+      rotation = rotation * (1.0f - seated) + aster::Vec3{-0.64f, 0.18f, -0.22f} * seated;
+      break;
+    case aster::AvatarJoint::LeftLeg:
+      rotation = rotation * (1.0f - seated) + aster::Vec3{1.10f, 0.0f, 0.12f} * seated;
+      break;
+    case aster::AvatarJoint::RightLeg:
+      rotation = rotation * (1.0f - seated) + aster::Vec3{1.10f, 0.0f, -0.12f} * seated;
+      break;
+    case aster::AvatarJoint::Static:
+    case aster::AvatarJoint::Head:
+    case aster::AvatarJoint::Mouth:
+      break;
+    }
+  }
   const float swim = std::clamp(pose.swim_blend, 0.0f, 1.0f);
   if (swim > 0.0f) {
     const float paddle = std::sin(pose.gait_phase * 1.45f) * (0.34f + stride * 0.26f);
@@ -210,6 +234,26 @@ aster::Transform posedAvatarPartTransform(const aster::AvatarPart &part,
     transform.scale.x *= 1.0f + open * 0.25f;
     transform.scale.y *= 1.0f + open * 4.6f;
     transform.scale.z *= 1.0f + open * 0.65f;
+  }
+  const float seated = std::clamp(pose.seated_blend, 0.0f, 1.0f);
+  if (seated > 0.0f) {
+    switch (part.joint) {
+    case aster::AvatarJoint::Torso:
+    case aster::AvatarJoint::Head:
+    case aster::AvatarJoint::Mouth:
+    case aster::AvatarJoint::LeftArm:
+    case aster::AvatarJoint::RightArm:
+      transform.position.y -= 0.17f * seated;
+      transform.position.z += 0.035f * seated;
+      break;
+    case aster::AvatarJoint::LeftLeg:
+    case aster::AvatarJoint::RightLeg:
+      transform.position.y += 0.065f * seated;
+      transform.position.z += 0.14f * seated;
+      break;
+    case aster::AvatarJoint::Static:
+      break;
+    }
   }
   const aster::Vec3 rotation = jointRotation(part.joint, pose, stride);
   const aster::Quat rotation_delta = aster::quatFromEulerXyz(rotation);
@@ -428,8 +472,10 @@ AvatarPose updateAvatarAnimator(AvatarAnimatorState &state, const AvatarAnimator
   const Vec2 planar_velocity{input.velocity.x, input.velocity.z};
   const float planar_speed = length(planar_velocity);
   const float max_planar_speed = std::max(input.max_planar_speed, 0.001f);
+  const float target_seated_blend = clamp(input.seated_blend, 0.0f, 1.0f);
   const float target_stride = clamp(planar_speed / max_planar_speed, 0.0f, 1.0f) *
-                              std::max(settings.max_stride_amplitude, 0.0f);
+                              std::max(settings.max_stride_amplitude, 0.0f) *
+                              (1.0f - target_seated_blend);
   const float reference_facing_yaw =
       state.initialized ? state.facing_yaw : input.desired_facing_yaw;
   AttentionAngles target_attention{};
@@ -466,6 +512,7 @@ AvatarPose updateAvatarAnimator(AvatarAnimatorState &state, const AvatarAnimator
     state.mouth_open = target_mouth_open;
     state.swim_blend = target_swim_blend;
     state.climb_blend = target_climb_blend;
+    state.seated_blend = target_seated_blend;
     state.point_yaw_offset = target_point_yaw;
     state.point_pitch_offset = target_point_pitch;
     state.point_blend = target_point_blend;
@@ -491,6 +538,8 @@ AvatarPose updateAvatarAnimator(AvatarAnimatorState &state, const AvatarAnimator
   state.swim_blend = dampValue(state.swim_blend, target_swim_blend, settings.stride_response, dt);
   state.climb_blend =
       dampValue(state.climb_blend, target_climb_blend, settings.stride_response, dt);
+  state.seated_blend =
+      dampValue(state.seated_blend, target_seated_blend, settings.stride_response, dt);
   state.gait_phase =
       wrapRadians(state.gait_phase + planar_speed * std::max(settings.gait_phase_per_meter, 0.0f) *
                                          std::max(dt, 0.0f));
@@ -506,6 +555,7 @@ AvatarPose updateAvatarAnimator(AvatarAnimatorState &state, const AvatarAnimator
           .mouth_open = state.mouth_open,
           .swim_blend = state.swim_blend,
           .climb_blend = state.climb_blend,
+          .seated_blend = state.seated_blend,
           .point_yaw_offset = state.point_yaw_offset,
           .point_pitch_offset = state.point_pitch_offset,
           .point_blend = state.point_blend};

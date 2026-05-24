@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "action.construction.forklift.toggle",
+  "name": "Enter Or Exit Construction Forklift",
+  "nodes": [
+    {
+      "id": "toggle_mount",
+      "type": "emit_event",
+      "parameters": {
+        "event": "construction.forklift.toggle_mount",
+        "vehicle": "target"
+      },
+      "tags": ["interaction.vehicle", "construction_yard"]
+    }
+  ]
+}

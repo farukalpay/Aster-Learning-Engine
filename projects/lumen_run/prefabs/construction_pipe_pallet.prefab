@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "prefab.lumen_run.construction_pipe_pallet",
+  "name": "Pipe Pallet",
+  "entities": [
+    {
+      "id": "construction_pipe_pallet.root",
+      "name": "Pipe Pallet Root",
+      "components": {
+        "transform": { "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 1.5708, 0.0] },
+        "mesh_renderer": { "mesh": "asset_graph.lumen_run.pipe_pallet", "material": "material.lumen_run.rusted_pipe_pallet" },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.pipe_pallet", "cell_anchor": "lumen.construction_yard", "residency_role": "forklift-cargo", "local_cause": "pipe-pallet-load-target", "traversal_role": "fork-pocket-cargo", "visual_occlusion_role": "stacked-hollow-pipes", "acoustic_role": "rusted-pipe-clatter", "material_half_life_override": 34.0, "streaming_cost_override": 0.30 },
+        "collider": { "shape": "box", "half_extents": [0.72, 0.42, 1.38], "layer": "world.cargo" },
+        "rigid_body": { "type": "kinematic", "mass": 180.0, "gravity_enabled": false },
+        "interactable": {
+          "tags": ["construction.cargo.pipe_pallet", "interaction.fork_pocket_align"],
+          "action_graph": "action.construction.pallet.attach",
+          "prompt_action": "Lift",
+          "prompt_subject": "Pipe Pallet",
+          "radius": 0.92,
+          "max_distance": 14.0
+        }
+      }
+    }
+  ]
+}

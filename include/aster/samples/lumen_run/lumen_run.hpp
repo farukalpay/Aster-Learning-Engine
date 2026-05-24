@@ -250,6 +250,14 @@ public:
   [[nodiscard]] bool supplyCrateNearby() const;
   [[nodiscard]] int torchCount() const;
   [[nodiscard]] Vec3 supplyCratePosition() const;
+  [[nodiscard]] Vec3 constructionForkliftPosition() const;
+  [[nodiscard]] Vec3 constructionPalletPosition() const;
+  [[nodiscard]] Vec3 constructionShredderPosition() const;
+  [[nodiscard]] bool constructionForkliftMounted() const;
+  [[nodiscard]] bool constructionPalletAttached() const;
+  [[nodiscard]] bool constructionShredderActive() const;
+  [[nodiscard]] int constructionShredderConsumedPipeCount() const;
+  [[nodiscard]] std::size_t constructionScrapFragmentCount() const;
   [[nodiscard]] FocusPromptModel focusPromptModel() const;
   [[nodiscard]] HotbarHudModel hotbarHudModel() const;
   [[nodiscard]] ChestContentsHudModel chestContentsHudModel() const;
@@ -370,6 +378,55 @@ private:
   struct StaticSceneryBox {
     Vec3 center{};
     Vec3 half_extents{};
+  };
+
+  struct ConstructionVisualPart {
+    std::size_t object_index = 0;
+    Vec3 local_position{};
+    Vec3 local_rotation{};
+    Vec3 scale{1.0f, 1.0f, 1.0f};
+    std::string role;
+  };
+
+  struct ConstructionForklift {
+    Vec3 position{};
+    float yaw = 0.0f;
+    float fork_height = 0.28f;
+    float wheel_spin = 0.0f;
+    float steer_angle = 0.0f;
+    bool mounted = false;
+    std::vector<ConstructionVisualPart> parts;
+  };
+
+  struct ConstructionPallet {
+    Vec3 position{};
+    float yaw = 0.0f;
+    bool attached = false;
+    bool consumed = false;
+    float attach_cooldown = 0.0f;
+    int visible_pipe_count = 8;
+    std::vector<ConstructionVisualPart> parts;
+  };
+
+  struct ConstructionShredder {
+    Vec3 position{};
+    float yaw = 0.0f;
+    bool active = false;
+    float shred_timer = 0.0f;
+    int consumed_pipe_count = 0;
+    std::vector<ConstructionVisualPart> parts;
+  };
+
+  struct ConstructionScrapVisual {
+    std::size_t object_index = 0;
+    Vec3 position{};
+    Vec3 velocity{};
+    Vec3 rotation{};
+    Vec3 angular_velocity{};
+    float age = 1.0f;
+    float lifetime = 1.0f;
+    float base_scale = 1.0f;
+    bool active = false;
   };
 
   struct TorchParticleVisual {
@@ -505,6 +562,13 @@ private:
   void updatePrismRelayVisuals(float dt);
   void updateClassicGauntlet(float dt);
   void updateClassicGauntletVisuals(float dt);
+  void updateConstructionYard(float dt, Vec2 move_axis, bool run_requested, bool fork_up);
+  void updateConstructionYardVisuals(float dt);
+  void toggleConstructionForkliftMount();
+  [[nodiscard]] bool tryAttachConstructionPallet();
+  void dropConstructionPallet();
+  [[nodiscard]] bool triggerConstructionShredder();
+  void spawnConstructionScrapBurst(Vec3 center, int count);
   void refreshClassicGauntletAutomap();
   void updateCaveVisuals(float dt);
   void updateCaveDebugOverlayVisibility();
@@ -606,6 +670,11 @@ private:
   std::vector<EquippedItemPart> equipped_item_parts_;
   std::vector<PlacedResourceRock> placed_rocks_;
   std::vector<StaticSceneryBox> scenery_collision_boxes_;
+  ConstructionForklift construction_forklift_{};
+  ConstructionPallet construction_pallet_{};
+  ConstructionShredder construction_shredder_{};
+  std::vector<ConstructionScrapVisual> construction_scrap_;
+  std::size_t construction_scrap_cursor_ = 0;
   std::vector<TorchParticleVisual> torch_particle_visuals_;
   std::vector<MiningFractureShardVisual> mining_fracture_shards_;
   std::vector<CoalOreNode> coal_ores_;

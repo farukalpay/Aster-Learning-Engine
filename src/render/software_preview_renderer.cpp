@@ -56,13 +56,31 @@ struct TraceTriangle {
   Vec2 uva{};
   Vec2 uvb{};
   Vec2 uvc{};
+  Vec3 bounds_min{};
+  Vec3 bounds_max{};
+  Vec3 centroid{};
+};
+
+struct TraceBvhNode {
+  Vec3 bounds_min{std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+                  std::numeric_limits<float>::max()};
+  Vec3 bounds_max{-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(),
+                  -std::numeric_limits<float>::max()};
+  std::uint32_t first = 0u;
+  std::uint32_t count = 0u;
+  std::uint32_t left = 0u;
+  std::uint32_t right = 0u;
 };
 
 struct PreparedObject {
   RenderObject object{};
   std::vector<TraceTriangle> triangles;
+  std::vector<std::uint32_t> triangle_order;
+  std::vector<TraceBvhNode> bvh_nodes;
   Vec3 bounds_min{};
   Vec3 bounds_max{};
+  std::uint64_t object_label_hash = 0u;
+  bool casts_scene_shadow = false;
 };
 
 float saturate(const float value) {
@@ -411,6 +429,16 @@ std::uint8_t toByte(const float value) {
   return static_cast<std::uint8_t>(saturate(value) * 255.0f + 0.5f);
 }
 
+float axisValue(Vec3 value, int axis);
+
+Vec3 minVec3(const Vec3 a, const Vec3 b) {
+  return {std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)};
+}
+
+Vec3 maxVec3(const Vec3 a, const Vec3 b) {
+  return {std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)};
+}
+
 void expandBounds(PreparedObject &out, const Vec3 point) {
   out.bounds_min.x = std::min(out.bounds_min.x, point.x);
   out.bounds_min.y = std::min(out.bounds_min.y, point.y);
@@ -418,6 +446,75 @@ void expandBounds(PreparedObject &out, const Vec3 point) {
   out.bounds_max.x = std::max(out.bounds_max.x, point.x);
   out.bounds_max.y = std::max(out.bounds_max.y, point.y);
   out.bounds_max.z = std::max(out.bounds_max.z, point.z);
+}
+
+void expandBounds(Vec3 &bounds_min, Vec3 &bounds_max, const Vec3 point) {
+  bounds_min = minVec3(bounds_min, point);
+  bounds_max = maxVec3(bounds_max, point);
+}
+
+void expandBounds(Vec3 &bounds_min, Vec3 &bounds_max, const Vec3 other_min,
+                  const Vec3 other_max) {
+  bounds_min = minVec3(bounds_min, other_min);
+  bounds_max = maxVec3(bounds_max, other_max);
+}
+
+std::uint32_t buildPreparedBvhNode(PreparedObject &out, const std::uint32_t first,
+                                   const std::uint32_t count) {
+  constexpr std::uint32_t kLeafTriangleCount = 6u;
+  TraceBvhNode node;
+  Vec3 centroid_min{std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+                    std::numeric_limits<float>::max()};
+  Vec3 centroid_max{-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(),
+                    -std::numeric_limits<float>::max()};
+  for (std::uint32_t i = first; i < first + count; ++i) {
+    const TraceTriangle &triangle = out.triangles[out.triangle_order[i]];
+    expandBounds(node.bounds_min, node.bounds_max, triangle.bounds_min, triangle.bounds_max);
+    expandBounds(centroid_min, centroid_max, triangle.centroid);
+  }
+
+  const std::uint32_t node_index = static_cast<std::uint32_t>(out.bvh_nodes.size());
+  out.bvh_nodes.push_back(node);
+  const Vec3 centroid_extent = centroid_max - centroid_min;
+  int axis = 0;
+  if (centroid_extent.y > centroid_extent.x && centroid_extent.y >= centroid_extent.z) {
+    axis = 1;
+  } else if (centroid_extent.z > centroid_extent.x && centroid_extent.z > centroid_extent.y) {
+    axis = 2;
+  }
+  const float split_extent = axisValue(centroid_extent, axis);
+  if (count <= kLeafTriangleCount || split_extent <= 0.0001f) {
+    out.bvh_nodes[node_index].first = first;
+    out.bvh_nodes[node_index].count = count;
+    return node_index;
+  }
+
+  const std::uint32_t mid = first + count / 2u;
+  std::nth_element(out.triangle_order.begin() + first, out.triangle_order.begin() + mid,
+                   out.triangle_order.begin() + first + count,
+                   [&](const std::uint32_t lhs, const std::uint32_t rhs) {
+                     return axisValue(out.triangles[lhs].centroid, axis) <
+                            axisValue(out.triangles[rhs].centroid, axis);
+                   });
+  const std::uint32_t left = buildPreparedBvhNode(out, first, mid - first);
+  const std::uint32_t right = buildPreparedBvhNode(out, mid, first + count - mid);
+  out.bvh_nodes[node_index].left = left;
+  out.bvh_nodes[node_index].right = right;
+  return node_index;
+}
+
+void buildPreparedBvh(PreparedObject &out) {
+  out.triangle_order.clear();
+  out.bvh_nodes.clear();
+  if (out.triangles.size() <= 6u) {
+    return;
+  }
+  out.triangle_order.resize(out.triangles.size());
+  for (std::uint32_t i = 0u; i < out.triangle_order.size(); ++i) {
+    out.triangle_order[i] = i;
+  }
+  out.bvh_nodes.reserve(out.triangles.size() * 2u);
+  buildPreparedBvhNode(out, 0u, static_cast<std::uint32_t>(out.triangle_order.size()));
 }
 
 void prepareTriangleMesh(PreparedObject &out, const CpuMesh &mesh) {
@@ -469,6 +566,9 @@ void prepareTriangleMesh(PreparedObject &out, const CpuMesh &mesh) {
     const Vec3 safe_na = length(na) > 0.0001f ? na : face;
     const Vec3 safe_nb = length(nb) > 0.0001f ? nb : face;
     const Vec3 safe_nc = length(nc) > 0.0001f ? nc : face;
+    const Vec3 bounds_min = minVec3(a, minVec3(b, c));
+    const Vec3 bounds_max = maxVec3(a, maxVec3(b, c));
+    const Vec3 centroid = (a + b + c) / 3.0f;
     out.triangles.push_back({a,
                              b,
                              c,
@@ -483,11 +583,15 @@ void prepareTriangleMesh(PreparedObject &out, const CpuMesh &mesh) {
                              transformed_tangent(vc, safe_nc),
                              va.uv,
                              vb.uv,
-                             vc.uv});
+                             vc.uv,
+                             bounds_min,
+                             bounds_max,
+                             centroid});
     expandBounds(out, a);
     expandBounds(out, b);
     expandBounds(out, c);
   }
+  buildPreparedBvh(out);
 }
 
 const CpuMesh &primitiveMesh(const MeshPrimitive primitive) {
@@ -523,6 +627,10 @@ std::vector<PreparedObject> prepareScene(const Scene &scene) {
   for (const RenderObject &object : scene.objects()) {
     PreparedObject out;
     out.object = object;
+    out.object_label_hash = stableLabelHash(object.name);
+    out.casts_scene_shadow =
+        renderObjectCastsShadows(object) &&
+        resolveMaterialSurfaceProfile(object.material) != MaterialSurfaceProfile::ContactShadow;
     prepareTriangleMesh(out, object.custom_mesh != nullptr ? *object.custom_mesh
                                                            : primitiveMesh(object.primitive));
     prepared.push_back(std::move(out));
@@ -540,8 +648,17 @@ float axisValue(const Vec3 value, const int axis) {
   return value.z;
 }
 
+bool intersectBounds(const Ray &ray, Vec3 bounds_min, Vec3 bounds_max, float max_distance,
+                     float &near_distance);
+
 bool intersectBounds(const Ray &ray, const Vec3 bounds_min, const Vec3 bounds_max,
                      const float max_distance) {
+  float near_distance = 0.0f;
+  return intersectBounds(ray, bounds_min, bounds_max, max_distance, near_distance);
+}
+
+bool intersectBounds(const Ray &ray, const Vec3 bounds_min, const Vec3 bounds_max,
+                     const float max_distance, float &near_distance) {
   float t_min = 0.001f;
   float t_max = max_distance;
   for (int axis = 0; axis < 3; ++axis) {
@@ -566,6 +683,7 @@ bool intersectBounds(const Ray &ray, const Vec3 bounds_min, const Vec3 bounds_ma
       return false;
     }
   }
+  near_distance = t_min;
   return true;
 }
 
@@ -644,12 +762,12 @@ bool intersectPreparedMesh(const Ray &ray, const PreparedObject &prepared, Hit &
   }
 
   bool found = false;
-  for (const TraceTriangle &triangle : prepared.triangles) {
+  const auto consider_triangle = [&](const TraceTriangle &triangle) {
     float t = 0.0f;
     float u = 0.0f;
     float v = 0.0f;
     if (!intersectTriangle(ray, triangle, t, u, v) || t >= hit.distance) {
-      continue;
+      return;
     }
     const float w = 1.0f - u - v;
     Vec3 normal = normalize(triangle.na * w + triangle.nb * u + triangle.nc * v);
@@ -672,10 +790,119 @@ bool intersectPreparedMesh(const Ray &ray, const PreparedObject &prepared, Hit &
     hit.uv = triangle.uva * w + triangle.uvb * u + triangle.uvc * v;
     hit.material =
         applyWorldPerceptualMaterialMemory(prepared.object, prepared.object.material);
-    hit.object_label_hash = stableLabelHash(prepared.object.name);
+    hit.object_label_hash = prepared.object_label_hash;
     found = true;
+  };
+
+  if (prepared.bvh_nodes.empty()) {
+    for (const TraceTriangle &triangle : prepared.triangles) {
+      consider_triangle(triangle);
+    }
+    return found;
+  }
+
+  std::array<std::uint32_t, 128u> stack{};
+  std::size_t stack_size = 0u;
+  stack[stack_size++] = 0u;
+  while (stack_size > 0u) {
+    const TraceBvhNode &node = prepared.bvh_nodes[stack[--stack_size]];
+    if (!intersectBounds(ray, node.bounds_min, node.bounds_max, hit.distance)) {
+      continue;
+    }
+    if (node.count > 0u) {
+      for (std::uint32_t i = node.first; i < node.first + node.count; ++i) {
+        consider_triangle(prepared.triangles[prepared.triangle_order[i]]);
+      }
+      continue;
+    }
+
+    float left_near = 0.0f;
+    float right_near = 0.0f;
+    const bool left_hit =
+        intersectBounds(ray, prepared.bvh_nodes[node.left].bounds_min,
+                        prepared.bvh_nodes[node.left].bounds_max, hit.distance, left_near);
+    const bool right_hit =
+        intersectBounds(ray, prepared.bvh_nodes[node.right].bounds_min,
+                        prepared.bvh_nodes[node.right].bounds_max, hit.distance, right_near);
+    if (left_hit && right_hit) {
+      if (left_near < right_near) {
+        stack[stack_size++] = node.right;
+        stack[stack_size++] = node.left;
+      } else {
+        stack[stack_size++] = node.left;
+        stack[stack_size++] = node.right;
+      }
+    } else if (left_hit) {
+      stack[stack_size++] = node.left;
+    } else if (right_hit) {
+      stack[stack_size++] = node.right;
+    }
   }
   return found;
+}
+
+bool intersectPreparedMeshAny(const Ray &ray, const PreparedObject &prepared,
+                              const float max_distance) {
+  if (prepared.triangles.empty() ||
+      !intersectBounds(ray, prepared.bounds_min, prepared.bounds_max, max_distance)) {
+    return false;
+  }
+
+  const auto triangle_hits = [&](const TraceTriangle &triangle) {
+    float t = 0.0f;
+    float u = 0.0f;
+    float v = 0.0f;
+    return intersectTriangle(ray, triangle, t, u, v) && t < max_distance;
+  };
+
+  if (prepared.bvh_nodes.empty()) {
+    for (const TraceTriangle &triangle : prepared.triangles) {
+      if (triangle_hits(triangle)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  std::array<std::uint32_t, 128u> stack{};
+  std::size_t stack_size = 0u;
+  stack[stack_size++] = 0u;
+  while (stack_size > 0u) {
+    const TraceBvhNode &node = prepared.bvh_nodes[stack[--stack_size]];
+    if (!intersectBounds(ray, node.bounds_min, node.bounds_max, max_distance)) {
+      continue;
+    }
+    if (node.count > 0u) {
+      for (std::uint32_t i = node.first; i < node.first + node.count; ++i) {
+        if (triangle_hits(prepared.triangles[prepared.triangle_order[i]])) {
+          return true;
+        }
+      }
+      continue;
+    }
+    const TraceBvhNode &left = prepared.bvh_nodes[node.left];
+    const TraceBvhNode &right = prepared.bvh_nodes[node.right];
+    float left_near = 0.0f;
+    float right_near = 0.0f;
+    const bool left_hit =
+        intersectBounds(ray, left.bounds_min, left.bounds_max, max_distance, left_near);
+    const bool right_hit =
+        intersectBounds(ray, right.bounds_min, right.bounds_max, max_distance, right_near);
+    if (left_hit && right_hit) {
+      if (left_near < right_near) {
+        stack[stack_size++] = node.right;
+        stack[stack_size++] = node.left;
+      } else {
+        stack[stack_size++] = node.left;
+        stack[stack_size++] = node.right;
+      }
+    } else if (left_hit) {
+      stack[stack_size++] = node.left;
+    } else if (right_hit) {
+      stack[stack_size++] = node.right;
+    }
+  }
+  return false;
 }
 
 Hit trace(const Ray &ray, const std::vector<PreparedObject> &scene) {
@@ -688,14 +915,12 @@ Hit trace(const Ray &ray, const std::vector<PreparedObject> &scene) {
 
 bool traceShadowRay(const Ray &ray, const std::vector<PreparedObject> &scene,
                     const float max_distance) {
-  Hit closest;
-  closest.distance = std::max(max_distance, 0.02f);
+  const float capped_distance = std::max(max_distance, 0.02f);
   for (const PreparedObject &prepared : scene) {
-    if (!renderObjectCastsShadows(prepared.object) ||
-        resolveMaterialSurfaceProfile(prepared.object.material) == MaterialSurfaceProfile::ContactShadow) {
+    if (!prepared.casts_scene_shadow) {
       continue;
     }
-    if (intersectPreparedMesh(ray, prepared, closest)) {
+    if (intersectPreparedMeshAny(ray, prepared, capped_distance)) {
       return true;
     }
   }

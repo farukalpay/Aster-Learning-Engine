@@ -1,0 +1,55 @@
+astergraph asset_graph.lumen_run.construction_forklift
+schema_version 1
+name "Lumen Run Construction Forklift"
+material_id material.lumen_run.forklift_paint
+surface_profile corroded-metal
+primitive construction-forklift
+uv_policy packed-low-poly-yard
+tangent_policy validate-or-generate
+collision_proxy kinematic-forklift-footprint
+lod_policy lod0-lod1
+base_color 0.86 0.45 0.13
+roughness 0.54
+metallic 0.36
+param physical_texel_density 768
+param height_normal_coupling 0.58
+param roughness_height_coupling 0.54
+param macro_frequency_breakup 0.38
+param micro_frequency_breakup 0.42
+feature normal_map true
+preview environment lumen-construction-yard
+preview rig forklift-three-quarter
+preview artifact /tmp/lumen_run_construction_yard.ppm
+node mesh.forklift mesh_primitive role=mesh primitive=construction-forklift body_length=2.95 body_width=1.16 mast_height=2.25
+node uv.forklift uv_policy role=uv mapping=packed-low-poly-yard texel_density=768
+node tangent.validate tangent_validation role=tangent policy=validate-or-generate
+node material.paint material_assignment role=material slot=forklift.paint surface_profile=painted-weathered-metal
+node material.rubber material_assignment role=material slot=forklift.rubber surface_profile=matte-rubber
+node material.steel material_assignment role=material slot=forklift.steel surface_profile=scuffed-steel
+node collision.proxy collision_proxy role=collision shape=kinematic-forklift-footprint triangles=96
+node lod.chain lod_generator role=lod policy=lod0-lod1 levels=2
+node gameplay.mount prefab_variant role=prefab variant=enter-exit-drivable-forklift
+node claim.silhouette visual_brief_claim role=quality signal=forklift_silhouette
+node claim.forks visual_brief_claim role=quality signal=forks_mast_wheels
+node claim.tires visual_brief_claim role=quality signal=treaded_rubber_tires_with_steel_rims
+node claim.grounded visual_brief_claim role=quality signal=grounded_contact_shadows
+node reject.raw visual_brief_rejection role=quality signal=raw_glb_fbx_runtime_dependency
+node perception.template world_perceptual_template role=perceptual profile=weathered-construction-vehicle surface_response=forklift-painted-metal history_response=vehicle-contact-material-memory material_half_life_seconds=26 wetness_half_life_seconds=12 semantic_lod=0.82 streaming_cost=0.34 patch_channels=paint_wear,rubber_contact,material_stability contact_channels=vehicle_mount,visual_occlusion,traversal_affordance residue_channels=oil_dust,acoustic_contact,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mesh.forklift uv.forklift uv_contract
+edge uv.forklift tangent.validate tangent_contract
+edge mesh.forklift material.paint material_slot
+edge mesh.forklift material.rubber material_slot
+edge mesh.forklift material.steel material_slot
+edge mesh.forklift collision.proxy collision_source
+edge mesh.forklift lod.chain lod_source
+edge collision.proxy gameplay.mount gameplay_collision
+edge claim.silhouette diagnostic.quality visual_brief
+edge claim.forks diagnostic.quality visual_brief
+edge claim.tires diagnostic.quality visual_brief
+edge claim.grounded diagnostic.quality visual_brief
+edge reject.raw diagnostic.quality forbidden_signal
+edge perception.template export.runtime perceptual_template
+edge lod.chain export.runtime runtime_lods
+edge diagnostic.quality export.runtime cook_report

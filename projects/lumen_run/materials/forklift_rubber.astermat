@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.lumen_run.forklift_rubber {
+  schema_version: 1
+  name: "Forklift Matte Tire Rubber"
+  shading_model: Unlit
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  params {
+    base_color_r: 0.025
+    base_color_g: 0.024
+    base_color_b: 0.022
+    roughness: 0.82
+    metallic: 0.0
+    ambient_occlusion: 0.88
+    macro_variation: 0.22
+    micro_normal_strength: 0.20
+    roughness_variation: 0.16
+    height_shading: 0.06
+  }
+
+  features {
+    procedural_surface: true
+    contact_shadows: true
+  }
+}
