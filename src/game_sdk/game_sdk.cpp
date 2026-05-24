@@ -1624,6 +1624,9 @@ AssetKind parseAssetKind(const std::string_view value) {
   if (value == "asset_graph" || value == "procedural_asset" || value == "astergraph") {
     return AssetKind::AssetGraph;
   }
+  if (value == "lesson" || value == "learning_lesson") {
+    return AssetKind::Lesson;
+  }
   return AssetKind::Unknown;
 }
 
@@ -1651,6 +1654,8 @@ std::string_view assetKindName(const AssetKind kind) {
     return "texture";
   case AssetKind::AssetGraph:
     return "asset_graph";
+  case AssetKind::Lesson:
+    return "lesson";
   case AssetKind::Unknown:
     return "unknown";
   }
@@ -2051,6 +2056,205 @@ LoadResult<InputMapDocument> parseInputMapDocument(std::string_view source_text,
   return result;
 }
 
+[[nodiscard]] LearningEvidenceRefDocument
+parseLearningEvidenceRefDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
+                                 const std::filesystem::path &source, const std::string &path) {
+  LearningEvidenceRefDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readString(value, "id", diagnostics, source, path, true).value_or("");
+  out.kind = readStringOr(value, "kind", diagnostics, source, path, {});
+  out.asset = readStringOr(value, "asset", diagnostics, source, path, {});
+  out.source = readStringOr(value, "source", diagnostics, source, path, {});
+  out.required_events = readStringArray(value, "required_events", diagnostics, source, path);
+  out.required_channels = readStringArray(value, "required_channels", diagnostics, source, path);
+  return out;
+}
+
+[[nodiscard]] LearningObjectiveDocument
+parseLearningObjectiveDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
+                               const std::filesystem::path &source, const std::string &path) {
+  LearningObjectiveDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readString(value, "id", diagnostics, source, path, true).value_or("");
+  out.description = readStringOr(value, "description", diagnostics, source, path, {});
+  out.evidence_ids = readStringArray(value, "evidence", diagnostics, source, path);
+  out.mastery_threshold =
+      readFloatOr(value, "mastery_threshold", diagnostics, source, path, out.mastery_threshold);
+  return out;
+}
+
+[[nodiscard]] LearningMisconceptionDocument
+parseLearningMisconceptionDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
+                                   const std::filesystem::path &source,
+                                   const std::string &path) {
+  LearningMisconceptionDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readString(value, "id", diagnostics, source, path, true).value_or("");
+  out.description = readStringOr(value, "description", diagnostics, source, path, {});
+  out.trigger_events = readStringArray(value, "trigger_events", diagnostics, source, path);
+  out.remediation_scaffold_ids =
+      readStringArray(value, "remediation_scaffolds", diagnostics, source, path);
+  return out;
+}
+
+[[nodiscard]] LearnerStateHypothesisDocument
+parseLearnerStateHypothesisDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
+                                    const std::filesystem::path &source,
+                                    const std::string &path) {
+  LearnerStateHypothesisDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readString(value, "id", diagnostics, source, path, true).value_or("");
+  out.description = readStringOr(value, "description", diagnostics, source, path, {});
+  out.evidence_ids = readStringArray(value, "evidence", diagnostics, source, path);
+  out.misconception_ids = readStringArray(value, "misconceptions", diagnostics, source, path);
+  out.confidence = readFloatOr(value, "confidence", diagnostics, source, path, out.confidence);
+  return out;
+}
+
+[[nodiscard]] LearningScaffoldRuleDocument
+parseLearningScaffoldRuleDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
+                                  const std::filesystem::path &source,
+                                  const std::string &path) {
+  LearningScaffoldRuleDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readString(value, "id", diagnostics, source, path, true).value_or("");
+  out.stage = readStringOr(value, "stage", diagnostics, source, path, {});
+  out.intent = readStringOr(value, "intent", diagnostics, source, path, {});
+  out.intervention = readStringOr(value, "intervention", diagnostics, source, path, {});
+  out.evidence_ids = readStringArray(value, "evidence", diagnostics, source, path);
+  out.hypothesis_ids = readStringArray(value, "hypotheses", diagnostics, source, path);
+  out.misconception_ids = readStringArray(value, "misconceptions", diagnostics, source, path);
+  out.force_gameplay_change =
+      readBoolOr(value, "force_gameplay_change", diagnostics, source, path, false);
+  return out;
+}
+
+[[nodiscard]] PedagogicalSafetyCheckDocument
+parsePedagogicalSafetyCheckDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
+                                    const std::filesystem::path &source,
+                                    const std::string &path) {
+  PedagogicalSafetyCheckDocument out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readString(value, "id", diagnostics, source, path, true).value_or("");
+  out.kind = readStringOr(value, "kind", diagnostics, source, path, {});
+  out.required_evidence_ids =
+      readStringArray(value, "required_evidence", diagnostics, source, path);
+  out.message = readStringOr(value, "message", diagnostics, source, path, {});
+  return out;
+}
+
+[[nodiscard]] LearningTraceEvent
+parseLearningTraceEvent(const Json &value, std::vector<Diagnostic> &diagnostics,
+                        const std::filesystem::path &source, const std::string &path) {
+  LearningTraceEvent out;
+  if (!expectObject(value, diagnostics, source, path)) {
+    return out;
+  }
+  out.id = readStringOr(value, "id", diagnostics, source, path, {});
+  out.stage = readString(value, "stage", diagnostics, source, path, true).value_or("");
+  out.event = readStringOr(value, "event", diagnostics, source, path, {});
+  out.evidence_id = readStringOr(value, "evidence_id", diagnostics, source, path, {});
+  out.objective_id = readStringOr(value, "objective_id", diagnostics, source, path, {});
+  out.hypothesis_id = readStringOr(value, "hypothesis_id", diagnostics, source, path, {});
+  out.scaffold_id = readStringOr(value, "scaffold_id", diagnostics, source, path, {});
+  out.misconception_id = readStringOr(value, "misconception_id", diagnostics, source, path, {});
+  out.metadata = readStringMap(value, "metadata", diagnostics, source, path);
+  out.timestamp =
+      static_cast<std::uint64_t>(std::max(0, readIntOr(value, "timestamp", diagnostics, source,
+                                                       path, 0)));
+  out.claims_mastery = readBoolOr(value, "claims_mastery", diagnostics, source, path, false);
+  return out;
+}
+
+LoadResult<LessonDocument> parseLessonDocument(std::string_view source_text,
+                                               std::filesystem::path source_path) {
+  LoadResult<LessonDocument> result;
+  try {
+    const Json root = JsonParser(source_text).parse();
+    if (!expectObject(root, result.diagnostics, source_path, "$")) {
+      return result;
+    }
+    result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
+    result.value.id = readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
+    result.value.name = readStringOr(root, "name", result.diagnostics, source_path, "$", {});
+    result.value.workflow_stages =
+        readStringArray(root, "workflow_stages", result.diagnostics, source_path, "$");
+
+    const auto read_array = [&](const char *key, auto parse_item, auto &out) {
+      const Json *items = member(root, key);
+      if (items == nullptr) {
+        addDiagnostic(result.diagnostics, source_path, childPath("$", key), "missing array");
+        return;
+      }
+      if (items->kind != Json::Kind::Array) {
+        addDiagnostic(result.diagnostics, source_path, childPath("$", key), "expected array");
+        return;
+      }
+      for (std::size_t i = 0; i < items->array.size(); ++i) {
+        out.push_back(parse_item(items->array[i], result.diagnostics, source_path,
+                                 indexPath(childPath("$", key), i)));
+      }
+    };
+
+    read_array("objectives", parseLearningObjectiveDocument, result.value.objectives);
+    read_array("evidence_refs", parseLearningEvidenceRefDocument, result.value.evidence_refs);
+    read_array("misconceptions", parseLearningMisconceptionDocument, result.value.misconceptions);
+    read_array("learner_state_hypotheses", parseLearnerStateHypothesisDocument,
+               result.value.learner_state_hypotheses);
+    read_array("scaffold_rules", parseLearningScaffoldRuleDocument,
+               result.value.scaffold_rules);
+    read_array("safety_checks", parsePedagogicalSafetyCheckDocument,
+               result.value.safety_checks);
+  } catch (const std::exception &error) {
+    addDiagnostic(result.diagnostics, source_path, "$", error.what());
+  }
+  return result;
+}
+
+LoadResult<LearningTraceDocument>
+parseLearningTraceDocument(std::string_view source_text, std::filesystem::path source_path) {
+  LoadResult<LearningTraceDocument> result;
+  try {
+    const Json root = JsonParser(source_text).parse();
+    if (!expectObject(root, result.diagnostics, source_path, "$")) {
+      return result;
+    }
+    result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
+    result.value.id = readStringOr(root, "id", result.diagnostics, source_path, "$", {});
+    result.value.lesson = readString(root, "lesson", result.diagnostics, source_path, "$", true)
+                              .value_or("");
+    const Json *events = member(root, "events");
+    if (events == nullptr) {
+      addDiagnostic(result.diagnostics, source_path, "$.events", "missing required event array");
+      return result;
+    }
+    if (events->kind != Json::Kind::Array) {
+      addDiagnostic(result.diagnostics, source_path, "$.events", "expected event array");
+      return result;
+    }
+    for (std::size_t i = 0u; i < events->array.size(); ++i) {
+      result.value.events.push_back(parseLearningTraceEvent(events->array[i], result.diagnostics,
+                                                            source_path,
+                                                            indexPath("$.events", i)));
+    }
+  } catch (const std::exception &error) {
+    addDiagnostic(result.diagnostics, source_path, "$", error.what());
+  }
+  return result;
+}
+
 LoadResult<CaveWorldGateReportDocument>
 parseCaveWorldGateReportDocument(std::string_view source_text,
                                  std::filesystem::path source_path) {
@@ -2249,6 +2453,14 @@ LoadResult<InputMapDocument> loadInputMapDocument(const std::filesystem::path &p
   return loadDocument<InputMapDocument>(path, parseInputMapDocument);
 }
 
+LoadResult<LessonDocument> loadLessonDocument(const std::filesystem::path &path) {
+  return loadDocument<LessonDocument>(path, parseLessonDocument);
+}
+
+LoadResult<LearningTraceDocument> loadLearningTraceDocument(const std::filesystem::path &path) {
+  return loadDocument<LearningTraceDocument>(path, parseLearningTraceDocument);
+}
+
 LoadResult<CaveWorldGateReportDocument>
 loadCaveWorldGateReportDocument(const std::filesystem::path &path) {
   return loadDocument<CaveWorldGateReportDocument>(path, parseCaveWorldGateReportDocument);
@@ -2385,6 +2597,461 @@ std::uint64_t inputMapContractStamp(const InputMapDocument &input_map) {
     }
   }
   return hash;
+}
+
+std::uint64_t lessonContractStamp(const LessonDocument &lesson) {
+  std::uint64_t hash = beginContractHash();
+  hashString(hash, "aster.lesson.v1");
+  hashNumber(hash, lesson.schema_version);
+  hashString(hash, lesson.id);
+  hashString(hash, lesson.name);
+  for (const std::string &stage : lesson.workflow_stages) {
+    hashString(hash, stage);
+  }
+  for (const LearningObjectiveDocument &objective : lesson.objectives) {
+    hashString(hash, objective.id);
+    hashString(hash, objective.description);
+    hashString(hash, std::to_string(objective.mastery_threshold));
+    for (const std::string &evidence : objective.evidence_ids) {
+      hashString(hash, evidence);
+    }
+  }
+  for (const LearningEvidenceRefDocument &evidence : lesson.evidence_refs) {
+    hashString(hash, evidence.id);
+    hashString(hash, evidence.kind);
+    hashString(hash, evidence.asset);
+    hashString(hash, evidence.source);
+    for (const std::string &event : evidence.required_events) {
+      hashString(hash, event);
+    }
+    for (const std::string &channel : evidence.required_channels) {
+      hashString(hash, channel);
+    }
+  }
+  for (const LearningMisconceptionDocument &misconception : lesson.misconceptions) {
+    hashString(hash, misconception.id);
+    hashString(hash, misconception.description);
+    for (const std::string &event : misconception.trigger_events) {
+      hashString(hash, event);
+    }
+    for (const std::string &scaffold : misconception.remediation_scaffold_ids) {
+      hashString(hash, scaffold);
+    }
+  }
+  for (const LearnerStateHypothesisDocument &hypothesis : lesson.learner_state_hypotheses) {
+    hashString(hash, hypothesis.id);
+    hashString(hash, hypothesis.description);
+    hashString(hash, std::to_string(hypothesis.confidence));
+    for (const std::string &evidence : hypothesis.evidence_ids) {
+      hashString(hash, evidence);
+    }
+    for (const std::string &misconception : hypothesis.misconception_ids) {
+      hashString(hash, misconception);
+    }
+  }
+  for (const LearningScaffoldRuleDocument &rule : lesson.scaffold_rules) {
+    hashString(hash, rule.id);
+    hashString(hash, rule.stage);
+    hashString(hash, rule.intent);
+    hashString(hash, rule.intervention);
+    hashNumber(hash, rule.force_gameplay_change ? 1u : 0u);
+    for (const std::string &evidence : rule.evidence_ids) {
+      hashString(hash, evidence);
+    }
+    for (const std::string &hypothesis : rule.hypothesis_ids) {
+      hashString(hash, hypothesis);
+    }
+    for (const std::string &misconception : rule.misconception_ids) {
+      hashString(hash, misconception);
+    }
+  }
+  for (const PedagogicalSafetyCheckDocument &check : lesson.safety_checks) {
+    hashString(hash, check.id);
+    hashString(hash, check.kind);
+    hashString(hash, check.message);
+    for (const std::string &evidence : check.required_evidence_ids) {
+      hashString(hash, evidence);
+    }
+  }
+  return hash;
+}
+
+std::uint64_t learningTraceContractStamp(const LearningTraceDocument &trace) {
+  std::uint64_t hash = beginContractHash();
+  hashString(hash, "aster.learning_trace.v1");
+  hashNumber(hash, trace.schema_version);
+  hashString(hash, trace.id);
+  hashString(hash, trace.lesson);
+  for (const LearningTraceEvent &event : trace.events) {
+    hashString(hash, event.id);
+    hashString(hash, event.stage);
+    hashString(hash, event.event);
+    hashString(hash, event.evidence_id);
+    hashString(hash, event.objective_id);
+    hashString(hash, event.hypothesis_id);
+    hashString(hash, event.scaffold_id);
+    hashString(hash, event.misconception_id);
+    hashNumber(hash, event.timestamp);
+    hashNumber(hash, event.claims_mastery ? 1u : 0u);
+    for (const auto &[key, value] : event.metadata) {
+      hashString(hash, key);
+      hashString(hash, value);
+    }
+  }
+  return hash;
+}
+
+std::vector<Diagnostic> validateLessonDocument(const LessonDocument &lesson,
+                                               const ProjectDocument *project,
+                                               std::filesystem::path source_path) {
+  std::vector<Diagnostic> diagnostics;
+  const auto addError = [&](std::string path, std::string message) {
+    addDiagnostic(diagnostics, source_path, std::move(path), std::move(message));
+  };
+  const auto checkUnique = [&](const char *path, const auto &rows) {
+    std::set<std::string> ids;
+    for (const auto &row : rows) {
+      if (row.id.empty()) {
+        addError(path, "id must not be empty");
+      } else if (!ids.insert(row.id).second) {
+        addError(path, "duplicate id '" + row.id + "'");
+      }
+    }
+    return ids;
+  };
+
+  if (lesson.id.empty()) {
+    addError("$.id", "lesson id must not be empty");
+  }
+  if (lesson.name.empty()) {
+    addError("$.name", "lesson name must not be empty");
+  }
+  if (lesson.workflow_stages.empty()) {
+    addError("$.workflow_stages", "lesson must define workflow stages");
+  }
+  if (lesson.objectives.empty()) {
+    addError("$.objectives", "lesson must define objectives");
+  }
+  if (lesson.evidence_refs.empty()) {
+    addError("$.evidence_refs", "lesson must define evidence references");
+  }
+
+  const std::set<std::string> objective_ids = checkUnique("$.objectives", lesson.objectives);
+  (void)objective_ids;
+  const std::set<std::string> evidence_ids = checkUnique("$.evidence_refs", lesson.evidence_refs);
+  const std::set<std::string> misconception_ids =
+      checkUnique("$.misconceptions", lesson.misconceptions);
+  const std::set<std::string> hypothesis_ids =
+      checkUnique("$.learner_state_hypotheses", lesson.learner_state_hypotheses);
+  const std::set<std::string> scaffold_ids = checkUnique("$.scaffold_rules", lesson.scaffold_rules);
+  (void)checkUnique("$.safety_checks", lesson.safety_checks);
+  const std::set<std::string> workflow_ids(lesson.workflow_stages.begin(),
+                                           lesson.workflow_stages.end());
+
+  std::set<std::string> project_assets;
+  if (project != nullptr) {
+    for (const ProjectAssetRef &asset : project->assets) {
+      if (!asset.id.empty()) {
+        project_assets.insert(asset.id);
+      }
+    }
+  }
+
+  for (const LearningEvidenceRefDocument &evidence : lesson.evidence_refs) {
+    if (evidence.asset.empty()) {
+      addError("$.evidence_refs." + evidence.id + ".asset", "evidence must bind to an asset id");
+    } else if (project != nullptr && !project_assets.contains(evidence.asset)) {
+      addError("$.evidence_refs." + evidence.id + ".asset",
+               "evidence references missing project asset '" + evidence.asset + "'");
+    }
+  }
+  for (const LearningObjectiveDocument &objective : lesson.objectives) {
+    if (objective.evidence_ids.empty()) {
+      addError("$.objectives." + objective.id + ".evidence",
+               "objective must reference at least one evidence id");
+    }
+    if (objective.mastery_threshold <= 0.0f || objective.mastery_threshold > 1.0f) {
+      addError("$.objectives." + objective.id + ".mastery_threshold",
+               "mastery_threshold must be in (0, 1]");
+    }
+    for (const std::string &evidence : objective.evidence_ids) {
+      if (!evidence_ids.contains(evidence)) {
+        addError("$.objectives." + objective.id + ".evidence",
+                 "objective references missing evidence '" + evidence + "'");
+      }
+    }
+  }
+  for (const LearnerStateHypothesisDocument &hypothesis : lesson.learner_state_hypotheses) {
+    if (hypothesis.evidence_ids.empty()) {
+      addError("$.learner_state_hypotheses." + hypothesis.id + ".evidence",
+               "learner-state hypothesis must cite evidence");
+    }
+    for (const std::string &evidence : hypothesis.evidence_ids) {
+      if (!evidence_ids.contains(evidence)) {
+        addError("$.learner_state_hypotheses." + hypothesis.id + ".evidence",
+                 "hypothesis references missing evidence '" + evidence + "'");
+      }
+    }
+    for (const std::string &misconception : hypothesis.misconception_ids) {
+      if (!misconception_ids.contains(misconception)) {
+        addError("$.learner_state_hypotheses." + hypothesis.id + ".misconceptions",
+                 "hypothesis references missing misconception '" + misconception + "'");
+      }
+    }
+  }
+  for (const LearningMisconceptionDocument &misconception : lesson.misconceptions) {
+    for (const std::string &scaffold : misconception.remediation_scaffold_ids) {
+      if (!scaffold_ids.contains(scaffold)) {
+        addError("$.misconceptions." + misconception.id + ".remediation_scaffolds",
+                 "misconception references missing scaffold '" + scaffold + "'");
+      }
+    }
+  }
+  for (const LearningScaffoldRuleDocument &rule : lesson.scaffold_rules) {
+    if (!workflow_ids.contains(rule.stage)) {
+      addError("$.scaffold_rules." + rule.id + ".stage",
+               "scaffold stage is not declared in workflow_stages");
+    }
+    if (rule.evidence_ids.empty() || rule.hypothesis_ids.empty()) {
+      addError("$.scaffold_rules." + rule.id,
+               "scaffold must cite both evidence and learner-state hypotheses");
+    }
+    if (rule.force_gameplay_change) {
+      addError("$.scaffold_rules." + rule.id + ".force_gameplay_change",
+               "pedagogical scaffolds must not force gameplay changes");
+    }
+    for (const std::string &evidence : rule.evidence_ids) {
+      if (!evidence_ids.contains(evidence)) {
+        addError("$.scaffold_rules." + rule.id + ".evidence",
+                 "scaffold references missing evidence '" + evidence + "'");
+      }
+    }
+    for (const std::string &hypothesis : rule.hypothesis_ids) {
+      if (!hypothesis_ids.contains(hypothesis)) {
+        addError("$.scaffold_rules." + rule.id + ".hypotheses",
+                 "scaffold references missing hypothesis '" + hypothesis + "'");
+      }
+    }
+    for (const std::string &misconception : rule.misconception_ids) {
+      if (!misconception_ids.contains(misconception)) {
+        addError("$.scaffold_rules." + rule.id + ".misconceptions",
+                 "scaffold references missing misconception '" + misconception + "'");
+      }
+    }
+  }
+  for (const PedagogicalSafetyCheckDocument &check : lesson.safety_checks) {
+    if (check.kind.empty()) {
+      addError("$.safety_checks." + check.id + ".kind", "safety check kind must not be empty");
+    }
+    for (const std::string &evidence : check.required_evidence_ids) {
+      if (!evidence_ids.contains(evidence)) {
+        addError("$.safety_checks." + check.id + ".required_evidence",
+                 "safety check references missing evidence '" + evidence + "'");
+      }
+    }
+  }
+  return diagnostics;
+}
+
+LearningProofReport evaluateLearningTrace(const LessonDocument &lesson,
+                                          const LearningTraceDocument &trace,
+                                          std::filesystem::path source_path) {
+  LearningProofReport report;
+  report.contract_stamp = lessonContractStamp(lesson) ^ learningTraceContractStamp(trace);
+  report.diagnostics = validateLessonDocument(lesson, nullptr, source_path);
+  const auto append_unique = [](std::vector<std::string> &values, const std::string &value) {
+    if (!value.empty() && std::find(values.begin(), values.end(), value) == values.end()) {
+      values.push_back(value);
+    }
+  };
+  if (trace.lesson != lesson.id) {
+    addDiagnostic(report.diagnostics, source_path, "$.lesson",
+                  "learning trace targets lesson '" + trace.lesson + "' but expected '" +
+                      lesson.id + "'");
+  }
+
+  std::map<std::string, const LearningScaffoldRuleDocument *> scaffold_by_id;
+  for (const LearningScaffoldRuleDocument &rule : lesson.scaffold_rules) {
+    scaffold_by_id.emplace(rule.id, &rule);
+  }
+
+  std::set<std::string> observed_evidence;
+  std::set<std::string> observed_hypotheses;
+  std::set<std::string> observed_stages;
+  bool false_mastery = false;
+  const auto objectives_covered_now = [&]() {
+    return std::all_of(lesson.objectives.begin(), lesson.objectives.end(),
+                       [&](const LearningObjectiveDocument &objective) {
+                         return std::all_of(objective.evidence_ids.begin(),
+                                            objective.evidence_ids.end(),
+                                            [&](const std::string &evidence) {
+                                              return observed_evidence.contains(evidence);
+                                            });
+                       });
+  };
+
+  for (std::size_t index = 0u; index < trace.events.size(); ++index) {
+    const LearningTraceEvent &event = trace.events[index];
+    if (!event.stage.empty()) {
+      observed_stages.insert(event.stage);
+    }
+    if (!event.evidence_id.empty()) {
+      observed_evidence.insert(event.evidence_id);
+    }
+    if (!event.hypothesis_id.empty()) {
+      observed_hypotheses.insert(event.hypothesis_id);
+    }
+    if (!event.scaffold_id.empty()) {
+      LearningInterventionDecision decision;
+      decision.id = event.id.empty() ? "intervention." + std::to_string(index) : event.id;
+      decision.stage = event.stage;
+      decision.scaffold_id = event.scaffold_id;
+      decision.hypothesis_id = event.hypothesis_id;
+      decision.misconception_id = event.misconception_id;
+      const auto rationale = event.metadata.find("rationale");
+      decision.rationale = rationale == event.metadata.end() ? std::string{} : rationale->second;
+
+      const auto scaffold_it = scaffold_by_id.find(event.scaffold_id);
+      if (scaffold_it == scaffold_by_id.end()) {
+        append_unique(report.unsupported_interventions,
+                      event.scaffold_id + ": scaffold is not declared by the lesson");
+      } else {
+        const LearningScaffoldRuleDocument &rule = *scaffold_it->second;
+        decision.evidence_ids = rule.evidence_ids;
+        bool accepted = true;
+        if (rule.stage != event.stage) {
+          append_unique(report.unsupported_interventions,
+                        rule.id + ": selected at stage '" + event.stage +
+                            "' but rule stage is '" + rule.stage + "'");
+          accepted = false;
+        }
+        for (const std::string &evidence : rule.evidence_ids) {
+          if (!observed_evidence.contains(evidence)) {
+            append_unique(report.unsupported_interventions,
+                          rule.id + ": evidence '" + evidence +
+                              "' was not observed before intervention");
+            accepted = false;
+          }
+        }
+        for (const std::string &hypothesis : rule.hypothesis_ids) {
+          if (!observed_hypotheses.contains(hypothesis)) {
+            append_unique(report.unsupported_interventions,
+                          rule.id + ": learner-state hypothesis '" + hypothesis +
+                              "' was not diagnosed before intervention");
+            accepted = false;
+          }
+        }
+        if (decision.rationale.empty()) {
+          append_unique(report.unsupported_interventions,
+                        rule.id + ": intervention rationale is missing");
+          accepted = false;
+        } else {
+          bool rationale_grounded = false;
+          for (const std::string &evidence : rule.evidence_ids) {
+            rationale_grounded = rationale_grounded ||
+                                 decision.rationale.find(evidence) != std::string::npos;
+          }
+          for (const std::string &hypothesis : rule.hypothesis_ids) {
+            rationale_grounded = rationale_grounded ||
+                                 decision.rationale.find(hypothesis) != std::string::npos;
+          }
+          if (!rationale_grounded) {
+            append_unique(report.unsupported_interventions,
+                          rule.id + ": rationale does not cite declared evidence or hypothesis");
+            accepted = false;
+          }
+        }
+        decision.accepted = accepted;
+      }
+      report.interventions.push_back(std::move(decision));
+    }
+    if (event.claims_mastery && !objectives_covered_now()) {
+      false_mastery = true;
+    }
+  }
+
+  std::size_t covered_objectives = 0u;
+  for (const LearningObjectiveDocument &objective : lesson.objectives) {
+    const bool covered =
+        std::all_of(objective.evidence_ids.begin(), objective.evidence_ids.end(),
+                    [&](const std::string &evidence) {
+                      return observed_evidence.contains(evidence);
+                    });
+    if (covered) {
+      ++covered_objectives;
+    } else {
+      append_unique(report.missing_objectives, objective.id);
+      for (const std::string &evidence : objective.evidence_ids) {
+        if (!observed_evidence.contains(evidence)) {
+          append_unique(report.missing_evidence, evidence);
+        }
+      }
+    }
+  }
+  report.objective_coverage = lesson.objectives.empty()
+                                  ? 0.0f
+                                  : static_cast<float>(covered_objectives) /
+                                        static_cast<float>(lesson.objectives.size());
+
+  std::size_t covered_stages = 0u;
+  for (const std::string &stage : lesson.workflow_stages) {
+    if (observed_stages.contains(stage)) {
+      ++covered_stages;
+    } else {
+      append_unique(report.missing_workflow_stages, stage);
+    }
+  }
+  report.workflow_coverage = lesson.workflow_stages.empty()
+                                 ? 0.0f
+                                 : static_cast<float>(covered_stages) /
+                                       static_cast<float>(lesson.workflow_stages.size());
+
+  if (false_mastery) {
+    append_unique(report.safety_failures,
+                  "trace claimed mastery before all lesson objectives were evidenced");
+  }
+  for (const PedagogicalSafetyCheckDocument &check : lesson.safety_checks) {
+    for (const std::string &evidence : check.required_evidence_ids) {
+      if (!observed_evidence.contains(evidence)) {
+        append_unique(report.safety_failures,
+                      check.id + ": missing safety evidence '" + evidence + "'");
+      }
+    }
+  }
+
+  report.passed = report.diagnostics.empty() && report.missing_objectives.empty() &&
+                  report.missing_workflow_stages.empty() && report.missing_evidence.empty() &&
+                  report.unsupported_interventions.empty() && report.safety_failures.empty();
+  return report;
+}
+
+std::string summarizeLearningProofFailures(const LearningProofReport &report) {
+  if (report.passed) {
+    return "learning proof passed";
+  }
+  std::ostringstream out;
+  out << "learning proof failed";
+  const auto append_list = [&](const char *label, const std::vector<std::string> &values) {
+    if (values.empty()) {
+      return;
+    }
+    out << "\n- " << label << ": ";
+    for (std::size_t i = 0u; i < values.size(); ++i) {
+      if (i > 0u) {
+        out << ", ";
+      }
+      out << values[i];
+    }
+  };
+  append_list("missing objectives", report.missing_objectives);
+  append_list("missing workflow stages", report.missing_workflow_stages);
+  append_list("missing evidence", report.missing_evidence);
+  append_list("unsupported interventions", report.unsupported_interventions);
+  append_list("safety failures", report.safety_failures);
+  if (!report.diagnostics.empty()) {
+    out << "\n- diagnostics: " << report.diagnostics.size();
+  }
+  return out.str();
 }
 
 std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,

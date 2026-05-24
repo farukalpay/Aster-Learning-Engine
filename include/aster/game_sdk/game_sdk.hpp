@@ -87,6 +87,7 @@ enum class AssetKind {
   Mesh,
   Texture,
   AssetGraph,
+  Lesson,
 };
 
 struct ProjectAssetRef {
@@ -644,6 +645,118 @@ struct InputMapDocument {
   std::vector<InputBindingDocument> bindings;
 };
 
+struct LearningEvidenceRefDocument {
+  std::string id;
+  std::string kind;
+  AssetId asset;
+  std::string source;
+  std::vector<std::string> required_events;
+  std::vector<std::string> required_channels;
+};
+
+struct LearningObjectiveDocument {
+  std::string id;
+  std::string description;
+  std::vector<std::string> evidence_ids;
+  float mastery_threshold = 1.0f;
+};
+
+struct LearningMisconceptionDocument {
+  std::string id;
+  std::string description;
+  std::vector<std::string> trigger_events;
+  std::vector<std::string> remediation_scaffold_ids;
+};
+
+struct LearnerStateHypothesisDocument {
+  std::string id;
+  std::string description;
+  std::vector<std::string> evidence_ids;
+  std::vector<std::string> misconception_ids;
+  float confidence = 0.0f;
+};
+
+struct LearningScaffoldRuleDocument {
+  std::string id;
+  std::string stage;
+  std::string intent;
+  std::string intervention;
+  std::vector<std::string> evidence_ids;
+  std::vector<std::string> hypothesis_ids;
+  std::vector<std::string> misconception_ids;
+  bool force_gameplay_change = false;
+};
+
+struct PedagogicalSafetyCheckDocument {
+  std::string id;
+  std::string kind;
+  std::vector<std::string> required_evidence_ids;
+  std::string message;
+};
+
+struct LessonDocument {
+  std::uint32_t schema_version = 0u;
+  AssetId id;
+  std::string name;
+  std::vector<std::string> workflow_stages;
+  std::vector<LearningObjectiveDocument> objectives;
+  std::vector<LearningEvidenceRefDocument> evidence_refs;
+  std::vector<LearningMisconceptionDocument> misconceptions;
+  std::vector<LearnerStateHypothesisDocument> learner_state_hypotheses;
+  std::vector<LearningScaffoldRuleDocument> scaffold_rules;
+  std::vector<PedagogicalSafetyCheckDocument> safety_checks;
+};
+
+struct LearningTraceEvent {
+  std::string id;
+  std::string stage;
+  std::string event;
+  std::string evidence_id;
+  std::string objective_id;
+  std::string hypothesis_id;
+  std::string scaffold_id;
+  std::string misconception_id;
+  std::map<std::string, std::string> metadata;
+  std::uint64_t timestamp = 0u;
+  bool claims_mastery = false;
+};
+
+struct LearningTraceDocument {
+  std::uint32_t schema_version = 0u;
+  std::string id;
+  AssetId lesson;
+  std::vector<LearningTraceEvent> events;
+};
+
+struct LearningInterventionDecision {
+  std::string id;
+  std::string stage;
+  std::string scaffold_id;
+  std::string hypothesis_id;
+  std::string misconception_id;
+  std::vector<std::string> evidence_ids;
+  std::string rationale;
+  bool accepted = false;
+};
+
+struct LearningProofReport {
+  bool passed = false;
+  float objective_coverage = 0.0f;
+  float workflow_coverage = 0.0f;
+  std::vector<std::string> missing_objectives;
+  std::vector<std::string> missing_workflow_stages;
+  std::vector<std::string> missing_evidence;
+  std::vector<std::string> unsupported_interventions;
+  std::vector<std::string> safety_failures;
+  std::vector<LearningInterventionDecision> interventions;
+  std::vector<Diagnostic> diagnostics;
+  std::uint64_t contract_stamp = 0u;
+
+  [[nodiscard]] bool ok() const {
+    return passed;
+  }
+};
+
 struct EntityInstance {
   EntityDefinition definition;
   AssetId source_asset;
@@ -735,6 +848,10 @@ parseMaterialDocument(std::string_view source, std::filesystem::path source_path
 parseActionGraphDocument(std::string_view source, std::filesystem::path source_path = {});
 [[nodiscard]] LoadResult<InputMapDocument>
 parseInputMapDocument(std::string_view source, std::filesystem::path source_path = {});
+[[nodiscard]] LoadResult<LessonDocument> parseLessonDocument(std::string_view source,
+                                                             std::filesystem::path source_path = {});
+[[nodiscard]] LoadResult<LearningTraceDocument>
+parseLearningTraceDocument(std::string_view source, std::filesystem::path source_path = {});
 [[nodiscard]] LoadResult<CaveWorldGateReportDocument>
 parseCaveWorldGateReportDocument(std::string_view source,
                                  std::filesystem::path source_path = {});
@@ -748,16 +865,28 @@ parseCaveWorldGateReportDocument(std::string_view source,
 [[nodiscard]] LoadResult<ActionGraphDocument>
 loadActionGraphDocument(const std::filesystem::path &path);
 [[nodiscard]] LoadResult<InputMapDocument> loadInputMapDocument(const std::filesystem::path &path);
+[[nodiscard]] LoadResult<LessonDocument> loadLessonDocument(const std::filesystem::path &path);
+[[nodiscard]] LoadResult<LearningTraceDocument>
+loadLearningTraceDocument(const std::filesystem::path &path);
 [[nodiscard]] LoadResult<CaveWorldGateReportDocument>
 loadCaveWorldGateReportDocument(const std::filesystem::path &path);
 
 [[nodiscard]] std::uint64_t actionGraphContractStamp(const ActionGraphDocument &graph);
 [[nodiscard]] std::uint64_t inputMapContractStamp(const InputMapDocument &input_map);
+[[nodiscard]] std::uint64_t lessonContractStamp(const LessonDocument &lesson);
+[[nodiscard]] std::uint64_t learningTraceContractStamp(const LearningTraceDocument &trace);
 
 [[nodiscard]] std::vector<Diagnostic>
 validateCaveDocument(const CaveDocument &cave, const ProjectDocument *project = nullptr,
                      const SceneDocument *scene = nullptr,
                      std::filesystem::path source_path = {});
+[[nodiscard]] std::vector<Diagnostic>
+validateLessonDocument(const LessonDocument &lesson, const ProjectDocument *project = nullptr,
+                       std::filesystem::path source_path = {});
+[[nodiscard]] LearningProofReport evaluateLearningTrace(const LessonDocument &lesson,
+                                                        const LearningTraceDocument &trace,
+                                                        std::filesystem::path source_path = {});
+[[nodiscard]] std::string summarizeLearningProofFailures(const LearningProofReport &report);
 
 } // namespace aster::sdk
 

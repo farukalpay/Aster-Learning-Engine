@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "id": "lesson.lumen_mining",
+  "name": "Lumen Mining Loop",
+  "workflow_stages": ["diagnose", "design", "teach", "evaluate"],
+  "objectives": [
+    {
+      "id": "objective.pickup_tool",
+      "description": "Learner can connect pickup feedback to the pickaxe as the mining tool.",
+      "evidence": ["evidence.pickaxe_pickup"],
+      "mastery_threshold": 1.0
+    },
+    {
+      "id": "objective.use_torch",
+      "description": "Learner can use the torch as an environmental reading tool, not only an inventory item.",
+      "evidence": ["evidence.torch_use"],
+      "mastery_threshold": 1.0
+    },
+    {
+      "id": "objective.identify_ore",
+      "description": "Learner can identify coal ore as an interactable mineable resource.",
+      "evidence": ["evidence.ore_identified"],
+      "mastery_threshold": 1.0
+    },
+    {
+      "id": "objective.mine_ore",
+      "description": "Learner can perform a supported mining action on the ore.",
+      "evidence": ["evidence.mine_attempt"],
+      "mastery_threshold": 1.0
+    },
+    {
+      "id": "objective.read_feedback",
+      "description": "Learner can read resource-state and UI feedback after a mining hit.",
+      "evidence": ["evidence.feedback_read"],
+      "mastery_threshold": 1.0
+    }
+  ],
+  "evidence_refs": [
+    {
+      "id": "evidence.pickaxe_pickup",
+      "kind": "action_graph",
+      "asset": "action.item.pickup",
+      "source": "projects/lumen_run/actions/item_pickup.action_graph",
+      "required_events": ["inventory_transfer"],
+      "required_channels": ["interaction.pickup"]
+    },
+    {
+      "id": "evidence.torch_use",
+      "kind": "action_graph",
+      "asset": "action.item.use_torch",
+      "source": "projects/lumen_run/actions/use_torch.action_graph",
+      "required_events": ["item_use"],
+      "required_channels": ["item.light", "lighting_atmosphere"]
+    },
+    {
+      "id": "evidence.ore_identified",
+      "kind": "scene_entity",
+      "asset": "scene.cave_entry",
+      "source": "projects/lumen_run/scenes/cave_entry.scene#coal_ore_entry",
+      "required_events": ["focus_resource_target"],
+      "required_channels": ["interaction.mineable", "resource.coal", "gameplay_affordance"]
+    },
+    {
+      "id": "evidence.mine_attempt",
+      "kind": "action_graph",
+      "asset": "action.mine.coal_ore",
+      "source": "projects/lumen_run/actions/mine_coal_ore.action_graph",
+      "required_events": ["mining_attempt", "surface_hit", "crack"],
+      "required_channels": ["material_memory", "event_residue", "resource_state", "ui_feedback"]
+    },
+    {
+      "id": "evidence.feedback_read",
+      "kind": "reaction_contract",
+      "asset": "action.mine.coal_ore",
+      "source": "projects/lumen_run/actions/mine_coal_ore.action_graph#coal_mining_reaction",
+      "required_events": ["carve_resource_state_write", "ui_feedback"],
+      "required_channels": ["resource_state", "sensory_feedback", "ui_feedback"]
+    }
+  ],
+  "misconceptions": [
+    {
+      "id": "mine_without_tool",
+      "description": "Learner treats mining as an unconditioned interaction and ignores tool preconditions.",
+      "trigger_events": ["mining_attempt_without_tool"],
+      "remediation_scaffolds": ["scaffold.pickaxe_prompt"]
+    },
+    {
+      "id": "torch_as_inventory_only",
+      "description": "Learner treats torch use as inventory management instead of environment reading.",
+      "trigger_events": ["torch_equipped_no_scan"],
+      "remediation_scaffolds": ["scaffold.torch_prompt"]
+    },
+    {
+      "id": "ore_as_static_prop",
+      "description": "Learner reads ore as scenery because the affordance signal is missed.",
+      "trigger_events": ["focus_passes_ore"],
+      "remediation_scaffolds": ["scaffold.ore_affordance_prompt"]
+    },
+    {
+      "id": "ignores_feedback_after_hit",
+      "description": "Learner repeats mining without reading resource-state or UI feedback.",
+      "trigger_events": ["repeat_hit_no_feedback_read"],
+      "remediation_scaffolds": ["scaffold.feedback_prompt"]
+    }
+  ],
+  "learner_state_hypotheses": [
+    {
+      "id": "hypothesis.tool_affordance_gap",
+      "description": "Learner has not linked the pickaxe pickup to mining affordance.",
+      "evidence": ["evidence.mine_attempt"],
+      "misconceptions": ["mine_without_tool"],
+      "confidence": 0.72
+    },
+    {
+      "id": "hypothesis.torch_model_gap",
+      "description": "Learner uses the torch as an item but does not use light to inspect the cave wall.",
+      "evidence": ["evidence.torch_use"],
+      "misconceptions": ["torch_as_inventory_only"],
+      "confidence": 0.64
+    },
+    {
+      "id": "hypothesis.ore_affordance_gap",
+      "description": "Learner has not mapped coal ore visual/perceptual cues to a mineable target.",
+      "evidence": ["evidence.ore_identified"],
+      "misconceptions": ["ore_as_static_prop"],
+      "confidence": 0.68
+    },
+    {
+      "id": "hypothesis.feedback_loop_gap",
+      "description": "Learner does not connect hit feedback to resource state change.",
+      "evidence": ["evidence.feedback_read"],
+      "misconceptions": ["ignores_feedback_after_hit"],
+      "confidence": 0.70
+    }
+  ],
+  "scaffold_rules": [
+    {
+      "id": "scaffold.pickaxe_prompt",
+      "stage": "design",
+      "intent": "tool-affordance-hint",
+      "intervention": "Prompt the learner to connect the failed mining attempt with the pickaxe pickup route.",
+      "evidence": ["evidence.mine_attempt"],
+      "hypotheses": ["hypothesis.tool_affordance_gap"],
+      "misconceptions": ["mine_without_tool"],
+      "force_gameplay_change": false
+    },
+    {
+      "id": "scaffold.torch_prompt",
+      "stage": "design",
+      "intent": "environment-reading-hint",
+      "intervention": "Prompt the learner to use torch light to inspect the cave wall before mining.",
+      "evidence": ["evidence.torch_use"],
+      "hypotheses": ["hypothesis.torch_model_gap"],
+      "misconceptions": ["torch_as_inventory_only"],
+      "force_gameplay_change": false
+    },
+    {
+      "id": "scaffold.ore_affordance_prompt",
+      "stage": "design",
+      "intent": "affordance-cue-hint",
+      "intervention": "Prompt the learner to compare coal ore focus feedback with static cave rock.",
+      "evidence": ["evidence.ore_identified"],
+      "hypotheses": ["hypothesis.ore_affordance_gap"],
+      "misconceptions": ["ore_as_static_prop"],
+      "force_gameplay_change": false
+    },
+    {
+      "id": "scaffold.feedback_prompt",
+      "stage": "design",
+      "intent": "feedback-reading-hint",
+      "intervention": "Prompt the learner to read the resource-state and UI feedback after the hit.",
+      "evidence": ["evidence.feedback_read"],
+      "hypotheses": ["hypothesis.feedback_loop_gap"],
+      "misconceptions": ["ignores_feedback_after_hit"],
+      "force_gameplay_change": false
+    }
+  ],
+  "safety_checks": [
+    {
+      "id": "safety.no_false_mastery",
+      "kind": "false_mastery",
+      "required_evidence": [
+        "evidence.pickaxe_pickup",
+        "evidence.torch_use",
+        "evidence.ore_identified",
+        "evidence.mine_attempt",
+        "evidence.feedback_read"
+      ],
+      "message": "Do not mark the lesson mastered until every objective has trace evidence."
+    },
+    {
+      "id": "safety.evidence_grounded_intervention",
+      "kind": "evidence_grounding",
+      "required_evidence": ["evidence.mine_attempt"],
+      "message": "Interventions must cite declared trace evidence and learner-state hypotheses."
+    },
+    {
+      "id": "safety.no_gameplay_forcing",
+      "kind": "no_forced_gameplay_change",
+      "required_evidence": [],
+      "message": "The lesson may scaffold reading and decisions but must not force gameplay state changes."
+    }
+  ]
+}

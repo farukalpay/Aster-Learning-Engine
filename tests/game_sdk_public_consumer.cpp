@@ -35,6 +35,7 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(findAsset(project.value, "scene.cave_entry") != nullptr);
   assert(findAsset(project.value, "prefab.supply_chest") != nullptr);
   assert(findAsset(project.value, "action.chest.open") != nullptr);
+  assert(findAsset(project.value, "lesson.lumen_mining") != nullptr);
 
   const auto scene = aster::sdk::loadSceneDocument(project_root / "scenes" / "cave_entry.scene");
   assert(scene.ok());
@@ -489,6 +490,115 @@ void testAgentAssetBriefReviewGate() {
   assert(aster::sdk::asterAgentAssetReviewStatusName(strong_review.status) == "passed");
 }
 
+void testLearningLessonContract() {
+  const std::filesystem::path project_root = sourceRoot() / "projects" / "lumen_run";
+  const auto project = aster::sdk::loadProjectDocument(project_root / "lumen_run.asterproj");
+  assert(project.ok());
+  const auto lesson =
+      aster::sdk::loadLessonDocument(project_root / "lessons" / "lumen_mining.lesson");
+  assert(lesson.ok());
+  assert(lesson.value.id == "lesson.lumen_mining");
+  assert(lesson.value.workflow_stages.size() == 4u);
+  assert(lesson.value.objectives.size() == 5u);
+  assert(lesson.value.evidence_refs.size() == 5u);
+  assert(lesson.value.misconceptions.size() == 4u);
+  assert(lesson.value.scaffold_rules.size() == 4u);
+  assert(lesson.value.safety_checks.size() == 3u);
+  assert(aster::sdk::lessonContractStamp(lesson.value) != 0u);
+  const std::vector<aster::sdk::Diagnostic> diagnostics =
+      aster::sdk::validateLessonDocument(lesson.value, &project.value,
+                                         project_root / "lessons" / "lumen_mining.lesson");
+  assert(diagnostics.empty());
+
+  const auto trace = aster::sdk::parseLearningTraceDocument(R"json({
+    "schema_version": 1,
+    "id": "trace.lumen_mining.good",
+    "lesson": "lesson.lumen_mining",
+    "events": [
+      {
+        "id": "t1",
+        "timestamp": 1,
+        "stage": "diagnose",
+        "event": "mining_attempt_without_tool",
+        "evidence_id": "evidence.mine_attempt",
+        "hypothesis_id": "hypothesis.tool_affordance_gap",
+        "misconception_id": "mine_without_tool"
+      },
+      {
+        "id": "t2",
+        "timestamp": 2,
+        "stage": "design",
+        "event": "select_scaffold",
+        "scaffold_id": "scaffold.pickaxe_prompt",
+        "metadata": {
+          "rationale": "evidence.mine_attempt supports hypothesis.tool_affordance_gap"
+        }
+      },
+      {
+        "id": "t3",
+        "timestamp": 3,
+        "stage": "teach",
+        "event": "inventory_transfer",
+        "evidence_id": "evidence.pickaxe_pickup",
+        "objective_id": "objective.pickup_tool"
+      },
+      {
+        "id": "t4",
+        "timestamp": 4,
+        "stage": "teach",
+        "event": "item_use",
+        "evidence_id": "evidence.torch_use",
+        "objective_id": "objective.use_torch"
+      },
+      {
+        "id": "t5",
+        "timestamp": 5,
+        "stage": "teach",
+        "event": "focus_resource_target",
+        "evidence_id": "evidence.ore_identified",
+        "objective_id": "objective.identify_ore"
+      },
+      {
+        "id": "t6",
+        "timestamp": 6,
+        "stage": "teach",
+        "event": "mining_attempt",
+        "evidence_id": "evidence.mine_attempt",
+        "objective_id": "objective.mine_ore"
+      },
+      {
+        "id": "t7",
+        "timestamp": 7,
+        "stage": "evaluate",
+        "event": "ui_feedback",
+        "evidence_id": "evidence.feedback_read",
+        "objective_id": "objective.read_feedback",
+        "claims_mastery": true
+      }
+    ]
+  })json");
+  assert(trace.ok());
+  assert(aster::sdk::learningTraceContractStamp(trace.value) != 0u);
+  const aster::sdk::LearningProofReport proof =
+      aster::sdk::evaluateLearningTrace(lesson.value, trace.value);
+  assert(proof.passed);
+  assert(proof.objective_coverage == 1.0f);
+  assert(proof.workflow_coverage == 1.0f);
+  assert(proof.interventions.size() == 1u);
+  assert(proof.interventions.front().accepted);
+  assert(aster::sdk::summarizeLearningProofFailures(proof) == "learning proof passed");
+
+  auto bad_trace = trace.value;
+  bad_trace.events[1].metadata["rationale"] = "generic encouragement";
+  const aster::sdk::LearningProofReport bad_proof =
+      aster::sdk::evaluateLearningTrace(lesson.value, bad_trace);
+  assert(!bad_proof.passed);
+  assert(!bad_proof.unsupported_interventions.empty());
+  assert(aster::sdk::summarizeLearningProofFailures(bad_proof).find(
+             "unsupported interventions") != std::string::npos);
+  assert(aster::sdk::parseAssetKind("lesson") == aster::sdk::AssetKind::Lesson);
+}
+
 void testCaveWorldGateReportDocumentParse() {
   const auto report = aster::sdk::parseCaveWorldGateReportDocument(R"json({
     "schema_version": 1,
@@ -567,6 +677,7 @@ int main() {
   testAgentWorkspacePlanning();
   testAgentRunbookInstructionsAndCommandPolicy();
   testAgentAssetBriefReviewGate();
+  testLearningLessonContract();
   testCaveWorldGateReportDocumentParse();
   std::cout << "game_sdk_public_consumer passed.\n";
   return 0;

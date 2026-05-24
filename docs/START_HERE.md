@@ -28,7 +28,10 @@ surfaces.
    [LUMEN_RUN_AS_SAMPLE.md](LUMEN_RUN_AS_SAMPLE.md). Treat Lumen Run, Material
    Lab, Pipe Lab, and Primate Lab as showcase/regression content, not as the
    engine boundary.
-6. Read proof-heavy and research surfaces last:
+6. Inspect the learning contract:
+   run `cargo run -p aster_assetc --bin aster_assetc -- learning-proof-run --project projects/lumen_run/lumen_run.asterproj --lesson lesson.lumen_mining --trace projects/lumen_run/lessons/lumen_mining.trace.jsonl --output /tmp/aster_lumen_learning_proof --output-schema`,
+   then read [LEARNING_CONTRACT.md](LEARNING_CONTRACT.md).
+7. Read proof-heavy and research surfaces last:
    `FrameForensics`, `WorldForensics`, GraphicsCore7, perception-ledger,
    belief/perceptual ABI, and world-continuity docs explain diagnostics and
    experiments after the first draw and public API boundaries are clear.
@@ -48,6 +51,8 @@ surfaces.
 - `tests/golden/render/*.ppm` are deterministic software-reference baselines.
 - `aster_materialc`, `aster_texturec`, and `aster_assetc` expose material,
   texture, bundle, project, and generated-region checks separately.
+- `lesson-inspect` and `learning-proof-run` expose objective, learner-state,
+  scaffold, intervention, safety, and workflow proof for learning content.
 - For agent-led content work, read [AGENT_AUTHORING.md](AGENT_AUTHORING.md) and
   generate an `aster_assetc agent-plan` report before editing broad project
   content.

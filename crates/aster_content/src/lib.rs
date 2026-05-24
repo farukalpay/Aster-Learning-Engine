@@ -6041,6 +6041,57 @@ pub fn cook_asset(
                 Err(error) => record.diagnostics.push(cook_error(error.to_string())),
             }
         }
+        "lesson" => match serde_json::from_slice::<Value>(&source_bytes) {
+            Ok(root) => {
+                record.options_hash = hash_hex_text(&format!("lesson-contract:{}:{}", 1, platform));
+                let report_path = output_root
+                    .join("reports")
+                    .join(format!("{}.lesson.report.json", safe_stem(id, source)));
+                let report = serde_json::json!({
+                    "schema_version": 1,
+                    "kind": "lesson",
+                    "id": id,
+                    "guid": record.guid.clone(),
+                    "source_path": source_rel,
+                    "source_hash": record.source_hash,
+                    "workflow_stages": root
+                        .get("workflow_stages")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([])),
+                    "objective_count": root
+                        .get("objectives")
+                        .and_then(Value::as_array)
+                        .map_or(0, Vec::len),
+                    "evidence_count": root
+                        .get("evidence_refs")
+                        .and_then(Value::as_array)
+                        .map_or(0, Vec::len),
+                    "scaffold_count": root
+                        .get("scaffold_rules")
+                        .and_then(Value::as_array)
+                        .map_or(0, Vec::len),
+                    "safety_check_count": root
+                        .get("safety_checks")
+                        .and_then(Value::as_array)
+                        .map_or(0, Vec::len),
+                    "diagnostics": record.diagnostics,
+                });
+                write_json(&report_path, &report)?;
+                push_output(
+                    &mut record,
+                    AssetCookedOutput {
+                        role: "lesson-report".to_string(),
+                        kind: "json".to_string(),
+                        path: relative_path_string(&report_path, output_root),
+                        hash: hash_file_hex(&report_path)?,
+                    },
+                    false,
+                );
+            }
+            Err(error) => record
+                .diagnostics
+                .push(cook_error(format!("lesson contract parse failed: {error}"))),
+        },
         _ => record.diagnostics.push(cook_warning(format!(
             "Asset v2 cook does not transform kind '{}' from '{}'",
             declared_kind,

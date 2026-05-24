@@ -837,6 +837,8 @@ std::string_view asterAgentDomainName(const AsterAgentDomain domain) {
     return "rendering";
   case AsterAgentDomain::Ui:
     return "ui";
+  case AsterAgentDomain::Learning:
+    return "learning";
   case AsterAgentDomain::Build:
     return "build";
   case AsterAgentDomain::Tests:
@@ -879,6 +881,9 @@ AsterAgentDomain parseAsterAgentDomain(const std::string_view value) {
   }
   if (normalized == "ui") {
     return AsterAgentDomain::Ui;
+  }
+  if (normalized == "learning" || normalized == "lesson") {
+    return AsterAgentDomain::Learning;
   }
   if (normalized == "build") {
     return AsterAgentDomain::Build;
@@ -978,6 +983,8 @@ std::vector<AsterAgentDomain> asterAgentDomainsForAssetKind(const AssetKind kind
     return {AsterAgentDomain::Systems, AsterAgentDomain::Ui};
   case AssetKind::Ui:
     return {AsterAgentDomain::Ui};
+  case AssetKind::Lesson:
+    return {AsterAgentDomain::Learning, AsterAgentDomain::Systems};
   case AssetKind::Unknown:
     return {AsterAgentDomain::Unknown};
   }
@@ -1215,6 +1222,22 @@ AsterAgentTaskBoard planAsterAgentAuthoringBatches(
     (void)board.addBatch(std::move(systems));
   }
 
+  AsterAgentBatch learning;
+  learning.id = "batch.learning_contracts";
+  learning.title = "Bind learning contracts";
+  learning.policy = AsterAgentBatchPolicy::ReviewGate;
+  if (hasAssetKind(project, {AssetKind::Lesson})) {
+    learning.tasks.push_back(makeTask(
+        "agent.learning_proof_contracts", "Learning proof contracts",
+        "Tie lesson objectives, learner-state hypotheses, scaffolds, and evidence to project proof.",
+        {AsterAgentDomain::Learning, AsterAgentDomain::Systems},
+        {"agent.normalize_authoring_surface"}, assetPathsFor(project, {AssetKind::Lesson}),
+        AsterAgentTaskStatus::Planned, 55, 3u));
+  }
+  if (!learning.tasks.empty()) {
+    (void)board.addBatch(std::move(learning));
+  }
+
   AsterAgentBatch proof;
   proof.id = "batch.proof";
   proof.title = "Cook, test, and hand off";
@@ -1232,6 +1255,9 @@ AsterAgentTaskBoard planAsterAgentAuthoringBatches(
   }
   if (board.task("agent.gameplay_loop_contracts") != nullptr) {
     proof_deps.push_back("agent.gameplay_loop_contracts");
+  }
+  if (board.task("agent.learning_proof_contracts") != nullptr) {
+    proof_deps.push_back("agent.learning_proof_contracts");
   }
   proof.tasks.push_back(makeTask(
       "agent.validation_handoff", "Validation and handoff",

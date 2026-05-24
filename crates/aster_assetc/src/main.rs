@@ -132,6 +132,8 @@ fn usage() -> &'static str {
   aster_assetc agent-review --plan <file> --repo <path> [--json|--markdown] [--output <file>]
   aster_assetc asset-brief --project <file.asterproj> --asset <id> --reference <image> [--target <text>] [--require <signal>] [--forbid <signal>] [--output-schema]
   aster_assetc asset-proof-run --project <file.asterproj> --asset <id> --reference <image> --preview-artifact <image> --output <dir> [--target <text>] [--require <signal>] [--forbid <signal>] [--output-schema]
+  aster_assetc lesson-inspect --project <file.asterproj> --lesson <id> [--output-schema]
+  aster_assetc learning-proof-run --project <file.asterproj> --lesson <id> --trace <trace.jsonl> --output <dir> [--output-schema]
   aster_assetc graph --db <assetdb.asterdb.json>
   aster_assetc fate --db <assetdb.asterdb.json> --asset <id-or-guid>
   aster_assetc diff --before <old.assetdb.asterdb.json> --after <new.assetdb.asterdb.json>
@@ -1052,6 +1054,683 @@ fn asset_proof_run_command(args: &[String]) -> Result<(), String> {
     }
 }
 
+fn json_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str)
+}
+
+fn string_vec_field(value: &Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn lesson_inspect_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Aster Learning Lesson Inspect",
+        "type": "object",
+        "required": [
+            "schema_version",
+            "kind",
+            "status",
+            "project",
+            "lesson",
+            "workflow_stages",
+            "objectives",
+            "evidence_refs",
+            "scaffold_rules",
+            "safety_checks",
+            "diagnostics"
+        ],
+        "properties": {
+            "schema_version": { "const": 1 },
+            "kind": { "const": "aster_learning_lesson_inspect" },
+            "status": { "enum": ["passed", "failed"] },
+            "project": { "type": "object" },
+            "lesson": { "type": "object" },
+            "workflow_stages": { "type": "array" },
+            "objectives": { "type": "array" },
+            "evidence_refs": { "type": "array" },
+            "scaffold_rules": { "type": "array" },
+            "safety_checks": { "type": "array" },
+            "diagnostics": { "type": "array" }
+        }
+    })
+}
+
+fn learning_proof_output_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Aster Learning Proof Run",
+        "type": "object",
+        "required": [
+            "schema_version",
+            "kind",
+            "status",
+            "passed",
+            "lesson",
+            "bundle",
+            "objective_coverage",
+            "workflow_coverage",
+            "interventions",
+            "safety",
+            "diagnostics"
+        ],
+        "properties": {
+            "schema_version": { "const": 1 },
+            "kind": { "const": "aster_learning_proof_run" },
+            "status": { "enum": ["passed", "failed"] },
+            "passed": { "type": "boolean" },
+            "lesson": { "type": "object" },
+            "bundle": { "type": "object" },
+            "objective_coverage": { "type": "number", "minimum": 0, "maximum": 1 },
+            "workflow_coverage": { "type": "number", "minimum": 0, "maximum": 1 },
+            "interventions": { "type": "array" },
+            "safety": { "type": "object" },
+            "diagnostics": { "type": "array" }
+        }
+    })
+}
+
+fn project_lesson_asset(project: &Value, lesson_id: &str) -> Option<Value> {
+    project
+        .get("assets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|asset| json_str(asset, "id") == Some(lesson_id))
+        .cloned()
+}
+
+fn lesson_diagnostics(project: &Value, lesson: &Value) -> Vec<Value> {
+    let mut diagnostics = Vec::new();
+    if json_str(lesson, "id").unwrap_or_default().is_empty() {
+        diagnostics.push(diagnostic("error", "$.id", "lesson id is required"));
+    }
+    if string_vec_field(lesson, "workflow_stages").is_empty() {
+        diagnostics.push(diagnostic(
+            "error",
+            "$.workflow_stages",
+            "lesson must declare workflow stages",
+        ));
+    }
+    let asset_ids = project
+        .get("assets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|asset| json_str(asset, "id").map(str::to_string))
+        .collect::<BTreeSet<_>>();
+    let objective_ids = signal_ids(lesson, "objectives")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let evidence_ids = signal_ids(lesson, "evidence_refs")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let hypothesis_ids = signal_ids(lesson, "learner_state_hypotheses")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let misconception_ids = signal_ids(lesson, "misconceptions")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let scaffold_ids = signal_ids(lesson, "scaffold_rules")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let workflow = string_vec_field(lesson, "workflow_stages")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    if objective_ids.is_empty() {
+        diagnostics.push(diagnostic(
+            "error",
+            "$.objectives",
+            "lesson must define objectives",
+        ));
+    }
+    if evidence_ids.is_empty() {
+        diagnostics.push(diagnostic(
+            "error",
+            "$.evidence_refs",
+            "lesson must define evidence references",
+        ));
+    }
+    for evidence in lesson
+        .get("evidence_refs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let id = json_str(evidence, "id").unwrap_or_default();
+        let asset = json_str(evidence, "asset").unwrap_or_default();
+        if asset.is_empty() {
+            diagnostics.push(diagnostic(
+                "error",
+                "$.evidence_refs",
+                format!("{id} does not bind to an asset"),
+            ));
+        } else if !asset_ids.contains(asset) {
+            diagnostics.push(diagnostic(
+                "error",
+                "$.evidence_refs",
+                format!("{id} references missing project asset {asset}"),
+            ));
+        }
+    }
+    for objective in lesson
+        .get("objectives")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let id = json_str(objective, "id").unwrap_or_default();
+        let evidence = string_vec_field(objective, "evidence");
+        if evidence.is_empty() {
+            diagnostics.push(diagnostic(
+                "error",
+                "$.objectives",
+                format!("{id} has no evidence"),
+            ));
+        }
+        for evidence_id in evidence {
+            if !evidence_ids.contains(&evidence_id) {
+                diagnostics.push(diagnostic(
+                    "error",
+                    "$.objectives",
+                    format!("{id} references missing evidence {evidence_id}"),
+                ));
+            }
+        }
+    }
+    for hypothesis in lesson
+        .get("learner_state_hypotheses")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let id = json_str(hypothesis, "id").unwrap_or_default();
+        for evidence_id in string_vec_field(hypothesis, "evidence") {
+            if !evidence_ids.contains(&evidence_id) {
+                diagnostics.push(diagnostic(
+                    "error",
+                    "$.learner_state_hypotheses",
+                    format!("{id} references missing evidence {evidence_id}"),
+                ));
+            }
+        }
+        for misconception_id in string_vec_field(hypothesis, "misconceptions") {
+            if !misconception_ids.contains(&misconception_id) {
+                diagnostics.push(diagnostic(
+                    "error",
+                    "$.learner_state_hypotheses",
+                    format!("{id} references missing misconception {misconception_id}"),
+                ));
+            }
+        }
+    }
+    for misconception in lesson
+        .get("misconceptions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let id = json_str(misconception, "id").unwrap_or_default();
+        for scaffold_id in string_vec_field(misconception, "remediation_scaffolds") {
+            if !scaffold_ids.contains(&scaffold_id) {
+                diagnostics.push(diagnostic(
+                    "error",
+                    "$.misconceptions",
+                    format!("{id} references missing scaffold {scaffold_id}"),
+                ));
+            }
+        }
+    }
+    for scaffold in lesson
+        .get("scaffold_rules")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let id = json_str(scaffold, "id").unwrap_or_default();
+        let stage = json_str(scaffold, "stage").unwrap_or_default();
+        if !workflow.contains(stage) {
+            diagnostics.push(diagnostic(
+                "error",
+                "$.scaffold_rules",
+                format!("{id} uses undeclared workflow stage {stage}"),
+            ));
+        }
+        if scaffold
+            .get("force_gameplay_change")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            diagnostics.push(diagnostic(
+                "error",
+                "$.scaffold_rules",
+                format!("{id} forces gameplay change"),
+            ));
+        }
+        for evidence_id in string_vec_field(scaffold, "evidence") {
+            if !evidence_ids.contains(&evidence_id) {
+                diagnostics.push(diagnostic(
+                    "error",
+                    "$.scaffold_rules",
+                    format!("{id} references missing evidence {evidence_id}"),
+                ));
+            }
+        }
+        for hypothesis_id in string_vec_field(scaffold, "hypotheses") {
+            if !hypothesis_ids.contains(&hypothesis_id) {
+                diagnostics.push(diagnostic(
+                    "error",
+                    "$.scaffold_rules",
+                    format!("{id} references missing hypothesis {hypothesis_id}"),
+                ));
+            }
+        }
+    }
+    diagnostics
+}
+
+fn lesson_inspect_report_value(
+    project_path: &Path,
+    lesson_id: &str,
+    include_schema: bool,
+) -> Result<Value, String> {
+    let project_bytes = fs::read(project_path).map_err(|error| error.to_string())?;
+    let project: Value =
+        serde_json::from_slice(&project_bytes).map_err(|error| error.to_string())?;
+    let asset = project_lesson_asset(&project, lesson_id)
+        .ok_or_else(|| format!("project does not contain lesson asset '{lesson_id}'"))?;
+    if json_str(&asset, "kind") != Some("lesson") {
+        return Err(format!("asset '{lesson_id}' is not kind=lesson"));
+    }
+    let project_root = project_path.parent().unwrap_or_else(|| Path::new("."));
+    let lesson_path = project_root.join(json_str(&asset, "path").unwrap_or_default());
+    let lesson_bytes = fs::read(&lesson_path).map_err(|error| error.to_string())?;
+    let lesson: Value = serde_json::from_slice(&lesson_bytes).map_err(|error| error.to_string())?;
+    let diagnostics = lesson_diagnostics(&project, &lesson);
+    let passed = diagnostics
+        .iter()
+        .all(|row| row.get("severity").and_then(Value::as_str) != Some("error"));
+    let mut report = json!({
+        "schema_version": 1,
+        "kind": "aster_learning_lesson_inspect",
+        "status": if passed { "passed" } else { "failed" },
+        "project": {
+            "path": normalize_path(project_path),
+            "name": json_str(&project, "name").unwrap_or("Aster Project")
+        },
+        "lesson": {
+            "id": json_str(&lesson, "id").unwrap_or(lesson_id),
+            "name": json_str(&lesson, "name").unwrap_or(""),
+            "path": normalize_path(&lesson_path)
+        },
+        "workflow_stages": lesson.get("workflow_stages").cloned().unwrap_or_else(|| json!([])),
+        "objectives": lesson.get("objectives").cloned().unwrap_or_else(|| json!([])),
+        "evidence_refs": lesson.get("evidence_refs").cloned().unwrap_or_else(|| json!([])),
+        "misconceptions": lesson.get("misconceptions").cloned().unwrap_or_else(|| json!([])),
+        "learner_state_hypotheses": lesson
+            .get("learner_state_hypotheses")
+            .cloned()
+            .unwrap_or_else(|| json!([])),
+        "scaffold_rules": lesson.get("scaffold_rules").cloned().unwrap_or_else(|| json!([])),
+        "safety_checks": lesson.get("safety_checks").cloned().unwrap_or_else(|| json!([])),
+        "diagnostics": diagnostics,
+        "rules": [
+            "Objectives must be covered by declared evidence.",
+            "Scaffolds must cite declared evidence and learner-state hypotheses.",
+            "Learning proof must cover diagnose, design, teach, and evaluate stages.",
+            "Pedagogical safety rejects false mastery and gameplay-forcing scaffolds."
+        ]
+    });
+    if include_schema {
+        report["output_schema"] = lesson_inspect_output_schema();
+    }
+    Ok(report)
+}
+
+fn lesson_inspect_command(args: &[String]) -> Result<(), String> {
+    let project = value_after(args, "--project")
+        .map(PathBuf::from)
+        .ok_or_else(|| "lesson-inspect requires --project <file.asterproj>".to_string())?;
+    let lesson = value_after(args, "--lesson")
+        .ok_or_else(|| "lesson-inspect requires --lesson <id>".to_string())?;
+    let include_schema = args.iter().any(|arg| arg == "--output-schema");
+    let report = lesson_inspect_report_value(&project, &lesson, include_schema)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn read_learning_trace_jsonl(path: &Path) -> Result<Vec<Value>, String> {
+    let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let mut events = Vec::new();
+    for (line_index, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let value: Value = serde_json::from_str(trimmed)
+            .map_err(|error| format!("{}:{}: {error}", path.display(), line_index + 1))?;
+        events.push(value);
+    }
+    Ok(events)
+}
+
+fn trace_forest_report(events: &[Value], lesson: &Value) -> Value {
+    let observed_evidence = events
+        .iter()
+        .filter_map(|event| json_str(event, "evidence_id").map(str::to_string))
+        .collect::<BTreeSet<_>>();
+    let observed_hypotheses = events
+        .iter()
+        .filter_map(|event| json_str(event, "hypothesis_id").map(str::to_string))
+        .collect::<BTreeSet<_>>();
+    let observed_stages = events
+        .iter()
+        .filter_map(|event| json_str(event, "stage").map(str::to_string))
+        .collect::<BTreeSet<_>>();
+    let workflow = string_vec_field(lesson, "workflow_stages");
+    json!({
+        "schema_version": 1,
+        "kind": "aster_learning_trace_forest",
+        "event_count": events.len(),
+        "observed_evidence": observed_evidence.iter().cloned().collect::<Vec<_>>(),
+        "observed_hypotheses": observed_hypotheses.iter().cloned().collect::<Vec<_>>(),
+        "observed_stages": observed_stages.iter().cloned().collect::<Vec<_>>(),
+        "workflow_coverage": workflow
+            .iter()
+            .map(|stage| json!({
+                "stage": stage,
+                "observed": observed_stages.contains(stage)
+            }))
+            .collect::<Vec<_>>(),
+        "events": events
+    })
+}
+
+fn intervention_plan_report(events: &[Value], lesson: &Value) -> Value {
+    let mut decisions = Vec::new();
+    let scaffold_rules = lesson
+        .get("scaffold_rules")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|rule| json_str(rule, "id").map(|id| (id.to_string(), rule.clone())))
+        .collect::<BTreeMap<_, _>>();
+    let mut observed_evidence = BTreeSet::new();
+    let mut observed_hypotheses = BTreeSet::new();
+    for event in events {
+        if let Some(evidence) = json_str(event, "evidence_id") {
+            observed_evidence.insert(evidence.to_string());
+        }
+        if let Some(hypothesis) = json_str(event, "hypothesis_id") {
+            observed_hypotheses.insert(hypothesis.to_string());
+        }
+        let Some(scaffold_id) = json_str(event, "scaffold_id") else {
+            continue;
+        };
+        let mut accepted = true;
+        let mut diagnostics = Vec::new();
+        if let Some(rule) = scaffold_rules.get(scaffold_id) {
+            if json_str(rule, "stage") != json_str(event, "stage") {
+                accepted = false;
+                diagnostics.push("wrong workflow stage".to_string());
+            }
+            let rationale = event
+                .get("metadata")
+                .and_then(|metadata| metadata.get("rationale"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if rationale.is_empty() {
+                accepted = false;
+                diagnostics.push("missing rationale".to_string());
+            }
+            let mut rationale_grounded = false;
+            for evidence in string_vec_field(rule, "evidence") {
+                if !observed_evidence.contains(&evidence) {
+                    accepted = false;
+                    diagnostics.push(format!("evidence {evidence} was not observed"));
+                }
+                rationale_grounded = rationale_grounded || rationale.contains(&evidence);
+            }
+            for hypothesis in string_vec_field(rule, "hypotheses") {
+                if !observed_hypotheses.contains(&hypothesis) {
+                    accepted = false;
+                    diagnostics.push(format!("hypothesis {hypothesis} was not diagnosed"));
+                }
+                rationale_grounded = rationale_grounded || rationale.contains(&hypothesis);
+            }
+            if !rationale_grounded {
+                accepted = false;
+                diagnostics.push("rationale does not cite evidence or hypothesis".to_string());
+            }
+        } else {
+            accepted = false;
+            diagnostics.push("scaffold is not declared by the lesson".to_string());
+        }
+        decisions.push(json!({
+            "id": json_str(event, "id").unwrap_or("intervention"),
+            "scaffold_id": scaffold_id,
+            "stage": json_str(event, "stage").unwrap_or_default(),
+            "accepted": accepted,
+            "diagnostics": diagnostics
+        }));
+    }
+    json!({
+        "schema_version": 1,
+        "kind": "aster_learning_intervention_plan",
+        "decisions": decisions
+    })
+}
+
+fn learning_proof_run_command(args: &[String]) -> Result<(), String> {
+    let project = value_after(args, "--project")
+        .map(PathBuf::from)
+        .ok_or_else(|| "learning-proof-run requires --project <file.asterproj>".to_string())?;
+    let lesson_id = value_after(args, "--lesson")
+        .ok_or_else(|| "learning-proof-run requires --lesson <id>".to_string())?;
+    let trace = value_after(args, "--trace")
+        .map(PathBuf::from)
+        .ok_or_else(|| "learning-proof-run requires --trace <trace.jsonl>".to_string())?;
+    let output = value_after(args, "--output")
+        .map(PathBuf::from)
+        .ok_or_else(|| "learning-proof-run requires --output <dir>".to_string())?;
+    let include_schema = args.iter().any(|arg| arg == "--output-schema");
+    fs::create_dir_all(&output).map_err(|error| error.to_string())?;
+
+    let inspect_path = output.join("lesson-inspect.json");
+    let trace_path = output.join("trace-forest.json");
+    let intervention_path = output.join("intervention-plan.json");
+    let proof_path = output.join("learning-proof-run.json");
+
+    let inspect = lesson_inspect_report_value(&project, &lesson_id, true)?;
+    fs::write(
+        &inspect_path,
+        serde_json::to_string_pretty(&inspect).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let lesson_path = inspect
+        .get("lesson")
+        .and_then(|lesson| lesson.get("path"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| "lesson inspect did not return a lesson path".to_string())?;
+    let lesson_text = fs::read_to_string(lesson_path).map_err(|error| error.to_string())?;
+    let lesson: Value = serde_json::from_str(&lesson_text).map_err(|error| error.to_string())?;
+    let events = read_learning_trace_jsonl(&trace)?;
+    let trace_forest = trace_forest_report(&events, &lesson);
+    fs::write(
+        &trace_path,
+        serde_json::to_string_pretty(&trace_forest).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let intervention_plan = intervention_plan_report(&events, &lesson);
+    fs::write(
+        &intervention_path,
+        serde_json::to_string_pretty(&intervention_plan).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+
+    let observed_evidence = events
+        .iter()
+        .filter_map(|event| json_str(event, "evidence_id").map(str::to_string))
+        .collect::<BTreeSet<_>>();
+    let observed_stages = events
+        .iter()
+        .filter_map(|event| json_str(event, "stage").map(str::to_string))
+        .collect::<BTreeSet<_>>();
+    let mut diagnostics = inspect
+        .get("diagnostics")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut missing_objectives = Vec::new();
+    let objectives = lesson
+        .get("objectives")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    for objective in &objectives {
+        let covered = string_vec_field(objective, "evidence")
+            .into_iter()
+            .all(|evidence| observed_evidence.contains(&evidence));
+        if !covered {
+            let id = json_str(objective, "id").unwrap_or("objective");
+            missing_objectives.push(id.to_string());
+            diagnostics.push(diagnostic(
+                "error",
+                "$.objectives",
+                format!("objective is not covered by trace evidence: {id}"),
+            ));
+        }
+    }
+    let workflow = string_vec_field(&lesson, "workflow_stages");
+    let mut missing_stages = Vec::new();
+    for stage in &workflow {
+        if !observed_stages.contains(stage) {
+            missing_stages.push(stage.clone());
+            diagnostics.push(diagnostic(
+                "error",
+                "$.workflow_stages",
+                format!("workflow stage is missing from trace: {stage}"),
+            ));
+        }
+    }
+    let decisions = intervention_plan
+        .get("decisions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for decision in &decisions {
+        if !decision
+            .get("accepted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            diagnostics.push(diagnostic(
+                "error",
+                "$.interventions",
+                format!(
+                    "unsupported intervention: {}",
+                    json_str(decision, "scaffold_id").unwrap_or("unknown")
+                ),
+            ));
+        }
+    }
+    let mut safety_failures = Vec::new();
+    let mut observed_until_now = BTreeSet::new();
+    for event in &events {
+        if let Some(evidence) = json_str(event, "evidence_id") {
+            observed_until_now.insert(evidence.to_string());
+        }
+        if event
+            .get("claims_mastery")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            let all_covered = objectives.iter().all(|objective| {
+                string_vec_field(objective, "evidence")
+                    .into_iter()
+                    .all(|evidence| observed_until_now.contains(&evidence))
+            });
+            if !all_covered {
+                safety_failures.push("false mastery claim".to_string());
+            }
+        }
+    }
+    for failure in &safety_failures {
+        diagnostics.push(diagnostic("error", "$.safety", failure.as_str()));
+    }
+    let objective_coverage = if objectives.is_empty() {
+        0.0
+    } else {
+        (objectives.len() - missing_objectives.len()) as f64 / objectives.len() as f64
+    };
+    let workflow_coverage = if workflow.is_empty() {
+        0.0
+    } else {
+        (workflow.len() - missing_stages.len()) as f64 / workflow.len() as f64
+    };
+    let passed = diagnostics
+        .iter()
+        .all(|row| row.get("severity").and_then(Value::as_str) != Some("error"));
+    let mut report = json!({
+        "schema_version": 1,
+        "kind": "aster_learning_proof_run",
+        "status": if passed { "passed" } else { "failed" },
+        "passed": passed,
+        "lesson": {
+            "id": lesson_id,
+            "path": lesson_path
+        },
+        "bundle": {
+            "root": normalize_path(&output),
+            "lesson_inspect": normalize_path(&inspect_path),
+            "trace_forest": normalize_path(&trace_path),
+            "intervention_plan": normalize_path(&intervention_path),
+            "learning_proof_run": normalize_path(&proof_path)
+        },
+        "objective_coverage": objective_coverage,
+        "workflow_coverage": workflow_coverage,
+        "missing_objectives": missing_objectives,
+        "missing_workflow_stages": missing_stages,
+        "interventions": decisions,
+        "safety": {
+            "accepted": safety_failures.is_empty(),
+            "failures": safety_failures
+        },
+        "diagnostics": diagnostics,
+        "rules": [
+            "Passing requires objective coverage.",
+            "Passing requires diagnose, design, teach, and evaluate workflow evidence.",
+            "Interventions must cite declared evidence or learner-state hypotheses.",
+            "False mastery is rejected."
+        ]
+    });
+    if include_schema {
+        report["output_schema"] = learning_proof_output_schema();
+    }
+    let text = serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?;
+    fs::write(&proof_path, &text).map_err(|error| error.to_string())?;
+    println!("{text}");
+    if passed {
+        Ok(())
+    } else {
+        Err(format!(
+            "learning proof run failed; inspect {}",
+            proof_path.display()
+        ))
+    }
+}
+
 fn mesh_format_for_path(path: &Path) -> String {
     path.extension()
         .and_then(|extension| extension.to_str())
@@ -1221,6 +1900,8 @@ fn run() -> Result<(), String> {
         Some("agent-review") => agent_review_command(&args[2..]),
         Some("asset-brief") => asset_brief_command(&args[2..]),
         Some("asset-proof-run") => asset_proof_run_command(&args[2..]),
+        Some("lesson-inspect") => lesson_inspect_command(&args[2..]),
+        Some("learning-proof-run") => learning_proof_run_command(&args[2..]),
         Some("graph") => graph_command(&args[2..]),
         Some("fate") => fate_command(&args[2..]),
         Some("diff") => diff_command(&args[2..]),

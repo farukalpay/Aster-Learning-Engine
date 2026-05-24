@@ -44,6 +44,14 @@ fn pipe_lab_project() -> PathBuf {
     source_root().join("showcases/pipe_lab/pipe_lab.asterproj")
 }
 
+fn lumen_project() -> PathBuf {
+    source_root().join("projects/lumen_run/lumen_run.asterproj")
+}
+
+fn lumen_learning_trace() -> PathBuf {
+    source_root().join("projects/lumen_run/lessons/lumen_mining.trace.jsonl")
+}
+
 fn industrial_pipe_preview() -> PathBuf {
     source_root().join("assets/screenshots/industrial_pipe.png")
 }
@@ -904,6 +912,95 @@ fn asset_proof_run_reports_structured_failures() {
     assert!(broken_json.contains("strict cook reported"));
     fs::remove_dir_all(broken_project.parent().unwrap()).ok();
     fs::remove_dir_all(&broken_dir).ok();
+}
+
+#[test]
+fn lesson_inspect_reports_lumen_learning_contract() {
+    let binary = env!("CARGO_BIN_EXE_aster_assetc");
+    let inspect = Command::new(binary)
+        .arg("lesson-inspect")
+        .arg("--project")
+        .arg(lumen_project())
+        .arg("--lesson")
+        .arg("lesson.lumen_mining")
+        .arg("--output-schema")
+        .output()
+        .expect("run lesson inspect");
+    assert!(
+        inspect.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&inspect.stdout);
+    assert!(stdout.contains("\"kind\": \"aster_learning_lesson_inspect\""));
+    assert!(stdout.contains("\"status\": \"passed\""));
+    assert!(stdout.contains("hypothesis.tool_affordance_gap"));
+    assert!(stdout.contains("scaffold.pickaxe_prompt"));
+    assert!(stdout.contains("Aster Learning Lesson Inspect"));
+}
+
+#[test]
+fn learning_proof_run_writes_lumen_bundle_and_failures() {
+    let output_dir = fixture_dir();
+    let binary = env!("CARGO_BIN_EXE_aster_assetc");
+    let proof = Command::new(binary)
+        .arg("learning-proof-run")
+        .arg("--project")
+        .arg(lumen_project())
+        .arg("--lesson")
+        .arg("lesson.lumen_mining")
+        .arg("--trace")
+        .arg(lumen_learning_trace())
+        .arg("--output")
+        .arg(&output_dir)
+        .arg("--output-schema")
+        .output()
+        .expect("run learning proof");
+    assert!(
+        proof.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&proof.stdout),
+        String::from_utf8_lossy(&proof.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&proof.stdout);
+    assert!(stdout.contains("\"kind\": \"aster_learning_proof_run\""));
+    assert!(stdout.contains("\"status\": \"passed\""));
+    assert!(stdout.contains("\"objective_coverage\": 1.0"));
+    assert!(output_dir.join("lesson-inspect.json").exists());
+    assert!(output_dir.join("trace-forest.json").exists());
+    assert!(output_dir.join("intervention-plan.json").exists());
+    assert!(output_dir.join("learning-proof-run.json").exists());
+
+    let bad_trace = output_dir.join("bad.trace.jsonl");
+    fs::write(
+        &bad_trace,
+        r#"{"id":"t1","timestamp":1,"stage":"diagnose","event":"mining_attempt_without_tool","evidence_id":"evidence.mine_attempt","hypothesis_id":"hypothesis.tool_affordance_gap","misconception_id":"mine_without_tool"}
+{"id":"t2","timestamp":2,"stage":"design","event":"select_scaffold","scaffold_id":"scaffold.pickaxe_prompt","metadata":{"rationale":"generic encouragement"}}
+{"id":"t3","timestamp":3,"stage":"teach","event":"inventory_transfer","evidence_id":"evidence.pickaxe_pickup","objective_id":"objective.pickup_tool"}
+"#,
+    )
+    .expect("bad trace");
+    let bad_dir = fixture_dir();
+    let bad = Command::new(binary)
+        .arg("learning-proof-run")
+        .arg("--project")
+        .arg(lumen_project())
+        .arg("--lesson")
+        .arg("lesson.lumen_mining")
+        .arg("--trace")
+        .arg(&bad_trace)
+        .arg("--output")
+        .arg(&bad_dir)
+        .output()
+        .expect("run failing learning proof");
+    assert!(!bad.status.success());
+    let bad_json =
+        fs::read_to_string(bad_dir.join("learning-proof-run.json")).expect("bad proof json");
+    assert!(bad_json.contains("\"status\": \"failed\""));
+    assert!(bad_json.contains("unsupported intervention"));
+    assert!(bad_json.contains("objective is not covered"));
+    fs::remove_dir_all(&output_dir).ok();
+    fs::remove_dir_all(&bad_dir).ok();
 }
 
 #[test]

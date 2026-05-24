@@ -19,6 +19,7 @@ fn asset_domain(kind: &str) -> Vec<&'static str> {
         "material" | "texture" => vec!["material", "rendering"],
         "item" => vec!["item", "systems"],
         "action_graph" => vec!["action_graph", "systems"],
+        "lesson" => vec!["learning", "systems"],
         "input" | "input_map" => vec!["systems", "ui"],
         "ui" => vec!["ui"],
         _ => vec!["unknown"],
@@ -672,6 +673,19 @@ fn batch_rows(assets: &[Value]) -> Vec<Value> {
                 "status": "planned",
                 "depends_on": ["agent.scene_foundation"],
                 "brief": "Bind items, action graphs, input maps, and UI files to entity/component documents."
+            }]
+        }));
+    }
+
+    if has_domain(assets, "learning") {
+        batches.push(json!({
+            "id": "batch.learning_contracts",
+            "policy": "review_gate",
+            "tasks": [{
+                "id": "agent.learning_proof_contracts",
+                "status": "planned",
+                "depends_on": ["agent.normalize_authoring_surface"],
+                "brief": "Bind lesson objectives, learner-state hypotheses, scaffolds, and trace proof to project assets."
             }]
         }));
     }

@@ -1,0 +1,7 @@
+{"id":"t1","timestamp":1,"stage":"diagnose","event":"mining_attempt_without_tool","evidence_id":"evidence.mine_attempt","hypothesis_id":"hypothesis.tool_affordance_gap","misconception_id":"mine_without_tool"}
+{"id":"t2","timestamp":2,"stage":"design","event":"select_scaffold","scaffold_id":"scaffold.pickaxe_prompt","metadata":{"rationale":"evidence.mine_attempt supports hypothesis.tool_affordance_gap"}}
+{"id":"t3","timestamp":3,"stage":"teach","event":"inventory_transfer","evidence_id":"evidence.pickaxe_pickup","objective_id":"objective.pickup_tool"}
+{"id":"t4","timestamp":4,"stage":"teach","event":"item_use","evidence_id":"evidence.torch_use","objective_id":"objective.use_torch"}
+{"id":"t5","timestamp":5,"stage":"teach","event":"focus_resource_target","evidence_id":"evidence.ore_identified","objective_id":"objective.identify_ore"}
+{"id":"t6","timestamp":6,"stage":"teach","event":"mining_attempt","evidence_id":"evidence.mine_attempt","objective_id":"objective.mine_ore"}
+{"id":"t7","timestamp":7,"stage":"evaluate","event":"ui_feedback","evidence_id":"evidence.feedback_read","objective_id":"objective.read_feedback","claims_mastery":true}

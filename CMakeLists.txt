@@ -143,6 +143,10 @@ set(ASTER_GAME_SDK_SOURCES
   "${PROJECT_SOURCE_DIR}/src/game_sdk/game_sdk.cpp"
 )
 
+set(ASTER_LEARNING_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/learning/learning_runtime.cpp"
+)
+
 set(ASTER_CORE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/clock.cpp"
   "${PROJECT_SOURCE_DIR}/src/core/belief_extraction.cpp"
@@ -522,6 +526,7 @@ function(aster_add_engine_object_library target_name)
 endfunction()
 
 aster_add_engine_object_library(aster_core_objects ${ASTER_CORE_SOURCES})
+aster_add_engine_object_library(aster_learning_objects ${ASTER_LEARNING_SOURCES})
 aster_add_engine_object_library(aster_rhi_objects ${ASTER_RHI_SOURCES})
 aster_add_engine_object_library(aster_framegraph_objects ${ASTER_FRAMEGRAPH_SOURCES})
 aster_add_engine_object_library(aster_graphics_core7_objects ${ASTER_GRAPHICS_CORE7_SOURCES})
@@ -814,6 +819,22 @@ if(ASTER_BUILD_TESTS)
     ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
   )
   add_test(NAME aster_game_sdk_public_consumer COMMAND aster_game_sdk_public_consumer)
+
+  add_executable(aster_learning_runtime_tests tests/learning_runtime_tests.cpp)
+  target_link_libraries(aster_learning_runtime_tests PRIVATE aster_engine_internal)
+  target_include_directories(aster_learning_runtime_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  aster_configure_test_target(aster_learning_runtime_tests)
+  foreach(learning_runtime_case
+      good_lumen_trace
+      missing_tool_evidence
+      unsupported_scaffold_rationale
+      false_mastery_rejected
+      missing_workflow_evaluation
+  )
+    add_test(NAME aster_learning_runtime.${learning_runtime_case}
+             COMMAND aster_learning_runtime_tests ${learning_runtime_case})
+  endforeach()
+
   if(ASTER_BUILD_STUDIO)
     add_test(NAME aster_lumen_run_validate_cave
              COMMAND aster_lumen_run --validate-cave)

@@ -29,6 +29,7 @@
     { "id": "action.mine.cave_web", "kind": "action_graph", "path": "actions/mine_cave_web.action_graph", "guid": "c00088c451c3e82757bbe1869302a398696074282091947d98194ff477884e72" },
     { "id": "action.mine.cave_skitter", "kind": "action_graph", "path": "actions/mine_cave_skitter.action_graph", "guid": "0e8a986589bb2ca535bd7ccd1e8951fed5ccb731a0a5a252f3335424cee98489" },
     { "id": "input.lumen_run", "kind": "input", "path": "inputs/lumen_run.input", "guid": "e9fe1781df3d815225e3acf57ef203b935c6981768479cae061b209b37e4afd9" },
-    { "id": "ui.hud", "kind": "ui", "path": "ui/hud.ui", "guid": "c8c71b2adc145738cc628c09914c89831cdb1c6134492c117cf89f07f3e4eb8a" }
+    { "id": "ui.hud", "kind": "ui", "path": "ui/hud.ui", "guid": "c8c71b2adc145738cc628c09914c89831cdb1c6134492c117cf89f07f3e4eb8a" },
+    { "id": "lesson.lumen_mining", "kind": "lesson", "path": "lessons/lumen_mining.lesson", "guid": "d4aa9e6b9b12684f326b152f0c12fdd70f3f6e8d44e1c7ddcbe5efdbb7bd1511" }
   ]
 }

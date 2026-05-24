@@ -29,6 +29,7 @@ enum class AsterAgentDomain {
   Systems,
   Rendering,
   Ui,
+  Learning,
   Build,
   Tests,
 };

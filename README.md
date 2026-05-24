@@ -38,6 +38,8 @@ Start here: [docs/START_HERE.md](docs/START_HERE.md)
   a visible result needs explanation.
 - Use `aster_assetc asset-proof-run` when an agent-authored asset needs a
   proof bundle before it becomes runtime content.
+- Use `aster_assetc learning-proof-run` when Lumen learning content needs
+  objective, learner-state, scaffold, safety, and workflow proof.
 - Treat samples and labs as evidence and examples, not as the product boundary.
 
 ## Maturity Map
@@ -210,6 +212,7 @@ requirements.
 | --- | --- |
 | [docs/START_HERE.md](docs/START_HERE.md) | First reading path |
 | [docs/AGENTIC_ASSET_RUNTIME.md](docs/AGENTIC_ASSET_RUNTIME.md) | Agent-authored asset proof runs and Pipe Lab proof cartridge |
+| [docs/LEARNING_CONTRACT.md](docs/LEARNING_CONTRACT.md) | Code-backed lesson, trace, intervention, safety, and learning proof contract |
 | [docs/SIMPLE_API.md](docs/SIMPLE_API.md) | Draw-first API before renderer inspection |
 | [docs/WHAT_ASTER_IS.md](docs/WHAT_ASTER_IS.md) | Engine identity and non-goals |
 | [docs/PRODUCT_PATH.md](docs/PRODUCT_PATH.md) | Staged product roadmap, maturity boundaries, and gaps |
