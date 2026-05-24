@@ -1267,6 +1267,8 @@ AsterAuthoringAssetKind authoringAssetKind(const aster::sdk::AssetKind kind) {
     return ASTER_AUTHORING_ASSET_TEXTURE;
   case aster::sdk::AssetKind::AssetGraph:
     return ASTER_AUTHORING_ASSET_GRAPH;
+  case aster::sdk::AssetKind::Lesson:
+    return ASTER_AUTHORING_ASSET_UNKNOWN;
   case aster::sdk::AssetKind::Unknown:
     return ASTER_AUTHORING_ASSET_UNKNOWN;
   }
