@@ -427,10 +427,9 @@ TerrainSurfaceSample LumenRun::sampleCaveFloorSupport(const SurfaceSupportQuery 
   const Vec3 reference{query.world_position.x, query.reference_y, query.world_position.y};
   TerrainSurfaceSample best_floor{};
   float best_clearance = -std::numeric_limits<float>::infinity();
+  float best_distance_below = std::numeric_limits<float>::infinity();
+  bool best_is_below_reference = false;
   for (const CaveFloorSupportSurface &floor : cave_floor_supports_) {
-    SurfaceSupportQuery cave_query = query;
-    cave_query.max_above = std::max(cave_query.max_above, 4.20f);
-    cave_query.max_below = std::max(cave_query.max_below, 4.20f);
     TerrainSurfaceSample section_floor{};
     float section_clearance = -std::numeric_limits<float>::infinity();
     if (floor.manifold != nullptr) {
@@ -438,20 +437,20 @@ TerrainSurfaceSample LumenRun::sampleCaveFloorSupport(const SurfaceSupportQuery 
           *floor.manifold,
           {.position = reference,
            .actor_radius = tuning_.player_radius,
-           .max_above = cave_query.max_above,
-           .max_below = cave_query.max_below});
+           .max_above = query.max_above,
+           .max_below = query.max_below});
       if (support.valid && support.walkable) {
         section_floor = {true, support.height, support.up};
         section_clearance = support.lateral_clearance;
       }
     }
     if (!section_floor.valid && floor.floor_mesh != nullptr) {
-      section_floor = sampleMeshSupport(*floor.floor_mesh, {}, cave_query, floor.min_normal_y);
+      section_floor = sampleMeshSupport(*floor.floor_mesh, {}, query, floor.min_normal_y);
       section_clearance = 0.0f;
     }
     if (floor.portal_floor_mesh != nullptr) {
       const TerrainSurfaceSample portal =
-          sampleMeshSupport(*floor.portal_floor_mesh, {}, cave_query, floor.min_normal_y);
+          sampleMeshSupport(*floor.portal_floor_mesh, {}, query, floor.min_normal_y);
       if (!section_floor.valid || (portal.valid && portal.height > section_floor.height)) {
         section_floor = portal;
       }
@@ -459,11 +458,25 @@ TerrainSurfaceSample LumenRun::sampleCaveFloorSupport(const SurfaceSupportQuery 
     if (!section_floor.valid) {
       continue;
     }
-    if (!best_floor.valid || section_clearance > best_clearance + 0.001f ||
-        (std::abs(section_clearance - best_clearance) <= 0.001f &&
-         section_floor.height > best_floor.height)) {
+    const float distance_below = query.reference_y - section_floor.height;
+    const bool is_below_reference = distance_below >= -0.035f;
+    const bool choose_below_surface =
+        is_below_reference &&
+        (!best_is_below_reference ||
+         section_clearance > best_clearance + 0.001f ||
+         (std::abs(section_clearance - best_clearance) <= 0.001f &&
+          distance_below < best_distance_below));
+    const bool choose_fallback_surface =
+        !best_floor.valid ||
+        (!best_is_below_reference && !is_below_reference &&
+         (section_clearance > best_clearance + 0.001f ||
+          (std::abs(section_clearance - best_clearance) <= 0.001f &&
+           section_floor.height > best_floor.height)));
+    if (choose_below_surface || choose_fallback_surface) {
       best_floor = section_floor;
       best_clearance = section_clearance;
+      best_distance_below = distance_below;
+      best_is_below_reference = is_below_reference;
     }
   }
   return best_floor;
@@ -479,8 +492,7 @@ TerrainSurfaceSample LumenRun::sampleWorldSupport(const SurfaceSupportQuery &que
     for (const CaveFloorSupportSurface &floor : cave_floor_supports_) {
       const CaveInteriorSample sample = sampleCaveInteriorVolume(floor.tunnel, reference);
       if (sample.tunnel_t >= floor.tunnel.collision_start_t - 0.04f &&
-          sample.lateral <= sample.half_width * 1.10f && sample.vertical >= -0.80f &&
-          sample.vertical <= sample.height * 1.80f) {
+          sample.lateral <= sample.half_width * 1.10f) {
         return true;
       }
     }
@@ -496,7 +508,7 @@ TerrainSurfaceSample LumenRun::sampleWorldSupport(const SurfaceSupportQuery &que
   if (!world.valid) {
     return cave_floor;
   }
-  return cave_floor.height > world.height ? cave_floor : world;
+  return cave_floor;
 }
 
 void LumenRun::updateFishingVisual() {
