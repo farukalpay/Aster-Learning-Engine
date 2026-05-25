@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "action.construction.press.stroke",
+  "name": "Cycle Hydraulic Scrap Press",
+  "nodes": [
+    {
+      "id": "press_stroke",
+      "type": "emit_event",
+      "parameters": {
+        "event": "construction.press.stroke_requested",
+        "press": "target"
+      },
+      "tags": ["interaction.machine", "construction_yard", "manual_compaction"]
+    },
+    {
+      "id": "ram_effect",
+      "type": "spawn_effect",
+      "parameters": {
+        "effect": "hydraulic_press_scrap_compaction",
+        "asset": "asset_graph.lumen_run.metal_bale"
+      }
+    }
+  ]
+}

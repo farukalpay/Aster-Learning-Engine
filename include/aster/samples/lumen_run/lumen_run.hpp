@@ -202,6 +202,14 @@ struct LumenWorldForensics {
   bool render_extraction_ready = false;
 };
 
+struct ConstructionForkliftWheelContact {
+  Vec3 wheel_center{};
+  Vec3 contact_point{};
+  Vec3 normal{0.0f, 1.0f, 0.0f};
+  float support_height = 0.0f;
+  bool grounded = false;
+};
+
 class LumenRun {
 public:
   explicit LumenRun(LumenTuning tuning = {});
@@ -251,13 +259,32 @@ public:
   [[nodiscard]] int torchCount() const;
   [[nodiscard]] Vec3 supplyCratePosition() const;
   [[nodiscard]] Vec3 constructionForkliftPosition() const;
+  [[nodiscard]] float constructionForkliftYaw() const;
+  [[nodiscard]] Vec3 constructionForkliftAttitude() const;
+  [[nodiscard]] std::array<ConstructionForkliftWheelContact, 4>
+  constructionForkliftWheelContacts() const;
   [[nodiscard]] Vec3 constructionPalletPosition() const;
   [[nodiscard]] Vec3 constructionShredderPosition() const;
+  [[nodiscard]] Vec3 constructionCranePosition() const;
+  [[nodiscard]] Vec3 constructionPressPosition() const;
+  [[nodiscard]] Vec3 constructionDeliveryRackPosition() const;
   [[nodiscard]] bool constructionForkliftMounted() const;
+  [[nodiscard]] bool constructionCraneMounted() const;
   [[nodiscard]] bool constructionPalletAttached() const;
   [[nodiscard]] bool constructionShredderActive() const;
   [[nodiscard]] int constructionShredderConsumedPipeCount() const;
   [[nodiscard]] std::size_t constructionScrapFragmentCount() const;
+  [[nodiscard]] int constructionLightModuleCount() const;
+  [[nodiscard]] int constructionHeavyModuleCount() const;
+  [[nodiscard]] int constructionDamagedLightModuleCount() const;
+  [[nodiscard]] int constructionDetachedLightModuleCount() const;
+  [[nodiscard]] int constructionUnlockedHeavyModuleCount() const;
+  [[nodiscard]] int constructionProcessedLoadCount() const;
+  [[nodiscard]] int constructionPressPendingLoadCount() const;
+  [[nodiscard]] int constructionPressStrokeCount() const;
+  [[nodiscard]] int constructionBaleCount() const;
+  [[nodiscard]] int constructionDeliveredBaleCount() const;
+  [[nodiscard]] bool constructionYardComplete() const;
   [[nodiscard]] FocusPromptModel focusPromptModel() const;
   [[nodiscard]] HotbarHudModel hotbarHudModel() const;
   [[nodiscard]] ChestContentsHudModel chestContentsHudModel() const;
@@ -266,6 +293,9 @@ public:
   [[nodiscard]] std::optional<DynamicPointLight> prismRelayLight() const;
   [[nodiscard]] CaveLightingState caveLightingState() const;
   [[nodiscard]] CaveLightingState caveLightingStateAt(Vec3 position) const;
+  [[nodiscard]] TerrainSurfaceSample debugSupportSample(Vec3 support_position,
+                                                        float max_above = 0.34f,
+                                                        float max_below = 2.0f) const;
   [[nodiscard]] float heldTorchLightGain(const CaveLightingState &light) const;
   [[nodiscard]] bool classicGauntletActive() const;
   [[nodiscard]] const AutomapModel &classicGauntletAutomap() const;
@@ -391,20 +421,40 @@ private:
   struct ConstructionForklift {
     Vec3 position{};
     float yaw = 0.0f;
+    float pitch = 0.0f;
+    float roll = 0.0f;
     float fork_height = 0.28f;
     float wheel_spin = 0.0f;
     float steer_angle = 0.0f;
     bool mounted = false;
+    std::array<ConstructionForkliftWheelContact, 4> wheel_contacts{};
     std::vector<ConstructionVisualPart> parts;
+  };
+
+  struct ConstructionForkliftSupportPose {
+    Vec3 position{};
+    float pitch = 0.0f;
+    float roll = 0.0f;
+    std::array<ConstructionForkliftWheelContact, 4> wheel_contacts{};
+  };
+
+  enum class ConstructionCargoKind {
+    None,
+    LightModule,
+    Bale,
   };
 
   struct ConstructionPallet {
     Vec3 position{};
     float yaw = 0.0f;
+    float pitch = 0.0f;
+    float roll = 0.0f;
     bool attached = false;
     bool consumed = false;
     float attach_cooldown = 0.0f;
     int visible_pipe_count = 8;
+    ConstructionCargoKind cargo_kind = ConstructionCargoKind::None;
+    int payload_index = -1;
     std::vector<ConstructionVisualPart> parts;
   };
 
@@ -414,6 +464,65 @@ private:
     bool active = false;
     float shred_timer = 0.0f;
     int consumed_pipe_count = 0;
+    int processed_load_count = 0;
+    int processing_module_index = -1;
+    bool processing_crane_load = false;
+    std::vector<ConstructionVisualPart> parts;
+  };
+
+  struct ConstructionDemolitionModule {
+    Vec3 position{};
+    Vec3 fall_velocity{};
+    float yaw = 0.0f;
+    int tier = 0;
+    int face = 0;
+    int bay = 0;
+    bool heavy = false;
+    int impact_count = 0;
+    float impact_cooldown = 0.0f;
+    bool unlocked = false;
+    bool detached = false;
+    bool carried = false;
+    bool falling = false;
+    bool processing = false;
+    bool processed = false;
+    std::vector<ConstructionVisualPart> parts;
+  };
+
+  struct ConstructionCrane {
+    Vec3 position{};
+    float yaw = 0.0f;
+    float boom_yaw = 0.0f;
+    float hook_height = 1.46f;
+    float hook_reach = 8.0f;
+    bool mounted = false;
+    int payload_module_index = -1;
+    std::vector<ConstructionVisualPart> parts;
+  };
+
+  struct ConstructionPress {
+    Vec3 position{};
+    float yaw = 0.0f;
+    int pending_load_count = 0;
+    int stroke_count = 0;
+    int required_strokes = 0;
+    float stroke_animation = 0.0f;
+    std::vector<ConstructionVisualPart> parts;
+  };
+
+  struct ConstructionBale {
+    Vec3 position{};
+    float yaw = 0.0f;
+    int load_count = 0;
+    bool available = false;
+    bool attached = false;
+    bool delivered = false;
+    std::vector<ConstructionVisualPart> parts;
+  };
+
+  struct ConstructionDeliveryRack {
+    Vec3 position{};
+    float yaw = 0.0f;
     std::vector<ConstructionVisualPart> parts;
   };
 
@@ -564,10 +673,16 @@ private:
   void updateClassicGauntletVisuals(float dt);
   void updateConstructionYard(float dt, Vec2 move_axis, bool run_requested, bool fork_up);
   void updateConstructionYardVisuals(float dt);
+  [[nodiscard]] ConstructionForkliftSupportPose
+  constructionForkliftSupportPoseAt(Vec3 position, float yaw, float pitch, float roll) const;
   void toggleConstructionForkliftMount();
+  void toggleConstructionCraneMount();
   [[nodiscard]] bool tryAttachConstructionPallet();
   void dropConstructionPallet();
   [[nodiscard]] bool triggerConstructionShredder();
+  [[nodiscard]] bool triggerConstructionPressStroke();
+  [[nodiscard]] bool tryAttachConstructionBale();
+  void deliverConstructionBale();
   void spawnConstructionScrapBurst(Vec3 center, int count);
   void refreshClassicGauntletAutomap();
   void updateCaveVisuals(float dt);
@@ -588,6 +703,7 @@ private:
   [[nodiscard]] TerrainSurfaceSample sampleWorldSupport(const SurfaceSupportQuery &query) const;
   [[nodiscard]] const AuthoredCaveSection *caveSectionAt(Vec3 position,
                                                          CaveInteriorSample *sample = nullptr) const;
+  [[nodiscard]] CaveTunnelFrame caveRouteFrameAt(float progress_distance) const;
   [[nodiscard]] bool mineFocusedOre(std::size_t ore_index);
   [[nodiscard]] bool mineFocusedCaveWeb(std::size_t web_index);
   [[nodiscard]] bool mineFocusedCaveSkitter(std::size_t skitter_index);
@@ -673,6 +789,12 @@ private:
   ConstructionForklift construction_forklift_{};
   ConstructionPallet construction_pallet_{};
   ConstructionShredder construction_shredder_{};
+  std::vector<ConstructionVisualPart> construction_site_static_parts_;
+  std::vector<ConstructionDemolitionModule> construction_modules_;
+  ConstructionCrane construction_crane_{};
+  ConstructionPress construction_press_{};
+  ConstructionDeliveryRack construction_delivery_rack_{};
+  std::vector<ConstructionBale> construction_bales_;
   std::vector<ConstructionScrapVisual> construction_scrap_;
   std::size_t construction_scrap_cursor_ = 0;
   std::vector<TorchParticleVisual> torch_particle_visuals_;

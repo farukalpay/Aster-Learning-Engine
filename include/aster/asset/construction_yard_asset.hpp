@@ -31,9 +31,9 @@ struct AsterConstructionForkliftSpec {
 
 struct AsterRecyclerShredderSpec {
   std::string asset_id = "asset_graph.lumen_run.recycler_shredder";
-  float length = 3.95f;
-  float width = 1.55f;
-  float chamber_height = 1.18f;
+  float length = 5.40f;
+  float width = 2.45f;
+  float chamber_height = 1.48f;
 };
 
 struct AsterPipePalletSpec {
@@ -46,6 +46,35 @@ struct AsterPipePalletSpec {
 struct AsterScrapShardSpec {
   std::string asset_id = "asset_graph.lumen_run.shredded_metal_scrap";
   int shard_count = 18;
+};
+
+struct AsterConstructionSiteSpec {
+  std::string asset_id = "asset_graph.lumen_run.modular_construction_site";
+  float width = 15.6f;
+  float depth = 10.8f;
+  float height = 6.0f;
+};
+
+struct AsterMobileCraneSpec {
+  std::string asset_id = "asset_graph.lumen_run.mobile_crane";
+  float boom_length = 10.4f;
+  float boom_height = 4.6f;
+};
+
+struct AsterHydraulicPressSpec {
+  std::string asset_id = "asset_graph.lumen_run.hydraulic_press";
+  float width = 2.8f;
+  float length = 3.6f;
+};
+
+struct AsterMetalBaleSpec {
+  std::string asset_id = "asset_graph.lumen_run.metal_bale";
+  float fill = 1.0f;
+};
+
+struct AsterDeliveryRackSpec {
+  std::string asset_id = "asset_graph.lumen_run.bale_delivery_rack";
+  int bay_count = 24;
 };
 
 struct AsterConstructionYardAsset {
@@ -64,10 +93,23 @@ makeAsterRecyclerShredderAsset(AsterRecyclerShredderSpec spec = {});
 [[nodiscard]] AsterConstructionYardAsset makeAsterPipePalletAsset(AsterPipePalletSpec spec = {});
 [[nodiscard]] AsterConstructionYardAsset
 makeAsterShreddedMetalScrapAsset(AsterScrapShardSpec spec = {});
+[[nodiscard]] AsterConstructionYardAsset
+makeAsterModularConstructionSiteAsset(AsterConstructionSiteSpec spec = {});
+[[nodiscard]] AsterConstructionYardAsset makeAsterMobileCraneAsset(AsterMobileCraneSpec spec = {});
+[[nodiscard]] AsterConstructionYardAsset
+makeAsterHydraulicPressAsset(AsterHydraulicPressSpec spec = {});
+[[nodiscard]] AsterConstructionYardAsset makeAsterMetalBaleAsset(AsterMetalBaleSpec spec = {});
+[[nodiscard]] AsterConstructionYardAsset
+makeAsterDeliveryRackAsset(AsterDeliveryRackSpec spec = {});
 
 [[nodiscard]] CpuMesh makeAsterConstructionForkliftMesh(AsterConstructionForkliftSpec spec = {});
 [[nodiscard]] CpuMesh makeAsterRecyclerShredderMesh(AsterRecyclerShredderSpec spec = {});
 [[nodiscard]] CpuMesh makeAsterPipePalletMesh(AsterPipePalletSpec spec = {});
 [[nodiscard]] CpuMesh makeAsterShreddedMetalScrapMesh(AsterScrapShardSpec spec = {});
+[[nodiscard]] CpuMesh makeAsterModularConstructionSiteMesh(AsterConstructionSiteSpec spec = {});
+[[nodiscard]] CpuMesh makeAsterMobileCraneMesh(AsterMobileCraneSpec spec = {});
+[[nodiscard]] CpuMesh makeAsterHydraulicPressMesh(AsterHydraulicPressSpec spec = {});
+[[nodiscard]] CpuMesh makeAsterMetalBaleMesh(AsterMetalBaleSpec spec = {});
+[[nodiscard]] CpuMesh makeAsterDeliveryRackMesh(AsterDeliveryRackSpec spec = {});
 
 } // namespace aster

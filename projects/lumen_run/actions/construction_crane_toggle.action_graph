@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "action.construction.crane.toggle",
+  "name": "Operate Mobile Crane",
+  "nodes": [
+    {
+      "id": "toggle_crane_operator",
+      "type": "emit_event",
+      "parameters": {
+        "event": "construction.crane.toggle_operator",
+        "crane": "target"
+      },
+      "tags": ["interaction.vehicle", "construction_yard", "heavy_lift"]
+    },
+    {
+      "id": "toggle_hook_load",
+      "type": "emit_event",
+      "parameters": {
+        "event": "construction.crane.hook_attach_or_release",
+        "payload": "exposed_heavy_beam"
+      },
+      "tags": ["interaction.machine", "construction_yard", "contextual_e_hook"]
+    }
+  ]
+}

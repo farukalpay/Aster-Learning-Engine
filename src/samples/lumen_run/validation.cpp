@@ -69,7 +69,12 @@ SceneCoherenceProblem LumenRun::buildSceneCoherenceProblem() const {
     for (int i = 0; i < cave_route_sample_count; ++i) {
       const float t = static_cast<float>(i) / static_cast<float>(cave_route_sample_count - 1);
       const CaveTunnelFrame frame = sampleCaveTunnelFrame(tunnel, t);
-      const Vec3 point = frame.floor_center;
+      Vec3 point = frame.floor_center;
+      const TerrainSurfaceSample support =
+          sampleWorldSupport({{point.x, point.z}, point.y + 0.36f, 0.72f, 3.0f});
+      if (support.valid) {
+        point.y = support.height;
+      }
       route.points.push_back(point);
       addSurfaceSample(label, point, tunnel.floor_width * 0.5f);
       const Vec3 tangent = length(frame.tangent) > 0.0001f ? normalize(frame.tangent)

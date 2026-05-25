@@ -114,6 +114,15 @@ void mixLumenSignals(std::uint64_t &hash, const WorldPerceptualSignals &signals)
          name.find("Thin wet drip trail") != std::string_view::npos;
 }
 
+[[nodiscard]] float caveSectionContinuityWeight(const CaveInteriorSample &sample) {
+  const float entry_overlap = sample.entrance_light * 0.62f;
+  const float boundary_t = std::min(sample.tunnel_t, 1.0f - sample.tunnel_t);
+  const float seam_overlap = 1.0f - smoothstep(0.08f, 0.18f, boundary_t);
+  return clamp(std::max({sample.interior, entry_overlap,
+                         seam_overlap * std::max(sample.interior, entry_overlap) * 0.45f}),
+               0.0f, 1.0f);
+}
+
 [[nodiscard]] Vec3 renderObjectPerceptualCenter(const RenderObject &object) {
   if (object.custom_mesh == nullptr || object.custom_mesh->vertices.empty()) {
     return object.transform.position;
@@ -431,6 +440,12 @@ void LumenRun::reset() {
   construction_forklift_ = {};
   construction_pallet_ = {};
   construction_shredder_ = {};
+  construction_site_static_parts_.clear();
+  construction_modules_.clear();
+  construction_crane_ = {};
+  construction_press_ = {};
+  construction_delivery_rack_ = {};
+  construction_bales_.clear();
   construction_scrap_.clear();
   construction_scrap_cursor_ = 0;
   torch_particle_visuals_.clear();
@@ -564,7 +579,7 @@ void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
     clearAvatarPointTarget();
   }
 
-  if (construction_forklift_.mounted) {
+  if (construction_forklift_.mounted || construction_crane_.mounted) {
     updateConstructionYard(step, move_axis, run_requested, jump_requested);
   } else {
     updatePlayerPhysics(step, move_axis, run_requested, jump_requested);
@@ -2260,10 +2275,7 @@ Vec3 LumenRun::caveFrameReportPosition(const float progress_distance) const {
   if (cave_sections_.empty()) {
     return player_position_;
   }
-  const AuthoredCaveSection &section =
-      cave_sections_.size() > 1u ? cave_sections_[1u] : cave_sections_.front();
-  const CaveTunnelFrame frame =
-      sampleCaveTunnelFrameAtDistance(section.tunnel, std::max(progress_distance, 0.0f));
+  const CaveTunnelFrame frame = caveRouteFrameAt(progress_distance);
   return frame.floor_center + frame.up * playerSupportExtent();
 }
 
@@ -2272,10 +2284,7 @@ Vec3 LumenRun::caveFrameReportLookTarget(const float progress_distance,
   if (cave_sections_.empty()) {
     return player_position_ + Vec3{0.0f, 0.62f, 0.0f};
   }
-  const AuthoredCaveSection &section =
-      cave_sections_.size() > 1u ? cave_sections_[1u] : cave_sections_.front();
-  const CaveTunnelFrame frame =
-      sampleCaveTunnelFrameAtDistance(section.tunnel, std::max(progress_distance, 0.0f));
+  const CaveTunnelFrame frame = caveRouteFrameAt(progress_distance);
   const Vec3 tangent = length(frame.tangent) > 0.0001f ? normalize(frame.tangent)
                                                        : Vec3{0.0f, 0.0f, -1.0f};
   return frame.floor_center + frame.up * 0.88f + tangent * std::max(look_ahead, 0.0f);
@@ -2285,10 +2294,7 @@ float LumenRun::caveFrameReportCameraYaw(const float progress_distance) const {
   if (cave_sections_.empty()) {
     return 0.0f;
   }
-  const AuthoredCaveSection &section =
-      cave_sections_.size() > 1u ? cave_sections_[1u] : cave_sections_.front();
-  const CaveTunnelFrame frame =
-      sampleCaveTunnelFrameAtDistance(section.tunnel, std::max(progress_distance, 0.0f));
+  const CaveTunnelFrame frame = caveRouteFrameAt(progress_distance);
   const Vec3 tangent = length(frame.tangent) > 0.0001f ? normalize(frame.tangent)
                                                        : Vec3{0.0f, 0.0f, -1.0f};
   return std::atan2(-tangent.x, -tangent.z);
@@ -2571,7 +2577,7 @@ void LumenRun::clearAvatarPointTarget() {
 void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_direction,
                                       const float dt) {
   std::vector<InteractionTarget> targets;
-  targets.reserve(6u + coal_ores_.size() + cave_webs_.size() + cave_skitters_.size());
+  targets.reserve(10u + coal_ores_.size() + cave_webs_.size() + cave_skitters_.size());
   const Vec3 chest_focus = chest_base_ + Vec3{0.0f, 0.46f, 0.0f};
   const bool player_near_chest = length(player_position_ - chest_focus) < kChestInteractionDistance;
   std::string action = "Open";
@@ -2612,8 +2618,10 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                      .enabled = player_near_relay});
 
   const Vec3 forklift_focus =
-      construction_forklift_.position + rotateYaw({0.0f, 1.20f, -0.24f},
-                                                  construction_forklift_.yaw);
+      construction_forklift_.position +
+      rotateEuler({0.0f, 1.20f, -0.24f},
+                  {construction_forklift_.pitch, construction_forklift_.yaw,
+                   construction_forklift_.roll});
   const bool player_near_forklift =
       construction_forklift_.mounted || length(player_position_ - forklift_focus) <= 2.55f;
   targets.push_back({.id = "lumen.construction.forklift",
@@ -2627,13 +2635,15 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                      .proximity_distance = 2.55f,
                      .enabled = player_near_forklift});
 
-  if (!construction_pallet_.consumed) {
+  if (construction_pallet_.cargo_kind != ConstructionCargoKind::None) {
     const Vec3 pallet_focus = construction_pallet_.position + Vec3{0.0f, 0.54f, 0.0f};
     targets.push_back({.id = "lumen.construction.pipe_pallet",
                        .action_graph = "action.construction.pallet.attach",
                        .kind = InteractionTargetKind::Item,
                        .action_label = construction_pallet_.attached ? "Drop" : "Lift",
-                       .subject_label = "Pipe Pallet",
+                       .subject_label = construction_pallet_.cargo_kind == ConstructionCargoKind::Bale
+                                            ? "Metal Bale"
+                                            : "Metal Load",
                        .position = pallet_focus,
                        .radius = 0.92f,
                        .max_distance = 14.0f,
@@ -2654,9 +2664,51 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
                      .radius = 1.05f,
                      .max_distance = 14.0f,
                      .proximity_distance = 3.10f,
-                     .enabled = construction_forklift_.mounted &&
-                                construction_pallet_.attached &&
+                     .enabled = construction_forklift_.mounted && construction_pallet_.attached &&
+                                construction_pallet_.cargo_kind == ConstructionCargoKind::LightModule &&
                                 length(player_position_ - shredder_focus) <= 3.40f});
+
+  const Vec3 crane_focus =
+      construction_crane_.position + rotateYaw({-0.58f, 1.42f, 0.82f}, construction_crane_.yaw);
+  targets.push_back({.id = "lumen.construction.mobile_crane",
+                     .action_graph = "action.construction.crane.toggle",
+                     .kind = InteractionTargetKind::Item,
+                     .action_label = construction_crane_.mounted ? "Exit" : "Operate",
+                     .subject_label = "Mobile Crane",
+                     .position = crane_focus,
+                     .radius = 1.05f,
+                     .max_distance = 14.0f,
+                     .proximity_distance = 2.65f,
+                     .enabled = construction_crane_.mounted ||
+                                length(player_position_ - crane_focus) <= 2.65f});
+
+  const Vec3 press_focus =
+      construction_press_.position + rotateYaw({-1.66f, 1.26f, 0.62f}, construction_press_.yaw);
+  targets.push_back({.id = "lumen.construction.hydraulic_press",
+                     .action_graph = "action.construction.press.stroke",
+                     .kind = InteractionTargetKind::Item,
+                     .action_label = construction_press_.pending_load_count > 0 ? "Press" : "Empty",
+                     .subject_label = "Scrap Press",
+                     .position = press_focus,
+                     .radius = 0.52f,
+                     .max_distance = 14.0f,
+                     .proximity_distance = 2.65f,
+                     .enabled = !construction_forklift_.mounted && !construction_crane_.mounted &&
+                                length(player_position_ - press_focus) <= 2.65f});
+
+  const Vec3 rack_focus = construction_delivery_rack_.position + Vec3{0.0f, 0.62f, 0.0f};
+  targets.push_back({.id = "lumen.construction.bale_delivery_rack",
+                     .action_graph = "action.construction.bale.deliver",
+                     .kind = InteractionTargetKind::Item,
+                     .action_label = "Deliver",
+                     .subject_label = "Metal Bale",
+                     .position = rack_focus,
+                     .radius = 2.10f,
+                     .max_distance = 14.0f,
+                     .proximity_distance = 4.10f,
+                     .enabled = construction_forklift_.mounted && construction_pallet_.attached &&
+                                construction_pallet_.cargo_kind == ConstructionCargoKind::Bale &&
+                                length(player_position_ - rack_focus) <= 4.60f});
 
   focused_cave_web_index_ = 0;
   focused_cave_web_valid_ = false;
@@ -2795,10 +2847,16 @@ void LumenRun::updateInteractionFocus(const Vec3 ray_origin, const Vec3 ray_dire
 }
 
 void LumenRun::interactFocused() {
+  if (construction_crane_.mounted) {
+    toggleConstructionCraneMount();
+    return;
+  }
   const InteractionFocus &focus = interaction_.focus();
   if (!focus.visible) {
     if (construction_forklift_.mounted) {
       toggleConstructionForkliftMount();
+    } else if (construction_crane_.mounted) {
+      toggleConstructionCraneMount();
     }
     return;
   }
@@ -2809,7 +2867,11 @@ void LumenRun::interactFocused() {
     const bool mounted_feed_action =
         focus.action_graph == "action.construction.shredder.feed" &&
         construction_pallet_.attached;
-    if (!mounted_pallet_action && !mounted_feed_action) {
+    const bool mounted_delivery_action =
+        focus.action_graph == "action.construction.bale.deliver" &&
+        construction_pallet_.cargo_kind == ConstructionCargoKind::Bale;
+    if (!mounted_pallet_action && !mounted_feed_action && !mounted_delivery_action &&
+        focus.action_graph != "action.construction.forklift.toggle") {
       toggleConstructionForkliftMount();
       return;
     }
@@ -2840,6 +2902,11 @@ void LumenRun::interactFocused() {
     return;
   }
   if (focus.kind == InteractionTargetKind::Item &&
+      focus.action_graph == "action.construction.crane.toggle") {
+    toggleConstructionCraneMount();
+    return;
+  }
+  if (focus.kind == InteractionTargetKind::Item &&
       focus.action_graph == "action.construction.pallet.attach") {
     if (construction_pallet_.attached) {
       dropConstructionPallet();
@@ -2851,6 +2918,16 @@ void LumenRun::interactFocused() {
   if (focus.kind == InteractionTargetKind::Item &&
       focus.action_graph == "action.construction.shredder.feed") {
     (void)triggerConstructionShredder();
+    return;
+  }
+  if (focus.kind == InteractionTargetKind::Item &&
+      focus.action_graph == "action.construction.press.stroke") {
+    (void)triggerConstructionPressStroke();
+    return;
+  }
+  if (focus.kind == InteractionTargetKind::Item &&
+      focus.action_graph == "action.construction.bale.deliver") {
+    deliverConstructionBale();
     return;
   }
   if (focus.kind == InteractionTargetKind::Item && focus.action_graph == "action.mine.coal_ore") {
@@ -3003,6 +3080,19 @@ Vec3 LumenRun::constructionForkliftPosition() const {
   return construction_forklift_.position;
 }
 
+float LumenRun::constructionForkliftYaw() const {
+  return construction_forklift_.yaw;
+}
+
+Vec3 LumenRun::constructionForkliftAttitude() const {
+  return {construction_forklift_.pitch, construction_forklift_.yaw, construction_forklift_.roll};
+}
+
+std::array<ConstructionForkliftWheelContact, 4> LumenRun::constructionForkliftWheelContacts()
+    const {
+  return construction_forklift_.wheel_contacts;
+}
+
 Vec3 LumenRun::constructionPalletPosition() const {
   return construction_pallet_.position;
 }
@@ -3011,8 +3101,24 @@ Vec3 LumenRun::constructionShredderPosition() const {
   return construction_shredder_.position;
 }
 
+Vec3 LumenRun::constructionCranePosition() const {
+  return construction_crane_.position;
+}
+
+Vec3 LumenRun::constructionPressPosition() const {
+  return construction_press_.position;
+}
+
+Vec3 LumenRun::constructionDeliveryRackPosition() const {
+  return construction_delivery_rack_.position;
+}
+
 bool LumenRun::constructionForkliftMounted() const {
   return construction_forklift_.mounted;
+}
+
+bool LumenRun::constructionCraneMounted() const {
+  return construction_crane_.mounted;
 }
 
 bool LumenRun::constructionPalletAttached() const {
@@ -3031,6 +3137,73 @@ std::size_t LumenRun::constructionScrapFragmentCount() const {
   return static_cast<std::size_t>(std::count_if(
       construction_scrap_.begin(), construction_scrap_.end(),
       [](const ConstructionScrapVisual &scrap) { return scrap.active; }));
+}
+
+int LumenRun::constructionLightModuleCount() const {
+  return static_cast<int>(std::count_if(
+      construction_modules_.begin(), construction_modules_.end(),
+      [](const ConstructionDemolitionModule &module) { return !module.heavy; }));
+}
+
+int LumenRun::constructionHeavyModuleCount() const {
+  return static_cast<int>(std::count_if(
+      construction_modules_.begin(), construction_modules_.end(),
+      [](const ConstructionDemolitionModule &module) { return module.heavy; }));
+}
+
+int LumenRun::constructionDamagedLightModuleCount() const {
+  return static_cast<int>(std::count_if(
+      construction_modules_.begin(), construction_modules_.end(),
+      [](const ConstructionDemolitionModule &module) {
+        return !module.heavy && (module.impact_count > 0 || module.detached || module.processed);
+      }));
+}
+
+int LumenRun::constructionDetachedLightModuleCount() const {
+  return static_cast<int>(std::count_if(
+      construction_modules_.begin(), construction_modules_.end(),
+      [](const ConstructionDemolitionModule &module) {
+        return !module.heavy && module.detached;
+      }));
+}
+
+int LumenRun::constructionUnlockedHeavyModuleCount() const {
+  return static_cast<int>(std::count_if(
+      construction_modules_.begin(), construction_modules_.end(),
+      [](const ConstructionDemolitionModule &module) {
+        return module.heavy && module.unlocked;
+      }));
+}
+
+int LumenRun::constructionProcessedLoadCount() const {
+  return construction_shredder_.processed_load_count;
+}
+
+int LumenRun::constructionPressPendingLoadCount() const {
+  return construction_press_.pending_load_count;
+}
+
+int LumenRun::constructionPressStrokeCount() const {
+  return construction_press_.stroke_count;
+}
+
+int LumenRun::constructionBaleCount() const {
+  return static_cast<int>(std::count_if(
+      construction_bales_.begin(), construction_bales_.end(),
+      [](const ConstructionBale &bale) { return bale.available || bale.delivered; }));
+}
+
+int LumenRun::constructionDeliveredBaleCount() const {
+  return static_cast<int>(std::count_if(
+      construction_bales_.begin(), construction_bales_.end(),
+      [](const ConstructionBale &bale) { return bale.delivered; }));
+}
+
+bool LumenRun::constructionYardComplete() const {
+  return construction_shredder_.processed_load_count >= 24 &&
+         construction_press_.pending_load_count == 0 &&
+         constructionBaleCount() > 0 &&
+         constructionDeliveredBaleCount() == constructionBaleCount();
 }
 
 FocusPromptModel LumenRun::focusPromptModel() const {
@@ -3162,15 +3335,39 @@ float LumenRun::classicGauntletCameraYaw() const {
   return std::atan2(delta.x, delta.z);
 }
 
+CaveTunnelFrame LumenRun::caveRouteFrameAt(const float progress_distance) const {
+  if (cave_sections_.empty()) {
+    return {};
+  }
+
+  float remaining = std::max(progress_distance, 0.0f);
+  const AuthoredCaveSection *last_section = &cave_sections_.front();
+  float last_section_length = 0.001f;
+  for (const AuthoredCaveSection &section : cave_sections_) {
+    last_section = &section;
+    const float section_length = std::max(estimateCaveTunnelLength(section.tunnel), 0.001f);
+    last_section_length = section_length;
+    if (remaining <= section_length) {
+      return sampleCaveTunnelFrameAtDistance(section.tunnel, remaining);
+    }
+    remaining -= section_length;
+  }
+
+  return sampleCaveTunnelFrameAtDistance(last_section->tunnel, last_section_length);
+}
+
 const LumenRun::AuthoredCaveSection *
 LumenRun::caveSectionAt(const Vec3 position, CaveInteriorSample *sample) const {
   const AuthoredCaveSection *best_section = nullptr;
   CaveInteriorSample best_sample{};
+  float best_weight = -1.0f;
   for (const AuthoredCaveSection &section : cave_sections_) {
     const CaveInteriorSample candidate = sampleCaveInteriorVolume(section.tunnel, position);
-    if (best_section == nullptr || candidate.interior > best_sample.interior) {
+    const float candidate_weight = caveSectionContinuityWeight(candidate);
+    if (best_section == nullptr || candidate_weight > best_weight) {
       best_section = &section;
       best_sample = candidate;
+      best_weight = candidate_weight;
     }
   }
   if (sample != nullptr) {
@@ -3207,7 +3404,8 @@ CaveLightingState LumenRun::caveLightingStateAt(const Vec3 position) const {
       const float progress_delta = std::abs(fixture.t - section_sample.tunnel_t);
       const float progress_gain = 1.0f - (1.0f - kMinimumProgressGain) *
                                              clamp(progress_delta / kProgressWindow, 0.0f, 1.0f);
-      const float weight = clamp(section_sample.interior * progress_gain, 0.0f, 1.0f);
+      const float weight =
+          clamp(caveSectionContinuityWeight(section_sample) * progress_gain, 0.0f, 1.0f);
       candidates.push_back(
           {.sample = {.position = fixture.light_position,
                       .color = fixture.light_color,

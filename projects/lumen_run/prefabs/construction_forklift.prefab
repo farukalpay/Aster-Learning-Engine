@@ -9,7 +9,7 @@
       "components": {
         "transform": { "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 1.5708, 0.0] },
         "mesh_renderer": { "mesh": "asset_graph.lumen_run.construction_forklift", "material": "material.lumen_run.forklift_paint" },
-        "perceptual_binding": { "template": "asset_graph.lumen_run.construction_forklift", "cell_anchor": "lumen.construction_yard", "residency_role": "drivable-work-vehicle", "local_cause": "player-loads-pipe-pallet", "traversal_role": "vehicle-seat-and-forks", "visual_occlusion_role": "grounded-yard-prop", "acoustic_role": "rubber-metal-contact", "material_half_life_override": 26.0, "streaming_cost_override": 0.34 },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.construction_forklift", "cell_anchor": "lumen.remote_construction_yard", "residency_role": "drivable-work-vehicle", "local_cause": "player-breaks-lifts-and-delivers-metal", "traversal_role": "vehicle-seat-and-forks", "visual_occlusion_role": "grounded-yard-prop", "acoustic_role": "rubber-metal-contact", "material_half_life_override": 26.0, "streaming_cost_override": 0.34 },
         "collider": { "shape": "box", "half_extents": [0.72, 0.82, 1.72], "layer": "world.vehicle" },
         "rigid_body": { "type": "kinematic", "mass": 900.0, "gravity_enabled": false },
         "interactable": {

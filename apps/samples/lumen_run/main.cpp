@@ -1541,10 +1541,16 @@ int main(int argc, char **argv) {
     const bool construction_yard_seat_capture = playback_route == "construction-yard-seat";
     const bool construction_yard_shred_capture = playback_route == "construction-yard-shred";
     const bool construction_yard_exit_capture = playback_route == "construction-yard-exit";
+    const bool construction_yard_crane_capture = playback_route == "construction-yard-crane";
+    const bool construction_yard_press_capture = playback_route == "construction-yard-press";
+    const bool construction_yard_delivery_capture = playback_route == "construction-yard-delivery";
     const bool construction_yard_capture = playback_route == "construction-yard" ||
                                            construction_yard_seat_capture ||
                                            construction_yard_shred_capture ||
-                                           construction_yard_exit_capture;
+                                           construction_yard_exit_capture ||
+                                           construction_yard_crane_capture ||
+                                           construction_yard_press_capture ||
+                                           construction_yard_delivery_capture;
     const float deep_cave_capture_progress =
         argumentFloat(argc, argv, "--deep-cave-progress", 16.0f);
     const float deep_cave_capture_look_ahead =
@@ -1681,7 +1687,10 @@ int main(int argc, char **argv) {
     if (debug_cave_overlay) {
       game.setCaveDebugOverlayLayerMask(caveOverlayAllLayerMask());
     }
-    if (deep_cave_capture || deep_cave_stress_capture || classic_gauntlet_capture) {
+    if (deep_cave_capture || deep_cave_stress_capture || classic_gauntlet_capture ||
+        playback_route == "construction-yard" || construction_yard_shred_capture ||
+        construction_yard_crane_capture || construction_yard_press_capture ||
+        construction_yard_delivery_capture) {
       game.setPlayerAvatarVisible(false);
     }
     mark_startup("game_reset");
@@ -1703,48 +1712,60 @@ int main(int argc, char **argv) {
       game.relocatePlayer(game.classicGauntletEntryPosition(),
                           game.classicGauntletCameraYaw());
     } else if (construction_yard_capture && !player_position_override) {
-      const aster::Vec3 forklift = game.constructionForkliftPosition();
-      game.relocatePlayer(forklift + aster::Vec3{-0.95f, 0.0f, -0.35f}, aster::radians(90.0f));
-      const aster::Vec3 focus_origin = game.playerPosition() + aster::Vec3{0.0f, 0.62f, 0.0f};
-      game.updateInteractionFocus(focus_origin, aster::normalize(forklift - focus_origin),
-                                  1.0f / 60.0f);
-      game.interactFocused();
-      const auto advance_construction_capture = [&](const int frame_index) {
-        aster::Vec2 yard_axis{};
-        if (!construction_yard_seat_capture) {
-          const bool shredding_started = game.constructionShredderActive() ||
-                                         game.constructionShredderConsumedPipeCount() > 0;
-          yard_axis = shredding_started ? aster::Vec2{} : aster::Vec2{0.0f, 1.0f};
-        }
-        game.update(1.0f / 60.0f, yard_axis, false,
-                    !construction_yard_seat_capture && frame_index < 44);
-      };
-      if (construction_yard_seat_capture) {
-        for (int i = 0; i < 10; ++i) {
-          advance_construction_capture(i);
-        }
-      } else if (construction_yard_shred_capture) {
-        for (int i = 0; i < 190; ++i) {
-          advance_construction_capture(i);
-          if (game.constructionShredderConsumedPipeCount() >= 2 &&
-              game.constructionScrapFragmentCount() > 0u) {
-            break;
-          }
-        }
+      if (construction_yard_crane_capture) {
+        game.relocatePlayer(game.constructionCranePosition() + aster::Vec3{3.2f, 0.0f, 1.4f},
+                            aster::radians(-92.0f));
+      } else if (construction_yard_press_capture) {
+        game.relocatePlayer(game.constructionPressPosition() + aster::Vec3{2.8f, 0.0f, 2.1f},
+                            aster::radians(-118.0f));
+      } else if (construction_yard_delivery_capture) {
+        game.relocatePlayer(game.constructionDeliveryRackPosition() +
+                                aster::Vec3{2.6f, 0.0f, 2.7f},
+                            aster::radians(-138.0f));
       } else {
-        for (int i = 0; i < 150; ++i) {
-          advance_construction_capture(i);
-        }
-      }
-      if (construction_yard_exit_capture && game.constructionForkliftMounted()) {
-        const aster::Vec3 exit_focus =
-            game.constructionForkliftPosition() + aster::Vec3{0.0f, 1.20f, 0.0f};
-        game.updateInteractionFocus(game.playerPosition() + aster::Vec3{0.0f, 0.42f, 0.0f},
-                                    aster::normalize(exit_focus - game.playerPosition()),
+        const aster::Vec3 forklift = game.constructionForkliftPosition();
+        game.relocatePlayer(forklift + aster::Vec3{-0.95f, 0.0f, -0.35f}, aster::radians(90.0f));
+        const aster::Vec3 focus_origin = game.playerPosition() + aster::Vec3{0.0f, 0.62f, 0.0f};
+        game.updateInteractionFocus(focus_origin, aster::normalize(forklift - focus_origin),
                                     1.0f / 60.0f);
         game.interactFocused();
-        for (int i = 0; i < 18; ++i) {
-          game.update(1.0f / 60.0f, {}, false, false);
+        const auto advance_construction_capture = [&](const int frame_index) {
+          aster::Vec2 yard_axis{};
+          if (!construction_yard_seat_capture) {
+            const bool shredding_started = game.constructionShredderActive() ||
+                                           game.constructionShredderConsumedPipeCount() > 0;
+            yard_axis = shredding_started ? aster::Vec2{} : aster::Vec2{0.0f, 1.0f};
+          }
+          game.update(1.0f / 60.0f, yard_axis, false,
+                      !construction_yard_seat_capture && frame_index < 44);
+        };
+        if (construction_yard_seat_capture) {
+          for (int i = 0; i < 10; ++i) {
+            advance_construction_capture(i);
+          }
+        } else if (construction_yard_shred_capture) {
+          for (int i = 0; i < 190; ++i) {
+            advance_construction_capture(i);
+            if (game.constructionShredderConsumedPipeCount() >= 2 &&
+                game.constructionScrapFragmentCount() > 0u) {
+              break;
+            }
+          }
+        } else {
+          for (int i = 0; i < 150; ++i) {
+            advance_construction_capture(i);
+          }
+        }
+        if (construction_yard_exit_capture && game.constructionForkliftMounted()) {
+          const aster::Vec3 exit_focus =
+              game.constructionForkliftPosition() + aster::Vec3{0.0f, 1.20f, 0.0f};
+          game.updateInteractionFocus(game.playerPosition() + aster::Vec3{0.0f, 0.42f, 0.0f},
+                                      aster::normalize(exit_focus - game.playerPosition()),
+                                      1.0f / 60.0f);
+          game.interactFocused();
+          for (int i = 0; i < 18; ++i) {
+            game.update(1.0f / 60.0f, {}, false, false);
+          }
         }
       }
     } else if (player_at_prism_relay_for_capture) {
@@ -1798,27 +1819,51 @@ int main(int argc, char **argv) {
                                    argumentFloat(argc, argv, "--camera-target-y", 0.48f),
                                    argumentFloat(argc, argv, "--camera-target-z", -0.95f)}));
       if (construction_yard_capture) {
-        if (construction_yard_seat_capture) {
+        if (construction_yard_crane_capture) {
+          scripted_camera_target =
+              game.constructionCranePosition() + aster::Vec3{0.0f, 2.10f, -1.0f};
+        } else if (construction_yard_press_capture) {
+          scripted_camera_target =
+              game.constructionPressPosition() + aster::Vec3{-1.0f, 1.35f, -0.8f};
+        } else if (construction_yard_delivery_capture) {
+          scripted_camera_target =
+              game.constructionDeliveryRackPosition() + aster::Vec3{0.0f, 1.00f, 0.0f};
+        } else if (construction_yard_seat_capture) {
           scripted_camera_target =
               game.constructionForkliftPosition() + aster::Vec3{-0.42f, 1.20f, -0.20f};
         } else if (construction_yard_exit_capture) {
           scripted_camera_target = game.playerPosition() + aster::Vec3{0.0f, 0.42f, 0.0f};
         } else if (construction_yard_shred_capture) {
           scripted_camera_target =
-              game.constructionShredderPosition() + aster::Vec3{1.10f, 0.72f, -0.10f};
+              game.constructionShredderPosition() + aster::Vec3{0.0f, 1.55f, -0.45f};
         } else {
           scripted_camera_target =
-              (game.constructionForkliftPosition() + game.constructionPalletPosition() +
-               game.constructionShredderPosition()) /
-                  3.0f +
-              aster::Vec3{0.0f, 0.70f, 0.0f};
+              (game.constructionForkliftPosition() + game.constructionShredderPosition() +
+               game.constructionCranePosition() + game.constructionPressPosition()) /
+                  4.0f +
+              aster::Vec3{0.0f, 2.30f, 0.0f};
         }
       }
       float default_camera_pitch_deg = 28.0f;
       float default_camera_yaw_deg = -31.0f;
       float default_camera_radius = 7.8f;
       float default_camera_fov_deg = 54.0f;
-      if (construction_yard_seat_capture) {
+      if (construction_yard_crane_capture) {
+        default_camera_pitch_deg = 16.0f;
+        default_camera_yaw_deg = 140.0f;
+        default_camera_radius = 15.0f;
+        default_camera_fov_deg = 48.0f;
+      } else if (construction_yard_press_capture) {
+        default_camera_pitch_deg = 18.0f;
+        default_camera_yaw_deg = 92.0f;
+        default_camera_radius = 10.0f;
+        default_camera_fov_deg = 46.0f;
+      } else if (construction_yard_delivery_capture) {
+        default_camera_pitch_deg = 20.0f;
+        default_camera_yaw_deg = 112.0f;
+        default_camera_radius = 12.0f;
+        default_camera_fov_deg = 48.0f;
+      } else if (construction_yard_seat_capture) {
         default_camera_pitch_deg = 6.0f;
         default_camera_yaw_deg = -24.0f;
         default_camera_radius = 3.20f;
@@ -1829,14 +1874,14 @@ int main(int argc, char **argv) {
         default_camera_radius = 4.60f;
         default_camera_fov_deg = 46.0f;
       } else if (construction_yard_shred_capture) {
-        default_camera_pitch_deg = 9.0f;
-        default_camera_yaw_deg = 20.0f;
-        default_camera_radius = 6.00f;
+        default_camera_pitch_deg = 20.0f;
+        default_camera_yaw_deg = 132.0f;
+        default_camera_radius = 9.50f;
         default_camera_fov_deg = 46.0f;
       } else if (construction_yard_capture) {
-        default_camera_pitch_deg = 11.0f;
-        default_camera_yaw_deg = -62.0f;
-        default_camera_radius = 7.6f;
+        default_camera_pitch_deg = 20.0f;
+        default_camera_yaw_deg = -48.0f;
+        default_camera_radius = 24.0f;
         default_camera_fov_deg = 50.0f;
       } else if (cave_entry_capture) {
         default_camera_pitch_deg = 12.0f;
@@ -2221,20 +2266,29 @@ int main(int argc, char **argv) {
       if (cave_entry_capture) {
         scripted_camera_target = caveEntryCameraTarget(player, static_cast<float>(elapsed));
       } else if (construction_yard_capture) {
-        if (construction_yard_seat_capture) {
+        if (construction_yard_crane_capture) {
+          scripted_camera_target =
+              game.constructionCranePosition() + aster::Vec3{0.0f, 2.10f, -1.0f};
+        } else if (construction_yard_press_capture) {
+          scripted_camera_target =
+              game.constructionPressPosition() + aster::Vec3{-1.0f, 1.35f, -0.8f};
+        } else if (construction_yard_delivery_capture) {
+          scripted_camera_target =
+              game.constructionDeliveryRackPosition() + aster::Vec3{0.0f, 1.00f, 0.0f};
+        } else if (construction_yard_seat_capture) {
           scripted_camera_target =
               game.constructionForkliftPosition() + aster::Vec3{-0.42f, 1.20f, -0.20f};
         } else if (construction_yard_exit_capture) {
           scripted_camera_target = player + aster::Vec3{0.0f, 0.42f, 0.0f};
         } else if (construction_yard_shred_capture) {
           scripted_camera_target =
-              game.constructionShredderPosition() + aster::Vec3{1.10f, 0.72f, -0.10f};
+              game.constructionShredderPosition() + aster::Vec3{0.0f, 1.55f, -0.45f};
         } else {
           scripted_camera_target =
-              (game.constructionForkliftPosition() + game.constructionPalletPosition() +
-               game.constructionShredderPosition()) /
-                  3.0f +
-              aster::Vec3{0.0f, 0.70f, 0.0f};
+              (game.constructionForkliftPosition() + game.constructionShredderPosition() +
+               game.constructionCranePosition() + game.constructionPressPosition()) /
+                  4.0f +
+              aster::Vec3{0.0f, 2.30f, 0.0f};
         }
       } else if (classic_gauntlet_capture) {
         scripted_camera_target = game.classicGauntletLookTarget();
@@ -2270,7 +2324,7 @@ int main(int argc, char **argv) {
         camera.target = scripted_capture ? scripted_camera_target
                                          : aster::Vec3{player.x, player.y + 0.32f, player.z};
         if (scripted_capture) {
-          if (!cave_entry_capture) {
+          if (!cave_entry_capture && !construction_yard_capture) {
             camera.radius =
                 game.resolveCameraRadius(camera.target, camera.yaw, camera.pitch, camera.radius);
           }

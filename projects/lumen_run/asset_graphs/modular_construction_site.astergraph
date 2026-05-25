@@ -1,0 +1,47 @@
+astergraph asset_graph.lumen_run.modular_construction_site
+schema_version 1
+name "Lumen Run Modular Demolition Construction Site"
+material_id material.lumen_run.construction_site_steel
+surface_profile weathered-structural-metal
+primitive modular-construction-site
+uv_policy packed-industrial-yard
+tangent_policy validate-or-generate
+collision_proxy modular-terrain-pinned-work-units
+lod_policy lod0-lod1
+base_color 0.38 0.31 0.24
+roughness 0.62
+metallic 0.64
+param physical_texel_density 768
+param height_normal_coupling 0.62
+param roughness_height_coupling 0.60
+param macro_frequency_breakup 0.54
+param micro_frequency_breakup 0.46
+feature normal_map true
+preview environment lumen-remote-construction-yard
+preview rig construction-site-overview
+preview artifact /tmp/lumen_run_remote_construction_yard.ppm
+node mesh.site mesh_primitive role=mesh primitive=modular-construction-site width=15.6 depth=10.8 height=6.0 light_loads=16 heavy_beams=8
+node material.site material_assignment role=material slot=site.steel surface_profile=weathered-structural-metal
+node collision.proxy collision_proxy role=collision shape=modular-terrain-pinned-work-units triangles=384
+node lod.chain lod_generator role=lod policy=lod0-lod1 levels=2
+node gameplay.demolish prefab_variant role=prefab variant=forklift-impact-and-crane-beam-demolition
+node claim.scale visual_brief_claim role=quality signal=large_multilevel_construction_silhouette
+node claim.modules visual_brief_claim role=quality signal=removable_panels_and_heavy_beams
+node claim.grounded visual_brief_claim role=quality signal=terrain_pinned_vertical_column_contact
+node reject.raw visual_brief_rejection role=quality signal=raw_unsimplified_gltf_runtime_dependency
+node reject.float visual_brief_rejection role=quality signal=floating_structure
+node perception.template world_perceptual_template role=perceptual profile=demolition-construction-site surface_response=weathered-structural-metal history_response=impact-fracture-material-memory material_half_life_seconds=42 wetness_half_life_seconds=14 semantic_lod=0.88 streaming_cost=0.48 patch_channels=rusted_steel,impact_dents,material_stability contact_channels=terrain_pin_contact,forklift_impact,crane_hook residue_channels=sparks_dust,detached_metal,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mesh.site material.site material_slot
+edge mesh.site collision.proxy collision_source
+edge mesh.site lod.chain lod_source
+edge collision.proxy gameplay.demolish gameplay_trigger
+edge claim.scale diagnostic.quality visual_brief
+edge claim.modules diagnostic.quality visual_brief
+edge claim.grounded diagnostic.quality visual_brief
+edge reject.raw diagnostic.quality visual_brief
+edge reject.float diagnostic.quality visual_brief
+edge perception.template export.runtime perceptual_template
+edge lod.chain export.runtime runtime_lods
+edge diagnostic.quality export.runtime cook_report

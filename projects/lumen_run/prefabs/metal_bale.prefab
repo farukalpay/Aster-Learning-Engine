@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "prefab.lumen_run.metal_bale",
+  "name": "Pressed Metal Bale",
+  "entities": [
+    {
+      "id": "metal_bale.root",
+      "name": "Pressed Metal Bale Root",
+      "components": {
+        "transform": { "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 1.5708, 0.0] },
+        "mesh_renderer": { "mesh": "asset_graph.lumen_run.metal_bale", "material": "material.lumen_run.metal_bale" },
+        "collider": { "shape": "box", "half_extents": [0.70, 0.42, 0.90], "layer": "world.cargo" },
+        "rigid_body": { "type": "kinematic", "mass": 240.0, "gravity_enabled": false }
+      }
+    }
+  ]
+}

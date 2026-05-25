@@ -1,0 +1,42 @@
+astergraph asset_graph.lumen_run.hydraulic_press
+schema_version 1
+name "Lumen Run Hydraulic Scrap Press"
+material_id material.lumen_run.press_blue_metal
+surface_profile weathered-hydraulic-machine
+primitive hydraulic-press
+uv_policy packed-industrial-yard
+tangent_policy validate-or-generate
+collision_proxy static-press-bunker
+lod_policy lod0-lod1
+base_color 0.08 0.25 0.40
+roughness 0.57
+metallic 0.54
+param physical_texel_density 768
+param height_normal_coupling 0.62
+param roughness_height_coupling 0.58
+param macro_frequency_breakup 0.44
+param micro_frequency_breakup 0.40
+feature normal_map true
+preview environment lumen-remote-construction-yard
+preview rig hydraulic-press-button
+preview artifact /tmp/lumen_run_remote_press.ppm
+node mesh.press mesh_primitive role=mesh primitive=hydraulic-press width=2.8 length=3.6
+node material.press material_assignment role=material slot=press.blue_metal surface_profile=weathered-hydraulic-machine
+node collision.proxy collision_proxy role=collision shape=static-press-bunker triangles=128
+node gameplay.press prefab_variant role=prefab variant=manual-three-to-five-stroke-press
+node claim.ram visual_brief_claim role=quality signal=visible_hydraulic_ram_and_button
+node claim.scrap visual_brief_claim role=quality signal=loose_scrap_to_compacted_bale
+node claim.grounded visual_brief_claim role=quality signal=terrain_pinned_vertical_press_legs
+node reject.instant visual_brief_rejection role=quality signal=instant_invisible_compaction
+node perception.template world_perceptual_template role=perceptual profile=hydraulic-scrap-press surface_response=weathered-blue-metal history_response=manual-compaction-material-memory material_half_life_seconds=30 wetness_half_life_seconds=12 semantic_lod=0.86 streaming_cost=0.38 patch_channels=blue_paint,ram_oil_wear,material_stability contact_channels=operator_button,ram_stroke,leg_ground_contact residue_channels=loose_scrap,compacted_bale,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mesh.press material.press material_slot
+edge mesh.press collision.proxy collision_source
+edge collision.proxy gameplay.press gameplay_trigger
+edge claim.ram diagnostic.quality visual_brief
+edge claim.scrap diagnostic.quality visual_brief
+edge claim.grounded diagnostic.quality visual_brief
+edge reject.instant diagnostic.quality visual_brief
+edge perception.template export.runtime perceptual_template
+edge diagnostic.quality export.runtime cook_report

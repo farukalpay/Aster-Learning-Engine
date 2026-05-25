@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.lumen_run.press_blue_metal {
+  schema_version: 1
+  name: "Hydraulic Press Weathered Blue Metal"
+  shading_model: Unlit
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+  params {
+    base_color_r: 0.08
+    base_color_g: 0.25
+    base_color_b: 0.40
+    roughness: 0.57
+    metallic: 0.54
+    edge_wear: 0.52
+    ambient_occlusion: 0.83
+    macro_variation: 0.34
+    micro_normal_strength: 0.26
+    roughness_variation: 0.25
+    height_shading: 0.12
+  }
+  features {
+    procedural_surface: true
+    contact_shadows: true
+    hydraulic_oil_wear: true
+  }
+}

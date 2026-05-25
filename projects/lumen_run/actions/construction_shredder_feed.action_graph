@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "id": "action.construction.shredder.feed",
-  "name": "Feed Recycler Shredder",
+  "name": "Feed Visible Cutter Shredder",
   "nodes": [
     {
       "id": "feed_shredder",
       "type": "emit_event",
       "parameters": {
-        "event": "construction.shredder.feed_loaded_pallet",
+        "event": "construction.shredder.feed_metal_load",
         "shredder": "target"
       },
       "tags": ["interaction.vehicle", "construction_yard", "destruction_sequence"]
@@ -16,7 +16,7 @@
       "id": "emit_scrap",
       "type": "spawn_effect",
       "parameters": {
-        "effect": "sparks_dust_scrap_output",
+        "effect": "visible_cutter_sparks_dust_scrap_output",
         "asset": "asset_graph.lumen_run.shredded_metal_scrap"
       }
     }

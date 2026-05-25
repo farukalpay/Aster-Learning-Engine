@@ -845,7 +845,7 @@ void testLumenDeepCaveCaptureLightingContract() {
   setEnvFlag("ASTER_FORCE_NULL_RENDERER", false);
 
   aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
-  const float progress = 16.0f;
+  const float progress = 38.0f;
   const aster::Vec3 player_position = run.caveFrameReportPosition(progress);
   run.relocatePlayer(player_position, 0.0f);
   for (int i = 0; i < 4; ++i) {
@@ -928,7 +928,7 @@ void testLumenHeldTorchLightsDeepCaveAndReplaysDeterministically() {
     double max_source_readability = 0.0;
   };
 
-  const float progress = 24.0f;
+  const float progress = 38.0f;
   const auto prepare_run = [&](aster::LumenRun &run, const bool with_torch) {
     if (with_torch) {
       assert(run.takeChestItem("torch"));
@@ -1118,9 +1118,9 @@ void testLumenCaveTraversalAndLightingContracts() {
                              cleared_prompt.subject == "Rock"),
                            "cave transition exposed a rock prompt immediately after web mining");
 
-  const aster::Vec3 traversal_target = run.caveFrameReportPosition(16.0f);
+  const aster::Vec3 traversal_target = run.caveFrameReportPosition(38.0f);
   run.relocatePlayer(traversal_target + aster::Vec3{0.0f, 2.25f, 0.0f},
-                     run.caveFrameReportCameraYaw(16.0f));
+                     run.caveFrameReportCameraYaw(38.0f));
   const aster::Vec3 snapped_cave_position = run.playerPosition();
   require_lumen_transition(std::abs(snapped_cave_position.y - traversal_target.y) < 0.45f,
                            "player snapped to an upper terrain/roof surface instead of the cave floor");
@@ -1183,7 +1183,7 @@ void testLumenCaveTraversalAndLightingContracts() {
                                return_initial_distance - 3.0f,
                            "player could not backtrack through the cave connector");
 
-  const aster::Vec3 deep_chunk_target = run.caveFrameReportPosition(32.0f);
+  const aster::Vec3 deep_chunk_target = run.caveFrameReportPosition(42.0f);
   const auto planar_distance_to_deep_chunk = [&](const aster::Vec3 position) {
     const aster::Vec2 delta{deep_chunk_target.x - position.x, deep_chunk_target.z - position.z};
     return aster::length(delta);
@@ -1203,8 +1203,7 @@ void testLumenCaveTraversalAndLightingContracts() {
   require_lumen_transition(aster::length({deep_chunk_position.x, 0.0f, deep_chunk_position.z}) >
                                80.0f,
                            "deep cave traversal crossed the world-bounds guard and respawned");
-  require_lumen_transition(planar_distance_to_deep_chunk(deep_chunk_position) <
-                               deep_initial_distance - 12.0f,
+  require_lumen_transition(planar_distance_to_deep_chunk(deep_chunk_position) < 0.55f,
                            "deep cave traversal stopped on the wrong chunk support surface");
   require_lumen_transition(deep_chunk_position.y < web_approach_position.y - 1.25f,
                            "deep cave traversal climbed onto upper terrain instead of descending");
@@ -1351,6 +1350,32 @@ void testLumenClassicGauntletVisibleAndAutomapped() {
   assert(aster::length(left_door_after - right_door_after) >
          aster::length(left_door_before - right_door_before) + 0.25f);
   assert(!run.classicTransitionWipe().column_progress.empty());
+
+  const aster::Vec3 gauntlet_target = run.classicGauntletLookTarget();
+  const auto planar_distance_to_gauntlet_target = [&](const aster::Vec3 position) {
+    const aster::Vec2 delta{gauntlet_target.x - position.x, gauntlet_target.z - position.z};
+    return aster::length(delta);
+  };
+  const float initial_target_distance = planar_distance_to_gauntlet_target(run.playerPosition());
+  const float support_extent = aster::LumenTuning{}.player_height * 0.5f;
+  float max_foot_gap = 0.0f;
+  for (int frame = 0; frame < 360; ++frame) {
+    const aster::Vec3 position = run.playerPosition();
+    aster::Vec2 move_axis{gauntlet_target.x - position.x, gauntlet_target.z - position.z};
+    const float move_length = aster::length(move_axis);
+    if (move_length > 0.001f) {
+      move_axis = move_axis / move_length;
+    }
+    run.update(1.0f / 60.0f, move_axis, true, false);
+    const aster::Vec3 after = run.playerPosition();
+    const aster::Vec3 foot = after - aster::Vec3{0.0f, support_extent, 0.0f};
+    const aster::TerrainSurfaceSample support = run.debugSupportSample(foot, 0.55f, 2.80f);
+    assert(support.valid);
+    assert(support.normal.y > 0.22f);
+    max_foot_gap = std::max(max_foot_gap, std::abs(foot.y - support.height));
+  }
+  assert(planar_distance_to_gauntlet_target(run.playerPosition()) < initial_target_distance - 2.40f);
+  assert(max_foot_gap < 0.14f);
 }
 
 void testLumenConstructionYardPlacementAndAssets() {
@@ -1361,26 +1386,60 @@ void testLumenConstructionYardPlacementAndAssets() {
     return static_cast<std::size_t>(std::count_if(
         scene.objects().begin(), scene.objects().end(), [](const aster::RenderObject &object) {
           return object.name.find("Construction forklift") != std::string::npos ||
-                 object.name.find("Construction pipe pallet") != std::string::npos ||
+                 object.name.find("Modular construction site") != std::string::npos ||
                  object.name.find("Recycler shredder") != std::string::npos ||
+                 object.name.find("Mobile construction crane") != std::string::npos ||
+                 object.name.find("Hydraulic scrap press") != std::string::npos ||
+                 object.name.find("Pressed bale delivery rack") != std::string::npos ||
                  object.name.find("Shredded scrap output") != std::string::npos;
         }));
   };
 
   bool forklift_visible = false;
-  bool pallet_visible = false;
+  bool site_visible = false;
   bool shredder_visible = false;
+  bool open_cutters_visible = false;
+  bool shredder_drive_visible = false;
+  bool crane_visible = false;
+  bool crane_outrigger_visible = false;
+  bool press_visible = false;
+  bool press_ram_visible = false;
+  bool rack_visible = false;
   bool scrap_pool_present = false;
   bool treaded_forklift_tire_visible = false;
   bool forklift_wheel_rim_visible = false;
+  bool construction_service_road_visible = false;
+  bool construction_yard_pad_visible = false;
+  bool shredder_hopper_visible = false;
+  bool site_foundation_slab_visible = false;
+  bool site_ground_anchor_visible = false;
+  bool press_vertical_leg_visible = false;
   bool raw_runtime_dependency = false;
   for (const aster::RenderObject &object : run.scene().objects()) {
     forklift_visible = forklift_visible ||
                        object.name.find("Construction forklift") != std::string::npos;
-    pallet_visible =
-        pallet_visible || object.name.find("Construction pipe pallet") != std::string::npos;
+    site_visible = site_visible || object.name.find("Modular construction site") != std::string::npos;
     shredder_visible =
         shredder_visible || object.name.find("Recycler shredder") != std::string::npos;
+    open_cutters_visible = open_cutters_visible ||
+                           object.name.find("Recycler shredder") != std::string::npos &&
+                               object.name.find("cutter") != std::string::npos;
+    shredder_drive_visible = shredder_drive_visible ||
+                             object.name.find("Recycler shredder") != std::string::npos &&
+                                 (object.name.find("motor") != std::string::npos ||
+                                  object.name.find("gearbox") != std::string::npos);
+    crane_visible =
+        crane_visible || object.name.find("Mobile construction crane") != std::string::npos;
+    crane_outrigger_visible =
+        crane_outrigger_visible || object.name.find("Mobile construction crane") != std::string::npos &&
+                                      object.name.find("outrigger") != std::string::npos;
+    press_visible =
+        press_visible || object.name.find("Hydraulic scrap press") != std::string::npos;
+    press_ram_visible = press_ram_visible ||
+                        object.name.find("Hydraulic scrap press") != std::string::npos &&
+                            object.name.find("ram") != std::string::npos;
+    rack_visible =
+        rack_visible || object.name.find("Pressed bale delivery rack") != std::string::npos;
     scrap_pool_present =
         scrap_pool_present || object.name.find("Shredded scrap output") != std::string::npos;
     treaded_forklift_tire_visible =
@@ -1391,6 +1450,30 @@ void testLumenConstructionYardPlacementAndAssets() {
         forklift_wheel_rim_visible ||
         object.name.find("Construction forklift forklift left rear wheel steel rim") !=
             std::string::npos;
+    construction_service_road_visible =
+        construction_service_road_visible ||
+        object.name.find("Construction service road") != std::string::npos;
+    construction_yard_pad_visible =
+        construction_yard_pad_visible ||
+        object.name.find("Remote construction yard draped compacted gravel pad") !=
+            std::string::npos;
+    shredder_hopper_visible =
+        shredder_hopper_visible ||
+        (object.name.find("Recycler shredder") != std::string::npos &&
+         object.name.find("hopper") != std::string::npos);
+    site_foundation_slab_visible =
+        site_foundation_slab_visible ||
+        object.name.find("Modular construction site construction site concrete foundation") !=
+            std::string::npos;
+    site_ground_anchor_visible =
+        site_ground_anchor_visible ||
+        object.name.find(
+            "Modular construction site construction site vertical ground anchor column") !=
+            std::string::npos;
+    press_vertical_leg_visible =
+        press_vertical_leg_visible ||
+        object.name.find("Hydraulic scrap press hydraulic press vertical ground pin leg") !=
+            std::string::npos;
     raw_runtime_dependency = raw_runtime_dependency || object.name.find(".glb") != std::string::npos ||
                              object.name.find(".fbx") != std::string::npos ||
                              object.material_asset_id.find(".glb") != std::string::npos ||
@@ -1399,102 +1482,288 @@ void testLumenConstructionYardPlacementAndAssets() {
   assert(forklift_visible);
   assert(treaded_forklift_tire_visible);
   assert(forklift_wheel_rim_visible);
-  assert(pallet_visible);
+  assert(site_visible);
   assert(shredder_visible);
+  assert(open_cutters_visible);
+  assert(shredder_drive_visible);
+  assert(crane_visible);
+  assert(crane_outrigger_visible);
+  assert(press_visible);
+  assert(press_ram_visible);
+  assert(rack_visible);
   assert(scrap_pool_present);
+  assert(!construction_service_road_visible);
+  assert(!construction_yard_pad_visible);
+  assert(!shredder_hopper_visible);
+  assert(!site_foundation_slab_visible);
+  assert(site_ground_anchor_visible);
+  assert(press_vertical_leg_visible);
   assert(!raw_runtime_dependency);
-  assert(aster::length(run.constructionForkliftPosition() - run.constructionShredderPosition()) >
-         3.5f);
+  assert(run.constructionLightModuleCount() == 16);
+  assert(run.constructionHeavyModuleCount() == 8);
+  assert(run.constructionUnlockedHeavyModuleCount() == 0);
+  const aster::Vec3 rejected_cave_approach{35.2f, 0.0f, -54.8f};
+  const std::array<aster::Vec3, 5> remote_equipment = {
+      run.constructionForkliftPosition(), run.constructionShredderPosition(),
+      run.constructionCranePosition(), run.constructionPressPosition(),
+      run.constructionDeliveryRackPosition()};
+  for (const aster::Vec3 position : remote_equipment) {
+    assert(position.x < -45.0f);
+    assert(aster::length(position - rejected_cave_approach) > 70.0f);
+    const aster::TerrainSurfaceSample support =
+        run.debugSupportSample(position + aster::Vec3{0.0f, 0.40f, 0.0f}, 0.15f, 1.5f);
+    assert(support.valid);
+    assert(std::abs(position.y - support.height) < 0.35f);
+  }
   const std::size_t construction_object_count = count_construction_objects(run.scene());
   assert(construction_object_count > 0u);
-  assert(std::abs(run.constructionForkliftPosition().y -
-                  run.constructionShredderPosition().y) < 0.45f);
   run.reset();
   assert(count_construction_objects(run.scene()) == construction_object_count);
-  assert(std::abs(run.constructionForkliftPosition().y -
-                  run.constructionShredderPosition().y) < 0.45f);
+  assert(run.constructionLightModuleCount() == 16);
+  assert(run.constructionHeavyModuleCount() == 8);
   assert(run.sceneTraceReport().valid);
 }
 
-void testLumenConstructionForkliftPickupDropAndShredder() {
+aster::Vec2 lumenCaveEntryAxisForTest(const float seconds) {
+  if (seconds < 1.05f) {
+    return aster::normalize(aster::Vec2{0.64f, -0.76f});
+  }
+  if (seconds < 3.80f) {
+    return aster::normalize(aster::Vec2{0.14f, -0.99f});
+  }
+  if (seconds < 5.60f) {
+    return {0.0f, -0.78f};
+  }
+  return {};
+}
+
+bool lumenCaveEntryRunForTest(const float seconds) {
+  return seconds > 0.62f && seconds < 4.85f;
+}
+
+void testLumenCaveEntrySupportContinuityNoTeleport() {
   aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
-  const aster::Vec3 forklift = run.constructionForkliftPosition();
-  const float forklift_grounded_y = forklift.y;
-  run.relocatePlayer(forklift + aster::Vec3{-0.95f, 0.0f, -0.35f}, aster::radians(90.0f));
-  aster::Vec3 focus_origin = run.playerPosition() + aster::Vec3{0.0f, 0.62f, 0.0f};
-  run.updateInteractionFocus(focus_origin, aster::normalize(forklift - focus_origin),
-                             1.0f / 60.0f);
-  aster::FocusPromptModel prompt = run.focusPromptModel();
-  assert(prompt.visible);
-  assert(prompt.action == "Enter");
-  assert(prompt.subject == "Forklift");
-  run.interactFocused();
-  assert(run.constructionForkliftMounted());
-  run.update(1.0f / 60.0f, {0.0f, 0.0f}, false, false);
-  const aster::Vec3 mounted_forklift = run.constructionForkliftPosition();
-  const aster::Vec3 forklift_forward{
-      std::sin(aster::radians(90.0f)), 0.0f, std::cos(aster::radians(90.0f))};
-  run.update(1.0f / 60.0f, {0.0f, 1.0f}, false, false);
-  assert(aster::dot(run.constructionForkliftPosition() - mounted_forklift, forklift_forward) >
-         0.020f);
-  const aster::Vec3 forward_test_position = run.constructionForkliftPosition();
-  run.update(1.0f / 60.0f, {0.0f, -1.0f}, false, false);
-  assert(aster::dot(run.constructionForkliftPosition() - forward_test_position,
-                    forklift_forward) < -0.020f);
-  bool forklift_seated_pose = false;
-  const aster::Quat forklift_facing =
-      aster::axisAngle({0.0f, 1.0f, 0.0f}, aster::radians(90.0f));
-  const aster::Quat inverse_forklift_facing = aster::inverse(forklift_facing).value;
+  const aster::RenderObject *threshold = nullptr;
   for (const aster::RenderObject &object : run.scene().objects()) {
-    if (object.name == "left leg" || object.name == "right leg") {
-      const aster::Vec3 local_rotation =
-          aster::eulerXyz(inverse_forklift_facing * object.transform.rotation);
-      forklift_seated_pose = forklift_seated_pose || local_rotation.x > 0.55f;
+    if (object.name == "Walkable cave entrance threshold") {
+      threshold = &object;
+      break;
     }
   }
-  assert(forklift_seated_pose);
-  run.update(1.0f / 60.0f, {0.0f, 1.0f}, false, true);
-  assert(std::abs(run.constructionForkliftPosition().y - forklift_grounded_y) < 0.12f);
+  assert(threshold != nullptr);
+  assert(threshold->custom_mesh != nullptr);
+  assert(!threshold->custom_mesh->vertices.empty());
 
-  for (int i = 0; i < 8; ++i) {
-    run.update(1.0f / 60.0f, {0.0f, 0.0f}, false, true);
+  aster::Vec3 min = aster::transformPoint(threshold->transform,
+                                          threshold->custom_mesh->vertices.front().position);
+  aster::Vec3 max = min;
+  for (const aster::Vertex &vertex : threshold->custom_mesh->vertices) {
+    const aster::Vec3 p = aster::transformPoint(threshold->transform, vertex.position);
+    min.x = std::min(min.x, p.x);
+    min.y = std::min(min.y, p.y);
+    min.z = std::min(min.z, p.z);
+    max.x = std::max(max.x, p.x);
+    max.y = std::max(max.y, p.y);
+    max.z = std::max(max.z, p.z);
   }
-  assert(run.constructionPalletAttached());
 
-  focus_origin = run.playerPosition() + aster::Vec3{0.0f, 0.62f, 0.0f};
-  run.updateInteractionFocus(focus_origin,
-                             aster::normalize(run.constructionPalletPosition() - focus_origin),
+  const float x = (min.x + max.x) * 0.5f;
+  float reference_y = max.y + 0.22f;
+  aster::TerrainSurfaceSample previous{};
+  for (int i = 0; i <= 14; ++i) {
+    const float t = static_cast<float>(i) / 14.0f;
+    const float z = max.z + (min.z - max.z) * t;
+    const aster::TerrainSurfaceSample support =
+        run.debugSupportSample({x, reference_y, z}, 0.46f, 1.25f);
+    assert(support.valid);
+    assert(support.normal.y > 0.24f);
+    if (previous.valid) {
+      assert(std::abs(support.height - previous.height) < 0.34f);
+    }
+    previous = support;
+    reference_y = support.height + 0.18f;
+  }
+
+  const float support_extent = aster::LumenTuning{}.player_height * 0.5f;
+  const aster::Vec3 crate = run.supplyCratePosition();
+  run.relocatePlayer(crate + aster::Vec3{1.10f, 0.0f, 1.00f}, aster::radians(180.0f));
+  aster::Vec3 previous_position = run.playerPosition();
+  aster::TerrainSurfaceSample previous_route_support =
+      run.debugSupportSample(previous_position - aster::Vec3{0.0f, support_extent, 0.0f},
+                             0.55f, 2.80f);
+  assert(previous_route_support.valid);
+
+  float max_body_delta_y = 0.0f;
+  float max_body_drop = 0.0f;
+  float max_support_delta_y = 0.0f;
+  float max_foot_gap = 0.0f;
+  bool saw_cave_interior = false;
+  for (int frame = 0; frame < 480; ++frame) {
+    const float seconds = static_cast<float>(frame) / 60.0f;
+    run.update(1.0f / 60.0f, lumenCaveEntryAxisForTest(seconds),
+               lumenCaveEntryRunForTest(seconds), false);
+    const aster::Vec3 position = run.playerPosition();
+    const aster::Vec3 foot = position - aster::Vec3{0.0f, support_extent, 0.0f};
+    const aster::TerrainSurfaceSample support = run.debugSupportSample(foot, 0.55f, 2.80f);
+    assert(support.valid);
+    assert(support.normal.y > 0.22f);
+    max_body_delta_y = std::max(max_body_delta_y, std::abs(position.y - previous_position.y));
+    max_body_drop = std::max(max_body_drop, previous_position.y - position.y);
+    if (previous_route_support.valid) {
+      max_support_delta_y =
+          std::max(max_support_delta_y, std::abs(support.height - previous_route_support.height));
+    }
+    max_foot_gap = std::max(max_foot_gap, std::abs(foot.y - support.height));
+    saw_cave_interior =
+        saw_cave_interior || run.caveLightingStateAt(position).interior > 0.08f;
+    previous_position = position;
+    previous_route_support = support;
+  }
+
+  assert(saw_cave_interior);
+  assert(run.status().lives == 3);
+  assert(run.playerPosition().z < crate.z - 6.0f);
+  assert(max_body_delta_y < 0.08f);
+  assert(max_body_drop < 0.08f);
+  assert(max_support_delta_y < 0.08f);
+  assert(max_foot_gap < 0.115f);
+}
+
+void testLumenCaveSectionSeamContinuity() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  aster::TerrainSurfaceSample previous_support{};
+  aster::CaveLightingState previous_light{};
+  bool saw_previous_light = false;
+  for (int i = 0; i <= 64; ++i) {
+    const float progress = static_cast<float>(i) * 0.70f;
+    const aster::Vec3 player_position = run.caveFrameReportPosition(progress);
+    const aster::Vec3 foot = player_position - aster::Vec3{0.0f, aster::LumenTuning{}.player_height * 0.5f, 0.0f};
+    const aster::TerrainSurfaceSample support = run.debugSupportSample(foot, 0.50f, 1.35f);
+    assert(support.valid);
+    assert(support.normal.y > 0.24f);
+    if (previous_support.valid) {
+      const float support_delta = std::abs(support.height - previous_support.height);
+      assert(support_delta < 0.24f);
+    }
+    previous_support = support;
+
+    const aster::CaveLightingState light = run.caveLightingStateAt(player_position);
+    assert(light.interior >= 0.0f && light.interior <= 1.0f);
+    assert(light.wall_light >= 0.0f && light.wall_light <= 1.0f);
+    if (saw_previous_light) {
+      const float interior_delta = std::abs(light.interior - previous_light.interior);
+      const float wall_light_delta = std::abs(light.wall_light - previous_light.wall_light);
+      assert(interior_delta < 0.34f);
+      assert(wall_light_delta < 0.48f);
+    }
+    previous_light = light;
+    saw_previous_light = true;
+  }
+}
+
+void mountConstructionForkliftForTest(aster::LumenRun &run) {
+  const aster::Vec3 forklift = run.constructionForkliftPosition();
+  run.relocatePlayer(forklift + aster::Vec3{-0.95f, 0.0f, -0.35f}, aster::radians(90.0f));
+  const aster::Vec3 focus_origin = run.playerPosition() + aster::Vec3{0.0f, 0.62f, 0.0f};
+  run.updateInteractionFocus(focus_origin, aster::normalize(forklift - focus_origin),
                              1.0f / 60.0f);
-  prompt = run.focusPromptModel();
-  assert(prompt.visible);
-  assert(prompt.action == "Drop");
+  assert(run.focusPromptModel().visible);
   run.interactFocused();
-  assert(!run.constructionPalletAttached());
+  assert(run.constructionForkliftMounted());
+}
 
-  for (int i = 0; i < 34; ++i) {
-    run.update(1.0f / 60.0f, {0.0f, 0.0f}, false, true);
+void testLumenForkliftForwardLeftRightSteering() {
+  aster::LumenRun left_run({.shard_count = 3, .sentinel_count = 0});
+  mountConstructionForkliftForTest(left_run);
+  const float left_start_yaw = left_run.constructionForkliftYaw();
+  const aster::Vec3 left_start = left_run.constructionForkliftPosition();
+  for (int i = 0; i < 42; ++i) {
+    left_run.update(1.0f / 60.0f, {-1.0f, 1.0f}, false, false);
   }
-  assert(run.constructionPalletAttached());
+  const aster::Vec3 left_forward{std::sin(left_start_yaw), 0.0f, std::cos(left_start_yaw)};
+  const aster::Vec3 left_axis{left_forward.z, 0.0f, -left_forward.x};
+  assert(left_run.constructionForkliftYaw() > left_start_yaw + 0.010f);
+  assert(aster::dot(left_run.constructionForkliftPosition() - left_start, left_axis) > 0.010f);
 
-  for (int i = 0; i < 100; ++i) {
-    run.update(1.0f / 60.0f, {0.0f, 1.0f}, false, i < 28);
+  aster::LumenRun right_run({.shard_count = 3, .sentinel_count = 0});
+  mountConstructionForkliftForTest(right_run);
+  const float right_start_yaw = right_run.constructionForkliftYaw();
+  const aster::Vec3 right_start = right_run.constructionForkliftPosition();
+  for (int i = 0; i < 42; ++i) {
+    right_run.update(1.0f / 60.0f, {1.0f, 1.0f}, false, false);
   }
-  run.updateRenderInterpolation(1.0f);
-  assert(aster::length(run.playerRenderPosition() - run.playerPosition()) < 0.035f);
-  assert(run.constructionShredderActive() || run.constructionShredderConsumedPipeCount() > 0);
-  assert(run.constructionShredderConsumedPipeCount() > 0);
+  const aster::Vec3 right_forward{std::sin(right_start_yaw), 0.0f, std::cos(right_start_yaw)};
+  const aster::Vec3 right_left_axis{right_forward.z, 0.0f, -right_forward.x};
+  assert(right_run.constructionForkliftYaw() < right_start_yaw - 0.010f);
+  assert(aster::dot(right_run.constructionForkliftPosition() - right_start, right_left_axis) <
+         -0.010f);
+}
+
+void testLumenForkliftFourWheelSupport() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  mountConstructionForkliftForTest(run);
+  for (int i = 0; i < 140; ++i) {
+    run.update(1.0f / 60.0f, {i < 70 ? -0.35f : 0.30f, 1.0f}, false, false);
+  }
+  const std::array<aster::ConstructionForkliftWheelContact, 4> contacts =
+      run.constructionForkliftWheelContacts();
+  for (const aster::ConstructionForkliftWheelContact &contact : contacts) {
+    assert(contact.grounded);
+    assert(std::isfinite(contact.support_height));
+    assert(contact.normal.y > 0.20f);
+    assert(contact.wheel_center.y > contact.support_height + 0.18f);
+    assert(std::abs(contact.contact_point.y - contact.support_height) < 0.002f);
+  }
+  const aster::Vec3 attitude = run.constructionForkliftAttitude();
+  assert(std::abs(attitude.x) <= 0.19f);
+  assert(std::abs(attitude.z) <= 0.15f);
+}
+
+void testLumenConstructionDemolitionPressAndCraneLoop() {
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  assert(run.constructionDamagedLightModuleCount() == 0);
+  assert(run.constructionDetachedLightModuleCount() == 0);
+  assert(run.constructionUnlockedHeavyModuleCount() == 0);
+  mountConstructionForkliftForTest(run);
+  for (int frame = 0; frame < 132; ++frame) {
+    const float drive = frame < 8 ? 0.82f : (((frame / 14) % 2) == 0 ? 0.34f : -0.34f);
+    run.update(1.0f / 60.0f, {0.0f, drive}, false, frame < 30);
+  }
+  assert(run.constructionDamagedLightModuleCount() > 0);
+  assert(run.constructionDetachedLightModuleCount() > 0);
+  assert(run.constructionDetachedLightModuleCount() > 1);
   assert(run.constructionScrapFragmentCount() > 0u);
+  assert(run.constructionProcessedLoadCount() == 0);
+  assert(!run.constructionYardComplete());
 
-  const aster::Vec3 exit_focus = run.constructionForkliftPosition() + aster::Vec3{0.0f, 1.20f, 0.0f};
-  run.updateInteractionFocus(run.playerPosition() + aster::Vec3{0.0f, 0.42f, 0.0f},
-                             aster::normalize(exit_focus - run.playerPosition()),
-                             1.0f / 60.0f);
-  run.interactFocused();
-  assert(!run.constructionForkliftMounted());
-  run.update(1.0f / 60.0f, {0.0f, 0.0f}, false, false);
-  const float player_support = aster::LumenTuning{}.player_height * 0.5f;
-  const float player_foot_y = run.playerPosition().y - player_support;
-  assert(std::abs(player_foot_y - run.constructionForkliftPosition().y) < 0.34f);
+  aster::LumenRun press_run({.shard_count = 3, .sentinel_count = 0});
+  const aster::Vec3 press_button =
+      press_run.constructionPressPosition() + aster::Vec3{0.62f, 1.26f, 1.66f};
+  press_run.relocatePlayer(press_button + aster::Vec3{0.0f, 0.0f, -0.90f}, 0.0f);
+  aster::Vec3 focus_origin = press_run.playerPosition() + aster::Vec3{0.0f, 0.62f, 0.0f};
+  press_run.updateInteractionFocus(focus_origin, aster::normalize(press_button - focus_origin),
+                                   1.0f / 60.0f);
+  press_run.interactFocused();
+  assert(press_run.constructionPressPendingLoadCount() == 0);
+  assert(press_run.constructionPressStrokeCount() == 0);
+  assert(press_run.constructionBaleCount() == 0);
+
+  aster::LumenRun crane_run({.shard_count = 3, .sentinel_count = 0});
+  const aster::Vec3 crane_target =
+      crane_run.constructionCranePosition() + aster::Vec3{0.58f, 1.42f, -0.82f};
+  crane_run.relocatePlayer(crane_target + aster::Vec3{0.0f, 0.0f, 1.0f}, 0.0f);
+  focus_origin = crane_run.playerPosition() + aster::Vec3{0.0f, 0.62f, 0.0f};
+  crane_run.updateInteractionFocus(focus_origin, aster::normalize(crane_target - focus_origin),
+                                   1.0f / 60.0f);
+  assert(crane_run.focusPromptModel().visible);
+  assert(crane_run.focusPromptModel().subject == "Mobile Crane");
+  crane_run.interactFocused();
+  assert(crane_run.constructionCraneMounted());
+  crane_run.update(1.0f / 60.0f, {1.0f, 1.0f}, false, true);
+  crane_run.updateInteractionFocus(crane_run.playerPosition(), {0.0f, 0.0f, 1.0f},
+                                   1.0f / 60.0f);
+  crane_run.interactFocused();
+  assert(!crane_run.constructionCraneMounted());
 }
 
 } // namespace
@@ -1544,8 +1813,14 @@ int main(const int argc, const char **argv) {
        testLumenClassicGauntletVisibleAndAutomapped},
       {"lumen_construction_yard_placement_and_assets",
        testLumenConstructionYardPlacementAndAssets},
-      {"lumen_construction_forklift_pickup_drop_and_shredder",
-       testLumenConstructionForkliftPickupDropAndShredder},
+      {"lumen_cave_entry_support_continuity_no_teleport",
+       testLumenCaveEntrySupportContinuityNoTeleport},
+      {"lumen_cave_section_seam_continuity", testLumenCaveSectionSeamContinuity},
+      {"lumen_forklift_forward_left_right_steering",
+       testLumenForkliftForwardLeftRightSteering},
+      {"lumen_forklift_four_wheel_support", testLumenForkliftFourWheelSupport},
+      {"lumen_construction_demolition_press_and_crane_loop",
+       testLumenConstructionDemolitionPressAndCraneLoop},
   };
   bool ran = false;
   for (const NamedSampleTest &test : tests) {

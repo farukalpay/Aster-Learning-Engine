@@ -47,6 +47,11 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(findAsset(project.value, "prefab.supply_chest") != nullptr);
   assert(findAsset(project.value, "action.chest.open") != nullptr);
   assert(findAsset(project.value, "lesson.lumen_mining") != nullptr);
+  assert(findAsset(project.value, "prefab.lumen_run.modular_construction_site") != nullptr);
+  assert(findAsset(project.value, "prefab.lumen_run.mobile_crane") != nullptr);
+  assert(findAsset(project.value, "prefab.lumen_run.hydraulic_press") != nullptr);
+  assert(findAsset(project.value, "prefab.lumen_run.bale_delivery_rack") != nullptr);
+  assert(findAsset(project.value, "action.construction.press.stroke") != nullptr);
   const aster::sdk::ProjectAssetRef *memory_policy =
       findAsset(project.value, "memory.policy.lumen_mining");
   const aster::sdk::ProjectAssetRef *memory_benchmark =
@@ -62,20 +67,32 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(scene.value.entities.size() >= 7u);
   const aster::sdk::EntityDefinition *construction_forklift =
       findEntity(scene.value, "construction_forklift");
-  const aster::sdk::EntityDefinition *construction_pipe_pallet =
-      findEntity(scene.value, "construction_pipe_pallet");
+  const aster::sdk::EntityDefinition *modular_construction_site =
+      findEntity(scene.value, "modular_construction_site");
   const aster::sdk::EntityDefinition *recycler_shredder =
       findEntity(scene.value, "recycler_shredder");
+  const aster::sdk::EntityDefinition *mobile_crane = findEntity(scene.value, "mobile_crane");
+  const aster::sdk::EntityDefinition *hydraulic_press =
+      findEntity(scene.value, "hydraulic_press");
+  const aster::sdk::EntityDefinition *bale_delivery_rack =
+      findEntity(scene.value, "bale_delivery_rack");
   assert(construction_forklift != nullptr);
-  assert(construction_pipe_pallet != nullptr);
+  assert(findEntity(scene.value, "construction_pipe_pallet") == nullptr);
+  assert(modular_construction_site != nullptr);
   assert(recycler_shredder != nullptr);
+  assert(mobile_crane != nullptr);
+  assert(hydraulic_press != nullptr);
+  assert(bale_delivery_rack != nullptr);
   assert(construction_forklift->components.collider.has_value());
   assert(construction_forklift->components.interactable.has_value());
   assert(construction_forklift->components.perceptual_binding.has_value());
-  assert(construction_pipe_pallet->components.collider.has_value());
-  assert(construction_pipe_pallet->components.interactable.has_value());
+  assert(modular_construction_site->components.collider.has_value());
+  assert(modular_construction_site->components.perceptual_binding.has_value());
   assert(recycler_shredder->components.collider.has_value());
   assert(recycler_shredder->components.interactable.has_value());
+  assert(mobile_crane->components.interactable.has_value());
+  assert(hydraulic_press->components.interactable.has_value());
+  assert(bale_delivery_rack->components.interactable.has_value());
 
   const auto cave = aster::sdk::loadCaveDocument(project_root / "caves" / "cave_entry.cave");
   assert(cave.ok());

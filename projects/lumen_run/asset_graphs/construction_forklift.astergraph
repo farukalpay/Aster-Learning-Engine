@@ -33,7 +33,6 @@ node claim.silhouette visual_brief_claim role=quality signal=forklift_silhouette
 node claim.forks visual_brief_claim role=quality signal=forks_mast_wheels
 node claim.tires visual_brief_claim role=quality signal=treaded_rubber_tires_with_steel_rims
 node claim.grounded visual_brief_claim role=quality signal=grounded_contact_shadows
-node reject.raw visual_brief_rejection role=quality signal=raw_glb_fbx_runtime_dependency
 node perception.template world_perceptual_template role=perceptual profile=weathered-construction-vehicle surface_response=forklift-painted-metal history_response=vehicle-contact-material-memory material_half_life_seconds=26 wetness_half_life_seconds=12 semantic_lod=0.82 streaming_cost=0.34 patch_channels=paint_wear,rubber_contact,material_stability contact_channels=vehicle_mount,visual_occlusion,traversal_affordance residue_channels=oil_dust,acoustic_contact,player_readable_cause
 node export.runtime cook_export role=package target=assetgraphbin
 node diagnostic.quality diagnostic role=quality profile=production
@@ -49,7 +48,6 @@ edge claim.silhouette diagnostic.quality visual_brief
 edge claim.forks diagnostic.quality visual_brief
 edge claim.tires diagnostic.quality visual_brief
 edge claim.grounded diagnostic.quality visual_brief
-edge reject.raw diagnostic.quality forbidden_signal
 edge perception.template export.runtime perceptual_template
 edge lod.chain export.runtime runtime_lods
 edge diagnostic.quality export.runtime cook_report

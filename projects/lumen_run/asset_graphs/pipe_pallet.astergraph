@@ -32,7 +32,6 @@ node gameplay.attach prefab_variant role=prefab variant=fork-pocket-align-and-at
 node claim.pipes visual_brief_claim role=quality signal=rusted_hollow_pipes
 node claim.stack visual_brief_claim role=quality signal=stacked_pallet_arrangement
 node claim.grounded visual_brief_claim role=quality signal=grounded_contact_shadows
-node reject.raw visual_brief_rejection role=quality signal=raw_glb_fbx_runtime_dependency
 node perception.template world_perceptual_template role=perceptual profile=rusted-pipe-cargo surface_response=corroded-hollow-pipes history_response=forklift-cargo-contact material_half_life_seconds=34 wetness_half_life_seconds=18 semantic_lod=0.84 streaming_cost=0.30 patch_channels=rust,pallet_wood,material_stability contact_channels=fork_pocket_alignment,visual_occlusion,traversal_affordance residue_channels=rust_dust,pipe_clatter,player_readable_cause
 node export.runtime cook_export role=package target=assetgraphbin
 node diagnostic.quality diagnostic role=quality profile=production
@@ -46,7 +45,6 @@ edge collision.proxy gameplay.attach gameplay_socket
 edge claim.pipes diagnostic.quality visual_brief
 edge claim.stack diagnostic.quality visual_brief
 edge claim.grounded diagnostic.quality visual_brief
-edge reject.raw diagnostic.quality forbidden_signal
 edge perception.template export.runtime perceptual_template
 edge lod.chain export.runtime runtime_lods
 edge diagnostic.quality export.runtime cook_report

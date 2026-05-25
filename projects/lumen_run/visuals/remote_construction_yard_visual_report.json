@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "asset_id": "asset_graph.lumen_run.modular_construction_site",
+  "reference_images_used": [
+    "/Users/farukalpay/Downloads/construction_site_building_site_architecture/scene.gltf",
+    "/Users/farukalpay/Downloads/construction_site_building_site_architecture/textures/20250116_001_RC_LOD0_u0_v0_baseColor.png",
+    "/Users/farukalpay/Downloads/projeto maquina de moagem/Screenshot 2025-02-15 111712.png",
+    "/Users/farukalpay/Downloads/projeto maquina de moagem/Screenshot 2025-02-16 174140.png",
+    "/Users/farukalpay/Downloads/projeto maquina de moagem/Screenshot 2025-02-16 174728.png",
+    "/Users/farukalpay/Downloads/projeto maquina de moagem/Maquina com suporte.jpeg",
+    "/Users/farukalpay/Desktop/Screenshot 2026-05-25 at 14.26.09.png"
+  ],
+  "source_provenance": {
+    "construction_gltf": {
+      "role": "scale_silhouette_and_material_reference_only",
+      "runtime_dependency": false,
+      "texture_derivative_used": false,
+      "license_policy": "Retain the upstream CC-BY-4.0 attribution in asset metadata before any future texture derivative is shipped."
+    },
+    "shredder_solidworks_media": {
+      "role": "visible_mechanical_contract_reference_only",
+      "direct_import": false,
+      "required_visible_components": [
+        "open_cutter_intake",
+        "counter_rotating_cutters",
+        "motor",
+        "gearbox",
+        "chain_sprocket_drive",
+        "output_chute"
+      ]
+    }
+  },
+  "candidate_artifacts": [
+    "asset_graphs/modular_construction_site.astergraph",
+    "asset_graphs/mobile_crane.astergraph",
+    "asset_graphs/recycler_shredder.astergraph",
+    "asset_graphs/hydraulic_press.astergraph",
+    "asset_graphs/metal_bale.astergraph",
+    "asset_graphs/bale_delivery_rack.astergraph",
+    "/tmp/lumen_run_remote_construction_yard.ppm",
+    "/tmp/lumen_run_construction_yard.ppm",
+    "/tmp/lumen_run_remote_crane.ppm",
+    "/tmp/lumen_run_remote_press.ppm",
+    "/tmp/lumen_run_remote_delivery.ppm"
+  ],
+  "required_visual_signals": [
+    "terrain_pinned_machine_supports_without_square_yard_pad",
+    "readable_approximately_six_meter_demolition_structure_scale",
+    "open_visible_shredder_cutters_and_drive",
+    "deployed_crane_outriggers_and_hook",
+    "separate_hydraulic_press_with_operator_button",
+    "marked_forklift_bale_delivery_rack",
+    "visible_loose_metal_output"
+  ],
+  "forbidden_visual_signals": [
+    "construction_entities_at_cave_entrance_or_main_path",
+    "floating_machine_or_structure_supports",
+    "square_floating_construction_yard_pad",
+    "visible_service_path_to_construction_yard",
+    "closed_featureless_shredder_box",
+    "oversized_occluding_hopper_guard",
+    "vanishing_feed_load",
+    "raw_gltf_runtime_dependency"
+  ],
+  "claimed_signals": [
+    "The runtime yard is centered near (-65, -35) with no draped square pad and no authored service path from the cave route.",
+    "The modular steel structure exposes sixteen forklift impact modules and eight crane-only roof beam packages on terrain-pinned vertical columns instead of a concrete slab.",
+    "The shredder removes the oversized guard hopper and keeps the open cutters, motor, gearbox, sprockets, chain runs, cable and output chute visible.",
+    "The hydraulic scrap press uses vertical ground pin legs and foot pads so it reads as anchored on uneven terrain instead of floating on a flat base.",
+    "The separate press supports player-triggered three, four and five stroke compaction depending on early or full bunker use.",
+    "When a lower light module is removed, the matching upper light module detaches, falls to terrain under gravity, and remains forklift-pickable for shredding.",
+    "Only Aster-native meshes and materials are used at runtime; provided GLTF and SolidWorks media are visual/provenance references."
+  ],
+  "review": {
+    "status": "accepted_for_runtime_iteration",
+    "missing_required": [],
+    "present_forbidden": [],
+    "preview_artifact": "/tmp/lumen_run_remote_construction_yard.ppm",
+    "supporting_previews": [
+      "/tmp/lumen_run_construction_yard.ppm",
+      "/tmp/lumen_run_remote_crane.ppm",
+      "/tmp/lumen_run_remote_press.ppm",
+      "/tmp/lumen_run_remote_delivery.ppm"
+    ]
+  }
+}

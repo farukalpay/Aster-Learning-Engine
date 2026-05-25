@@ -153,29 +153,6 @@ void appendQuad(CpuMesh &mesh, const Vec3 a, const Vec3 b, const Vec3 c, const V
   return mesh;
 }
 
-[[nodiscard]] CpuMesh makeTaperedHopperMesh() {
-  CpuMesh mesh;
-  const float y0 = -0.50f;
-  const float y1 = 0.50f;
-  const float bottom_x = 0.50f;
-  const float bottom_z = 0.34f;
-  const float top_x = 0.96f;
-  const float top_z = 0.70f;
-  const Vec3 b0{-bottom_x, y0, -bottom_z};
-  const Vec3 b1{bottom_x, y0, -bottom_z};
-  const Vec3 b2{bottom_x, y0, bottom_z};
-  const Vec3 b3{-bottom_x, y0, bottom_z};
-  const Vec3 t0{-top_x, y1, -top_z};
-  const Vec3 t1{top_x, y1, -top_z};
-  const Vec3 t2{top_x, y1, top_z};
-  const Vec3 t3{-top_x, y1, top_z};
-  appendQuad(mesh, b0, b1, t1, t0);
-  appendQuad(mesh, b1, b2, t2, t1);
-  appendQuad(mesh, b2, b3, t3, t2);
-  appendQuad(mesh, b3, b0, t0, t3);
-  return mesh;
-}
-
 [[nodiscard]] CpuMesh makeToothMesh() {
   CpuMesh mesh;
   const Vec3 a{-0.08f, -0.18f, -0.06f};
@@ -188,6 +165,18 @@ void appendQuad(CpuMesh &mesh, const Vec3 a, const Vec3 b, const Vec3 c, const V
   appendTriangle(mesh, c, d, tip, {0.0f, 0.0f}, {1.0f, 0.0f}, {0.5f, 1.0f});
   appendTriangle(mesh, d, a, tip, {0.0f, 0.0f}, {1.0f, 0.0f}, {0.5f, 1.0f});
   appendQuad(mesh, d, c, b, a);
+  return mesh;
+}
+
+[[nodiscard]] CpuMesh makeFramedDemolitionPanelMesh() {
+  CpuMesh mesh;
+  const CpuMesh box = makeBox();
+  appendMesh(mesh, box, {-0.44f, 0.0f, 0.0f}, {}, {0.12f, 1.0f, 0.86f});
+  appendMesh(mesh, box, {0.44f, 0.0f, 0.0f}, {}, {0.12f, 1.0f, 0.86f});
+  appendMesh(mesh, box, {0.0f, -0.44f, 0.0f}, {}, {0.88f, 0.12f, 0.86f});
+  appendMesh(mesh, box, {0.0f, 0.44f, 0.0f}, {}, {0.88f, 0.12f, 0.86f});
+  appendMesh(mesh, box, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -0.68f},
+             {0.10f, 1.12f, 0.72f});
   return mesh;
 }
 
@@ -283,36 +272,64 @@ AsterConstructionYardAsset makeAsterRecyclerShredderAsset(AsterRecyclerShredderS
   AsterConstructionYardAsset asset;
   asset.asset_id = std::move(spec.asset_id);
   const CpuMesh box = makeBox();
-  const CpuMesh hopper = makeTaperedHopperMesh();
-  const CpuMesh drum = makeCylinder(20, 0.26f, 1.18f);
+  const CpuMesh drum = makeCylinder(24, 0.34f, 1.86f);
+  const CpuMesh shaft = makeCylinderX(18, 0.17f, 2.68f);
+  const CpuMesh sprocket = makeCylinderX(20, 0.34f, 0.10f);
+  const CpuMesh motor = makeCylinderX(24, 0.36f, 1.02f);
   const CpuMesh tooth = makeToothMesh();
 
-  addPart(asset, "recycler shredder blue chamber", "shredder.blue_metal", box,
-          {0.0f, 0.84f, 0.0f}, {}, {spec.width, spec.chamber_height, spec.length * 0.54f});
-  addPart(asset, "recycler shredder flared hopper", "shredder.blue_metal", hopper,
-          {0.0f, 1.70f, -0.42f}, {}, {1.18f, 1.04f, 1.18f});
-  addPart(asset, "recycler shredder left drum", "shredder.steel", drum, {-0.32f, 0.98f, -0.38f},
-          {kPi * 0.5f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f});
-  addPart(asset, "recycler shredder right drum", "shredder.steel", drum, {0.32f, 0.98f, -0.38f},
-          {kPi * 0.5f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f});
-  for (int i = 0; i < 10; ++i) {
-    const float z = -0.92f + static_cast<float>(i) * 0.12f;
-    addPart(asset, "recycler shredder interlocking tooth " + std::to_string(i),
-            "shredder.steel", tooth,
-            {i % 2 == 0 ? -0.31f : 0.31f, 1.24f - static_cast<float>(i % 2) * 0.11f, z},
-            {0.0f, 0.0f, i % 2 == 0 ? 0.0f : kPi}, {1.15f, 1.15f, 1.15f});
+  addPart(asset, "recycler shredder grounded skid left", "shredder.steel", box,
+          {-0.94f, 0.10f, 0.12f}, {}, {0.18f, 0.20f, spec.length});
+  addPart(asset, "recycler shredder grounded skid right", "shredder.steel", box,
+          {0.94f, 0.10f, 0.12f}, {}, {0.18f, 0.20f, spec.length});
+  for (const float x : {-1.02f, 1.02f}) {
+    addPart(asset, "recycler shredder welded support leg", "shredder.blue_metal", box,
+            {x, 0.63f, -1.42f}, {}, {0.16f, 1.06f, 0.16f});
+    addPart(asset, "recycler shredder welded support leg", "shredder.blue_metal", box,
+            {x, 0.63f, 0.72f}, {}, {0.16f, 1.06f, 0.16f});
   }
+  addPart(asset, "recycler shredder open cutting tray left wall", "shredder.blue_metal", box,
+          {-1.04f, 1.19f, -0.56f}, {}, {0.14f, 0.62f, 2.42f});
+  addPart(asset, "recycler shredder open cutting tray right wall", "shredder.blue_metal", box,
+          {1.04f, 1.19f, -0.56f}, {}, {0.14f, 0.62f, 2.42f});
+  addPart(asset, "recycler shredder low open feed lip", "shredder.steel", box,
+          {0.0f, 1.05f, -1.82f}, {}, {1.62f, 0.10f, 0.16f});
+  addPart(asset, "recycler shredder left cutter shaft", "shredder.steel", shaft,
+          {-0.43f, 1.30f, -0.54f});
+  addPart(asset, "recycler shredder right cutter shaft", "shredder.steel", shaft,
+          {0.43f, 1.30f, -0.54f});
+  addPart(asset, "recycler shredder left cutter drum", "shredder.steel", drum,
+          {-0.43f, 1.30f, -0.54f}, {kPi * 0.5f, 0.0f, 0.0f});
+  addPart(asset, "recycler shredder right cutter drum", "shredder.steel", drum,
+          {0.43f, 1.30f, -0.54f}, {kPi * 0.5f, 0.0f, 0.0f});
+  for (int i = 0; i < 20; ++i) {
+    const float z = -1.36f + static_cast<float>(i / 2) * 0.18f;
+    const float x = i % 2 == 0 ? -0.43f : 0.43f;
+    addPart(asset, "recycler shredder visible counter rotating cutter tooth " + std::to_string(i),
+            "shredder.steel", tooth, {x, 1.60f, z},
+            {0.0f, 0.0f, i % 2 == 0 ? 0.0f : kPi}, {1.55f, 1.55f, 1.55f});
+  }
+  addPart(asset, "recycler shredder exposed drive gearbox", "shredder.blue_metal", box,
+          {1.50f, 1.10f, -0.22f}, {}, {0.72f, 0.82f, 0.72f});
+  addPart(asset, "recycler shredder exposed drive motor", "shredder.blue_metal", motor,
+          {1.84f, 0.74f, 0.88f});
+  addPart(asset, "recycler shredder left chain sprocket", "shredder.hazard", sprocket,
+          {1.24f, 1.30f, -0.92f});
+  addPart(asset, "recycler shredder motor chain sprocket", "shredder.hazard", sprocket,
+          {1.24f, 0.82f, 0.72f}, {}, {0.70f, 0.70f, 0.70f});
+  addPart(asset, "recycler shredder visible chain upper run", "shredder.steel", box,
+          {1.29f, 1.50f, -0.10f}, {0.0f, 0.0f, -0.22f}, {0.08f, 0.08f, 1.72f});
+  addPart(asset, "recycler shredder visible chain lower run", "shredder.steel", box,
+          {1.29f, 0.72f, -0.10f}, {0.0f, 0.0f, -0.22f}, {0.08f, 0.08f, 1.72f});
+  addPart(asset, "recycler shredder motor power cable", "shredder.rubber", box,
+          {1.95f, 0.34f, 1.02f}, {0.0f, 0.0f, 0.34f}, {0.045f, 0.70f, 0.045f});
   addPart(asset, "recycler shredder output chute", "shredder.blue_metal", box,
-          {0.0f, 0.58f, 1.62f}, {-7.0f * kPi / 180.0f, 0.0f, 0.0f},
-          {1.02f, 0.22f, 1.50f});
+          {0.0f, 0.68f, 1.64f}, {-7.0f * kPi / 180.0f, 0.0f, 0.0f},
+          {1.32f, 0.25f, 1.86f});
   addPart(asset, "recycler shredder yellow hazard panel left", "shredder.hazard", box,
-          {-0.82f, 1.10f, -0.15f}, {}, {0.035f, 0.40f, 0.54f});
+          {-1.12f, 1.35f, -0.12f}, {}, {0.035f, 0.46f, 0.72f});
   addPart(asset, "recycler shredder yellow hazard panel right", "shredder.hazard", box,
-          {0.82f, 1.10f, -0.15f}, {}, {0.035f, 0.40f, 0.54f});
-  addPart(asset, "recycler shredder skid left", "shredder.steel", box, {-0.58f, 0.095f, 0.06f},
-          {}, {0.18f, 0.18f, 2.72f});
-  addPart(asset, "recycler shredder skid right", "shredder.steel", box, {0.58f, 0.095f, 0.06f},
-          {}, {0.18f, 0.18f, 2.72f});
+          {1.12f, 1.35f, -0.12f}, {}, {0.035f, 0.46f, 0.72f});
   return asset;
 }
 
@@ -368,6 +385,154 @@ AsterConstructionYardAsset makeAsterShreddedMetalScrapAsset(AsterScrapShardSpec 
   return asset;
 }
 
+AsterConstructionYardAsset makeAsterModularConstructionSiteAsset(AsterConstructionSiteSpec spec) {
+  AsterConstructionYardAsset asset;
+  asset.asset_id = std::move(spec.asset_id);
+  const CpuMesh box = makeBox();
+  const CpuMesh framed_panel = makeFramedDemolitionPanelMesh();
+  const float x = spec.width * 0.5f;
+  const float z = spec.depth * 0.5f;
+  constexpr float module_height = 2.54f;
+  for (int face = 0; face < 2; ++face) {
+    const float face_z = face == 0 ? z - 0.40f : -z + 0.40f;
+    for (int column = 0; column <= 4; ++column) {
+      const float column_x = -x + 0.28f + static_cast<float>(column) * 3.05f;
+      addPart(asset, "construction site terrain foot pad", "site.concrete", box,
+              {column_x, 0.035f, face_z}, {}, {0.72f, 0.07f, 0.72f});
+      addPart(asset, "construction site vertical ground anchor column", "site.steel", box,
+              {column_x, spec.height * 0.5f, face_z}, {}, {0.16f, spec.height, 0.16f});
+    }
+  }
+  for (int i = 0; i < 16; ++i) {
+    const int tier = i / 8;
+    const int face = (i % 8) / 4;
+    const int bay = i % 4;
+    const Vec3 position = {-x + 1.54f + static_cast<float>(bay) * 3.05f,
+                           module_height * 0.5f + static_cast<float>(tier) * module_height,
+                           face == 0 ? z - 0.40f : -z + 0.40f};
+    addPart(asset, "demolition light module " + std::to_string(i), "site.panel", framed_panel,
+            position, {}, {2.52f, 2.54f, 0.20f});
+  }
+  for (int i = 0; i < 8; ++i) {
+    const int face = i / 4;
+    const int bay = i % 4;
+    addPart(asset, "demolition heavy beam " + std::to_string(i), "site.steel", box,
+            {-x + 1.54f + static_cast<float>(bay) * 3.05f, spec.height - 0.40f,
+             face == 0 ? z - 0.40f : -z + 0.40f},
+            {}, {2.76f, 0.28f, 0.34f});
+  }
+  addPart(asset, "construction site scaffold stair landing", "site.steel", box,
+          {-x - 0.72f, 1.28f, z - 1.22f}, {}, {1.26f, 0.12f, 2.60f});
+  for (const float leg_z : {z - 2.36f, z - 0.08f}) {
+    addPart(asset, "construction site scaffold vertical ground pin", "site.steel", box,
+            {-x - 0.72f, 0.64f, leg_z}, {}, {0.10f, 1.28f, 0.10f});
+  }
+  addPart(asset, "construction site safety rail", "site.hazard", box,
+          {-x - 0.72f, 2.02f, z - 2.20f}, {}, {1.26f, 0.10f, 0.10f});
+  return asset;
+}
+
+AsterConstructionYardAsset makeAsterMobileCraneAsset(AsterMobileCraneSpec spec) {
+  AsterConstructionYardAsset asset;
+  asset.asset_id = std::move(spec.asset_id);
+  const CpuMesh box = makeBox();
+  const CpuMesh tire = makeForkliftTireMesh(20, 0.56f, 0.29f, 0.38f);
+  addPart(asset, "mobile crane wheeled chassis", "crane.paint", box, {0.0f, 0.62f, 0.0f}, {},
+          {2.34f, 0.46f, 4.70f});
+  addPart(asset, "mobile crane operator cab", "crane.paint", box, {-0.58f, 1.50f, 0.86f}, {},
+          {0.92f, 1.22f, 1.28f});
+  for (const float x : {-1.22f, 1.22f}) {
+    for (const float z : {-1.36f, 1.36f}) {
+      addPart(asset, "mobile crane rubber road wheel", "crane.rubber", tire, {x, 0.54f, z}, {},
+              {0.86f, 0.86f, 0.86f});
+      addPart(asset, "mobile crane deployed outrigger", "crane.steel", box,
+              {x * 1.55f, 0.20f, z}, {}, {1.22f, 0.12f, 0.16f});
+      addPart(asset, "mobile crane grounded outrigger pad", "crane.hazard", box,
+              {x * 1.98f, 0.08f, z}, {}, {0.54f, 0.12f, 0.54f});
+    }
+  }
+  addPart(asset, "mobile crane rotating turret", "crane.steel", box, {0.0f, 1.08f, -0.62f}, {},
+          {1.48f, 0.34f, 1.36f});
+  addPart(asset, "mobile crane telescopic boom", "crane.paint", box,
+          {0.0f, spec.boom_height, -spec.boom_length * 0.33f}, {-0.60f, 0.0f, 0.0f},
+          {0.42f, 0.42f, spec.boom_length});
+  addPart(asset, "mobile crane hanging cable", "crane.cable", box,
+          {0.0f, 3.15f, -spec.boom_length * 0.77f}, {}, {0.045f, 3.10f, 0.045f});
+  addPart(asset, "mobile crane lifting hook", "crane.hazard", box,
+          {0.0f, 1.56f, -spec.boom_length * 0.77f}, {}, {0.30f, 0.34f, 0.12f});
+  return asset;
+}
+
+AsterConstructionYardAsset makeAsterHydraulicPressAsset(AsterHydraulicPressSpec spec) {
+  AsterConstructionYardAsset asset;
+  asset.asset_id = std::move(spec.asset_id);
+  const CpuMesh box = makeBox();
+  const CpuMesh cylinder = makeCylinder(20, 0.22f, 1.18f);
+  addPart(asset, "hydraulic press left raised side rail", "press.steel", box,
+          {-spec.width * 0.43f, 0.46f, 0.0f}, {}, {0.18f, 0.18f, spec.length});
+  addPart(asset, "hydraulic press right raised side rail", "press.steel", box,
+          {spec.width * 0.43f, 0.46f, 0.0f}, {}, {0.18f, 0.18f, spec.length});
+  addPart(asset, "hydraulic press front raised cross rail", "press.steel", box,
+          {0.0f, 0.46f, -spec.length * 0.43f}, {}, {spec.width, 0.16f, 0.16f});
+  addPart(asset, "hydraulic press rear raised cross rail", "press.steel", box,
+          {0.0f, 0.46f, spec.length * 0.43f}, {}, {spec.width, 0.16f, 0.16f});
+  for (const float leg_x : {-spec.width * 0.42f, spec.width * 0.42f}) {
+    for (const float leg_z : {-spec.length * 0.40f, spec.length * 0.40f}) {
+      addPart(asset, "hydraulic press vertical ground pin leg", "press.steel", box,
+              {leg_x, 0.24f, leg_z}, {}, {0.18f, 0.48f, 0.18f});
+      addPart(asset, "hydraulic press terrain foot pad", "press.steel", box,
+              {leg_x, 0.035f, leg_z}, {}, {0.46f, 0.07f, 0.46f});
+    }
+  }
+  addPart(asset, "hydraulic press bunker left wall", "press.blue_metal", box,
+          {-spec.width * 0.47f, 0.82f, -0.10f}, {}, {0.12f, 1.38f, spec.length});
+  addPart(asset, "hydraulic press bunker right wall", "press.blue_metal", box,
+          {spec.width * 0.47f, 0.82f, -0.10f}, {}, {0.12f, 1.38f, spec.length});
+  addPart(asset, "hydraulic press ram carriage", "press.hazard", box, {0.0f, 1.02f, 1.05f}, {},
+          {spec.width * 0.78f, 0.78f, 0.22f});
+  addPart(asset, "hydraulic press piston left", "press.steel", cylinder, {-0.72f, 1.55f, 1.38f},
+          {kPi * 0.5f, 0.0f, 0.0f});
+  addPart(asset, "hydraulic press piston right", "press.steel", cylinder, {0.72f, 1.55f, 1.38f},
+          {kPi * 0.5f, 0.0f, 0.0f});
+  addPart(asset, "hydraulic press operator button pedestal", "press.blue_metal", box,
+          {-1.66f, 0.68f, 0.62f}, {}, {0.34f, 1.08f, 0.34f});
+  addPart(asset, "hydraulic press illuminated button", "press.hazard", box,
+          {-1.66f, 1.26f, 0.62f}, {}, {0.20f, 0.10f, 0.20f});
+  addPart(asset, "hydraulic press loose scrap bunker fill", "press.scrap", box,
+          {0.0f, 0.38f, -0.54f}, {}, {spec.width * 0.72f, 0.36f, 1.42f});
+  return asset;
+}
+
+AsterConstructionYardAsset makeAsterMetalBaleAsset(AsterMetalBaleSpec spec) {
+  AsterConstructionYardAsset asset;
+  asset.asset_id = std::move(spec.asset_id);
+  const CpuMesh box = makeBox();
+  const float scale = std::clamp(spec.fill, 0.35f, 1.0f);
+  addPart(asset, "pressed metal bale compacted body", "bale.scrap", box, {0.0f, 0.38f, 0.0f},
+          {}, {1.04f * scale, 0.72f, 1.18f * scale});
+  for (int i = 0; i < 3; ++i) {
+    addPart(asset, "pressed metal bale binding strap", "bale.strap", box,
+            {-0.34f + static_cast<float>(i) * 0.34f, 0.39f, 0.0f}, {},
+            {0.045f, 0.76f, 1.24f * scale});
+  }
+  return asset;
+}
+
+AsterConstructionYardAsset makeAsterDeliveryRackAsset(AsterDeliveryRackSpec spec) {
+  AsterConstructionYardAsset asset;
+  asset.asset_id = std::move(spec.asset_id);
+  const CpuMesh box = makeBox();
+  addPart(asset, "bale delivery rack grounded platform", "rack.steel", box, {0.0f, 0.10f, 0.0f},
+          {}, {6.60f, 0.20f, 4.40f});
+  for (int row = 0; row < 3; ++row) {
+    addPart(asset, "bale delivery rack painted divider", "rack.hazard", box,
+            {-2.20f + static_cast<float>(row) * 2.20f, 0.30f, 0.0f}, {}, {0.06f, 0.40f, 4.10f});
+  }
+  addPart(asset, "bale delivery rack back stop", "rack.steel", box, {0.0f, 0.62f, 2.06f}, {},
+          {6.60f, 1.02f, 0.10f});
+  return asset;
+}
+
 CpuMesh makeAsterConstructionForkliftMesh(AsterConstructionForkliftSpec spec) {
   return makeAsterConstructionForkliftAsset(std::move(spec)).mergedRenderMesh();
 }
@@ -382,6 +547,26 @@ CpuMesh makeAsterPipePalletMesh(AsterPipePalletSpec spec) {
 
 CpuMesh makeAsterShreddedMetalScrapMesh(AsterScrapShardSpec spec) {
   return makeAsterShreddedMetalScrapAsset(std::move(spec)).mergedRenderMesh();
+}
+
+CpuMesh makeAsterModularConstructionSiteMesh(AsterConstructionSiteSpec spec) {
+  return makeAsterModularConstructionSiteAsset(std::move(spec)).mergedRenderMesh();
+}
+
+CpuMesh makeAsterMobileCraneMesh(AsterMobileCraneSpec spec) {
+  return makeAsterMobileCraneAsset(std::move(spec)).mergedRenderMesh();
+}
+
+CpuMesh makeAsterHydraulicPressMesh(AsterHydraulicPressSpec spec) {
+  return makeAsterHydraulicPressAsset(std::move(spec)).mergedRenderMesh();
+}
+
+CpuMesh makeAsterMetalBaleMesh(AsterMetalBaleSpec spec) {
+  return makeAsterMetalBaleAsset(std::move(spec)).mergedRenderMesh();
+}
+
+CpuMesh makeAsterDeliveryRackMesh(AsterDeliveryRackSpec spec) {
+  return makeAsterDeliveryRackAsset(std::move(spec)).mergedRenderMesh();
 }
 
 } // namespace aster

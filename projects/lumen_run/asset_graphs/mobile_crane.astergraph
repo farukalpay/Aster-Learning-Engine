@@ -1,0 +1,42 @@
+astergraph asset_graph.lumen_run.mobile_crane
+schema_version 1
+name "Lumen Run Stabilized Mobile Crane"
+material_id material.lumen_run.crane_yellow
+surface_profile construction-vehicle-metal
+primitive mobile-crane
+uv_policy packed-industrial-yard
+tangent_policy validate-or-generate
+collision_proxy grounded-outrigger-crane
+lod_policy lod0-lod1
+base_color 0.82 0.53 0.10
+roughness 0.54
+metallic 0.50
+param physical_texel_density 768
+param height_normal_coupling 0.58
+param roughness_height_coupling 0.56
+param macro_frequency_breakup 0.42
+param micro_frequency_breakup 0.38
+feature normal_map true
+preview environment lumen-remote-construction-yard
+preview rig crane-heavy-beam-lift
+preview artifact /tmp/lumen_run_remote_crane.ppm
+node mesh.crane mesh_primitive role=mesh primitive=mobile-crane boom_length=10.4 outrigger_count=4
+node material.crane material_assignment role=material slot=crane.paint surface_profile=construction-vehicle-metal
+node collision.proxy collision_proxy role=collision shape=grounded-outrigger-crane triangles=192
+node gameplay.operate prefab_variant role=prefab variant=stationary-cab-hook-control
+node claim.mobile visual_brief_claim role=quality signal=wheeled_crane_with_deployed_outriggers
+node claim.hook visual_brief_claim role=quality signal=visible_boom_cable_hook
+node claim.grounded visual_brief_claim role=quality signal=outrigger_ground_contact
+node reject.float visual_brief_rejection role=quality signal=floating_crane_supports
+node perception.template world_perceptual_template role=perceptual profile=stabilized-mobile-crane surface_response=weathered-yellow-metal history_response=heavy-lift-material-memory material_half_life_seconds=34 wetness_half_life_seconds=12 semantic_lod=0.86 streaming_cost=0.42 patch_channels=yellow_paint,hydraulic_wear,material_stability contact_channels=outrigger_ground,operator_cab,hook_affordance residue_channels=oil_dust,steel_clatter,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mesh.crane material.crane material_slot
+edge mesh.crane collision.proxy collision_source
+edge collision.proxy gameplay.operate gameplay_trigger
+edge claim.mobile diagnostic.quality visual_brief
+edge claim.hook diagnostic.quality visual_brief
+edge claim.grounded diagnostic.quality visual_brief
+edge reject.float diagnostic.quality visual_brief
+edge perception.template export.runtime perceptual_template
+edge diagnostic.quality export.runtime cook_report

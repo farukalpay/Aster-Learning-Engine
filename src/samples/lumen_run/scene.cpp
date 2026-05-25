@@ -6,6 +6,8 @@
 #include "aster/asset/construction_yard_asset.hpp"
 #include "aster/asset/pipe_runtime_asset.hpp"
 
+#include <cstdlib>
+
 namespace aster {
 namespace {
 
@@ -215,6 +217,142 @@ toRuntimeFixtureProfile(const sdk::CaveWallFixtureProfileDocument &source) {
   return spec;
 }
 
+[[nodiscard]] bool caveSectionSeamNeedsBridge(const CaveTunnelProfile &entry,
+                                              const CaveTunnelProfile &deep) {
+  const CaveTunnelFrame entry_end = sampleCaveTunnelFrame(entry, 1.0f);
+  const CaveTunnelFrame deep_start = sampleCaveTunnelFrame(deep, 0.0f);
+  const Vec3 entry_tangent =
+      length(entry_end.tangent) > 0.0001f ? normalize(entry_end.tangent) : Vec3{0.0f, 0.0f, -1.0f};
+  const Vec3 deep_tangent = length(deep_start.tangent) > 0.0001f
+                                ? normalize(deep_start.tangent)
+                                : Vec3{0.0f, 0.0f, -1.0f};
+  const Vec3 entry_up =
+      length(entry_end.up) > 0.0001f ? normalize(entry_end.up) : Vec3{0.0f, 1.0f, 0.0f};
+  const Vec3 deep_up =
+      length(deep_start.up) > 0.0001f ? normalize(deep_start.up) : Vec3{0.0f, 1.0f, 0.0f};
+  return length(deep_start.floor_center - entry_end.floor_center) > 0.035f ||
+         std::abs(deep_start.floor_half_width - entry_end.floor_half_width) > 0.060f ||
+         dot(entry_tangent, deep_tangent) < 0.996f || dot(entry_up, deep_up) < 0.996f;
+}
+
+[[nodiscard]] CpuMesh makeCaveSectionSeamBridgeMesh(const CaveTunnelProfile &entry,
+                                                    const CaveTunnelProfile &deep) {
+  CpuMesh mesh;
+  if (!caveSectionSeamNeedsBridge(entry, deep)) {
+    return mesh;
+  }
+
+  const CaveTunnelFrame entry_end = sampleCaveTunnelFrame(entry, 1.0f);
+  const CaveTunnelFrame deep_start = sampleCaveTunnelFrame(deep, 0.0f);
+  constexpr int rows = 6;
+  constexpr int columns = 4;
+  mesh.vertices.reserve(static_cast<std::size_t>((rows + 1) * (columns + 1)));
+  mesh.indices.reserve(static_cast<std::size_t>(rows * columns * 6));
+
+  for (int row = 0; row <= rows; ++row) {
+    const float t = static_cast<float>(row) / static_cast<float>(rows);
+    const float ease = t * t * (3.0f - 2.0f * t);
+    const Vec3 center = entry_end.floor_center + (deep_start.floor_center - entry_end.floor_center) * ease;
+    Vec3 side = entry_end.side + (deep_start.side - entry_end.side) * ease;
+    side = length(side) > 0.0001f ? normalize(side) : Vec3{1.0f, 0.0f, 0.0f};
+    Vec3 up = entry_end.up + (deep_start.up - entry_end.up) * ease;
+    up = length(up) > 0.0001f ? normalize(up) : Vec3{0.0f, 1.0f, 0.0f};
+    const float half_width =
+        std::max(entry_end.floor_half_width +
+                     (deep_start.floor_half_width - entry_end.floor_half_width) * ease,
+                 0.32f);
+    for (int column = 0; column <= columns; ++column) {
+      const float u = static_cast<float>(column) / static_cast<float>(columns);
+      const float lateral = (u * 2.0f - 1.0f) * half_width;
+      const float crown = (1.0f - std::min(std::abs(lateral) / half_width, 1.0f)) * 0.018f;
+      mesh.vertices.push_back({center + side * lateral + up * crown, up, {u, t}});
+    }
+  }
+
+  const auto index_at = [](const int row, const int column) {
+    return static_cast<std::uint32_t>(row * (columns + 1) + column);
+  };
+  for (int row = 0; row < rows; ++row) {
+    for (int column = 0; column < columns; ++column) {
+      const Vec3 preferred_normal = mesh.vertices[index_at(row, column)].normal;
+      appendOrientedQuadIndices(mesh, index_at(row, column), index_at(row + 1, column),
+                                index_at(row + 1, column + 1), index_at(row, column + 1),
+                                preferred_normal);
+    }
+  }
+  rebuildAngleWeightedNormals(mesh);
+  return mesh;
+}
+
+[[nodiscard]] CpuMesh makeCaveEntryContinuitySupportMesh(const TerrainHeightField &terrain,
+                                                         const CaveTunnelProfile &tunnel) {
+  CpuMesh mesh;
+  const CaveTunnelFrame start_frame = sampleCaveTunnelFrameAtDistance(tunnel, 0.0f);
+  const Vec3 tangent =
+      length(start_frame.tangent) > 0.0001f ? normalize(start_frame.tangent) : Vec3{0.0f, 0.0f, -1.0f};
+  const Vec3 side =
+      length(start_frame.side) > 0.0001f ? normalize(start_frame.side) : Vec3{1.0f, 0.0f, 0.0f};
+  const Vec3 up =
+      length(start_frame.up) > 0.0001f ? normalize(start_frame.up) : Vec3{0.0f, 1.0f, 0.0f};
+  const Vec3 outside_anchor = start_frame.floor_center - tangent * 2.55f;
+  const CaveTunnelFrame inside_frame = sampleCaveTunnelFrameAtDistance(tunnel, 7.20f);
+  const TerrainSurfaceSample outside_ground =
+      sampleTerrain(terrain, {outside_anchor.x, outside_anchor.z});
+  const float outside_height =
+      std::max(outside_ground.valid ? outside_ground.height : start_frame.floor_center.y,
+               start_frame.floor_center.y) +
+      0.160f;
+  const float inside_height = inside_frame.floor_center.y + 0.018f;
+  constexpr int rows = 24;
+  constexpr int columns = 6;
+  constexpr float start_distance = -2.55f;
+  constexpr float end_distance = 7.20f;
+  const float half_width = std::max(tunnel.floor_width * 0.54f, 1.28f);
+  mesh.vertices.reserve(static_cast<std::size_t>((rows + 1) * (columns + 1)));
+  mesh.indices.reserve(static_cast<std::size_t>(rows * columns * 6));
+
+  for (int row = 0; row <= rows; ++row) {
+    const float row_t = static_cast<float>(row) / static_cast<float>(rows);
+    const float distance = start_distance + (end_distance - start_distance) * row_t;
+    const float delayed_t = clamp((row_t - 0.30f) / 0.70f, 0.0f, 1.0f);
+    const float blend = delayed_t * delayed_t * (3.0f - 2.0f * delayed_t);
+    CaveTunnelFrame frame = start_frame;
+    Vec3 center = start_frame.floor_center + tangent * distance;
+    if (distance > 0.0f) {
+      frame = sampleCaveTunnelFrameAtDistance(tunnel, distance);
+      center = frame.floor_center;
+    }
+    center.y = outside_height + (inside_height - outside_height) * blend;
+    const Vec3 frame_side =
+        length(frame.side) > 0.0001f ? normalize(frame.side) : side;
+    const Vec3 frame_up =
+        length(frame.up) > 0.0001f ? normalize(frame.up) : up;
+    for (int column = 0; column <= columns; ++column) {
+      const float u = static_cast<float>(column) / static_cast<float>(columns);
+      const float lateral = (u * 2.0f - 1.0f) * half_width;
+      const float edge = std::abs(lateral) / std::max(half_width, 0.001f);
+      const float crown = (1.0f - std::min(edge, 1.0f)) * 0.018f;
+      const float shoulder_drop = std::max(edge - 0.78f, 0.0f) * 0.040f;
+      mesh.vertices.push_back(
+          {center + frame_side * lateral + frame_up * (crown - shoulder_drop),
+           frame_up,
+           {u, row_t}});
+    }
+  }
+
+  const auto index_at = [](const int row, const int column) {
+    return static_cast<std::uint32_t>(row * (columns + 1) + column);
+  };
+  for (int row = 0; row < rows; ++row) {
+    for (int column = 0; column < columns; ++column) {
+      appendOrientedQuadIndices(mesh, index_at(row, column), index_at(row + 1, column),
+                                index_at(row + 1, column + 1), index_at(row, column + 1), up);
+    }
+  }
+  rebuildAngleWeightedNormals(mesh);
+  return mesh;
+}
+
 [[nodiscard]] std::vector<CaveWallFixturePlacement>
 authoredFixturePlacements(const LumenAuthoringData &authoring, const std::string_view section_id,
                           const CaveTunnelProfile &tunnel,
@@ -275,6 +413,12 @@ void LumenRun::rebuildScene() {
   construction_forklift_.parts.clear();
   construction_pallet_.parts.clear();
   construction_shredder_.parts.clear();
+  construction_site_static_parts_.clear();
+  construction_modules_.clear();
+  construction_crane_.parts.clear();
+  construction_press_.parts.clear();
+  construction_delivery_rack_.parts.clear();
+  construction_bales_.clear();
   construction_scrap_.clear();
   construction_scrap_cursor_ = 0;
   prism_relay_core_object_ = 0;
@@ -2055,7 +2199,6 @@ void LumenRun::rebuildScene() {
   appendGeneratedStructuralScenery("Opaque cave portal terrain seal", cave_portal_seal_mesh,
                                    {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f},
                                    cave_talus);
-  support_surfaces_.addMesh({cave_portal_seal_mesh, {}, 0.42f});
   decorative_ground_surfaces.addMesh({cave_portal_seal_mesh, {}, 0.42f});
   const std::shared_ptr<const CpuMesh> cave_portal_mesh =
       makeSharedMesh(std::move(cave_complex.portal_mesh));
@@ -2086,17 +2229,34 @@ void LumenRun::rebuildScene() {
   appendGeneratedStructuralScenery("Sealed cave entrance throat", cave_entrance_throat_mesh,
                                    {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f},
                                    cave_entrance_wall);
-  support_surfaces_.addMesh({cave_entrance_throat_mesh, {}, 0.20f});
   const std::shared_ptr<const CpuMesh> cave_portal_floor_mesh =
       makeSharedMesh(std::move(cave_complex.portal_floor_mesh));
   appendGeneratedScenery("Walkable cave entrance threshold", cave_portal_floor_mesh,
                          {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, cave_floor);
   support_surfaces_.addMesh({cave_portal_floor_mesh, {}, 0.46f});
   decorative_ground_surfaces.addMesh({cave_portal_floor_mesh, {}, 0.46f});
+  const std::shared_ptr<const CpuMesh> cave_entry_continuity_mesh =
+      makeSharedMesh(makeCaveEntryContinuitySupportMesh(terrain_, cave_spec.tunnel));
+  appendGeneratedScenery("Walkable cave entry continuity support", cave_entry_continuity_mesh,
+                         {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f},
+                         cave_floor);
+  support_surfaces_.addMesh({cave_entry_continuity_mesh, {}, 0.22f});
+  decorative_ground_surfaces.addMesh({cave_entry_continuity_mesh, {}, 0.22f});
   const std::shared_ptr<const CpuMesh> cave_floor_mesh =
       makeSharedMesh(std::move(cave_complex.floor_mesh));
   const std::shared_ptr<const CpuMesh> deep_cave_floor_mesh =
       makeSharedMesh(std::move(deep_cave_complex.floor_mesh));
+  CpuMesh cave_section_seam_bridge =
+      makeCaveSectionSeamBridgeMesh(cave_spec.tunnel, deep_cave_spec.tunnel);
+  if (!cave_section_seam_bridge.vertices.empty() && !cave_section_seam_bridge.indices.empty()) {
+    const std::shared_ptr<const CpuMesh> seam_bridge_mesh =
+        makeSharedMesh(std::move(cave_section_seam_bridge));
+    appendGeneratedScenery("Walkable cave section continuity bridge", seam_bridge_mesh,
+                           {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f},
+                           cave_floor);
+    support_surfaces_.addMesh({seam_bridge_mesh, {}, 0.30f});
+    decorative_ground_surfaces.addMesh({seam_bridge_mesh, {}, 0.30f});
+  }
   cave_floor_supports_.push_back({.tunnel = cave_spec.tunnel,
                                   .manifold = cave_manifold,
                                   .floor_mesh = cave_floor_mesh,
@@ -2387,23 +2547,31 @@ void LumenRun::rebuildScene() {
     if (slot == "forklift.paint") {
       return forklift_paint;
     }
-    if (slot == "forklift.rubber") {
+    if (slot == "forklift.rubber" || slot == "crane.rubber" || slot == "crane.cable" ||
+        slot == "shredder.rubber") {
       return construction_rubber;
     }
-    if (slot == "forklift.steel" || slot == "shredder.steel") {
+    if (slot == "forklift.steel" || slot == "shredder.steel" || slot == "site.steel" ||
+        slot == "crane.steel" || slot == "press.steel" || slot == "rack.steel" ||
+        slot == "bale.strap") {
       return construction_steel;
     }
-    if (slot == "shredder.blue_metal") {
+    if (slot == "shredder.blue_metal" || slot == "crane.paint" ||
+        slot == "press.blue_metal") {
       return shredder_blue;
     }
-    if (slot == "shredder.hazard") {
+    if (slot == "shredder.hazard" || slot == "crane.hazard" || slot == "press.hazard" ||
+        slot == "rack.hazard") {
       return hazard_yellow;
     }
-    if (slot == "pipe.rusted") {
+    if (slot == "pipe.rusted" || slot == "site.panel") {
       return rusted_pipe_material;
     }
-    if (slot == "scrap.metal") {
+    if (slot == "scrap.metal" || slot == "bale.scrap" || slot == "press.scrap") {
       return scrap_material;
+    }
+    if (slot == "site.concrete") {
+      return hardscape_dust;
     }
     if (slot == "pallet.shadow") {
       Material pocket = construction_rubber;
@@ -2424,16 +2592,19 @@ void LumenRun::rebuildScene() {
   const auto appendConstructionPart =
       [&](const std::string &asset_id, const std::string &prefix,
           const AsterConstructionAssetPart &part, const Vec3 base, const float yaw,
-          std::vector<ConstructionVisualPart> &parts, const bool hidden = false) {
+          std::vector<ConstructionVisualPart> &parts, const bool hidden = false,
+          const float pitch = 0.0f, const float roll = 0.0f) {
         Material part_material = constructionMaterialForSlot(part.material_slot);
         RenderObject object;
         object.name = prefix + part.name;
         object.primitive = MeshPrimitive::Box;
         object.custom_mesh = makeSharedMesh(part.mesh);
-        object.transform.position = hidden ? Vec3{0.0f, -24.0f, 0.0f}
-                                           : base + rotateYaw(part.local_position, yaw);
+        object.transform.position =
+            hidden ? Vec3{0.0f, -24.0f, 0.0f}
+                   : base + rotateEuler(part.local_position, {pitch, yaw, roll});
         object.transform.rotation = quatFromEulerXyz(
-            {part.local_rotation.x, yaw + part.local_rotation.y, part.local_rotation.z});
+            {pitch + part.local_rotation.x, yaw + part.local_rotation.y,
+             roll + part.local_rotation.z});
         object.transform.scale = hidden ? Vec3{0.001f, 0.001f, 0.001f} : part.local_scale;
         object.material = part_material;
         object.material_asset_id = asset_id + "/" + part.material_slot;
@@ -2446,53 +2617,181 @@ void LumenRun::rebuildScene() {
         return index;
       };
 
-  const Vec3 yard_anchor = terrainGroundAt(cave_entrance + Vec3{4.85f, 0.0f, 4.45f}, 0.0f);
+  const auto terrainPinConstructionPart =
+      [&](AsterConstructionAssetPart part, const Vec3 base, const float yaw) {
+        const bool vertical_pin =
+            part.name.find("vertical ground anchor column") != std::string::npos ||
+            part.name.find("vertical ground pin") != std::string::npos;
+        const bool foot_pad = part.name.find("terrain foot pad") != std::string::npos;
+        if (!vertical_pin && !foot_pad) {
+          return part;
+        }
+        const Vec3 world_probe =
+            base + rotateYaw({part.local_position.x, 0.0f, part.local_position.z}, yaw);
+        const float local_ground_y = terrainGroundAt(world_probe, 0.0f).y - base.y;
+        if (foot_pad) {
+          part.local_position.y = local_ground_y + part.local_scale.y * 0.5f + 0.006f;
+          return part;
+        }
+        const float top_y = part.local_position.y + part.local_scale.y * 0.5f;
+        const float bottom_y = local_ground_y + 0.012f;
+        const float height = std::max(top_y - bottom_y, 0.16f);
+        part.local_position.y = bottom_y + height * 0.5f;
+        part.local_scale.y = height;
+        return part;
+      };
+
+  const Vec3 yard_anchor = terrainGroundAt({-65.0f, 0.0f, -35.0f}, 0.0f);
+  const Vec3 site_position = terrainGroundAt(yard_anchor + Vec3{-5.2f, 0.0f, -0.8f}, 0.018f);
   construction_forklift_.position =
-      terrainGroundAt(yard_anchor + Vec3{-2.42f, 0.0f, -0.36f}, 0.005f);
-  construction_forklift_.yaw = kPi * 0.5f;
+      terrainGroundAt(yard_anchor + Vec3{-5.2f, 0.0f, 8.10f}, 0.005f);
+  construction_forklift_.yaw = kPi;
+  construction_forklift_.pitch = 0.0f;
+  construction_forklift_.roll = 0.0f;
   construction_forklift_.fork_height = 0.28f;
   construction_forklift_.mounted = false;
   construction_forklift_.wheel_spin = 0.0f;
   construction_forklift_.steer_angle = 0.0f;
-  construction_pallet_.position =
-      terrainGroundAt(yard_anchor + Vec3{-0.66f, 0.0f, -0.36f}, 0.0f);
-  construction_pallet_.yaw = kPi * 0.5f;
+  construction_forklift_.wheel_contacts = {};
+  construction_pallet_.position = construction_forklift_.position;
+  construction_pallet_.yaw = construction_forklift_.yaw;
+  construction_pallet_.pitch = 0.0f;
+  construction_pallet_.roll = 0.0f;
   construction_pallet_.attached = false;
-  construction_pallet_.consumed = false;
+  construction_pallet_.consumed = true;
   construction_pallet_.attach_cooldown = 0.0f;
-  construction_pallet_.visible_pipe_count = 8;
+  construction_pallet_.visible_pipe_count = 0;
+  construction_pallet_.cargo_kind = ConstructionCargoKind::None;
+  construction_pallet_.payload_index = -1;
   construction_shredder_.position =
-      terrainGroundAt(yard_anchor + Vec3{2.78f, 0.0f, -0.36f}, 0.0f);
+      terrainGroundAt(yard_anchor + Vec3{8.10f, 0.0f, 0.65f}, 0.0f);
   construction_shredder_.yaw = kPi * 0.5f;
   construction_shredder_.active = false;
   construction_shredder_.shred_timer = 0.0f;
   construction_shredder_.consumed_pipe_count = 0;
+  construction_shredder_.processed_load_count = 0;
+  construction_shredder_.processing_module_index = -1;
+  construction_shredder_.processing_crane_load = false;
+  construction_crane_.position =
+      terrainGroundAt(yard_anchor + Vec3{-0.70f, 0.0f, -10.25f}, 0.0f);
+  construction_crane_.yaw = kPi;
+  construction_crane_.boom_yaw = 0.0f;
+  construction_crane_.hook_height = 1.46f;
+  construction_crane_.hook_reach = 8.0f;
+  construction_crane_.mounted = false;
+  construction_crane_.payload_module_index = -1;
+  construction_press_.position =
+      terrainGroundAt(yard_anchor + Vec3{13.30f, 0.0f, 0.65f}, 0.0f);
+  construction_press_.yaw = kPi * 0.5f;
+  construction_press_.pending_load_count = 0;
+  construction_press_.stroke_count = 0;
+  construction_press_.required_strokes = 0;
+  construction_press_.stroke_animation = 0.0f;
+  construction_delivery_rack_.position =
+      terrainGroundAt(yard_anchor + Vec3{10.80f, 0.0f, 9.30f}, 0.0f);
+  construction_delivery_rack_.yaw = 0.0f;
 
-  Material yard_soil = marsh_soil;
-  yard_soil.base_color = LinearRgb{{0.28f, 0.265f, 0.22f}};
-  yard_soil.roughness = 0.94f;
-  const Vec3 yard_pad_center = yard_anchor + Vec3{0.25f, -0.018f, -0.36f};
-  const Vec3 yard_pad_scale{6.70f, 0.035f, 3.18f};
-  appendScenery("Construction yard compacted gravel pad", MeshPrimitive::Box,
-                yard_pad_center, yard_pad_scale, {0.0f, 0.0f, 0.0f}, yard_soil);
-  support_surfaces_.addBox({yard_pad_center, yard_pad_scale * 0.50f});
+  const ConstructionForkliftSupportPose initial_forklift_support =
+      constructionForkliftSupportPoseAt(construction_forklift_.position, construction_forklift_.yaw,
+                                        construction_forklift_.pitch, construction_forklift_.roll);
+  construction_forklift_.position = initial_forklift_support.position;
+  construction_forklift_.pitch = initial_forklift_support.pitch;
+  construction_forklift_.roll = initial_forklift_support.roll;
+  construction_forklift_.wheel_contacts = initial_forklift_support.wheel_contacts;
   const AsterConstructionYardAsset forklift_asset = makeAsterConstructionForkliftAsset();
   for (const AsterConstructionAssetPart &part : forklift_asset.parts) {
     appendConstructionPart(forklift_asset.asset_id, "Construction forklift ", part,
                            construction_forklift_.position, construction_forklift_.yaw,
-                           construction_forklift_.parts);
+                           construction_forklift_.parts, false, construction_forklift_.pitch,
+                           construction_forklift_.roll);
   }
-  const AsterConstructionYardAsset pallet_asset = makeAsterPipePalletAsset();
-  for (const AsterConstructionAssetPart &part : pallet_asset.parts) {
-    appendConstructionPart(pallet_asset.asset_id, "Construction pipe pallet ", part,
-                           construction_pallet_.position, construction_pallet_.yaw,
-                           construction_pallet_.parts);
+  const AsterConstructionYardAsset site_asset = makeAsterModularConstructionSiteAsset();
+  constexpr std::size_t kLightModulePrefixLength = 24u;
+  constexpr std::size_t kHeavyBeamPrefixLength = 22u;
+  for (const AsterConstructionAssetPart &part : site_asset.parts) {
+    const bool light_module = part.name.find("demolition light module ") == 0u;
+    const bool heavy_module = part.name.find("demolition heavy beam ") == 0u;
+    if (!light_module && !heavy_module) {
+      const AsterConstructionAssetPart pinned_part =
+          terrainPinConstructionPart(part, site_position, 0.0f);
+      appendConstructionPart(site_asset.asset_id, "Modular construction site ", pinned_part,
+                             site_position, 0.0f, construction_site_static_parts_);
+      continue;
+    }
+    AsterConstructionAssetPart site_part = part;
+    const Vec3 module_probe =
+        site_position + Vec3{site_part.local_position.x, 0.0f, site_part.local_position.z};
+    const float local_ground_y = terrainGroundAt(module_probe, 0.0f).y - site_position.y;
+    const int module_tier = light_module
+                                ? (std::atoi(site_part.name.c_str() +
+                                             kLightModulePrefixLength) /
+                                   8)
+                                : 2;
+    if (light_module) {
+      site_part.local_position.y =
+          local_ground_y + site_part.local_scale.y * (0.5f + static_cast<float>(module_tier));
+    } else {
+      site_part.local_position.y += local_ground_y;
+    }
+    ConstructionDemolitionModule module;
+    module.position = site_position + site_part.local_position;
+    module.heavy = heavy_module;
+    module.unlocked = !heavy_module;
+    if (light_module) {
+      const int module_index =
+          std::atoi(site_part.name.c_str() + kLightModulePrefixLength);
+      module.tier = module_index / 8;
+      module.face = (module_index % 8) / 4;
+      module.bay = module_index % 4;
+    } else {
+      const int module_index = std::atoi(site_part.name.c_str() + kHeavyBeamPrefixLength);
+      module.tier = 2;
+      module.face = module_index / 4;
+      module.bay = module_index % 4;
+    }
+    AsterConstructionAssetPart movable_part = site_part;
+    movable_part.local_position = {};
+    appendConstructionPart(site_asset.asset_id, "Modular construction site ", movable_part,
+                           module.position, 0.0f, module.parts);
+    construction_modules_.push_back(std::move(module));
   }
   const AsterConstructionYardAsset shredder_asset = makeAsterRecyclerShredderAsset();
   for (const AsterConstructionAssetPart &part : shredder_asset.parts) {
     appendConstructionPart(shredder_asset.asset_id, "Recycler shredder ", part,
                            construction_shredder_.position, construction_shredder_.yaw,
                            construction_shredder_.parts);
+  }
+  const AsterConstructionYardAsset crane_asset = makeAsterMobileCraneAsset();
+  for (const AsterConstructionAssetPart &part : crane_asset.parts) {
+    appendConstructionPart(crane_asset.asset_id, "Mobile construction crane ", part,
+                           construction_crane_.position, construction_crane_.yaw,
+                           construction_crane_.parts);
+  }
+  const AsterConstructionYardAsset press_asset = makeAsterHydraulicPressAsset();
+  for (const AsterConstructionAssetPart &part : press_asset.parts) {
+    const AsterConstructionAssetPart pinned_part =
+        terrainPinConstructionPart(part, construction_press_.position, construction_press_.yaw);
+    appendConstructionPart(press_asset.asset_id, "Hydraulic scrap press ", pinned_part,
+                           construction_press_.position, construction_press_.yaw,
+                           construction_press_.parts);
+  }
+  const AsterConstructionYardAsset rack_asset = makeAsterDeliveryRackAsset();
+  for (const AsterConstructionAssetPart &part : rack_asset.parts) {
+    appendConstructionPart(rack_asset.asset_id, "Pressed bale delivery rack ", part,
+                           construction_delivery_rack_.position, construction_delivery_rack_.yaw,
+                           construction_delivery_rack_.parts);
+  }
+  for (int i = 0; i < 24; ++i) {
+    ConstructionBale bale;
+    bale.position = construction_press_.position;
+    bale.yaw = construction_press_.yaw;
+    const AsterConstructionYardAsset bale_asset =
+        makeAsterMetalBaleAsset({.fill = 0.35f + 0.65f * static_cast<float>((i % 4) + 1) / 4.0f});
+    for (const AsterConstructionAssetPart &part : bale_asset.parts) {
+      appendConstructionPart(bale_asset.asset_id, "Pressed metal bale ", part, bale.position,
+                             bale.yaw, bale.parts, true);
+    }
+    construction_bales_.push_back(std::move(bale));
   }
   const AsterConstructionYardAsset scrap_asset = makeAsterShreddedMetalScrapAsset();
   for (const AsterConstructionAssetPart &part : scrap_asset.parts) {
@@ -2510,13 +2809,18 @@ void LumenRun::rebuildScene() {
   }
   for (int i = 0; i < 3; ++i) {
     const Vec3 barrier =
-        yard_anchor + Vec3{-2.05f + static_cast<float>(i) * 1.88f, 0.22f, 1.36f};
+        terrainGroundAt(yard_anchor + Vec3{-12.4f + static_cast<float>(i) * 2.0f, 0.0f, 13.2f},
+                        0.22f);
     appendScenery("Construction yard striped safety barrier", MeshPrimitive::Box, barrier,
                   {0.72f, 0.12f, 0.08f}, {0.0f, kPi * 0.5f, 0.0f}, hazard_yellow);
     scenery_collision_boxes_.push_back({barrier, {0.72f, 0.12f, 0.08f}});
   }
   scenery_collision_boxes_.push_back(
-      {construction_shredder_.position + Vec3{0.0f, 0.74f, 0.0f}, {0.90f, 0.74f, 1.58f}});
+      {construction_shredder_.position + Vec3{0.0f, 1.05f, 0.0f}, {1.42f, 1.05f, 2.72f}});
+  scenery_collision_boxes_.push_back(
+      {construction_press_.position + Vec3{0.0f, 0.76f, 0.0f}, {1.62f, 0.76f, 2.02f}});
+  scenery_collision_boxes_.push_back(
+      {construction_delivery_rack_.position + Vec3{0.0f, 0.30f, 0.0f}, {3.30f, 0.30f, 2.20f}});
 
   const Vec2 cave_route_min = pathRouteMin(cave_path_specs) - Vec2{1.58f, 1.58f};
   const Vec2 cave_route_max = pathRouteMax(cave_path_specs) + Vec2{1.58f, 1.58f};

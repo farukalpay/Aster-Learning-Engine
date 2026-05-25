@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "prefab.lumen_run.hydraulic_press",
+  "name": "Hydraulic Scrap Press",
+  "entities": [
+    {
+      "id": "hydraulic_press.root",
+      "name": "Hydraulic Scrap Press Root",
+      "components": {
+        "transform": { "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 1.5708, 0.0] },
+        "mesh_renderer": { "mesh": "asset_graph.lumen_run.hydraulic_press", "material": "material.lumen_run.press_blue_metal" },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.hydraulic_press", "cell_anchor": "lumen.remote_construction_yard", "residency_role": "manual-compaction-machine", "local_cause": "loose-scrap-to-bale", "traversal_role": "operator-button-output", "visual_occlusion_role": "visible-ram-bunker", "acoustic_role": "hydraulic-stroke", "material_half_life_override": 30.0, "streaming_cost_override": 0.38 },
+        "collider": { "shape": "box", "half_extents": [1.62, 0.76, 2.02], "layer": "world.machine" },
+        "rigid_body": { "type": "static", "mass": 0.0, "gravity_enabled": false },
+        "interactable": { "tags": ["construction.machine.hydraulic_press", "interaction.button"], "action_graph": "action.construction.press.stroke", "prompt_action": "Press", "prompt_subject": "Hydraulic Press", "radius": 1.0, "max_distance": 14.0 }
+      }
+    }
+  ]
+}

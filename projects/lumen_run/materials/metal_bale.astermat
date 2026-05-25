@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.lumen_run.metal_bale {
+  schema_version: 1
+  name: "Compacted Metal Bale"
+  shading_model: Unlit
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+  params {
+    base_color_r: 0.38
+    base_color_g: 0.33
+    base_color_b: 0.28
+    roughness: 0.46
+    metallic: 0.78
+    edge_wear: 0.60
+    ambient_occlusion: 0.86
+    macro_variation: 0.40
+    micro_normal_strength: 0.34
+    roughness_variation: 0.28
+    height_shading: 0.14
+  }
+  features {
+    procedural_surface: true
+    contact_shadows: true
+    compressed_edges: true
+  }
+}

@@ -29,7 +29,6 @@ node lod.single lod_generator role=lod policy=single-lod levels=1
 node gameplay.eject prefab_variant role=prefab variant=shredder-output-burst
 node claim.fragments visual_brief_claim role=quality signal=metal_fragments_output
 node claim.motion visual_brief_claim role=quality signal=sparks_dust_scrap_ejection
-node reject.raw visual_brief_rejection role=quality signal=raw_glb_fbx_runtime_dependency
 node perception.template world_perceptual_template role=perceptual profile=shredded-rusted-metal surface_response=hot-scratched-scrap history_response=shredder-output-residue material_half_life_seconds=18 wetness_half_life_seconds=8 semantic_lod=0.70 streaming_cost=0.18 patch_channels=heated_edge,scratched_metal,material_stability contact_channels=fragment_ejection,visual_occlusion residue_channels=sparks_dust,metal_scrap_output,player_readable_cause
 node export.runtime cook_export role=package target=assetgraphbin
 node diagnostic.quality diagnostic role=quality profile=production
@@ -41,7 +40,6 @@ edge mesh.scrap lod.single lod_source
 edge collision.proxy gameplay.eject gameplay_particle
 edge claim.fragments diagnostic.quality visual_brief
 edge claim.motion diagnostic.quality visual_brief
-edge reject.raw diagnostic.quality forbidden_signal
 edge perception.template export.runtime perceptual_template
 edge lod.single export.runtime runtime_lods
 edge diagnostic.quality export.runtime cook_report

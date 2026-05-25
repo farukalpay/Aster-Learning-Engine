@@ -85,9 +85,9 @@
       "name": "Construction Forklift",
       "prefab": "prefab.lumen_run.construction_forklift",
       "components": {
-        "transform": { "translation": [33.4, 0.02, -54.8], "rotation": [0.0, 1.5708, 0.0] },
+        "transform": { "translation": [-70.2, 0.02, -26.9], "rotation": [0.0, 3.14159, 0.0] },
         "mesh_renderer": { "mesh": "asset_graph.lumen_run.construction_forklift", "material": "material.lumen_run.forklift_paint" },
-        "perceptual_binding": { "template": "asset_graph.lumen_run.construction_forklift", "cell_anchor": "lumen.construction_yard", "residency_role": "drivable-work-vehicle", "local_cause": "player-loads-pipe-pallet", "traversal_role": "vehicle-seat-and-forks", "visual_occlusion_role": "grounded-yard-prop", "acoustic_role": "rubber-metal-contact", "material_half_life_override": 26.0, "streaming_cost_override": 0.34 },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.construction_forklift", "cell_anchor": "lumen.remote_construction_yard", "residency_role": "drivable-work-vehicle", "local_cause": "player-breaks-lifts-and-delivers-metal", "traversal_role": "vehicle-seat-and-forks", "visual_occlusion_role": "grounded-yard-prop", "acoustic_role": "rubber-metal-contact", "material_half_life_override": 26.0, "streaming_cost_override": 0.34 },
         "collider": { "shape": "box", "half_extents": [0.72, 0.82, 1.72], "layer": "world.vehicle" },
         "rigid_body": { "type": "kinematic", "mass": 900.0, "gravity_enabled": false },
         "interactable": { "tags": ["construction.vehicle.forklift"], "action_graph": "action.construction.forklift.toggle", "prompt_action": "Enter", "prompt_subject": "Forklift", "radius": 1.05, "max_distance": 14.0 },
@@ -95,17 +95,16 @@
       }
     },
     {
-      "id": "construction_pipe_pallet",
-      "name": "Pipe Pallet",
-      "prefab": "prefab.lumen_run.construction_pipe_pallet",
+      "id": "modular_construction_site",
+      "name": "Modular Demolition Construction Site",
+      "prefab": "prefab.lumen_run.modular_construction_site",
       "components": {
-        "transform": { "translation": [35.2, 0.0, -54.8], "rotation": [0.0, 1.5708, 0.0] },
-        "mesh_renderer": { "mesh": "asset_graph.lumen_run.pipe_pallet", "material": "material.lumen_run.rusted_pipe_pallet" },
-        "perceptual_binding": { "template": "asset_graph.lumen_run.pipe_pallet", "cell_anchor": "lumen.construction_yard", "residency_role": "forklift-cargo", "local_cause": "pipe-pallet-load-target", "traversal_role": "fork-pocket-cargo", "visual_occlusion_role": "stacked-hollow-pipes", "acoustic_role": "rusted-pipe-clatter", "material_half_life_override": 34.0, "streaming_cost_override": 0.30 },
-        "collider": { "shape": "box", "half_extents": [0.72, 0.42, 1.38], "layer": "world.cargo" },
-        "rigid_body": { "type": "kinematic", "mass": 180.0, "gravity_enabled": false },
-        "interactable": { "tags": ["construction.cargo.pipe_pallet"], "action_graph": "action.construction.pallet.attach", "prompt_action": "Lift", "prompt_subject": "Pipe Pallet", "radius": 0.92, "max_distance": 14.0 },
-        "cave_debug": { "layers": ["collision", "interactable"], "color": [0.86, 0.42, 0.16] }
+        "transform": { "translation": [-70.2, 0.0, -35.8], "rotation": [0.0, 0.0, 0.0] },
+        "mesh_renderer": { "mesh": "asset_graph.lumen_run.modular_construction_site", "material": "material.lumen_run.construction_site_steel" },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.modular_construction_site", "cell_anchor": "lumen.remote_construction_yard", "residency_role": "sectional-demolition-structure", "local_cause": "forklift-impact-and-crane-recovery", "traversal_role": "terrain-pinned-metal-superstructure", "visual_occlusion_role": "open-steel-frame", "acoustic_role": "structural-metal-impact", "material_half_life_override": 42.0, "streaming_cost_override": 0.48 },
+        "collider": { "shape": "box", "half_extents": [7.80, 0.18, 5.40], "layer": "world.static" },
+        "rigid_body": { "type": "static", "mass": 0.0, "gravity_enabled": false },
+        "cave_debug": { "layers": ["collision"], "color": [0.86, 0.42, 0.16] }
       }
     },
     {
@@ -113,13 +112,52 @@
       "name": "Recycler Shredder",
       "prefab": "prefab.lumen_run.recycler_shredder",
       "components": {
-        "transform": { "translation": [38.6, 0.0, -54.8], "rotation": [0.0, 1.5708, 0.0] },
+        "transform": { "translation": [-56.9, 0.0, -34.35], "rotation": [0.0, 1.5708, 0.0] },
         "mesh_renderer": { "mesh": "asset_graph.lumen_run.recycler_shredder", "material": "material.lumen_run.shredder_blue_metal" },
-        "perceptual_binding": { "template": "asset_graph.lumen_run.recycler_shredder", "cell_anchor": "lumen.construction_yard", "residency_role": "destruction-machine", "local_cause": "pipe-pallet-shredding", "traversal_role": "hazard-intake-output", "visual_occlusion_role": "blue-industrial-machine", "acoustic_role": "metal-shredder", "material_half_life_override": 30.0, "streaming_cost_override": 0.36 },
-        "collider": { "shape": "box", "half_extents": [0.90, 0.74, 1.58], "layer": "world.machine" },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.recycler_shredder", "cell_anchor": "lumen.remote_construction_yard", "residency_role": "visible-cutter-destruction-machine", "local_cause": "modular-metal-load-shredding", "traversal_role": "open-cutter-output", "visual_occlusion_role": "exposed-drive-and-cutters", "acoustic_role": "metal-shredder", "material_half_life_override": 30.0, "streaming_cost_override": 0.42 },
+        "collider": { "shape": "box", "half_extents": [1.42, 1.05, 2.72], "layer": "world.machine" },
         "rigid_body": { "type": "static", "mass": 0.0, "gravity_enabled": false },
-        "interactable": { "tags": ["construction.machine.recycler_shredder"], "action_graph": "action.construction.shredder.feed", "prompt_action": "Feed", "prompt_subject": "Recycler", "radius": 1.05, "max_distance": 14.0 },
+        "interactable": { "tags": ["construction.machine.recycler_shredder"], "action_graph": "action.construction.shredder.feed", "prompt_action": "Feed", "prompt_subject": "Open Cutter Shredder", "radius": 1.05, "max_distance": 14.0 },
         "cave_debug": { "layers": ["collision", "interactable"], "color": [0.12, 0.36, 0.82] }
+      }
+    },
+    {
+      "id": "mobile_crane",
+      "name": "Stabilized Mobile Crane",
+      "prefab": "prefab.lumen_run.mobile_crane",
+      "components": {
+        "transform": { "translation": [-65.7, 0.0, -45.25], "rotation": [0.0, 3.14159, 0.0] },
+        "mesh_renderer": { "mesh": "asset_graph.lumen_run.mobile_crane", "material": "material.lumen_run.crane_yellow" },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.mobile_crane", "cell_anchor": "lumen.remote_construction_yard", "residency_role": "stationary-heavy-lift-machine", "local_cause": "exposed-beam-to-shredder-transfer", "traversal_role": "operator-cab-hook", "visual_occlusion_role": "deployed-outriggers", "acoustic_role": "hydraulic-crane", "material_half_life_override": 34.0, "streaming_cost_override": 0.42 },
+        "collider": { "shape": "box", "half_extents": [1.32, 0.78, 2.68], "layer": "world.machine" },
+        "rigid_body": { "type": "static", "mass": 0.0, "gravity_enabled": false },
+        "interactable": { "tags": ["construction.machine.mobile_crane"], "action_graph": "action.construction.crane.toggle", "prompt_action": "Operate", "prompt_subject": "Mobile Crane", "radius": 1.10, "max_distance": 14.0 }
+      }
+    },
+    {
+      "id": "hydraulic_press",
+      "name": "Hydraulic Scrap Press",
+      "prefab": "prefab.lumen_run.hydraulic_press",
+      "components": {
+        "transform": { "translation": [-51.7, 0.0, -34.35], "rotation": [0.0, 1.5708, 0.0] },
+        "mesh_renderer": { "mesh": "asset_graph.lumen_run.hydraulic_press", "material": "material.lumen_run.press_blue_metal" },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.hydraulic_press", "cell_anchor": "lumen.remote_construction_yard", "residency_role": "manual-compaction-machine", "local_cause": "loose-scrap-to-bale", "traversal_role": "operator-button-output", "visual_occlusion_role": "visible-ram-bunker", "acoustic_role": "hydraulic-stroke", "material_half_life_override": 30.0, "streaming_cost_override": 0.38 },
+        "collider": { "shape": "box", "half_extents": [1.62, 0.76, 2.02], "layer": "world.machine" },
+        "rigid_body": { "type": "static", "mass": 0.0, "gravity_enabled": false },
+        "interactable": { "tags": ["construction.machine.hydraulic_press"], "action_graph": "action.construction.press.stroke", "prompt_action": "Press", "prompt_subject": "Hydraulic Press", "radius": 1.0, "max_distance": 14.0 }
+      }
+    },
+    {
+      "id": "bale_delivery_rack",
+      "name": "Bale Delivery Rack",
+      "prefab": "prefab.lumen_run.bale_delivery_rack",
+      "components": {
+        "transform": { "translation": [-54.2, 0.0, -25.7], "rotation": [0.0, 0.0, 0.0] },
+        "mesh_renderer": { "mesh": "asset_graph.lumen_run.bale_delivery_rack", "material": "material.lumen_run.delivery_rack" },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.bale_delivery_rack", "cell_anchor": "lumen.remote_construction_yard", "residency_role": "final-delivery-rack", "local_cause": "forklift-bale-delivery", "traversal_role": "marked-delivery-bays", "visual_occlusion_role": "grounded-striped-platform", "acoustic_role": "metal-bale-placement", "material_half_life_override": 32.0, "streaming_cost_override": 0.24 },
+        "collider": { "shape": "box", "half_extents": [3.30, 0.30, 2.20], "layer": "world.static" },
+        "rigid_body": { "type": "static", "mass": 0.0, "gravity_enabled": false },
+        "interactable": { "tags": ["construction.delivery.bale_rack"], "action_graph": "action.construction.bale.deliver", "prompt_action": "Deliver", "prompt_subject": "Metal Bale Rack", "radius": 1.0, "max_distance": 14.0 }
       }
     }
   ]

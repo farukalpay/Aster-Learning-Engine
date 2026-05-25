@@ -587,6 +587,21 @@ CpuMesh proceduralAssetGraphMesh(const ProceduralAssetGraphPackage &package) {
       primitive == "crushed-pipe-fragments") {
     return makeAsterShreddedMetalScrapMesh({.asset_id = package.id});
   }
+  if (primitive == "modular-construction-site" || primitive == "construction-site") {
+    return makeAsterModularConstructionSiteMesh({.asset_id = package.id});
+  }
+  if (primitive == "mobile-crane" || primitive == "construction-crane") {
+    return makeAsterMobileCraneMesh({.asset_id = package.id});
+  }
+  if (primitive == "hydraulic-press" || primitive == "scrap-press") {
+    return makeAsterHydraulicPressMesh({.asset_id = package.id});
+  }
+  if (primitive == "metal-bale" || primitive == "pressed-scrap-bale") {
+    return makeAsterMetalBaleMesh({.asset_id = package.id});
+  }
+  if (primitive == "bale-delivery-rack" || primitive == "scrap-delivery-rack") {
+    return makeAsterDeliveryRackMesh({.asset_id = package.id});
+  }
   if (primitive == "sphere" || primitive == "uv-sphere") {
     return makeUvSphere(materialParamIntOr(package.material, "segments", 32),
                         materialParamIntOr(package.material, "rings", 16),

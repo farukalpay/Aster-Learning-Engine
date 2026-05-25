@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "action.construction.bale.deliver",
+  "name": "Deliver Metal Bale",
+  "nodes": [
+    {
+      "id": "place_bale_on_rack",
+      "type": "emit_event",
+      "parameters": {
+        "event": "construction.bale.deliver_to_rack",
+        "rack": "target"
+      },
+      "tags": ["interaction.vehicle", "construction_yard", "final_delivery"]
+    }
+  ]
+}

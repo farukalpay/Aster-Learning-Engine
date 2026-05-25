@@ -20,7 +20,7 @@ feature normal_map true
 preview environment lumen-construction-yard
 preview rig shredder-front-output
 preview artifact /tmp/lumen_run_construction_yard.ppm
-node mesh.shredder mesh_primitive role=mesh primitive=recycler-shredder length=3.95 width=1.55 chamber_height=1.18
+node mesh.shredder mesh_primitive role=mesh primitive=recycler-shredder length=5.40 width=2.45 chamber_height=1.48
 node uv.shredder uv_policy role=uv mapping=packed-industrial-yard texel_density=768
 node tangent.validate tangent_validation role=tangent policy=validate-or-generate
 node material.blue material_assignment role=material slot=shredder.blue_metal surface_profile=weathered-blue-metal
@@ -28,12 +28,18 @@ node material.steel material_assignment role=material slot=shredder.steel surfac
 node material.hazard material_assignment role=material slot=shredder.hazard surface_profile=scuffed-hazard-paint
 node collision.proxy collision_proxy role=collision shape=static-shredder-intake-output triangles=128
 node lod.chain lod_generator role=lod policy=lod0-lod1 levels=2
-node gameplay.feed prefab_variant role=prefab variant=pipe-feed-shredder
-node claim.hopper visual_brief_claim role=quality signal=hopper_teeth_output_chute
+node gameplay.feed prefab_variant role=prefab variant=demolition-load-feed-shredder
+node claim.open_intake visual_brief_claim role=quality signal=unshielded_open_cutter_intake
+node claim.cutters visual_brief_claim role=quality signal=visible_counter_rotating_cutters
+node claim.drive visual_brief_claim role=quality signal=exposed_motor_gearbox_chain_drive
+node claim.output visual_brief_claim role=quality signal=visible_scrap_output
 node claim.blue visual_brief_claim role=quality signal=blue_weathered_metal
 node claim.hazard visual_brief_claim role=quality signal=hazard_signage
-node claim.grounded visual_brief_claim role=quality signal=grounded_contact_shadows
-node reject.raw visual_brief_rejection role=quality signal=raw_glb_fbx_runtime_dependency
+node claim.grounded visual_brief_claim role=quality signal=grounded_support_frame
+node reject.box visual_brief_rejection role=quality signal=closed_featureless_box
+node reject.float visual_brief_rejection role=quality signal=floating_machine
+node reject.vanish visual_brief_rejection role=quality signal=disappearing_feed_mesh
+node reject.hopper_guard visual_brief_rejection role=quality signal=oversized_occluding_hopper_guard
 node perception.template world_perceptual_template role=perceptual profile=industrial-recycler-machine surface_response=weathered-blue-metal history_response=shredder-hazard-event-memory material_half_life_seconds=30 wetness_half_life_seconds=12 semantic_lod=0.86 streaming_cost=0.36 patch_channels=blue_paint_wear,hazard_panel,material_stability contact_channels=intake_trigger,visual_occlusion,traversal_affordance residue_channels=sparks_dust,metal_scrap_output,player_readable_cause
 node export.runtime cook_export role=package target=assetgraphbin
 node diagnostic.quality diagnostic role=quality profile=production
@@ -45,11 +51,17 @@ edge mesh.shredder material.hazard material_slot
 edge mesh.shredder collision.proxy collision_source
 edge mesh.shredder lod.chain lod_source
 edge collision.proxy gameplay.feed gameplay_trigger
-edge claim.hopper diagnostic.quality visual_brief
+edge claim.open_intake diagnostic.quality visual_brief
+edge claim.cutters diagnostic.quality visual_brief
+edge claim.drive diagnostic.quality visual_brief
+edge claim.output diagnostic.quality visual_brief
 edge claim.blue diagnostic.quality visual_brief
 edge claim.hazard diagnostic.quality visual_brief
 edge claim.grounded diagnostic.quality visual_brief
-edge reject.raw diagnostic.quality forbidden_signal
+edge reject.box diagnostic.quality visual_brief
+edge reject.float diagnostic.quality visual_brief
+edge reject.vanish diagnostic.quality visual_brief
+edge reject.hopper_guard diagnostic.quality visual_brief
 edge perception.template export.runtime perceptual_template
 edge lod.chain export.runtime runtime_lods
 edge diagnostic.quality export.runtime cook_report

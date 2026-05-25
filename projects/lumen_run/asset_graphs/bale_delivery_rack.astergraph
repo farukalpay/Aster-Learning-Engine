@@ -1,0 +1,36 @@
+astergraph asset_graph.lumen_run.bale_delivery_rack
+schema_version 1
+name "Lumen Run Scrap Bale Delivery Rack"
+material_id material.lumen_run.delivery_rack
+surface_profile striped-yard-steel
+primitive bale-delivery-rack
+uv_policy packed-industrial-yard
+tangent_policy validate-or-generate
+collision_proxy static-delivery-rack
+lod_policy single
+base_color 0.30 0.32 0.34
+roughness 0.62
+metallic 0.65
+param physical_texel_density 640
+param height_normal_coupling 0.52
+param roughness_height_coupling 0.54
+param macro_frequency_breakup 0.42
+param micro_frequency_breakup 0.38
+feature normal_map true
+preview environment lumen-remote-construction-yard
+preview rig forklift-bale-delivery
+preview artifact /tmp/lumen_run_remote_delivery.ppm
+node mesh.rack mesh_primitive role=mesh primitive=bale-delivery-rack bay_count=24
+node material.rack material_assignment role=material slot=rack.steel surface_profile=striped-yard-steel
+node collision.proxy collision_proxy role=collision shape=static-delivery-rack triangles=96
+node claim.bays visual_brief_claim role=quality signal=marked_bale_delivery_bays
+node claim.grounded visual_brief_claim role=quality signal=grounded_loading_platform
+node perception.template world_perceptual_template role=perceptual profile=marked-delivery-rack surface_response=striped-yard-steel history_response=delivered-bale-material-memory material_half_life_seconds=32 wetness_half_life_seconds=14 semantic_lod=0.80 streaming_cost=0.24 patch_channels=hazard_stripes,steel_wear,material_stability contact_channels=ground_contact,bale_delivery,visual_occlusion residue_channels=metal_dust,delivery_state,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mesh.rack material.rack material_slot
+edge mesh.rack collision.proxy collision_source
+edge claim.bays diagnostic.quality visual_brief
+edge claim.grounded diagnostic.quality visual_brief
+edge perception.template export.runtime perceptual_template
+edge diagnostic.quality export.runtime cook_report

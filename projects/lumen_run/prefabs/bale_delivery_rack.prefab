@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "prefab.lumen_run.bale_delivery_rack",
+  "name": "Bale Delivery Rack",
+  "entities": [
+    {
+      "id": "bale_delivery_rack.root",
+      "name": "Bale Delivery Rack Root",
+      "components": {
+        "transform": { "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0] },
+        "mesh_renderer": { "mesh": "asset_graph.lumen_run.bale_delivery_rack", "material": "material.lumen_run.delivery_rack" },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.bale_delivery_rack", "cell_anchor": "lumen.remote_construction_yard", "residency_role": "final-delivery-rack", "local_cause": "forklift-bale-delivery", "traversal_role": "marked-delivery-bays", "visual_occlusion_role": "grounded-striped-platform", "acoustic_role": "metal-bale-placement", "material_half_life_override": 32.0, "streaming_cost_override": 0.24 },
+        "collider": { "shape": "box", "half_extents": [3.30, 0.30, 2.20], "layer": "world.static" },
+        "rigid_body": { "type": "static", "mass": 0.0, "gravity_enabled": false },
+        "interactable": { "tags": ["construction.delivery.bale_rack"], "action_graph": "action.construction.bale.deliver", "prompt_action": "Deliver", "prompt_subject": "Metal Bale Rack", "radius": 1.0, "max_distance": 14.0 }
+      }
+    }
+  ]
+}

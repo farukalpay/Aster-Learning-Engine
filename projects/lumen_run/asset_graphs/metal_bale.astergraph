@@ -1,0 +1,40 @@
+astergraph asset_graph.lumen_run.metal_bale
+schema_version 1
+name "Lumen Run Pressed Metal Bale"
+material_id material.lumen_run.metal_bale
+surface_profile compacted-scrap-metal
+primitive metal-bale
+uv_policy packed-industrial-yard
+tangent_policy validate-or-generate
+collision_proxy forklift-bale-footprint
+lod_policy single
+base_color 0.38 0.33 0.28
+roughness 0.46
+metallic 0.78
+param physical_texel_density 768
+param height_normal_coupling 0.58
+param roughness_height_coupling 0.52
+param macro_frequency_breakup 0.44
+param micro_frequency_breakup 0.48
+feature normal_map true
+preview environment lumen-remote-construction-yard
+preview rig forklift-bale-delivery
+preview artifact /tmp/lumen_run_remote_delivery.ppm
+node mesh.bale mesh_primitive role=mesh primitive=metal-bale
+node material.bale material_assignment role=material slot=bale.scrap surface_profile=compacted-scrap-metal
+node collision.proxy collision_proxy role=collision shape=forklift-bale-footprint triangles=48
+node gameplay.deliver prefab_variant role=prefab variant=forklift-deliverable-bale
+node claim.compacted visual_brief_claim role=quality signal=strapped_compacted_metal_bale
+node claim.forks visual_brief_claim role=quality signal=forklift_readable_load
+node reject.vanish visual_brief_rejection role=quality signal=vanishing_scrap_output
+node perception.template world_perceptual_template role=perceptual profile=pressed-metal-bale surface_response=compacted-scrap-metal history_response=delivery-material-memory material_half_life_seconds=36 wetness_half_life_seconds=14 semantic_lod=0.82 streaming_cost=0.22 patch_channels=compressed_metal,binding_straps,material_stability contact_channels=fork_pocket,rack_delivery,visual_occlusion residue_channels=metal_flakes,load_identity,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mesh.bale material.bale material_slot
+edge mesh.bale collision.proxy collision_source
+edge collision.proxy gameplay.deliver gameplay_trigger
+edge claim.compacted diagnostic.quality visual_brief
+edge claim.forks diagnostic.quality visual_brief
+edge reject.vanish diagnostic.quality visual_brief
+edge perception.template export.runtime perceptual_template
+edge diagnostic.quality export.runtime cook_report

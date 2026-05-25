@@ -4,6 +4,55 @@
 #include "lumen_run_detail.hpp"
 
 namespace aster {
+namespace {
+
+[[nodiscard]] float supportVerticalError(const SurfaceSupportQuery &query,
+                                         const TerrainSurfaceSample &sample) {
+  if (!sample.valid || !std::isfinite(query.reference_y)) {
+    return std::numeric_limits<float>::infinity();
+  }
+  const float delta = sample.height - query.reference_y;
+  const float below_penalty = delta < 0.0f ? 1.22f : 1.0f;
+  return std::abs(delta) * below_penalty;
+}
+
+[[nodiscard]] TerrainSurfaceSample chooseRouteContinuitySupport(
+    const TerrainSurfaceSample &world, const TerrainSurfaceSample &cave,
+    const SurfaceSupportQuery &query) {
+  if (!world.valid) {
+    return cave;
+  }
+  if (!cave.valid) {
+    return world;
+  }
+  if (!std::isfinite(query.reference_y)) {
+    return cave.height > world.height ? cave : world;
+  }
+
+  const float cave_drop = query.reference_y - cave.height;
+  const float cave_rise = cave.height - query.reference_y;
+  const float height_delta = std::abs(cave.height - world.height);
+  const bool cave_within_step_up = cave_rise <= std::max(query.max_above, 0.0f) + 0.025f;
+  const bool cave_is_route_continuous =
+      cave_within_step_up &&
+      (cave_drop <= 0.38f || height_delta <= 0.26f || cave.height >= world.height - 0.06f);
+  if (!cave_is_route_continuous && cave.height < world.height - 0.30f) {
+    return world;
+  }
+
+  const float world_error = supportVerticalError(query, world);
+  const float cave_error = supportVerticalError(query, cave);
+  if (cave_error + 0.08f < world_error) {
+    return cave;
+  }
+  if (cave.height > world.height + 0.04f && cave_within_step_up &&
+      cave_drop <= std::max(query.max_below, 0.0f) && cave_error <= world_error + 0.08f) {
+    return cave;
+  }
+  return world;
+}
+
+} // namespace
 
 // Frame simulation, actor motion, transient visuals, and world-state maintenance.
 void LumenRun::applyCaveWebTraversalGates(PhysicsBody &body) {
@@ -173,26 +222,12 @@ void LumenRun::updatePlayerPhysics(const float dt, const Vec2 move_axis, const b
     }
     return false;
   };
-  const Vec3 player_support_position =
-      physics_.body(player_body_).position - Vec3{0.0f, playerSupportExtent(), 0.0f};
-  const SurfaceSupportQuery player_support_query{{player_support_position.x,
-                                                  player_support_position.z},
-                                                 player_support_position.y,
-                                                 0.22f,
-                                                 1.35f};
-  const bool cave_support_locked =
-      inside_cave_support_envelope(physics_.body(player_body_).position) &&
-      sampleCaveFloorSupport(player_support_query).valid;
-  const TerrainSurfaceQuerySampler surface_sampler = [this, cave_support_locked](
-                                                         const Vec3 support_position) {
+  const TerrainSurfaceQuerySampler surface_sampler = [this](const Vec3 support_position) {
     if (isSwimmableWater(support_position)) {
       return TerrainSurfaceSample{};
     }
     const SurfaceSupportQuery query{
         {support_position.x, support_position.z}, support_position.y, 0.22f, 1.35f};
-    if (cave_support_locked) {
-      return sampleCaveFloorSupport(query);
-    }
     return sampleWorldSupport(query);
   };
   const CharacterMoveResult character_state =
@@ -492,7 +527,9 @@ TerrainSurfaceSample LumenRun::sampleWorldSupport(const SurfaceSupportQuery &que
     for (const CaveFloorSupportSurface &floor : cave_floor_supports_) {
       const CaveInteriorSample sample = sampleCaveInteriorVolume(floor.tunnel, reference);
       if (sample.tunnel_t >= floor.tunnel.collision_start_t - 0.04f &&
-          sample.lateral <= sample.half_width * 1.10f) {
+          sample.tunnel_t <= floor.tunnel.collision_end_t + 0.055f &&
+          sample.lateral <= sample.half_width * 1.18f && sample.vertical >= -1.45f &&
+          sample.vertical <= sample.height * 2.25f) {
         return true;
       }
     }
@@ -508,7 +545,14 @@ TerrainSurfaceSample LumenRun::sampleWorldSupport(const SurfaceSupportQuery &que
   if (!world.valid) {
     return cave_floor;
   }
-  return cave_floor;
+  return chooseRouteContinuitySupport(world, cave_floor, query);
+}
+
+TerrainSurfaceSample LumenRun::debugSupportSample(const Vec3 support_position,
+                                                  const float max_above,
+                                                  const float max_below) const {
+  return sampleWorldSupport(
+      {{support_position.x, support_position.z}, support_position.y, max_above, max_below});
 }
 
 void LumenRun::updateFishingVisual() {
