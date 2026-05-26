@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "prefab.spark.energy_node",
+  "name": "Spark Energy Node",
+  "entities": [
+    {
+      "id": "node",
+      "name": "Energy Node",
+      "components": {
+        "mesh_renderer": { "mesh": "asset_graph.spark.neon_conduit", "material": "material.spark.neon_conduit" },
+        "spark_energy_node": { "active": false, "overload_cost": 1 }
+      }
+    }
+  ]
+}

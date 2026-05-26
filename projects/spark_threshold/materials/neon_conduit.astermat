@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.spark.neon_conduit {
+  schema_version: 1
+  name: "Spark Neon Conduit"
+  shading_model: Emissive
+  blend_mode: Blend
+  cull_mode: None
+  receives_decals: false
+  receives_shadows: false
+
+  params {
+    base_color_r: 0.020
+    base_color_g: 0.18
+    base_color_b: 0.18
+    emission_r: 0.06
+    emission_g: 0.92
+    emission_b: 1.00
+    emission_strength: 1.18
+    opacity: 0.86
+    roughness: 0.24
+    metallic: 0.0
+  }
+
+  features {
+    disable_fog: false
+    alpha: true
+  }
+}

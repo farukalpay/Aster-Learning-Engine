@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "scene.spark_threshold.entry",
+  "name": "Kivilcim Esigi Entry",
+  "entities": [
+    {
+      "id": "player_spawn",
+      "name": "Player Spawn",
+      "prefab": "prefab.spark.player",
+      "components": {
+        "transform": { "translation": [0.0, 0.32, -8.0] },
+        "camera": { "primary": true, "vertical_fov_degrees": 46.0, "near_plane": 0.05, "far_plane": 90.0 },
+        "spawn_point": { "spawn_kind": "player", "radius": 0.32 }
+      }
+    },
+    {
+      "id": "mine_node",
+      "name": "Maden Rezonatoru",
+      "prefab": "prefab.spark.energy_node",
+      "components": {
+        "transform": { "translation": [-6.4, 0.30, -2.2] },
+        "mesh_renderer": { "mesh": "asset_graph.spark.neon_conduit", "material": "material.spark.neon_conduit" },
+        "interactable": { "action_graph": "action.spark.bind_mine", "prompt_action": "Bagla", "prompt_subject": "Maden Rezonatoru", "radius": 1.45 },
+        "spark_energy_node": { "route": "mine", "overload_cost": 1, "ending_bias": "resonance" }
+      }
+    },
+    {
+      "id": "scrap_node",
+      "name": "Hurda Dinamosu",
+      "prefab": "prefab.spark.energy_node",
+      "components": {
+        "transform": { "translation": [6.8, 0.30, -1.2] },
+        "mesh_renderer": { "mesh": "asset_graph.spark.oxidized_metal", "material": "material.spark.oxidized_metal" },
+        "interactable": { "action_graph": "action.spark.bind_scrap", "prompt_action": "Bas", "prompt_subject": "Hurda Dinamosu", "radius": 1.45 },
+        "spark_energy_node": { "route": "scrap", "overload_cost": 2, "ending_bias": "overload" }
+      }
+    },
+    {
+      "id": "castle_node",
+      "name": "Kale Prizmasi",
+      "prefab": "prefab.spark.energy_node",
+      "components": {
+        "transform": { "translation": [0.0, 0.30, 6.4] },
+        "mesh_renderer": { "mesh": "asset_graph.spark.castle_stone", "material": "material.spark.castle_stone" },
+        "interactable": { "action_graph": "action.spark.bind_castle", "prompt_action": "Cevir", "prompt_subject": "Kale Prizmasi", "radius": 1.45 },
+        "spark_energy_node": { "route": "castle", "overload_cost": 1, "ending_bias": "escape" }
+      }
+    },
+    {
+      "id": "threshold_gate",
+      "name": "Final Threshold Gate",
+      "prefab": "prefab.spark.threshold_gate",
+      "components": {
+        "transform": { "translation": [0.0, 0.32, 10.6] },
+        "mesh_renderer": { "mesh": "asset_graph.spark.broken_lens", "material": "material.spark.broken_lens" },
+        "interactable": { "action_graph": "action.spark.trigger_gate", "prompt_action": "Tetikle", "prompt_subject": "Esik", "radius": 1.70 },
+        "spark_threshold_gate": { "requires_active_nodes": 2, "supports_endings": ["resonance", "escape", "overload"] }
+      }
+    }
+  ]
+}

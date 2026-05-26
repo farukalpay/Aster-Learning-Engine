@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.spark.scrap_surface {
+  schema_version: 1
+  name: "Spark Scrap Surface"
+  shading_model: Emissive
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  params {
+    base_color_r: 0.11
+    base_color_g: 0.095
+    base_color_b: 0.080
+    emission_r: 0.20
+    emission_g: 0.08
+    emission_b: 0.02
+    emission_strength: 0.08
+    roughness: 0.70
+    metallic: 0.44
+    pitting_density: 0.58
+    cavity_grime: 0.40
+    edge_wear: 0.30
+    rust_bloom: 0.22
+  }
+
+  features {
+    triplanar: true
+    decal_receiver: true
+  }
+}

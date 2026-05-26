@@ -1,0 +1,38 @@
+astergraph asset_graph.spark.oxidized_metal
+schema_version 1
+name "Spark Oxidized Metal"
+material_id material.spark.oxidized_metal
+surface_profile corroded-metal
+primitive box
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy box
+lod_policy single-lod
+base_color 0.180 0.082 0.046
+roughness 0.76
+metallic 0.38
+param pitting_density 0.60
+param oxide_layering 0.52
+param cavity_grime 0.34
+param axial_scratches 0.42
+feature triplanar true
+preview environment spark-threshold-scrap-yard
+preview rig third-person-route
+node mesh.deck mesh_primitive role=mesh primitive=box
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=4.2
+node material.assign material_assignment role=material surface_profile=corroded-metal
+node mat.cells cellular role=pitting scale=24.0 strength=0.60
+node mat.oxide rust_spread role=oxide_layering strength=0.52
+node mat.cavity cavity_dirt role=cavity_grime strength=0.34
+node mat.scratches axial_scratch role=axial_scratches strength=0.42
+node mat.orm orm_baker role=orm policy=runtime-procedural
+node collision.proxy collision_proxy role=collision shape=box
+node perception.template world_perceptual_template role=perceptual profile=oxidized-metal surface_response=hot-scrap-yard-metal history_response=overload-residue material_half_life_seconds=42 wetness_half_life_seconds=8 semantic_lod=0.82 streaming_cost=0.34 patch_channels=oxidation,edge_wear,overload_heat contact_channels=contact_normal,visual_occlusion residue_channels=electrical_residue,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.cells material.assign pitting
+edge mat.oxide material.assign oxide_layering
+edge mat.cavity material.assign cavity_grime
+edge mat.scratches material.assign axial_scratches
+edge mat.orm export.runtime orm
+edge perception.template export.runtime perceptual_template

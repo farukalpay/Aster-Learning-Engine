@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "action.spark.trigger_gate",
+  "name": "Esigi Tetikle",
+  "nodes": [
+    { "id": "trigger_gate", "type": "emit_event", "parameters": { "event": "spark.gate.trigger", "gate": "threshold_gate" }, "tags": ["spark.gate", "ending"] }
+  ],
+  "reaction_contracts": [
+    { "id": "ending_feedback", "minimum_score": 0.76, "required_channels": ["ui_feedback", "event_residue", "lighting_atmosphere"], "required_events": ["trigger_gate"] }
+  ]
+}

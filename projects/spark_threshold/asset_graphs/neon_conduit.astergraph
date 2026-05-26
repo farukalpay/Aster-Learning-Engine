@@ -1,0 +1,30 @@
+astergraph asset_graph.spark.neon_conduit
+schema_version 1
+name "Spark Neon Conduit"
+material_id material.spark.neon_conduit
+surface_profile emissive-lens
+primitive tube
+uv_policy generated
+tangent_policy validate-or-generate
+collision_proxy capsule
+lod_policy single-lod
+base_color 0.020 0.180 0.180
+roughness 0.24
+metallic 0.00
+param emission_strength 1.18
+param macro_variation 0.08
+feature emissive true
+feature alpha true
+preview environment spark-threshold-conduit
+preview rig third-person-route
+node mesh.conduit mesh_primitive role=mesh primitive=tube
+node material.assign material_assignment role=material surface_profile=emissive-lens
+node mat.pulse noise role=emissive scale=7.0 strength=0.32
+node mat.edge edge_wear role=edge_wear strength=0.10
+node collision.proxy collision_proxy role=collision shape=capsule
+node perception.template world_perceptual_template role=perceptual profile=neon-conduit surface_response=readable-energy-line history_response=route-choice-memory material_half_life_seconds=18 wetness_half_life_seconds=4 semantic_lod=0.90 streaming_cost=0.22 patch_channels=light_history,semantic_lod contact_channels=visual_occlusion residue_channels=ui_feedback,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.pulse material.assign emissive
+edge mat.edge material.assign edge_wear
+edge perception.template export.runtime perceptual_template

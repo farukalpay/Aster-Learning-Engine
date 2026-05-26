@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "action.spark.bind_mine",
+  "name": "Maden Rezonatoru Bagla",
+  "nodes": [
+    { "id": "bind_mine", "type": "emit_event", "parameters": { "event": "spark.node.bind", "node": "mine" }, "tags": ["spark.node", "route.mine"] }
+  ],
+  "reaction_contracts": [
+    { "id": "mine_feedback", "minimum_score": 0.70, "required_channels": ["ui_feedback", "event_residue"], "required_events": ["bind_mine"] }
+  ]
+}

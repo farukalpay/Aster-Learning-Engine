@@ -1,0 +1,36 @@
+astergraph asset_graph.spark.scrap_surface
+schema_version 1
+name "Spark Scrap Surface"
+material_id material.spark.scrap_surface
+surface_profile corroded-metal
+primitive box
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy box
+lod_policy single-lod
+base_color 0.110 0.095 0.080
+roughness 0.70
+metallic 0.44
+param pitting_density 0.58
+param cavity_grime 0.40
+param edge_wear 0.30
+param rust_bloom 0.22
+feature triplanar true
+preview environment spark-threshold-scrap-surface
+preview rig third-person-route
+node mesh.scrap mesh_primitive role=mesh primitive=box
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=4.0
+node material.assign material_assignment role=material surface_profile=corroded-metal
+node mat.cells cellular role=pitting scale=21.0 strength=0.58
+node mat.cavity cavity_dirt role=cavity_grime strength=0.40
+node mat.edge edge_wear role=edge_wear strength=0.30
+node mat.rust rust_spread role=rust_bloom strength=0.22
+node collision.proxy collision_proxy role=collision shape=box
+node perception.template world_perceptual_template role=perceptual profile=scrap-surface surface_response=player-readable-scrap-risk history_response=overload-heat-memory material_half_life_seconds=36 wetness_half_life_seconds=5 semantic_lod=0.80 streaming_cost=0.30 patch_channels=oxidation,heat_memory contact_channels=contact_normal,traversal_affordance residue_channels=event_residue,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.cells material.assign pitting
+edge mat.cavity material.assign cavity_grime
+edge mat.edge material.assign edge_wear
+edge mat.rust material.assign rust_bloom
+edge perception.template export.runtime perceptual_template

@@ -1,0 +1,37 @@
+astergraph asset_graph.spark.wet_basalt
+schema_version 1
+name "Spark Wet Basalt"
+material_id material.spark.wet_basalt
+surface_profile stratified-rock
+primitive plane
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy box
+lod_policy single-lod
+base_color 0.035 0.040 0.048
+roughness 0.82
+metallic 0.02
+param wetness 0.34
+param macro_variation 0.42
+param micro_normal_strength 0.46
+param height_shading 0.30
+feature triplanar true
+feature height true
+preview environment spark-threshold-mine
+preview rig third-person-route
+node mesh.floor mesh_primitive role=mesh primitive=plane
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=4.6
+node material.assign material_assignment role=material surface_profile=stratified-rock
+node mat.noise noise role=base_color scale=18.0 strength=0.22
+node mat.wetness wetness_flow role=wetness strength=0.34
+node mat.normal normal_baker role=normal strength=0.46
+node mat.height height_baker role=height strength=0.30
+node collision.proxy collision_proxy role=collision shape=box
+node perception.template world_perceptual_template role=perceptual profile=wet-basalt surface_response=dark-wet-mine-floor history_response=route-footfall-light-memory material_half_life_seconds=38 wetness_half_life_seconds=24 semantic_lod=0.84 streaming_cost=0.28 patch_channels=wetness,stone_memory,light_history contact_channels=contact_normal,traversal_affordance residue_channels=player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.noise material.assign base_color
+edge mat.wetness material.assign wetness
+edge mat.normal export.runtime normal
+edge mat.height export.runtime height
+edge perception.template export.runtime perceptual_template

@@ -407,6 +407,7 @@ set(ASTER_SAMPLES_SOURCES
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/scene.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/simulation.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/validation.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/spark_threshold/spark_threshold.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/showcase_scenes.cpp"
 )
 
@@ -700,6 +701,12 @@ if(ASTER_BUILD_STUDIO)
   target_compile_definitions(aster_grid_tactics PRIVATE
     ASTER_GRID_TACTICS_PROJECT="${PROJECT_SOURCE_DIR}/projects/aster_grid_tactics/aster_grid_tactics.asterproj"
   )
+
+  add_executable(aster_spark_threshold apps/samples/spark_threshold/main.cpp)
+  target_link_libraries(aster_spark_threshold PRIVATE aster_engine_internal aster_game_sdk)
+  target_compile_definitions(aster_spark_threshold PRIVATE
+    ASTER_SPARK_THRESHOLD_PROJECT="${PROJECT_SOURCE_DIR}/projects/spark_threshold/spark_threshold.asterproj"
+  )
 endif()
 
 if(ASTER_BUILD_PREVIEW)
@@ -854,6 +861,24 @@ if(ASTER_BUILD_TESTS)
                      --lighting-width 480 --lighting-height 270 --no-vsync)
     add_test(NAME aster_lumen_run_smoke_test
              COMMAND aster_lumen_run --smoke-test --no-vsync)
+    add_test(NAME aster_spark_threshold_smoke_test
+             COMMAND aster_spark_threshold --smoke-test --no-vsync)
+    add_test(NAME aster_spark_threshold_title_capture_test
+             COMMAND aster_spark_threshold --screenshot
+                     "${PROJECT_BINARY_DIR}/test-artifacts/spark_threshold/title.ppm"
+                     --capture-title --screenshot-frame 2 --no-vsync)
+    add_test(NAME aster_spark_threshold_resonance_capture_test
+             COMMAND aster_spark_threshold --screenshot
+                     "${PROJECT_BINARY_DIR}/test-artifacts/spark_threshold/resonance.ppm"
+                     --capture-ending --script-route resonance --no-vsync)
+    add_test(NAME aster_spark_threshold_escape_capture_test
+             COMMAND aster_spark_threshold --screenshot
+                     "${PROJECT_BINARY_DIR}/test-artifacts/spark_threshold/escape.ppm"
+                     --capture-ending --script-route escape --no-vsync)
+    add_test(NAME aster_spark_threshold_overload_capture_test
+             COMMAND aster_spark_threshold --screenshot
+                     "${PROJECT_BINARY_DIR}/test-artifacts/spark_threshold/overload.ppm"
+                     --capture-ending --script-route overload --no-vsync)
     add_test(NAME aster_studio_material_lab_smoke
              COMMAND aster_studio --smoke-test --asset-db
                      "${PROJECT_SOURCE_DIR}/showcases/material_lab/cooked/desktop/assetdb.asterdb.json"
@@ -1008,6 +1033,20 @@ if(ASTER_BUILD_TESTS)
   aster_add_test(aster_systems_tests tests/systems_tests.cpp)
   aster_add_test(aster_physics_tests tests/physics_tests.cpp)
   aster_add_test(aster_lumen_run_tests tests/samples/lumen_run/lumen_run_tests.cpp)
+  aster_add_test(aster_spark_threshold_tests
+                 tests/samples/spark_threshold/spark_threshold_tests.cpp)
+  foreach(spark_threshold_case
+      scripted_run_reaches_resonance_ending
+      scripted_run_reaches_escape_ending
+      scripted_run_reaches_overload_ending
+      reset_restores_title_and_playable_state
+      hud_uses_turkish_player_facing_language
+      scene_contains_visual_signals_and_renders
+      deterministic_replay_hashes_match
+  )
+    add_test(NAME aster_spark_threshold_tests.${spark_threshold_case}
+             COMMAND aster_spark_threshold_tests ${spark_threshold_case})
+  endforeach()
   aster_add_test(aster_grid_tactics_tests
                  tests/samples/aster_grid_tactics/aster_grid_tactics_tests.cpp)
   foreach(grid_tactics_case
@@ -1048,6 +1087,25 @@ if(ASTER_BUILD_TESTS)
               --output "${PROJECT_BINARY_DIR}/test-artifacts/aster_grid_tactics/cooked"
     )
     set_tests_properties(aster_grid_tactics_cook PROPERTIES
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    )
+    add_test(NAME aster_spark_threshold_agent_plan
+      COMMAND "${CMAKE_COMMAND}" -E env ${ASTER_CARGO_ENV}
+              "${CARGO_EXECUTABLE}" run -p aster_assetc --bin aster_assetc --
+              agent-plan --project projects/spark_threshold/spark_threshold.asterproj
+              --output-schema
+    )
+    set_tests_properties(aster_spark_threshold_agent_plan PROPERTIES
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    )
+    add_test(NAME aster_spark_threshold_cook
+      COMMAND "${CMAKE_COMMAND}" -E env ${ASTER_CARGO_ENV}
+              "${CARGO_EXECUTABLE}" run -p aster_assetc --bin aster_assetc --
+              cook --project projects/spark_threshold/spark_threshold.asterproj
+              --platform desktop
+              --output "${PROJECT_BINARY_DIR}/test-artifacts/spark_threshold/cooked"
+    )
+    set_tests_properties(aster_spark_threshold_cook PROPERTIES
       WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     )
   endif()

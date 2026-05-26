@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.spark.wet_basalt {
+  schema_version: 1
+  name: "Spark Wet Basalt"
+  shading_model: Emissive
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  params {
+    base_color_r: 0.035
+    base_color_g: 0.040
+    base_color_b: 0.048
+    emission_r: 0.02
+    emission_g: 0.09
+    emission_b: 0.12
+    emission_strength: 0.05
+    roughness: 0.82
+    metallic: 0.02
+    triplanar_scale: 4.6
+    detail_strength: 0.48
+    micro_normal_strength: 0.46
+    roughness_variation: 0.28
+    wetness: 0.34
+    height_shading: 0.30
+  }
+
+  features {
+    triplanar: true
+    height: true
+    decal_receiver: true
+  }
+}

@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.spark.castle_stone {
+  schema_version: 1
+  name: "Spark Castle Stone"
+  shading_model: Emissive
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  params {
+    base_color_r: 0.17
+    base_color_g: 0.16
+    base_color_b: 0.145
+    emission_r: 0.06
+    emission_g: 0.04
+    emission_b: 0.10
+    emission_strength: 0.06
+    roughness: 0.88
+    metallic: 0.0
+    triplanar_scale: 3.8
+    detail_strength: 0.46
+    pattern_depth: 0.18
+    pattern_contrast: 0.42
+    edge_wear: 0.24
+  }
+
+  features {
+    triplanar: true
+    decal_receiver: true
+  }
+}

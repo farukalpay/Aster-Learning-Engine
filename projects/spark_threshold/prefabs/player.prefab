@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "prefab.spark.player",
+  "name": "Spark Runner",
+  "entities": [
+    {
+      "id": "player",
+      "name": "Kivilcim Kosucusu",
+      "components": {
+        "mesh_renderer": { "mesh": "mesh.spark.operator", "material": "material.spark.neon_conduit" },
+        "spark_actor": { "team": "player", "health": 3, "command_source": "local" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "input.spark_threshold",
+  "bindings": [
+    { "command": "spark.move.forward", "device": "keyboard", "key": "W" },
+    { "command": "spark.move.left", "device": "keyboard", "key": "A" },
+    { "command": "spark.move.back", "device": "keyboard", "key": "S" },
+    { "command": "spark.move.right", "device": "keyboard", "key": "D" },
+    { "command": "spark.run", "device": "keyboard", "key": "LeftShift" },
+    { "command": "spark.interact", "device": "keyboard", "key": "E" },
+    { "command": "spark.interact", "device": "keyboard", "key": "Space" },
+    { "command": "spark.reset", "device": "keyboard", "key": "R" }
+  ]
+}

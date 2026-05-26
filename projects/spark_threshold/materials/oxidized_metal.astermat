@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.spark.oxidized_metal {
+  schema_version: 1
+  name: "Spark Oxidized Metal"
+  shading_model: Emissive
+  blend_mode: Opaque
+  cull_mode: Back
+  receives_decals: true
+  receives_shadows: true
+
+  params {
+    base_color_r: 0.18
+    base_color_g: 0.082
+    base_color_b: 0.046
+    emission_r: 0.20
+    emission_g: 0.06
+    emission_b: 0.02
+    emission_strength: 0.10
+    roughness: 0.76
+    metallic: 0.38
+    triplanar_scale: 4.2
+    detail_strength: 0.52
+    pitting_density: 0.60
+    oxide_layering: 0.52
+    cavity_grime: 0.34
+    axial_scratches: 0.42
+  }
+
+  features {
+    triplanar: true
+    decal_receiver: true
+  }
+}

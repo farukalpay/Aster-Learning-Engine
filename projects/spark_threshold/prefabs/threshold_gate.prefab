@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "prefab.spark.threshold_gate",
+  "name": "Spark Threshold Gate",
+  "entities": [
+    {
+      "id": "gate",
+      "name": "Final Threshold Gate",
+      "components": {
+        "mesh_renderer": { "mesh": "asset_graph.spark.broken_lens", "material": "material.spark.broken_lens" },
+        "spark_threshold_gate": { "requires_active_nodes": 2 }
+      }
+    }
+  ]
+}

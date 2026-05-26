@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "name": "Kivilcim Esigi",
+  "startup_scene": "scene.spark_threshold.entry",
+  "assets": [
+    { "id": "scene.spark_threshold.entry", "kind": "scene", "path": "scenes/entry.scene", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10001" },
+    { "id": "prefab.spark.player", "kind": "prefab", "path": "prefabs/player.prefab", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10002" },
+    { "id": "prefab.spark.energy_node", "kind": "prefab", "path": "prefabs/energy_node.prefab", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10003" },
+    { "id": "prefab.spark.threshold_gate", "kind": "prefab", "path": "prefabs/threshold_gate.prefab", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10004" },
+    { "id": "material.spark.wet_basalt", "kind": "material", "path": "materials/wet_basalt.astermat", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10005" },
+    { "id": "material.spark.oxidized_metal", "kind": "material", "path": "materials/oxidized_metal.astermat", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10006" },
+    { "id": "material.spark.neon_conduit", "kind": "material", "path": "materials/neon_conduit.astermat", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10007" },
+    { "id": "material.spark.castle_stone", "kind": "material", "path": "materials/castle_stone.astermat", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10008" },
+    { "id": "material.spark.broken_lens", "kind": "material", "path": "materials/broken_lens.astermat", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10009" },
+    { "id": "material.spark.scrap_surface", "kind": "material", "path": "materials/scrap_surface.astermat", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa1000a" },
+    { "id": "asset_graph.spark.wet_basalt", "kind": "asset_graph", "path": "asset_graphs/wet_basalt.astergraph", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa1000b" },
+    { "id": "asset_graph.spark.oxidized_metal", "kind": "asset_graph", "path": "asset_graphs/oxidized_metal.astergraph", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa1000c" },
+    { "id": "asset_graph.spark.neon_conduit", "kind": "asset_graph", "path": "asset_graphs/neon_conduit.astergraph", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa1000d" },
+    { "id": "asset_graph.spark.castle_stone", "kind": "asset_graph", "path": "asset_graphs/castle_stone.astergraph", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa1000e" },
+    { "id": "asset_graph.spark.broken_lens", "kind": "asset_graph", "path": "asset_graphs/broken_lens.astergraph", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa1000f" },
+    { "id": "asset_graph.spark.scrap_surface", "kind": "asset_graph", "path": "asset_graphs/scrap_surface.astergraph", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10010" },
+    { "id": "action.spark.bind_mine", "kind": "action_graph", "path": "actions/bind_mine.action_graph", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10011" },
+    { "id": "action.spark.bind_scrap", "kind": "action_graph", "path": "actions/bind_scrap.action_graph", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10012" },
+    { "id": "action.spark.bind_castle", "kind": "action_graph", "path": "actions/bind_castle.action_graph", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10013" },
+    { "id": "action.spark.trigger_gate", "kind": "action_graph", "path": "actions/trigger_gate.action_graph", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10014" },
+    { "id": "input.spark_threshold", "kind": "input", "path": "inputs/spark_threshold.input", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10015" },
+    { "id": "ui.spark_hud", "kind": "ui", "path": "ui/spark_hud.ui", "guid": "51f0b0156a2e4b8d9f8c3b8ddaa10016" }
+  ]
+}

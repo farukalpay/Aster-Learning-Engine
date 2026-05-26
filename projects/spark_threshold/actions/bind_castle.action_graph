@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "action.spark.bind_castle",
+  "name": "Kale Prizmasi Cevir",
+  "nodes": [
+    { "id": "bind_castle", "type": "emit_event", "parameters": { "event": "spark.node.bind", "node": "castle" }, "tags": ["spark.node", "route.castle"] }
+  ],
+  "reaction_contracts": [
+    { "id": "castle_feedback", "minimum_score": 0.70, "required_channels": ["ui_feedback", "event_residue"], "required_events": ["bind_castle"] }
+  ]
+}

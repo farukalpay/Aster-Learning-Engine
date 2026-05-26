@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "action.spark.bind_scrap",
+  "name": "Hurda Dinamosu Bas",
+  "nodes": [
+    { "id": "bind_scrap", "type": "emit_event", "parameters": { "event": "spark.node.bind", "node": "scrap" }, "tags": ["spark.node", "route.scrap", "overload"] }
+  ],
+  "reaction_contracts": [
+    { "id": "scrap_feedback", "minimum_score": 0.70, "required_channels": ["ui_feedback", "event_residue"], "required_events": ["bind_scrap"] }
+  ]
+}

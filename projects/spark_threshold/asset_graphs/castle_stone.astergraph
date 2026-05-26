@@ -1,0 +1,33 @@
+astergraph asset_graph.spark.castle_stone
+schema_version 1
+name "Spark Castle Stone"
+material_id material.spark.castle_stone
+surface_profile masonry
+primitive pillar
+uv_policy triplanar
+tangent_policy validate-or-generate
+collision_proxy box
+lod_policy single-lod
+base_color 0.170 0.160 0.145
+roughness 0.88
+metallic 0.00
+param macro_variation 0.36
+param micro_normal_strength 0.34
+param edge_polish 0.20
+feature triplanar true
+preview environment spark-threshold-castle
+preview rig third-person-route
+node mesh.pillar mesh_primitive role=mesh primitive=pillar
+node uv.triplanar uv_policy role=uv mapping=triplanar texel_density=3.8
+node material.assign material_assignment role=material surface_profile=masonry
+node mat.noise noise role=base_color scale=11.0 strength=0.20
+node mat.edge edge_wear role=edge_wear strength=0.20
+node mat.normal normal_baker role=normal strength=0.34
+node collision.proxy collision_proxy role=collision shape=box
+node perception.template world_perceptual_template role=perceptual profile=castle-stone surface_response=old-threshold-stone history_response=gate-memory material_half_life_seconds=58 wetness_half_life_seconds=12 semantic_lod=0.86 streaming_cost=0.30 patch_channels=stone_memory,edge_wear contact_channels=contact_normal,visual_occlusion residue_channels=player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.noise material.assign base_color
+edge mat.edge material.assign edge_wear
+edge mat.normal export.runtime normal
+edge perception.template export.runtime perceptual_template

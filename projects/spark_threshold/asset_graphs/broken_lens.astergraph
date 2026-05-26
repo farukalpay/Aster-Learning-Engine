@@ -1,0 +1,30 @@
+astergraph asset_graph.spark.broken_lens
+schema_version 1
+name "Spark Broken Lens"
+material_id material.spark.broken_lens
+surface_profile emissive-lens
+primitive crystal
+uv_policy generated
+tangent_policy validate-or-generate
+collision_proxy sphere
+lod_policy single-lod
+base_color 0.280 0.120 0.025
+roughness 0.20
+metallic 0.00
+param emission_strength 1.46
+param macro_variation 0.18
+feature emissive true
+feature alpha true
+preview environment spark-threshold-ending
+preview rig threshold-gate
+node mesh.lens mesh_primitive role=mesh primitive=crystal
+node material.assign material_assignment role=material surface_profile=emissive-lens
+node mat.fracture edge_wear role=fracture_edges strength=0.34
+node mat.pulse noise role=emissive scale=9.0 strength=0.40
+node collision.proxy collision_proxy role=collision shape=sphere
+node perception.template world_perceptual_template role=perceptual profile=broken-lens surface_response=final-ending-lens history_response=ending-state-memory material_half_life_seconds=22 wetness_half_life_seconds=3 semantic_lod=0.94 streaming_cost=0.24 patch_channels=light_history,ending_signal contact_channels=visual_occlusion residue_channels=event_residue,player_readable_cause
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mat.fracture material.assign fracture_edges
+edge mat.pulse material.assign emissive
+edge perception.template export.runtime perceptual_template
