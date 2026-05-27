@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "prefab.lumen_run.wheat_patch",
+  "name": "Wheat Patch",
+  "entities": [
+    {
+      "id": "wheat_patch.root",
+      "name": "Wheat Patch Root",
+      "components": {
+        "transform": { "translation": [22.0, 0.0, 21.0], "rotation": [0.0, -0.42, 0.0], "scale": [1.0, 1.0, 1.0] },
+        "mesh_renderer": { "mesh": "asset_graph.lumen_run.wheat_field", "material": "material.lumen_run.wheat_stalk" },
+        "perceptual_binding": { "template": "asset_graph.lumen_run.wheat_field", "cell_anchor": "lumen.sandbox_spawn_farm", "residency_role": "spawn-landmark-crop-field", "local_cause": "player-starts-in-sandbox-exterior", "traversal_role": "route-edge-crop-rows", "visual_occlusion_role": "low-field-cover", "acoustic_role": "dry-stalk-rustle", "material_half_life_override": 48.0, "streaming_cost_override": 0.18 },
+        "collider": { "shape": "box", "half_extents": [4.0, 0.12, 2.5], "trigger": true, "layer": "world.decor" },
+        "rigid_body": { "type": "static", "mass": 0.0, "gravity_enabled": false }
+      }
+    }
+  ]
+}

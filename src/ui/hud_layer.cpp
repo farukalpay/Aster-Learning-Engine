@@ -572,24 +572,51 @@ HudAction HudLayer::draw(const HudModel &model) {
   HudAction action = HudAction::None;
 
   if (model.visibility.status_panel && !model.inventory.open) {
-    const UiRect panel{18.0f, 18.0f, 520.0f, 154.0f};
+    const UiRect panel{18.0f, 18.0f, 520.0f,
+                       model.debug_console.visible ? 186.0f : 154.0f};
     drawPanelTexture(canvas_, panel);
     float y = panel.y + 16.0f;
     const float x = panel.x + 18.0f;
     const float width = panel.width - 36.0f;
-    canvas_.text(model.title, {x, y}, kText, 2.25f);
-    y += 32.0f;
-    canvas_.wrappedText(model.subtitle, {x, y}, width, kDim, 1.45f);
-    y += 40.0f;
-    const float progress =
-        model.total <= 0 ? 0.0f : static_cast<float>(model.score) / static_cast<float>(model.total);
-    canvas_.progressBar({x, y, width, 12.0f}, std::clamp(progress, 0.0f, 1.0f), kAmber,
-                        {0.06f, 0.08f, 0.08f, 0.92f});
-    y += 27.0f;
-    char buffer[128]{};
-    std::snprintf(buffer, sizeof(buffer), "Shards %d / %d    Lives %d    Time %.1fs", model.score,
-                  model.total, model.lives, model.elapsed_seconds);
-    canvas_.text(buffer, {x, y}, kText, 1.55f);
+    if (model.debug_console.visible) {
+      const std::string title =
+          model.debug_console.title.empty() ? model.title : model.debug_console.title;
+      canvas_.text(title, {x, y}, kText, 2.05f);
+      y += 29.0f;
+      const std::string prompt =
+          model.debug_console.prompt.empty() ? model.subtitle : model.debug_console.prompt;
+      if (!prompt.empty()) {
+        canvas_.text(fitTextToWidth(canvas_, prompt, width, 1.22f), {x, y}, kAmber, 1.22f);
+      }
+      y += 24.0f;
+      canvas_.line({x, y}, {x + width, y}, {0.76f, 0.58f, 0.34f, 0.28f}, 1.0f);
+      y += 14.0f;
+      const std::size_t visible_count = std::min<std::size_t>(model.debug_console.lines.size(), 5u);
+      const std::size_t first =
+          model.debug_console.lines.size() > visible_count
+              ? model.debug_console.lines.size() - visible_count
+              : 0u;
+      for (std::size_t i = first; i < model.debug_console.lines.size(); ++i) {
+        const std::string line = "> " + model.debug_console.lines[i];
+        canvas_.text(fitTextToWidth(canvas_, line, width, 1.18f), {x, y}, kDim, 1.18f);
+        y += 20.0f;
+      }
+    } else {
+      canvas_.text(model.title, {x, y}, kText, 2.25f);
+      y += 32.0f;
+      canvas_.wrappedText(model.subtitle, {x, y}, width, kDim, 1.45f);
+      y += 40.0f;
+      const float progress = model.total <= 0 ? 0.0f
+                                              : static_cast<float>(model.score) /
+                                                    static_cast<float>(model.total);
+      canvas_.progressBar({x, y, width, 12.0f}, std::clamp(progress, 0.0f, 1.0f), kAmber,
+                          {0.06f, 0.08f, 0.08f, 0.92f});
+      y += 27.0f;
+      char buffer[128]{};
+      std::snprintf(buffer, sizeof(buffer), "Score %d / %d    Lives %d    Time %.1fs", model.score,
+                    model.total, model.lives, model.elapsed_seconds);
+      canvas_.text(buffer, {x, y}, kText, 1.55f);
+    }
   }
 
   const InventoryOverlayAction inventory_action = inventory_overlay_.draw(canvas_, model.inventory);
@@ -626,9 +653,10 @@ HudAction HudLayer::draw(const HudModel &model) {
   if (model.victory || model.defeated) {
     const UiRect result{viewport.x * 0.5f - 180.0f, viewport.y * 0.5f - 58.0f, 360.0f, 116.0f};
     drawPanelTexture(canvas_, result);
-    canvas_.text(model.victory ? "Signal restored" : "Core breached",
+    canvas_.text(model.victory ? "Sandbox complete" : "Core breached",
                  {result.x + 28.0f, result.y + 24.0f}, kText, 2.1f);
-    canvas_.text("Press R to restart the run.", {result.x + 28.0f, result.y + 64.0f}, kDim, 1.45f);
+    canvas_.text("Press R to restart the sandbox.", {result.x + 28.0f, result.y + 64.0f}, kDim,
+                 1.45f);
   }
   return action;
 }

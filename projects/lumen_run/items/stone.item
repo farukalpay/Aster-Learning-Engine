@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "item.stone",
+  "display_name": "Stone",
+  "short_label": "STN",
+  "stackable": true,
+  "max_stack": 48,
+  "tags": ["item.resource", "resource.building", "resource.placeable"],
+  "metadata": {
+    "runtime_id": "stone",
+    "sandbox_use": "placeable building rock"
+  }
+}

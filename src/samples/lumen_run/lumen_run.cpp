@@ -359,7 +359,7 @@ void LumenRun::reset() {
   status_.lives = 3;
   status_.max_health = kPlayerMaxHealth;
   status_.health = status_.max_health;
-  status_.total_shards = tuning_.shard_count;
+  status_.total_shards = 0;
   terrain_ = makeProceduralTerrain({.grid_size = 289,
                                     .square_size = 0.74f,
                                     .central_flat_radius = tuning_.arena_radius * 1.06f,
@@ -367,15 +367,17 @@ void LumenRun::reset() {
                                     .hill_height = 1.18f,
                                     .mountain_height = 3.10f});
   sculptLumenCaveTerrain(terrain_);
-  const TerrainSurfaceSample start_ground = sampleTerrain(terrain_, {0.0f, 0.0f});
-  player_position_ = {
-      0.0f, (start_ground.valid ? start_ground.height : 0.0f) + playerSupportExtent(), 0.0f};
+  const LumenSpawnPlacement spawn = resolveAuthoredPlayerSpawn(authoring_);
+  const TerrainSurfaceSample start_ground = sampleTerrain(terrain_, spawn.planar);
+  player_position_ = {spawn.planar.x,
+                      (start_ground.valid ? start_ground.height : 0.0f) + playerSupportExtent(),
+                      spawn.planar.y};
   prism_relay_base_ = prismRelayBasePlacement();
   prism_relay_active_ = false;
   prism_relay_charge_ = kPrismRelayIdleCharge;
   player_velocity_ = {};
   player_avatar_instance_ = {};
-  player_facing_yaw_ = 0.0f;
+  player_facing_yaw_ = spawn.yaw;
   player_avatar_pose_ = {};
   player_preview_yaw_ = 0.0f;
   player_preview_yaw_enabled_ = false;
@@ -495,43 +497,7 @@ void LumenRun::reset() {
                      3.70f};
   player_grounded_ = false;
   forced_spawn_lighting_frames_ = 2;
-
-  const float golden_angle = kPi * (3.0f - std::sqrt(5.0f));
-  const auto shard_overlaps_reserved_composition = [](const Vec3 position) {
-    return overlapsFishingComposition(position) || overlapsParkourChestComposition(position);
-  };
-  const auto relocate_shard = [&](Shard &shard, const int seed) {
-    Vec2 planar = normalize(Vec2{shard.position.x, shard.position.z});
-    if (length(planar) <= 0.0001f) {
-      planar = {1.0f, 0.0f};
-    }
-    const Vec2 rotated{-planar.y, planar.x};
-    for (int attempt = 0; attempt < 8; ++attempt) {
-      const float side_bias = 0.54f + static_cast<float>(attempt) * 0.11f;
-      const float radius_scale = 0.64f + static_cast<float>((seed + attempt) % 3) * 0.07f;
-      const Vec2 relocated =
-          normalize(planar * 0.48f + rotated * side_bias) * (tuning_.arena_radius * radius_scale);
-      shard.position.x = relocated.x;
-      shard.position.z = relocated.y;
-      if (!shard_overlaps_reserved_composition(shard.position)) {
-        return;
-      }
-      planar = normalize(Vec2{std::cos(static_cast<float>(seed + attempt + 1) * golden_angle),
-                              std::sin(static_cast<float>(seed + attempt + 1) * golden_angle)});
-    }
-  };
-  for (int i = 0; i < tuning_.shard_count; ++i) {
-    const float fill = (static_cast<float>(i) + 0.5f) / static_cast<float>(tuning_.shard_count);
-    const float radius = std::sqrt(fill) * tuning_.arena_radius * 0.82f;
-    const float angle = static_cast<float>(i) * golden_angle;
-    Shard shard;
-    shard.position = {std::cos(angle) * radius, tuning_.shard_radius * 1.8f,
-                      std::sin(angle) * radius};
-    if (shard_overlaps_reserved_composition(shard.position)) {
-      relocate_shard(shard, i);
-    }
-    shards_.push_back(shard);
-  }
+  sandbox_log_.clear();
 
   for (int i = 0; i < tuning_.sentinel_count; ++i) {
     const float fill = (static_cast<float>(i) + 0.5f) / static_cast<float>(tuning_.sentinel_count);
@@ -545,6 +511,9 @@ void LumenRun::reset() {
   rebuildCaveWorldGate();
   refreshWorldPerceptualPrimitives();
   clearTransientFeedback();
+  pushSandboxLog("system: farm spawn loaded near cave approach");
+  pushSandboxLog("tip: mine coal, then place coal or stone from the hotbar");
+  pushSandboxLog("yard: shred modules, press scrap, deliver bales");
 }
 
 void LumenRun::update(const float dt, Vec2 move_axis, const bool run_requested,
@@ -619,6 +588,54 @@ const SceneTraceValidationReport &LumenRun::sceneTraceReport() const {
 
 const LumenStatus &LumenRun::status() const {
   return status_;
+}
+
+LumenSandboxStats LumenRun::sandboxStats() const {
+  LumenSandboxStats stats;
+  const auto countHotbarItem = [this](const std::string_view item_id) {
+    int count = 0;
+    for (const ItemStack &stack : hotbar_.slots()) {
+      if (stack.item_id == item_id) {
+        count += std::max(stack.quantity, 0);
+      }
+    }
+    return count;
+  };
+  stats.coal = countHotbarItem("coal");
+  stats.stone = countHotbarItem("stone");
+  stats.iron_ore = countHotbarItem("iron_ore");
+  stats.copper_ore = countHotbarItem("copper_ore");
+  stats.placed_resources = static_cast<int>(placed_rocks_.size());
+  stats.live_ores = static_cast<int>(std::count_if(
+      coal_ores_.begin(), coal_ores_.end(), [](const CoalOreNode &ore) { return !ore.collected; }));
+  stats.mined_ores = static_cast<int>(std::count_if(
+      coal_ores_.begin(), coal_ores_.end(), [](const CoalOreNode &ore) { return ore.collected; }));
+  stats.processed_loads = construction_shredder_.processed_load_count;
+  stats.pending_press_loads = construction_press_.pending_load_count;
+  stats.delivered_bales = constructionDeliveredBaleCount();
+  stats.prism_relay_active = prism_relay_active_;
+  stats.forklift_mounted = construction_forklift_.mounted;
+  stats.crane_mounted = construction_crane_.mounted;
+  stats.construction_yard_complete = constructionYardComplete();
+  return stats;
+}
+
+std::vector<std::string> LumenRun::sandboxLogLines() const {
+  return sandbox_log_;
+}
+
+void LumenRun::pushSandboxLog(std::string message) {
+  if (message.empty()) {
+    return;
+  }
+  constexpr std::size_t kMaxSandboxLogLines = 9u;
+  if (sandbox_log_.size() >= kMaxSandboxLogLines) {
+    sandbox_log_.erase(sandbox_log_.begin(),
+                       sandbox_log_.begin() +
+                           static_cast<std::ptrdiff_t>(sandbox_log_.size() -
+                                                       kMaxSandboxLogLines + 1u));
+  }
+  sandbox_log_.push_back(std::move(message));
 }
 
 const LumenWorldForensics &LumenRun::worldForensics() const {

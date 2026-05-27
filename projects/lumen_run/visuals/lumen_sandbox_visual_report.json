@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "id": "visual_report.lumen_sandbox",
+  "project": "Lumen Sandbox",
+  "preview_artifacts": [
+    "/tmp/lumen_sandbox_spawn.ppm",
+    "/tmp/lumen_sandbox_cave.ppm",
+    "/tmp/lumen_sandbox_yard.ppm"
+  ],
+  "claimed_visual_signals": [
+    "opening_capture_shows_wheat_field_and_farm_dirt_path",
+    "top_left_hud_is_sandbox_console_not_shard_counter",
+    "cave_route_capture_shows_readable_mineable_ore_feedback",
+    "construction_yard_capture_shows_grounded_machine_station_and_status_prompt",
+    "resource_hotbar_and_console_report_mining_placement_yard_progress"
+  ],
+  "rejected_visual_signals": [
+    "castle_origin_first_view",
+    "collect_shards_objective_hud",
+    "floating_construction_yard_machines",
+    "unreadable_black_ore_nodes"
+  ],
+  "validation": [
+    {
+      "command": "./build/aster_lumen_run --screenshot /tmp/lumen_sandbox_spawn.ppm --screenshot-frame 80 --capture-hud --msaa 0 --window-width 1280 --window-height 720",
+      "status": "passed",
+      "notes": "Capture shows wheat field, dirt route, player at farm/cave approach, and Lumen Sandbox console."
+    },
+    {
+      "command": "./build/aster_lumen_run --screenshot /tmp/lumen_sandbox_cave.ppm --capture-route cave-entry --screenshot-frame 120 --capture-hud",
+      "status": "passed",
+      "notes": "Capture keeps cave route visible with console overlay and mineable ore route context."
+    },
+    {
+      "command": "./build/aster_lumen_run --screenshot /tmp/lumen_sandbox_yard.ppm --capture-route construction-yard-shred --screenshot-frame 120 --capture-hud",
+      "status": "passed",
+      "notes": "Capture shows grounded shredder station, forklift state prompt, and yard progress console."
+    }
+  ]
+}

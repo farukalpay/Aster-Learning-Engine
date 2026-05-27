@@ -74,6 +74,13 @@ struct AutomapHudModel {
   AutomapModel map;
 };
 
+struct DebugConsoleHudModel {
+  bool visible = false;
+  std::string title = "Console";
+  std::string prompt;
+  std::vector<std::string> lines;
+};
+
 struct HudVisibilityPolicy {
   bool status_panel = true;
   bool health = true;
@@ -112,6 +119,7 @@ struct HudModel {
   HotbarHudModel hotbar;
   ChestContentsHudModel chest_contents;
   AutomapHudModel automap;
+  DebugConsoleHudModel debug_console;
   ClassicHudSignalModel classic_signals;
   TransitionWipeFrame transition_wipe;
   HudVisibilityPolicy visibility;

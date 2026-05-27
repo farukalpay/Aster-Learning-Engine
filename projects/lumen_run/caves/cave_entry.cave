@@ -48,7 +48,7 @@
         "visible_wall_start_t": 0.0,
         "collision_start_t": 0.0,
         "collision_end_t": 0.965,
-        "ore_start_t": 0.24,
+        "ore_start_t": 0.08,
         "chest_t": 0.78,
         "chamber_t": 0.74,
         "chamber_falloff": 0.25,
@@ -70,13 +70,13 @@
       "ore": {
         "seed": 10431268,
         "candidates": 132,
-        "max_nodes": 20,
+        "max_nodes": 26,
         "field_frequency_a": 0.38,
         "field_frequency_b": 0.76,
         "intersection_threshold_a": 0.27,
         "intersection_threshold_b": 0.25,
         "wall_inset": 0.040,
-        "min_spacing": 0.98
+        "min_spacing": 0.86
       },
       "features": {
         "seed": 10431478,
@@ -237,7 +237,7 @@
     "spawn_volumes": [
       {
         "id": "player_spawn",
-        "center": [1.1, 0.28, 1.0],
+        "center": [22.0, 0.28, 21.0],
         "half_extents": [0.3, 0.5, 0.3]
       },
       {
@@ -272,9 +272,9 @@
       {
         "id": "entry_coal_pressure",
         "kind": "resource",
-        "position": [30.14, -3.8, -78.0],
-        "radius": 18.0,
-        "minimum_count": 6
+        "position": [31.0, 0.4, -62.0],
+        "radius": 30.0,
+        "minimum_count": 4
       }
     ],
     "encounter_probes": [

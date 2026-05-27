@@ -137,7 +137,7 @@ void printAuthoringDiagnostics(const std::vector<aster::sdk::Diagnostic> &diagno
   for (const aster::sdk::Diagnostic &diagnostic : diagnostics) {
     const char *severity =
         diagnostic.severity == aster::sdk::DiagnosticSeverity::Error ? "error" : "warning";
-    std::cerr << "Lumen Run project " << severity << ": ";
+    std::cerr << "Lumen Sandbox project " << severity << ": ";
     if (!diagnostic.source.empty()) {
       std::cerr << diagnostic.source.string();
     }
@@ -434,7 +434,7 @@ const char *lumenWorldGateVerdictName(const aster::LumenWorldGateVerdict verdict
 }
 
 void printLumenWorldGateReport(const aster::LumenCaveWorldGateReport &report) {
-  std::cout << "Lumen Run cave world gate: verdict="
+  std::cout << "Lumen Sandbox cave world gate: verdict="
             << lumenWorldGateVerdictName(report.verdict) << " seed=" << report.seed
             << " region_id=" << report.region_id
             << " probe_trace_hash=" << report.probe_trace_hash
@@ -448,7 +448,7 @@ void printLumenWorldGateReport(const aster::LumenCaveWorldGateReport &report) {
             << "/" << report.perceptual_minimum_salience
             << " continuity=" << report.perceptual_continuity_score
             << "/" << report.perceptual_continuity_minimum_score << '\n';
-  std::cout << "Lumen Run cave world gate diagnostic: " << report.diagnostic << '\n';
+  std::cout << "Lumen Sandbox cave world gate diagnostic: " << report.diagnostic << '\n';
 }
 
 std::uint64_t lumenFrameProofHash(const aster::LumenWorldForensics &world,
@@ -919,7 +919,7 @@ VisionPlaytestMetrics runLumenCaveVisionPlaytest(aster::LumenRun &game,
                                                  const int width, const int height,
                                                  const aster::RenderStyleProfile &render_style) {
   if (route != "cave-regression") {
-    throw std::runtime_error("unknown Lumen Run vision route '" + route +
+        throw std::runtime_error("unknown Lumen Sandbox vision route '" + route +
                              "'; expected cave-regression");
   }
   std::filesystem::create_directories(output_dir);
@@ -1260,7 +1260,7 @@ LightingPlaytestMetrics runLumenCaveLightingPlaytest(
     aster::LumenRun &game, const std::string &route, const std::filesystem::path &output_dir,
     const int width, const int height, const aster::RenderStyleProfile &render_style) {
   if (route != "cave-regression") {
-    throw std::runtime_error("unknown Lumen Run lighting route '" + route +
+    throw std::runtime_error("unknown Lumen Sandbox lighting route '" + route +
                              "'; expected cave-regression");
   }
   std::filesystem::create_directories(output_dir);
@@ -1356,7 +1356,8 @@ inventoryHotbarSlots(const aster::HotbarHudModel &hotbar) {
   return slots;
 }
 
-aster::InventoryOverlayModel inventoryModel(const aster::LumenStatus &status, const bool open,
+aster::InventoryOverlayModel inventoryModel(const aster::LumenSandboxStats &sandbox,
+                                            const bool open,
                                             const int torch_count,
                                             const bool supply_crate_nearby,
                                             const aster::HotbarHudModel &hotbar) {
@@ -1367,8 +1368,9 @@ aster::InventoryOverlayModel inventoryModel(const aster::LumenStatus &status, co
   inventory.subtitle = "Tab";
   inventory.character_name = "Wool runner";
   inventory.character_status =
-      "Shards " + std::to_string(status.score) + " / " + std::to_string(status.total_shards);
-  inventory.search_hint = "Search craftables";
+      "Coal " + std::to_string(sandbox.coal) + "  Stone " + std::to_string(sandbox.stone) +
+      "  Placed " + std::to_string(sandbox.placed_resources);
+  inventory.search_hint = "Search sandbox resources";
   inventory.equipment_slots = {
       inventorySlot("Head", "soft ears", "", {0.40f, 0.24f, 0.13f}),
       inventorySlot("Body", "wool coat", "", {0.46f, 0.28f, 0.15f}, true),
@@ -1378,14 +1380,20 @@ aster::InventoryOverlayModel inventoryModel(const aster::LumenStatus &status, co
   inventory.backpack.title = "Backpack";
   inventory.backpack.columns = 6;
   inventory.backpack.slots = paddedSlots(
-      {inventorySlot("Amber", "recovered shards", std::to_string(status.score),
-                     {0.82f, 0.50f, 0.18f}, true),
+      {inventorySlot("Coal", "mined fuel ore", std::to_string(sandbox.coal),
+                     {0.08f, 0.075f, 0.070f}, sandbox.coal > 0),
+       inventorySlot("Stone", "placeable rock", std::to_string(sandbox.stone),
+                     {0.32f, 0.31f, 0.29f}, sandbox.stone > 0),
+       inventorySlot("Iron", "survey sample", std::to_string(sandbox.iron_ore),
+                     {0.46f, 0.26f, 0.16f}, sandbox.iron_ore > 0),
+       inventorySlot("Copper", "survey sample", std::to_string(sandbox.copper_ore),
+                     {0.72f, 0.36f, 0.16f}, sandbox.copper_ore > 0),
        inventorySlot("Torch", "carried supply", std::to_string(torch_count), {0.98f, 0.52f, 0.16f},
                      false, "torch", aster::InventorySlotRole::PlayerBackpack),
-       inventorySlot("Thread", "repair fiber", "3", {0.62f, 0.48f, 0.32f}),
-       inventorySlot("Core", "signal relay", "1", {0.18f, 0.56f, 0.58f}),
-       inventorySlot("Map", "station court", "1", {0.28f, 0.38f, 0.46f}),
-       inventorySlot("Lamp", "warm light", "1", {0.78f, 0.55f, 0.24f}),
+       inventorySlot("Relay", sandbox.prism_relay_active ? "active" : "idle", "1",
+                     {0.18f, 0.56f, 0.58f}),
+       inventorySlot("Yard", "processed loads", std::to_string(sandbox.processed_loads),
+                     {0.78f, 0.55f, 0.24f}),
        inventorySlot("Snack", "focus", "2", {0.45f, 0.38f, 0.22f})},
       24u);
   markDropTargets(inventory.backpack.slots, aster::InventorySlotRole::PlayerBackpack);
@@ -1406,15 +1414,17 @@ aster::InventoryOverlayModel inventoryModel(const aster::LumenStatus &status, co
     inventory.secondary_inventory = {.title = "Crate", .columns = 1, .slots = {torch_supply}};
   }
   inventory.recipes = {
-      {"Signal flare", "2 Amber + 1 Thread", status.score >= 2},
-      {"Soft patch", "1 Thread", true},
-      {"Gate marker", "4 Amber", status.score >= 4},
-      {"Lantern polish", "1 Amber", status.score >= 1},
+      {"Coal marker", "1 Coal placed from hotbar", sandbox.coal > 0},
+      {"Stone marker", "1 Stone placed from hotbar", sandbox.stone > 0},
+      {"Scrap bale", "Shred loads, press, deliver", sandbox.processed_loads > 0},
+      {"Relay retune", "Interact with the prism relay", sandbox.prism_relay_active},
   };
   return inventory;
 }
 
 aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_open,
+                         const aster::LumenSandboxStats &sandbox,
+                         std::vector<std::string> sandbox_log,
                          const int torch_count, const bool supply_crate_nearby,
                          const bool pause_open, const bool pause_options_open,
                          const aster::PointerCueModel pointer,
@@ -1425,19 +1435,18 @@ aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_
                          const aster::ClassicHudSignalModel classic_signals,
                          const aster::TransitionWipeFrame transition_wipe) {
   aster::HudModel model;
-  model.title = "Lumen Run";
-  model.subtitle =
-      "Recover amber shards across the floodlit station court before the sentinels close in.";
-  model.score = status.score;
-  model.total = status.total_shards;
+  model.title = "Lumen Sandbox";
+  model.subtitle = "Farm cave approach, mineable ore, placeable resources, and yard machines.";
+  model.score = sandbox.mined_ores + sandbox.placed_resources + sandbox.processed_loads;
+  model.total = 0;
   model.lives = status.lives;
   model.health = status.health;
   model.max_health = status.max_health;
   model.elapsed_seconds = status.elapsed_seconds;
-  model.victory = status.victory;
+  model.victory = false;
   model.defeated = status.defeated;
   model.controls.button_label = "Controls";
-  model.controls.title = "Run controls";
+  model.controls.title = "Sandbox controls";
   model.controls.subtitle = "Keyboard bindings";
   model.controls.footer = "Terminal: ./build/aster_lumen_run";
   model.controls.open_by_default = false;
@@ -1451,7 +1460,7 @@ aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_
       {"R", "Restart", false},       {"Esc", "Menu", false},
   };
   model.inventory =
-      inventoryModel(status, inventory_open, torch_count, supply_crate_nearby, hotbar);
+      inventoryModel(sandbox, inventory_open, torch_count, supply_crate_nearby, hotbar);
   model.visibility = aster::hudVisibilityForState(
       {.inventory_open = inventory_open, .pause_open = pause_open, .defeated = status.defeated});
   model.pointer = pointer;
@@ -1466,6 +1475,18 @@ aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_
   model.hotbar = std::move(hotbar);
   model.chest_contents = std::move(chest_contents);
   model.automap = {.visible = classic_signals.visible || transition_wipe.active, .map = automap};
+  sandbox_log.push_back("resources: coal " + std::to_string(sandbox.coal) + ", stone " +
+                        std::to_string(sandbox.stone) + ", placed " +
+                        std::to_string(sandbox.placed_resources));
+  sandbox_log.push_back("cave: mined " + std::to_string(sandbox.mined_ores) + ", visible ore " +
+                        std::to_string(sandbox.live_ores));
+  sandbox_log.push_back("yard: loads " + std::to_string(sandbox.processed_loads) +
+                        ", press queue " + std::to_string(sandbox.pending_press_loads) +
+                        ", bales " + std::to_string(sandbox.delivered_bales));
+  model.debug_console = {.visible = true,
+                         .title = "Lumen Sandbox",
+                         .prompt = "sandbox console / ore, build, yard",
+                         .lines = std::move(sandbox_log)};
   model.classic_signals = classic_signals;
   model.transition_wipe = transition_wipe;
   return model;
@@ -1480,7 +1501,7 @@ int main(int argc, char **argv) {
     const std::filesystem::path profile_capture_path =
         argumentPath(argc, argv, "--profile-capture");
     const int sequence_frames = argumentInt(argc, argv, "--capture-frames", 144);
-    const std::string capture_route = argumentString(argc, argv, "--capture-route", "attract");
+    const std::string capture_route = argumentString(argc, argv, "--capture-route", "sandbox-spawn");
     const int run_frames = argumentInt(argc, argv, "--run-frames", 0);
     const int screenshot_frame = std::max(0, argumentInt(argc, argv, "--screenshot-frame", 80));
     const bool capture_hud = hasArgument(argc, argv, "--capture-hud");
@@ -1535,6 +1556,8 @@ int main(int argc, char **argv) {
     const std::string playback_route =
         scripted_frame_report_route ? frame_report_route : capture_route;
     const bool cave_entry_capture = playback_route == "cave-entry";
+    const bool sandbox_spawn_capture =
+        playback_route == "sandbox-spawn" || playback_route == "attract";
     const bool deep_cave_capture = playback_route == "deep-cave";
     const bool deep_cave_stress_capture = playback_route == "deep-cave-stress";
     const bool classic_gauntlet_capture = playback_route == "classic-gauntlet";
@@ -1592,7 +1615,7 @@ int main(int argc, char **argv) {
     printAuthoringDiagnostics(authoring_diagnostics);
     if (!project_path.empty()) {
       if (hasAuthoringErrors(authoring_diagnostics) || !authoring.valid) {
-        throw std::runtime_error("failed to validate Lumen Run cave authoring: " +
+        throw std::runtime_error("failed to validate Lumen Sandbox cave authoring: " +
                                  project_path.string());
       }
       mark_startup("project_authoring_load");
@@ -1601,10 +1624,10 @@ int main(int argc, char **argv) {
       aster::LumenRun validation_game(authoring);
       printLumenWorldGateReport(validation_game.caveWorldGateReport());
       if (!validation_game.caveWorldGateAccepted()) {
-        throw std::runtime_error("Lumen Run cave world gate rejected publish: " +
+        throw std::runtime_error("Lumen Sandbox cave world gate rejected publish: " +
                                  validation_game.caveWorldGateReport().diagnostic);
       }
-      std::cout << "Lumen Run cave validation passed before render extraction: "
+      std::cout << "Lumen Sandbox cave validation passed before render extraction: "
                 << (authoring.cave.id.empty() ? "fallback generated cave" : authoring.cave.id)
                 << '\n';
       return 0;
@@ -1612,13 +1635,13 @@ int main(int argc, char **argv) {
     if (playtest_vision) {
       aster::LumenRun vision_game(authoring);
       if (!vision_game.caveWorldGateAccepted()) {
-        throw std::runtime_error("Lumen Run cave world gate rejected vision playtest: " +
+        throw std::runtime_error("Lumen Sandbox cave world gate rejected vision playtest: " +
                                  vision_game.caveWorldGateReport().diagnostic);
       }
       const VisionPlaytestMetrics metrics =
           runLumenCaveVisionPlaytest(vision_game, vision_route, vision_out, vision_width,
                                      vision_height, render_style);
-      std::cout << "Lumen Run cave vision route '" << metrics.route
+      std::cout << "Lumen Sandbox cave vision route '" << metrics.route
                 << "' wrote artifacts to " << metrics.output_dir << '\n';
       std::cout << "  visible_void_rays=" << metrics.visible_void_rays
                 << " zfight_candidate_pixels=" << metrics.zfight_candidate_pixels
@@ -1627,7 +1650,7 @@ int main(int argc, char **argv) {
                 << " respawn_count=" << metrics.respawn_count
                 << " upper_terrain_snap_count=" << metrics.upper_terrain_snap_count << '\n';
       if (!metrics.accepted) {
-        throw std::runtime_error("Lumen Run cave vision playtest failed; inspect " +
+        throw std::runtime_error("Lumen Sandbox cave vision playtest failed; inspect " +
                                  (metrics.output_dir / (metrics.route + ".json")).string());
       }
       return 0;
@@ -1635,12 +1658,12 @@ int main(int argc, char **argv) {
     if (playtest_lighting) {
       aster::LumenRun lighting_game(authoring);
       if (!lighting_game.caveWorldGateAccepted()) {
-        throw std::runtime_error("Lumen Run cave world gate rejected lighting playtest: " +
+        throw std::runtime_error("Lumen Sandbox cave world gate rejected lighting playtest: " +
                                  lighting_game.caveWorldGateReport().diagnostic);
       }
       const LightingPlaytestMetrics metrics = runLumenCaveLightingPlaytest(
           lighting_game, lighting_route, lighting_out, lighting_width, lighting_height, render_style);
-      std::cout << "Lumen Run cave lighting route '" << metrics.route
+      std::cout << "Lumen Sandbox cave lighting route '" << metrics.route
                 << "' wrote artifacts to " << metrics.output_dir << '\n';
       std::cout << "  source_visible_pixels=" << metrics.source_visible_pixels
                 << " air_scatter_pixels=" << metrics.air_scatter_pixels
@@ -1657,14 +1680,14 @@ int main(int argc, char **argv) {
                 << " max_frame_mean_luminance=" << metrics.max_frame_mean_luminance
                 << " overexposed_pixels=" << metrics.overexposed_pixels << '\n';
       if (!metrics.accepted) {
-        throw std::runtime_error("Lumen Run cave lighting playtest failed; inspect " +
+        throw std::runtime_error("Lumen Sandbox cave lighting playtest failed; inspect " +
                                  (metrics.output_dir / (metrics.route + ".lighting.json")).string());
       }
       return 0;
     }
 
     aster::EngineConfig config;
-    config.application_name = "Aster Learning Engine - Lumen Run";
+    config.application_name = "Aster Learning Engine - Lumen Sandbox";
     config.initial_width = argumentInt(argc, argv, "--window-width",
                                        scripted_capture ? 1600 : kInteractiveWindowWidth);
     config.initial_height = argumentInt(argc, argv, "--window-height",
@@ -1695,7 +1718,7 @@ int main(int argc, char **argv) {
     }
     mark_startup("game_reset");
     if (!game.caveWorldGateAccepted()) {
-      throw std::runtime_error("refusing to publish Lumen Run generated cave region: " +
+      throw std::runtime_error("refusing to publish Lumen Sandbox generated cave region: " +
                                game.caveWorldGateReport().diagnostic);
     }
     if (cave_entry_capture && !player_position_override) {
@@ -1805,19 +1828,21 @@ int main(int argc, char **argv) {
     aster::Vec3 scripted_camera_target = {2.25f, 0.48f, -0.95f};
     if (scripted_capture) {
       const aster::Vec3 player = game.playerPosition();
-      scripted_camera_target =
-          cave_entry_capture
-              ? caveEntryCameraTarget(player, 0.0f)
-              : (classic_gauntlet_capture
-                     ? game.classicGauntletLookTarget()
-                     : ((deep_cave_capture || deep_cave_stress_capture)
-                     ? game.caveFrameReportLookTarget(
-                           deep_cave_stress_capture ? kDeepCaveStressStartProgress
-                                                    : deep_cave_capture_progress,
-                           deep_cave_capture_look_ahead)
-                     : aster::Vec3{argumentFloat(argc, argv, "--camera-target-x", 2.25f),
-                                   argumentFloat(argc, argv, "--camera-target-y", 0.48f),
-                                   argumentFloat(argc, argv, "--camera-target-z", -0.95f)}));
+      if (cave_entry_capture) {
+        scripted_camera_target = caveEntryCameraTarget(player, 0.0f);
+      } else if (classic_gauntlet_capture) {
+        scripted_camera_target = game.classicGauntletLookTarget();
+      } else if (deep_cave_capture || deep_cave_stress_capture) {
+        scripted_camera_target = game.caveFrameReportLookTarget(
+            deep_cave_stress_capture ? kDeepCaveStressStartProgress : deep_cave_capture_progress,
+            deep_cave_capture_look_ahead);
+      } else if (sandbox_spawn_capture) {
+        scripted_camera_target = player + aster::Vec3{5.2f, 0.46f, 1.8f};
+      } else {
+        scripted_camera_target = {argumentFloat(argc, argv, "--camera-target-x", 2.25f),
+                                  argumentFloat(argc, argv, "--camera-target-y", 0.48f),
+                                  argumentFloat(argc, argv, "--camera-target-z", -0.95f)};
+      }
       if (construction_yard_capture) {
         if (construction_yard_crane_capture) {
           scripted_camera_target =
@@ -1888,6 +1913,11 @@ int main(int argc, char **argv) {
         default_camera_yaw_deg = 0.0f;
         default_camera_radius = 7.2f;
         default_camera_fov_deg = 46.0f;
+      } else if (sandbox_spawn_capture) {
+        default_camera_pitch_deg = 22.0f;
+        default_camera_yaw_deg = -128.0f;
+        default_camera_radius = 12.0f;
+        default_camera_fov_deg = 54.0f;
       } else if (classic_gauntlet_capture) {
         default_camera_pitch_deg = 8.0f;
         default_camera_yaw_deg = aster::degrees(game.classicGauntletCameraYaw());
@@ -2039,7 +2069,7 @@ int main(int argc, char **argv) {
       const bool collect_frame_sample =
           frame_report_enabled && rendered_frames > frame_report_warmup;
       if (profile_enabled) {
-        ASTER_PROFILE_FRAME("Lumen Run");
+        ASTER_PROFILE_FRAME("Lumen Sandbox");
       }
       double frame_dt = raw_frame_dt;
       double elapsed = clock.now();
@@ -2200,7 +2230,7 @@ int main(int argc, char **argv) {
           axis = caveEntryAxis(static_cast<float>(elapsed));
           run = caveEntryRun(static_cast<float>(elapsed));
           jump = false;
-        } else if (construction_yard_capture) {
+        } else if (sandbox_spawn_capture || construction_yard_capture) {
           axis = {};
           run = false;
           jump = false;
@@ -2265,6 +2295,8 @@ int main(int argc, char **argv) {
       const aster::Vec3 player = game.playerRenderPosition();
       if (cave_entry_capture) {
         scripted_camera_target = caveEntryCameraTarget(player, static_cast<float>(elapsed));
+      } else if (sandbox_spawn_capture) {
+        scripted_camera_target = player + aster::Vec3{5.2f, 0.46f, 1.8f};
       } else if (construction_yard_capture) {
         if (construction_yard_crane_capture) {
           scripted_camera_target =
@@ -2496,11 +2528,11 @@ int main(int argc, char **argv) {
         hud.beginFrame({static_cast<float>(hud_width), static_cast<float>(hud_height)},
                        control_state.snapshot());
         const aster::HudAction hud_action = hud.draw(
-            hudModel(game.status(), inventory_open, game.torchCount(), game.supplyCrateNearby(),
-                     pause_open, pause_options_open, pointer_cue, game_cursor,
-                     game.focusPromptModel(), game.hotbarHudModel(), game.chestContentsHudModel(),
-                     game.classicGauntletAutomap(), game.classicHudSignals(),
-                     game.classicTransitionWipe()));
+            hudModel(game.status(), inventory_open, game.sandboxStats(), game.sandboxLogLines(),
+                     game.torchCount(), game.supplyCrateNearby(), pause_open, pause_options_open,
+                     pointer_cue, game_cursor, game.focusPromptModel(), game.hotbarHudModel(),
+                     game.chestContentsHudModel(), game.classicGauntletAutomap(),
+                     game.classicHudSignals(), game.classicTransitionWipe()));
         if (hud_action == aster::HudAction::CloseChest) {
           game.closeChest();
         } else if (hud_action == aster::HudAction::TransferSupplyTorch) {
@@ -2623,7 +2655,7 @@ int main(int argc, char **argv) {
       printStartupSummary(startup_samples);
     }
   } catch (const std::exception &error) {
-    std::cerr << "Lumen Run failed: " << error.what() << '\n';
+    std::cerr << "Lumen Sandbox failed: " << error.what() << '\n';
     return 1;
   }
 

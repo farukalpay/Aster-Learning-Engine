@@ -7,7 +7,7 @@
       "id": "player_spawn",
       "name": "Player Spawn",
       "components": {
-        "transform": { "translation": [1.1, 0.28, 1.0], "rotation": [0.0, 3.14159, 0.0] },
+        "transform": { "translation": [22.0, 0.28, 21.0], "rotation": [0.0, -0.72, 0.0] },
         "camera": { "primary": true, "vertical_fov_degrees": 54.0, "near_plane": 0.01, "far_plane": 160.0 },
         "collider": { "shape": "capsule", "radius": 0.35, "height": 1.10, "layer": "actor.player", "mask": "world.static" },
         "rigid_body": { "type": "dynamic", "mass": 1.0, "linear_damping": 0.045, "angular_damping": 0.35, "gravity_enabled": true, "ccd_enabled": true, "allow_sleep": false, "lock_angular_axes": [1.0, 0.0, 1.0], "solver_iterations": 8 },

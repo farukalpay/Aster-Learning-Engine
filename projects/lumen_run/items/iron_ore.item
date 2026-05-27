@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "item.iron_ore",
+  "display_name": "Ironstone",
+  "short_label": "IRO",
+  "stackable": true,
+  "max_stack": 64,
+  "tags": ["item.resource", "resource.ore"],
+  "metadata": {
+    "runtime_id": "iron_ore",
+    "sandbox_use": "future smelting resource"
+  }
+}

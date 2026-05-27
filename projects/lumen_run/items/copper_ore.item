@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "item.copper_ore",
+  "display_name": "Copper",
+  "short_label": "COP",
+  "stackable": true,
+  "max_stack": 64,
+  "tags": ["item.resource", "resource.ore"],
+  "metadata": {
+    "runtime_id": "copper_ore",
+    "sandbox_use": "future wiring resource"
+  }
+}

@@ -74,6 +74,23 @@ struct LumenStatus {
   bool defeated = false;
 };
 
+struct LumenSandboxStats {
+  int coal = 0;
+  int stone = 0;
+  int iron_ore = 0;
+  int copper_ore = 0;
+  int placed_resources = 0;
+  int live_ores = 0;
+  int mined_ores = 0;
+  int processed_loads = 0;
+  int pending_press_loads = 0;
+  int delivered_bales = 0;
+  bool prism_relay_active = false;
+  bool forklift_mounted = false;
+  bool crane_mounted = false;
+  bool construction_yard_complete = false;
+};
+
 struct CaveWallLightSample {
   Vec3 position{};
   Vec3 color{1.0f, 0.16f, 0.08f};
@@ -222,6 +239,8 @@ public:
   [[nodiscard]] const SceneCoherenceReport &sceneCoherenceReport() const;
   [[nodiscard]] const SceneTraceValidationReport &sceneTraceReport() const;
   [[nodiscard]] const LumenStatus &status() const;
+  [[nodiscard]] LumenSandboxStats sandboxStats() const;
+  [[nodiscard]] std::vector<std::string> sandboxLogLines() const;
   [[nodiscard]] const LumenWorldForensics &worldForensics() const;
   [[nodiscard]] const LumenCaveWorldGateReport &caveWorldGateReport() const;
   [[nodiscard]] bool caveWorldGateAccepted() const;
@@ -715,6 +734,7 @@ private:
   [[nodiscard]] MiningToolStats activePickaxeStats() const;
   void spawnMiningFractureEffect(Vec3 center, Vec3 normal, Vec3 half_extents,
                                  const Material &material, std::uint32_t seed, int shard_count);
+  void pushSandboxLog(std::string message);
   void collectOverlaps();
   void resolveSentinelImpacts();
   [[nodiscard]] float playerSupportExtent() const;
@@ -724,6 +744,7 @@ private:
   LumenTuning tuning_{};
   LumenAuthoringData authoring_{};
   LumenStatus status_{};
+  std::vector<std::string> sandbox_log_;
   WorldState world_state_{};
   PerceptualWorldRuntime perceptual_runtime_{};
   PerceptualCausalityGraph perceptual_causality_graph_{};

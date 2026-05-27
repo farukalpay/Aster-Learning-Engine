@@ -90,9 +90,6 @@ constexpr const char *kTraceFishOnSurface = "FishOnSurface";
 constexpr const char *kTraceFishMisembedded = "FishMisembedded";
 constexpr const char *kTraceFishingSupportDry = "FishingSupportDry";
 constexpr const char *kTraceFishingSupportWet = "FishingSupportWet";
-constexpr const char *kTraceRewardVisible = "RewardVisible";
-constexpr const char *kTraceRewardReachable = "RewardReachable";
-constexpr const char *kTraceFalseRewardAffordance = "FalseRewardAffordance";
 constexpr const char *kTraceThreatVisible = "ThreatVisible";
 constexpr const char *kTraceThreatReadable = "ThreatReadable";
 constexpr const char *kTraceMeshPenetration = "MeshPenetration";
@@ -120,11 +117,39 @@ constexpr float kPrismRelayIdleCharge = 0.18f;
 constexpr float kPrismRelayIgnitedCharge = 1.0f;
 constexpr float kPrismRelayRetuneKick = 0.16f;
 
+struct LumenSpawnPlacement {
+  aster::Vec2 planar{22.0f, 21.0f};
+  float yaw = -0.72f;
+};
+
 struct UnderpassPortalPlacement {
   const char *name = "";
   aster::Vec3 position{};
   aster::Vec3 scale{1.0f, 1.0f, 1.0f};
 };
+
+[[nodiscard]] LumenSpawnPlacement resolveAuthoredPlayerSpawn(
+    const aster::LumenAuthoringData &authoring) {
+  LumenSpawnPlacement spawn;
+  if (!authoring.valid) {
+    return spawn;
+  }
+  for (const aster::sdk::EntityDefinition &entity : authoring.scene.entities) {
+    if (!entity.components.spawn_point.has_value() ||
+        !entity.components.transform.has_value()) {
+      continue;
+    }
+    const std::string &kind = entity.components.spawn_point->spawn_kind;
+    if (!kind.empty() && kind != "player") {
+      continue;
+    }
+    const aster::sdk::Transform &transform = entity.components.transform->local;
+    spawn.planar = {transform.translation.x, transform.translation.z};
+    spawn.yaw = transform.rotation.y;
+    return spawn;
+  }
+  return spawn;
+}
 
 float distanceOnArena(const aster::Vec3 lhs, const aster::Vec3 rhs) {
   const aster::Vec2 delta{lhs.x - rhs.x, lhs.z - rhs.z};
@@ -383,7 +408,12 @@ aster::ItemRegistry makeLumenRunItemRegistry() {
                 .world_scale = {1.0f, 1.0f, 1.0f},
                 .hand_scale = {1.0f, 1.0f, 1.0f},
                 .stackable = true,
-                .max_stack = 24});
+                .max_stack = 24,
+                .placeable = true,
+                .placement_cost = 1,
+                .placement_reach = 4.4f,
+                .placement_scale = {0.18f, 0.13f, 0.17f},
+                .placement_collision_half_extents = {0.13f, 0.10f, 0.12f}});
   registry.add({.id = "iron_ore",
                 .display_name = "Ironstone",
                 .short_label = "IRO",

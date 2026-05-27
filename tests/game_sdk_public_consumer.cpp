@@ -41,7 +41,7 @@ void testLumenProjectAuthoringDocumentsLoad() {
   const std::filesystem::path project_root = sourceRoot() / "projects" / "lumen_run";
   const auto project = aster::sdk::loadProjectDocument(project_root / "lumen_run.asterproj");
   assert(project.ok());
-  assert(project.value.name == "Lumen Run");
+  assert(project.value.name == "Lumen Sandbox");
   assert(project.value.startup_scene == "scene.cave_entry");
   assert(findAsset(project.value, "scene.cave_entry") != nullptr);
   assert(findAsset(project.value, "prefab.supply_chest") != nullptr);
@@ -51,6 +51,9 @@ void testLumenProjectAuthoringDocumentsLoad() {
   assert(findAsset(project.value, "prefab.lumen_run.mobile_crane") != nullptr);
   assert(findAsset(project.value, "prefab.lumen_run.hydraulic_press") != nullptr);
   assert(findAsset(project.value, "prefab.lumen_run.bale_delivery_rack") != nullptr);
+  assert(findAsset(project.value, "prefab.lumen_run.wheat_patch") != nullptr);
+  assert(findAsset(project.value, "item.coal") != nullptr);
+  assert(findAsset(project.value, "item.stone") != nullptr);
   assert(findAsset(project.value, "action.construction.press.stroke") != nullptr);
   const aster::sdk::ProjectAssetRef *memory_policy =
       findAsset(project.value, "memory.policy.lumen_mining");
@@ -354,11 +357,11 @@ void testAgentWorkspacePlanning() {
   assert(project.ok());
 
   aster::sdk::AsterAgentWorkspaceOptions options;
-  options.objective = "Make Lumen Run easier for an agent to extend in batches.";
+  options.objective = "Make Lumen Sandbox easier for an agent to extend in batches.";
   options.project_file = project_root / "lumen_run.asterproj";
   const aster::sdk::AsterAgentWorkspaceProfile profile =
       aster::sdk::createAsterAgentWorkspaceProfile(project.value, project_root, options);
-  assert(profile.name == "Lumen Run Agent Workspace");
+  assert(profile.name == "Lumen Sandbox Agent Workspace");
   assert(profile.metadata.at("kernel_changes") == "locked");
   assert(!profile.scopes.empty());
   assert(!profile.validation.empty());
@@ -392,7 +395,7 @@ void testAgentWorkspacePlanning() {
   assert(schema.find("changed_files") != std::string::npos);
 
   const std::string prompt = aster::sdk::makeAsterAgentPrompt(profile, project.value, board);
-  assert(prompt.find("Lumen Run") != std::string::npos);
+  assert(prompt.find("Lumen Sandbox") != std::string::npos);
   assert(prompt.find("Do not add third-party notice files") != std::string::npos);
 
   aster::sdk::AsterAgentHandoff handoff;

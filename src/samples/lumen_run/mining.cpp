@@ -25,7 +25,12 @@ bool LumenRun::storeMinedResource(const ItemDefinition &definition, const int qu
   if (quantity <= 0) {
     return true;
   }
-  return hotbar_.addItem(definition, quantity).has_value();
+  const bool stored = hotbar_.addItem(definition, quantity).has_value();
+  if (stored) {
+    pushSandboxLog("mine: +" + std::to_string(quantity) + " " + definition.display_name +
+                   " added to hotbar");
+  }
+  return stored;
 }
 
 MiningToolStats LumenRun::activePickaxeStats() const {
@@ -297,6 +302,7 @@ bool LumenRun::placeEquippedResource(const Vec3 ray_origin, Vec3 ray_direction) 
   equipment_.equipFromHotbar(hotbar_);
   setAvatarPointTarget(hit_point);
   invalidateSceneReports();
+  pushSandboxLog("build: placed " + definition->display_name + " resource");
   return true;
 }
 
@@ -517,6 +523,7 @@ bool LumenRun::mineFocusedOre(const std::size_t ore_index) {
   ore.collected = true;
   equipment_.equipFromHotbar(hotbar_);
   recordCoalMiningReaction(ore_index, feedback, ore);
+  pushSandboxLog("ore: coal seam depleted");
   return true;
 }
 

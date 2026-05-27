@@ -1,0 +1,37 @@
+astergraph asset_graph.lumen_run.wheat_field
+schema_version 1
+name "Lumen Sandbox Wheat Field"
+material_id material.lumen_run.wheat_stalk
+surface_profile crop-field
+primitive grid
+uv_policy field-local-uv
+tangent_policy validate-or-generate
+collision_proxy none
+lod_policy crop-clump-lod
+base_color 0.88 0.66 0.24
+roughness 0.86
+metallic 0.0
+param stalk_height 0.92
+param head_density 0.68
+param wind_bend 0.34
+feature vertex_color true
+feature wind_bend true
+preview environment lumen-sandbox-farm
+preview rig crop-field-three-quarter
+preview artifact /tmp/lumen_sandbox_spawn.ppm
+node mesh.field mesh_primitive role=mesh primitive=grid width=8.0 depth=5.0 rows=8 columns=12
+node uv.field uv_policy role=uv mapping=field-local-uv texel_density=256
+node material.wheat material_assignment role=material slot=wheat.stalk surface_profile=crop-field
+node claim.crop visual_brief_claim role=quality signal=readable_wheat_rows
+node claim.route visual_brief_claim role=quality signal=farm_edge_near_spawn_route
+node claim.nonplaceholder visual_brief_claim role=quality signal=varied_height_and_color
+node perception.template world_perceptual_template role=perceptual profile=wheat-field surface_response=dry-crop-stalks history_response=sandbox-spawn-landmark material_half_life_seconds=48 wetness_half_life_seconds=12 semantic_lod=0.72 streaming_cost=0.18 patch_channels=crop_rows,field_edge,route_readability contact_channels=grounded_stalks,player_scale residue_channels=wind_motion,harvestable_future_affordance
+node export.runtime cook_export role=package target=assetgraphbin
+node diagnostic.quality diagnostic role=quality profile=production
+edge mesh.field uv.field uv_contract
+edge mesh.field material.wheat material_slot
+edge claim.crop diagnostic.quality visual_brief
+edge claim.route diagnostic.quality visual_brief
+edge claim.nonplaceholder diagnostic.quality visual_brief
+edge perception.template export.runtime perceptual_template
+edge diagnostic.quality export.runtime cook_report

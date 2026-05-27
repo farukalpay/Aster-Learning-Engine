@@ -209,9 +209,6 @@ std::vector<SceneTraceRule> LumenRun::sceneTraceRules() const {
       forbidTraceSymbol("water.no-fish-misembedded", kTraceFishMisembedded),
       forbidTraceSymbol("water.no-fish-on-surface", kTraceFishOnSurface),
       forbidTraceSymbol("props.fishing-support-on-shore", kTraceFishingSupportWet),
-      requireTraceSymbolSameFrame("affordance.reward-reachable", kTraceRewardVisible,
-                                  kTraceRewardReachable),
-      forbidTraceSymbol("affordance.no-false-reward", kTraceFalseRewardAffordance),
       requireTraceSymbolSameFrame("affordance.threat-readable", kTraceThreatVisible,
                                   kTraceThreatReadable),
   };
@@ -321,20 +318,6 @@ SceneSymbolicTrace LumenRun::buildSceneSymbolicTrace() const {
         insideEllipticalFootprint(fishing_rod_base_, inner_pond_center_, inner_pond_radius_, 1.0f);
     SceneTraceFrame &frame = pushFrame();
     addTraceSymbol(frame, support_in_water ? kTraceFishingSupportWet : kTraceFishingSupportDry);
-  }
-
-  for (const Shard &shard : shards_) {
-    if (shard.collected) {
-      continue;
-    }
-    const TerrainSurfaceSample support =
-        support_surfaces_.sample(Vec2{shard.position.x, shard.position.z});
-    const bool reachable =
-        support.valid && !insideAnySceneVolume(problem.solid_volumes, shard.position);
-
-    SceneTraceFrame &frame = pushFrame();
-    addTraceSymbol(frame, kTraceRewardVisible);
-    addTraceSymbol(frame, reachable ? kTraceRewardReachable : kTraceFalseRewardAffordance);
   }
 
   for (const Sentinel &sentinel : sentinels_) {

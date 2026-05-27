@@ -499,6 +499,17 @@ void LumenRun::rebuildScene() {
                              .micro_normal_strength = 0.28f,
                              .roughness_variation = 0.12f,
                              .height_shading = 0.14f};
+  Material wheat_stalks =
+      material({0.77f, 0.63f, 0.28f}, {0.06f, 0.038f, 0.010f}, 0.86f, 0.0f, 0.018f, 0.48f,
+               11.4f, 0.05f, 0.94f, SurfacePattern::Foliage, {9.0f, 16.0f}, 0.030f, 0.70f,
+               0.060f);
+  wheat_stalks.double_sided = true;
+  wheat_stalks.alpha_mode = MaterialAlphaMode::Masked;
+  wheat_stalks.camera_occlusion = CameraOcclusionPolicy::Solid;
+  wheat_stalks.procedural = {.macro_variation = 0.38f,
+                             .micro_normal_strength = 0.22f,
+                             .roughness_variation = 0.16f,
+                             .height_shading = 0.16f};
   Material exotic_leaf =
       material({0.15f, 0.50f, 0.28f}, {0.015f, 0.040f, 0.016f}, 0.68f, 0.0f, 0.025f, 0.36f, 8.8f,
                0.02f, 0.96f, SurfacePattern::Foliage, {8.6f, 12.2f}, 0.026f, 0.56f, 0.06f);
@@ -720,8 +731,11 @@ void LumenRun::rebuildScene() {
       material({0.090f, 0.080f, 0.066f}, {0.170f, 0.105f, 0.040f}, 0.52f, 0.12f, 0.115f, 0.74f,
                18.0f, 0.22f, 0.94f, SurfacePattern::CoalVein, {7.4f, 12.0f}, 0.135f, 0.98f, 0.045f);
   coal_ore_material.opacity = 1.0f;
-  coal_ore_material.emission_strength = 0.16f;
-  coal_ore_material.edge_wear = 0.30f;
+  coal_ore_material.emission_color = {0.42f, 0.24f, 0.075f};
+  coal_ore_material.emission_strength = 0.24f;
+  coal_ore_material.edge_wear = 0.42f;
+  coal_ore_material.pattern_depth = 0.18f;
+  coal_ore_material.pattern_contrast = 1.08f;
   coal_ore_material.camera_occlusion = CameraOcclusionPolicy::Solid;
   coal_ore_material.alpha_mode = MaterialAlphaMode::Opaque;
   coal_ore_material.depth_write = MaterialDepthWrite::Enabled;
@@ -1932,8 +1946,24 @@ void LumenRun::rebuildScene() {
   };
 
   const std::vector<PathRibbonMeshSpec> cave_path_specs = caveApproachPathSpecs();
+  const std::vector<PathRibbonMeshSpec> farm_path_specs = {
+      {.segments = 44,
+       .width = 0.96f,
+       .width_variation = 0.10f,
+       .crown_height = 0.034f,
+       .surface_noise = 0.014f,
+       .endpoint_taper = 0.20f,
+       .start = {22.0f, 0.02f, 21.0f},
+       .control = {25.6f, 0.02f, 10.8f},
+       .control_b = {29.0f, 0.02f, -28.0f},
+       .end = {31.0f, 0.02f, -56.0f}}};
   const std::vector<PathRibbonMeshSpec> abandoned_house_path_specs =
       abandonedGothicHousePathSpecs();
+  appendPathRouteShouldersOn("Raised farm verge toward cave", farm_path_specs, 0.48f, 0.072f,
+                             terrainOnlyDrapeSurface, 0.030f);
+  appendSoilPathOn("Farm dirt track to cave",
+                   makePathRouteRibbonMesh({.segments = farm_path_specs}), terrainOnlyDrapeSurface,
+                   0.080f);
   appendPathRouteShouldersOn("Mounded exterior verge to cave", cave_path_specs, 0.56f, 0.088f,
                              terrainOnlyDrapeSurface, 0.034f);
   appendSoilPathOn("Curving exterior soil path to cave",
@@ -1946,6 +1976,8 @@ void LumenRun::rebuildScene() {
                    makePathRouteRibbonMesh({.segments = abandoned_house_path_specs}),
                    terrainOnlyDrapeSurface, 0.072f);
   std::vector<PathRibbonMeshSpec> central_grass_paths = cave_path_specs;
+  central_grass_paths.insert(central_grass_paths.end(), farm_path_specs.begin(),
+                             farm_path_specs.end());
   central_grass_paths.insert(central_grass_paths.end(), abandoned_house_path_specs.begin(),
                              abandoned_house_path_specs.end());
   central_grass_paths.push_back(castleUnderpassPathSpec());
@@ -1983,6 +2015,69 @@ void LumenRun::rebuildScene() {
                     outsideCaveTunnelFootprint(position, 0.92f);
            }},
       grass_blades, terrainGrassSurface);
+
+  appendGrassFieldOn(
+      "Lumen sandbox wheat field",
+      {.min = {18.0f, 18.0f},
+       .max = {42.0f, 32.0f},
+       .seed = kLumenCaveSeed + 2551u,
+       .target_blades = 4300,
+       .max_blades = 4300,
+       .min_spacing = 0.074f,
+       .surface_offset = 0.028f,
+       .min_height = 0.54f,
+       .max_height = 1.04f,
+       .min_width = 0.014f,
+       .max_width = 0.040f,
+       .max_bend = 0.220f,
+       .max_lean = 0.110f,
+       .density_noise_scale = 0.54f,
+       .density_noise_contrast = 0.40f,
+       .min_surface_normal_y = 0.52f,
+       .preferred_surface_normal_y = 0.86f,
+       .accepts_position =
+           [farm_path_specs, terrain_placement, outsideCaveTunnelFootprint, this](
+               const Vec2 position) {
+             const TerrainSurfaceSample sample = sampleTerrain(terrain_, position);
+             if (!sample.valid ||
+                 terrain_placement.rejectsPoint({position.x, sample.height, position.y})) {
+               return false;
+             }
+             return distanceToPathRoute(farm_path_specs, position) > 0.78f &&
+                    outsideCaveTunnelFootprint(position, 0.70f);
+           }},
+      wheat_stalks, terrainGrassSurface);
+
+  appendGrassFieldOn(
+      "Farm route edge wild vegetation",
+      {.min = {19.0f, -2.5f},
+       .max = {34.0f, 24.0f},
+       .seed = kLumenCaveSeed + 2567u,
+       .target_blades = 1750,
+       .max_blades = 1750,
+       .min_spacing = 0.066f,
+       .surface_offset = 0.024f,
+       .min_height = 0.22f,
+       .max_height = 0.62f,
+       .min_width = 0.011f,
+       .max_width = 0.034f,
+       .max_bend = 0.160f,
+       .max_lean = 0.080f,
+       .density_noise_scale = 0.62f,
+       .density_noise_contrast = 0.42f,
+       .min_surface_normal_y = 0.50f,
+       .preferred_surface_normal_y = 0.84f,
+       .accepts_position =
+           [farm_path_specs, terrain_placement, outsideCaveTunnelFootprint, this](
+               const Vec2 position) {
+             const TerrainSurfaceSample sample = sampleTerrain(terrain_, position);
+             const float path_distance = distanceToPathRoute(farm_path_specs, position);
+             return sample.valid &&
+                    !terrain_placement.rejectsPoint({position.x, sample.height, position.y}) &&
+                    path_distance > 0.82f && path_distance < 1.92f &&
+                    outsideCaveTunnelFootprint(position, 0.70f);
+           }},
+      exotic_leaf, terrainGrassSurface);
 
   const auto appendGothicStoneHouse = [&]() {
     if (abandoned_house_path_specs.empty()) {
@@ -2690,6 +2785,32 @@ void LumenRun::rebuildScene() {
   construction_delivery_rack_.position =
       terrainGroundAt(yard_anchor + Vec3{10.80f, 0.0f, 9.30f}, 0.0f);
   construction_delivery_rack_.yaw = 0.0f;
+  const auto appendYardContactPad = [&](const char *name, const Vec3 center, const Vec3 extents,
+                                        const float yaw) {
+    const Vec3 pad = terrainGroundAt(center, extents.y + 0.008f);
+    appendScenery(name, MeshPrimitive::Box, pad, extents, {0.0f, yaw, 0.0f}, hardscape_substrate);
+    support_surfaces_.addBox({pad, extents});
+  };
+  appendYardContactPad("Construction forklift parked compacted pad",
+                       construction_forklift_.position, {1.40f, 0.030f, 1.90f},
+                       construction_forklift_.yaw);
+  appendYardContactPad("Recycler shredder bolted concrete contact pad",
+                       construction_shredder_.position, {1.86f, 0.040f, 3.16f},
+                       construction_shredder_.yaw);
+  appendYardContactPad("Hydraulic press dust-stained contact pad",
+                       construction_press_.position, {1.94f, 0.040f, 2.36f},
+                       construction_press_.yaw);
+  appendYardContactPad("Delivery rack compacted loading pad",
+                       construction_delivery_rack_.position, {3.70f, 0.035f, 2.50f},
+                       construction_delivery_rack_.yaw);
+  appendScenery("Recycler shredder amber ready beacon", MeshPrimitive::Crystal,
+                construction_shredder_.position +
+                    rotateYaw({-0.86f, 1.86f, -1.22f}, construction_shredder_.yaw),
+                {0.090f, 0.16f, 0.090f}, {0.0f, construction_shredder_.yaw, 0.0f}, amber_lamp);
+  appendScenery("Hydraulic press amber stroke beacon", MeshPrimitive::Crystal,
+                construction_press_.position +
+                    rotateYaw({-0.72f, 1.54f, -0.80f}, construction_press_.yaw),
+                {0.080f, 0.14f, 0.080f}, {0.0f, construction_press_.yaw, 0.0f}, amber_lamp);
 
   const ConstructionForkliftSupportPose initial_forklift_support =
       constructionForkliftSupportPoseAt(construction_forklift_.position, construction_forklift_.yaw,

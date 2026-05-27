@@ -1237,10 +1237,15 @@ void LumenRun::enforceWorldBounds() {
     }
   }
 
+  const LumenSpawnPlacement spawn = resolveAuthoredPlayerSpawn(authoring_);
   const TerrainSurfaceSample start_ground =
-      sampleWorldSupport({{0.0f, 0.0f}, playerSupportExtent(), 0.30f, 2.0f});
-  apply_recovered_position(
-      {0.0f, (start_ground.valid ? start_ground.height : 0.0f) + playerSupportExtent(), 0.0f});
+      sampleWorldSupport({spawn.planar, playerSupportExtent(), 0.30f, 2.0f});
+  player_facing_yaw_ = spawn.yaw;
+  apply_recovered_position({spawn.planar.x,
+                            (start_ground.valid ? start_ground.height : 0.0f) +
+                                playerSupportExtent(),
+                            spawn.planar.y});
+  pushSandboxLog("system: respawned at farm cave approach");
 }
 
 bool LumenRun::isSwimmableWater(const Vec3 support_position) const {
@@ -1258,17 +1263,7 @@ bool LumenRun::isSwimmableWater(const Vec3 support_position) const {
 
 void LumenRun::collectOverlaps() {
   ASTER_PROFILE_SCOPE("LumenRun::collectOverlaps");
-  for (Shard &shard : shards_) {
-    if (shard.collected) {
-      continue;
-    }
-    if (distanceOnArena(player_position_, shard.position) <=
-        tuning_.player_radius + tuning_.shard_radius) {
-      shard.collected = true;
-      ++status_.score;
-    }
-  }
-  status_.victory = status_.score >= status_.total_shards;
+  status_.victory = false;
 }
 
 void LumenRun::resolveSentinelImpacts() {

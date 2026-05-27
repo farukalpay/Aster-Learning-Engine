@@ -161,6 +161,7 @@ void LumenRun::toggleConstructionForkliftMount() {
       physics_.setPosition(player_body_, player_position_);
       physics_.setVelocity(player_body_, {});
     }
+    pushSandboxLog("yard: forklift parked");
     return;
   }
 
@@ -179,6 +180,7 @@ void LumenRun::toggleConstructionForkliftMount() {
   }
   closeChest();
   clearAvatarPointTarget();
+  pushSandboxLog("yard: forklift mounted");
 }
 
 void LumenRun::toggleConstructionCraneMount() {
@@ -203,6 +205,10 @@ void LumenRun::toggleConstructionCraneMount() {
         construction_shredder_.shred_timer = 0.0f;
         construction_shredder_.processing_module_index = construction_crane_.payload_module_index;
         construction_shredder_.processing_crane_load = true;
+        spawnConstructionScrapBurst(
+            shredderOutputPosition(construction_shredder_.position, construction_shredder_.yaw),
+            12);
+        pushSandboxLog("yard: crane fed heavy beam to shredder");
       } else {
         module.carried = false;
         module.position = hook;
@@ -221,6 +227,7 @@ void LumenRun::toggleConstructionCraneMount() {
         module.detached = true;
         module.carried = true;
         construction_crane_.payload_module_index = static_cast<int>(i);
+        pushSandboxLog("yard: crane lifted heavy beam");
         return;
       }
     }
@@ -237,6 +244,7 @@ void LumenRun::toggleConstructionCraneMount() {
                             playerSupportExtent(),
                         exit_probe.z};
     player_velocity_ = {};
+    pushSandboxLog("yard: crane parked");
     return;
   }
   if (planarDistance(player_position_, seat) > kConstructionForkliftInteractDistance) {
@@ -255,6 +263,7 @@ void LumenRun::toggleConstructionCraneMount() {
     physics_.setPosition(player_body_, player_position_);
     physics_.setVelocity(player_body_, {});
   }
+  pushSandboxLog("yard: crane mounted");
 }
 
 bool LumenRun::tryAttachConstructionPallet() {
@@ -284,6 +293,7 @@ bool LumenRun::tryAttachConstructionPallet() {
         forkliftCargoPosition(construction_forklift_.position, construction_forklift_.yaw,
                               construction_forklift_.fork_height, construction_forklift_.pitch,
                               construction_forklift_.roll);
+    pushSandboxLog("yard: bale loaded on forks");
     return true;
   }
   for (std::size_t i = 0; i < construction_modules_.size(); ++i) {
@@ -305,6 +315,7 @@ bool LumenRun::tryAttachConstructionPallet() {
         forkliftCargoPosition(construction_forklift_.position, construction_forklift_.yaw,
                               construction_forklift_.fork_height, construction_forklift_.pitch,
                               construction_forklift_.roll);
+    pushSandboxLog("yard: light module loaded for shredder");
     return true;
   }
   return false;
@@ -343,6 +354,7 @@ void LumenRun::deliverConstructionBale() {
   construction_pallet_.cargo_kind = ConstructionCargoKind::None;
   construction_pallet_.payload_index = -1;
   construction_pallet_.attach_cooldown = 0.35f;
+  pushSandboxLog("yard: bale delivered to rack");
 }
 
 void LumenRun::dropConstructionPallet() {
@@ -420,6 +432,9 @@ bool LumenRun::triggerConstructionShredder() {
   construction_pallet_.payload_index = -1;
   construction_pallet_.pitch = 0.0f;
   construction_pallet_.roll = 0.0f;
+  spawnConstructionScrapBurst(
+      shredderOutputPosition(construction_shredder_.position, construction_shredder_.yaw), 9);
+  pushSandboxLog("yard: shredder intake locked, sparks active");
   return true;
 }
 
@@ -433,7 +448,13 @@ bool LumenRun::triggerConstructionPressStroke() {
   }
   ++construction_press_.stroke_count;
   construction_press_.stroke_animation = 1.0f;
+  spawnConstructionScrapBurst(
+      construction_press_.position + constructionRotateYaw({0.0f, 0.62f, 1.08f},
+                                                            construction_press_.yaw),
+      4);
   if (construction_press_.stroke_count < construction_press_.required_strokes) {
+    pushSandboxLog("yard: press stroke " + std::to_string(construction_press_.stroke_count) + "/" +
+                   std::to_string(construction_press_.required_strokes));
     return true;
   }
   const auto available = std::find_if(
@@ -450,6 +471,7 @@ bool LumenRun::triggerConstructionPressStroke() {
   construction_press_.pending_load_count = 0;
   construction_press_.stroke_count = 0;
   construction_press_.required_strokes = 0;
+  pushSandboxLog("yard: scrap compacted into a bale");
   return true;
 }
 
@@ -819,6 +841,8 @@ void LumenRun::updateConstructionYard(const float dt, Vec2 move_axis, const bool
           std::min(construction_press_.pending_load_count + 1, 4);
       construction_shredder_.processing_module_index = -1;
       construction_shredder_.processing_crane_load = false;
+      pushSandboxLog("yard: scrap load ready for press (" +
+                     std::to_string(construction_press_.pending_load_count) + "/4)");
     }
   }
 

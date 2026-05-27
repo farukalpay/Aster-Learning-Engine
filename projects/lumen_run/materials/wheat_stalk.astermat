@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: LicenseRef-Aster-Content
+// Copyright (c) 2026 Faruk Alpay
+
+material material.lumen_run.wheat_stalk {
+  schema_version: 1
+  name: "Lumen Sandbox Wheat Stalk"
+  shading_model: Unlit
+  blend_mode: Opaque
+  cull_mode: None
+  receives_decals: false
+  receives_shadows: true
+
+  params {
+    base_color_r: 0.88
+    base_color_g: 0.66
+    base_color_b: 0.24
+    roughness: 0.86
+    metallic: 0.0
+    triplanar_scale: 1.4
+    micro_normal_strength: 0.12
+    roughness_variation: 0.18
+  }
+
+  features {
+    wind_bend: true
+    vertex_color: true
+  }
+}
