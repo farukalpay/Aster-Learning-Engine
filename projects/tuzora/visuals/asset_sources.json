@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "project": "tuzora",
+  "policy": "CC0 or CC-BY only; runtime uses generated Aster sprite files under projects/tuzora/textures, not raw downloaded web images.",
+  "verified_on": "2026-05-28",
+  "sources": [
+    {
+      "id": "kenney_pixel_platformer",
+      "title": "Kenney Pixel Platformer",
+      "url": "https://kenney.nl/assets/pixel-platformer",
+      "license": "Creative Commons CC0",
+      "local_source": "third_party_sources/kenney_pixel_platformer/",
+      "status": "downloaded and derived into runtime sprites",
+      "usage": "Source tiles for wood planks, roof blocks, crate readability, scrap pieces, and small prop silhouettes."
+    },
+    {
+      "id": "opengameart_beach_tileset",
+      "title": "Beach tileset",
+      "url": "https://opengameart.org/content/beach-tileset",
+      "author": "ChikenwingJJA",
+      "license": "CC0",
+      "local_source": "third_party_sources/opengameart_beach/beach_tiles_1_0.png",
+      "status": "downloaded and derived into runtime sprites",
+      "usage": "Source crops for sand, beach edge, shallow water, alternate water, and shell color grouping."
+    },
+    {
+      "id": "tiny_surface",
+      "title": "Tiny Surface 8x8 Tileset",
+      "url": "https://prototypegames.itch.io/tiny-surface-tileset",
+      "author": "PrototypeGames",
+      "license": "CC0 1.0 Universal",
+      "local_source": "third_party_sources/tiny_surface/download_page.html",
+      "status": "license page verified; direct itch package requires a download token and is not used by this runtime batch",
+      "usage": "Reference only for compact autotile density."
+    },
+    {
+      "id": "aster_authored_runtime_sprites",
+      "title": "Tuzora authored runtime sprites",
+      "url": "local:projects/tuzora/textures",
+      "license": "LicenseRef-Aster-Content",
+      "status": "generated in-repo from CC0 source crops plus Aster-authored sprite silhouettes",
+      "usage": "Player, friend, shade cloth, signal mast, lamp post, and runtime PPM companions for the side-view demo."
+    }
+  ],
+  "runtime_files": [
+    "textures/tuzora_beach_sand.ppm",
+    "textures/tuzora_beach_edge.ppm",
+    "textures/tuzora_sea_water.ppm",
+    "textures/tuzora_sea_water_alt.ppm",
+    "textures/tuzora_wood_plank.ppm",
+    "textures/tuzora_roof_tile.ppm",
+    "textures/tuzora_wood_crate.ppm",
+    "textures/tuzora_shell.ppm",
+    "textures/tuzora_scrap_part.ppm",
+    "textures/tuzora_shade_cloth.ppm",
+    "textures/tuzora_player.ppm",
+    "textures/tuzora_friend.ppm",
+    "textures/tuzora_signal_mast.ppm",
+    "textures/tuzora_lamp_post.ppm"
+  ]
+}

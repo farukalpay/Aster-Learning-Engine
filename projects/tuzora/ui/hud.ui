@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "ui.tuzora.hud",
+  "name": "Tuzora HUD",
+  "layers": [
+    { "id": "objective", "kind": "text", "binding": "tuzora.objective" },
+    { "id": "resources", "kind": "text", "binding": "tuzora.resources" },
+    { "id": "day_window", "kind": "bar", "binding": "tuzora.day_fraction" },
+    { "id": "hotbar", "kind": "text", "binding": "tuzora.hotbar" },
+    { "id": "event_line", "kind": "text", "binding": "tuzora.event_line" }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "atlas.tuzora.runtime",
+  "name": "Tuzora Native Runtime Atlas",
+  "pixel_art": true,
+  "tile_size": [16, 16],
+  "runtime_policy": "generated Aster runtime sprites from licensed source packs; no runtime dependency on raw web downloads",
+  "regions": [
+    { "id": "beach_sand", "runtime_file": "textures/tuzora_beach_sand.ppm", "preview_file": "textures/tuzora_beach_sand.png", "source_ref": "opengameart_beach_tileset:beach_tiles_1_0_crop", "rect": [0, 0, 16, 16], "pivot": [0.5, 0.5] },
+    { "id": "beach_edge", "runtime_file": "textures/tuzora_beach_edge.ppm", "preview_file": "textures/tuzora_beach_edge.png", "source_ref": "opengameart_beach_tileset:beach_tiles_1_0_crop", "rect": [16, 0, 16, 16], "pivot": [0.5, 0.5] },
+    { "id": "sea_water", "runtime_file": "textures/tuzora_sea_water.ppm", "preview_file": "textures/tuzora_sea_water.png", "source_ref": "opengameart_beach_tileset:beach_tiles_1_0_crop", "rect": [32, 0, 16, 16], "pivot": [0.5, 0.5] },
+    { "id": "wood_plank", "runtime_file": "textures/tuzora_wood_plank.ppm", "preview_file": "textures/tuzora_wood_plank.png", "source_ref": "kenney_pixel_platformer:Tilesheet_Tiles", "rect": [48, 0, 16, 16], "pivot": [0.5, 0.5] },
+    { "id": "roof_tile", "runtime_file": "textures/tuzora_roof_tile.ppm", "preview_file": "textures/tuzora_roof_tile.png", "source_ref": "kenney_pixel_platformer:Tilesheet_Tiles", "rect": [64, 0, 16, 16], "pivot": [0.5, 0.5] },
+    { "id": "wood_crate", "runtime_file": "textures/tuzora_wood_crate.ppm", "preview_file": "textures/tuzora_wood_crate.png", "source_ref": "kenney_pixel_platformer:Tilesheet_Tiles", "rect": [80, 0, 16, 16], "pivot": [0.5, 0.5] },
+    { "id": "shell", "runtime_file": "textures/tuzora_shell.ppm", "preview_file": "textures/tuzora_shell.png", "source_ref": "opengameart_beach_tileset:beach_tiles_1_0_crop", "rect": [96, 0, 16, 16], "pivot": [0.5, 0.5] },
+    { "id": "scrap_part", "runtime_file": "textures/tuzora_scrap_part.ppm", "preview_file": "textures/tuzora_scrap_part.png", "source_ref": "kenney_pixel_platformer:Tilesheet_Tiles", "rect": [112, 0, 16, 16], "pivot": [0.5, 0.5] },
+    { "id": "shade_cloth", "runtime_file": "textures/tuzora_shade_cloth.ppm", "preview_file": "textures/tuzora_shade_cloth.png", "source_ref": "aster_authored_runtime_sprite", "rect": [128, 0, 16, 16], "pivot": [0.5, 0.5] },
+    { "id": "player", "runtime_file": "textures/tuzora_player.ppm", "preview_file": "textures/tuzora_player.png", "source_ref": "aster_authored_runtime_sprite", "rect": [0, 16, 24, 32], "pivot": [0.5, 0.5] },
+    { "id": "friend", "runtime_file": "textures/tuzora_friend.ppm", "preview_file": "textures/tuzora_friend.png", "source_ref": "aster_authored_runtime_sprite", "rect": [24, 16, 16, 24], "pivot": [0.5, 0.5] },
+    { "id": "signal_mast", "runtime_file": "textures/tuzora_signal_mast.ppm", "preview_file": "textures/tuzora_signal_mast.png", "source_ref": "aster_authored_runtime_sprite", "rect": [40, 16, 24, 32], "pivot": [0.5, 0.5] },
+    { "id": "lamp_post", "runtime_file": "textures/tuzora_lamp_post.ppm", "preview_file": "textures/tuzora_lamp_post.png", "source_ref": "aster_authored_runtime_sprite", "rect": [64, 16, 24, 24], "pivot": [0.5, 0.5] }
+  ]
+}

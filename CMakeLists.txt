@@ -259,10 +259,12 @@ set(ASTER_GAMEPLAY_SOURCES
 set(ASTER_RENDER_SOURCES
   "${PROJECT_SOURCE_DIR}/src/render/aster.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/camera.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/camera2d.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/frame_capture.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/material_compiler.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/mesh.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/native_render_backend_null.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/parallax2d.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/render_asset_cache.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/render_backend_common.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/render_device.cpp"
@@ -273,6 +275,7 @@ set(ASTER_RENDER_SOURCES
   "${PROJECT_SOURCE_DIR}/src/render/preview_compositor.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/software_framebuffer.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/software_preview_renderer.cpp"
+  "${PROJECT_SOURCE_DIR}/src/render/sprite2d.cpp"
   "${PROJECT_SOURCE_DIR}/src/render/visual_regression.cpp"
 )
 
@@ -341,6 +344,7 @@ set(ASTER_SCENE_SOURCES
   "${PROJECT_SOURCE_DIR}/src/scene/scene.cpp"
   "${PROJECT_SOURCE_DIR}/src/scene/scene_coherence.cpp"
   "${PROJECT_SOURCE_DIR}/src/scene/scene_trace.cpp"
+  "${PROJECT_SOURCE_DIR}/src/scene/tile_layer2d.cpp"
 )
 
 set(ASTER_PHYSICS_SOURCES
@@ -409,6 +413,7 @@ set(ASTER_SAMPLES_SOURCES
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/validation.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/spark_threshold/spark_threshold.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/showcase_scenes.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/tuzora/tuzora.cpp"
 )
 
 set(ASTER_PLATFORM_SOURCES)
@@ -706,6 +711,12 @@ if(ASTER_BUILD_STUDIO)
   target_link_libraries(aster_spark_threshold PRIVATE aster_engine_internal aster_game_sdk)
   target_compile_definitions(aster_spark_threshold PRIVATE
     ASTER_SPARK_THRESHOLD_PROJECT="${PROJECT_SOURCE_DIR}/projects/spark_threshold/spark_threshold.asterproj"
+  )
+
+  add_executable(aster_tuzora apps/samples/tuzora/main.cpp)
+  target_link_libraries(aster_tuzora PRIVATE aster_engine_internal aster_game_sdk)
+  target_compile_definitions(aster_tuzora PRIVATE
+    ASTER_TUZORA_PROJECT="${PROJECT_SOURCE_DIR}/projects/tuzora/tuzora.asterproj"
   )
 endif()
 
@@ -1061,6 +1072,20 @@ if(ASTER_BUILD_TESTS)
     add_test(NAME aster_grid_tactics_tests.${grid_tactics_case}
              COMMAND aster_grid_tactics_tests ${grid_tactics_case})
   endforeach()
+  aster_add_test(aster_tuzora_tests tests/samples/tuzora/tuzora_tests.cpp)
+  foreach(tuzora_case
+      deterministic_movement_and_collision
+      scripted_run_lights_signal
+      deterministic_replay_hashes_match
+      lockstep_command_channel_replays_script
+      break_place_and_objective_completion
+      capture_scene_contains_required_objects_and_renders
+      hud_uses_player_facing_language
+      reset_restores_playable_state
+  )
+    add_test(NAME aster_tuzora_tests.${tuzora_case}
+             COMMAND aster_tuzora_tests ${tuzora_case})
+  endforeach()
   if(ASTER_BUILD_STUDIO)
     add_test(NAME aster_grid_tactics_smoke_test
              COMMAND aster_grid_tactics --smoke-test --no-vsync)
@@ -1070,6 +1095,14 @@ if(ASTER_BUILD_TESTS)
              COMMAND aster_grid_tactics --screenshot
                      "${PROJECT_BINARY_DIR}/test-artifacts/aster_grid_tactics/grid_tactics.ppm"
                      --screenshot-frame 16 --no-vsync)
+    add_test(NAME aster_tuzora_smoke_test
+             COMMAND aster_tuzora --smoke-test --no-vsync)
+    add_test(NAME aster_tuzora_replay_self_test
+             COMMAND aster_tuzora --replay-self-test --seed 4242 --ticks 900)
+    add_test(NAME aster_tuzora_capture_test
+             COMMAND aster_tuzora --screenshot
+                     "${PROJECT_BINARY_DIR}/test-artifacts/tuzora/tuzora.ppm"
+                     --screenshot-frame 24 --no-vsync)
     add_test(NAME aster_grid_tactics_agent_plan
       COMMAND "${CMAKE_COMMAND}" -E env ${ASTER_CARGO_ENV}
               "${CARGO_EXECUTABLE}" run -p aster_assetc --bin aster_assetc --
@@ -1106,6 +1139,25 @@ if(ASTER_BUILD_TESTS)
               --output "${PROJECT_BINARY_DIR}/test-artifacts/spark_threshold/cooked"
     )
     set_tests_properties(aster_spark_threshold_cook PROPERTIES
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    )
+    add_test(NAME aster_tuzora_agent_plan
+      COMMAND "${CMAKE_COMMAND}" -E env ${ASTER_CARGO_ENV}
+              "${CARGO_EXECUTABLE}" run -p aster_assetc --bin aster_assetc --
+              agent-plan --project projects/tuzora/tuzora.asterproj
+              --output-schema
+    )
+    set_tests_properties(aster_tuzora_agent_plan PROPERTIES
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    )
+    add_test(NAME aster_tuzora_cook
+      COMMAND "${CMAKE_COMMAND}" -E env ${ASTER_CARGO_ENV}
+              "${CARGO_EXECUTABLE}" run -p aster_assetc --bin aster_assetc --
+              cook --project projects/tuzora/tuzora.asterproj
+              --platform desktop
+              --output "${PROJECT_BINARY_DIR}/test-artifacts/tuzora/cooked"
+    )
+    set_tests_properties(aster_tuzora_cook PROPERTIES
       WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     )
   endif()

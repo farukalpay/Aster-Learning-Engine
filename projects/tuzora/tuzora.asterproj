@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "name": "Tuzora",
+  "startup_scene": "scene.tuzora.coast",
+  "assets": [
+    { "id": "scene.tuzora.coast", "kind": "scene", "path": "scenes/coast.scene", "guid": "7a2026f0c3a94c2b918a0f49d9000001" },
+    { "id": "action.tuzora.collect_supply", "kind": "action_graph", "path": "actions/collect_supply.action_graph", "guid": "7a2026f0c3a94c2b918a0f49d9000002" },
+    { "id": "action.tuzora.place_block", "kind": "action_graph", "path": "actions/place_block.action_graph", "guid": "7a2026f0c3a94c2b918a0f49d9000003" },
+    { "id": "action.tuzora.light_signal", "kind": "action_graph", "path": "actions/light_signal.action_graph", "guid": "7a2026f0c3a94c2b918a0f49d9000004" },
+    { "id": "input.tuzora", "kind": "input", "path": "inputs/tuzora.input", "guid": "7a2026f0c3a94c2b918a0f49d9000005" },
+    { "id": "ui.tuzora.hud", "kind": "ui", "path": "ui/hud.ui", "guid": "7a2026f0c3a94c2b918a0f49d9000006" }
+  ]
+}

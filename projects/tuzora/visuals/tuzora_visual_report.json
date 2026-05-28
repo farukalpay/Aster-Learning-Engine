@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "project": "tuzora",
+  "required_signals": [
+    "warm Mersin-like coast energy",
+    "readable pixel silhouettes",
+    "sea and parallax depth",
+    "cozy-yet-risky night shift",
+    "build placement clarity",
+    "no cloned brand or trademark language"
+  ],
+  "claims": [
+    {
+      "signal": "warm Mersin-like coast energy",
+      "evidence": "The sample scene builds a golden sky band, sea band, sunwashed apartment blocks, balcony silhouettes, citrus-warm palette, and late-summer haze."
+    },
+    {
+      "signal": "readable pixel silhouettes",
+      "evidence": "Runtime now loads generated PPM sprite companions for player, friends, lamp, signal, pickup items, and terrain tiles derived from recorded CC0 source packs."
+    },
+    {
+      "signal": "sea and parallax depth",
+      "evidence": "Parallax helpers offset hills and sea bands by camera target, and the UI pixel-world pass tiles licensed water sprites over the sea band."
+    },
+    {
+      "signal": "cozy-yet-risky night shift",
+      "evidence": "Day progress moves the objective toward nightfall; signal lighting adds bloom and resolves the slice before night."
+    },
+    {
+      "signal": "build placement clarity",
+      "evidence": "Break/place counters, selected hotbar state, deterministic tile occupancy checks, distinct placed object names, and sprite keys for placed wood/shade/lamp/signal are covered by the runnable slice."
+    },
+    {
+      "signal": "no cloned brand or trademark language",
+      "evidence": "Project ids, code symbols, UI text, and asset metadata use Tuzora-specific names."
+    }
+  ],
+  "rejected_signals": [
+    "external brand names in player-facing UI",
+    "raw web PNG runtime dependency",
+    "unattributed third-party asset usage",
+    "networked multiplayer claim"
+  ],
+  "preview_artifact": {
+    "expected_path": "build/test-artifacts/tuzora/tuzora.ppm",
+    "validation": "aster_tuzora_capture_test, manual PNG conversion preview, and aster_tuzora_tests.capture_scene_contains_required_objects_and_renders"
+  }
+}

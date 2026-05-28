@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "input.tuzora",
+  "name": "Tuzora Input",
+  "bindings": [
+    { "command": "tuzora.move.left", "device": "keyboard", "key": "A", "scale": 1.0 },
+    { "command": "tuzora.move.right", "device": "keyboard", "key": "D", "scale": 1.0 },
+    { "command": "tuzora.jump", "device": "keyboard", "key": "Space", "scale": 1.0 },
+    { "command": "tuzora.run", "device": "keyboard", "key": "LeftShift", "scale": 1.0 },
+    { "command": "tuzora.interact", "device": "keyboard", "key": "E", "scale": 1.0 },
+    { "command": "tuzora.break", "device": "keyboard", "key": "Q", "scale": 1.0 },
+    { "command": "tuzora.place", "device": "mouse", "button": "Right", "scale": 1.0 },
+    { "command": "tuzora.hotbar.1", "device": "keyboard", "key": "Num1", "scale": 1.0 },
+    { "command": "tuzora.hotbar.2", "device": "keyboard", "key": "Num2", "scale": 1.0 },
+    { "command": "tuzora.hotbar.3", "device": "keyboard", "key": "Num3", "scale": 1.0 },
+    { "command": "tuzora.hotbar.4", "device": "keyboard", "key": "Num4", "scale": 1.0 },
+    { "command": "tuzora.hotbar.5", "device": "keyboard", "key": "Num5", "scale": 1.0 },
+    { "command": "tuzora.reset", "device": "keyboard", "key": "R", "scale": 1.0 }
+  ]
+}

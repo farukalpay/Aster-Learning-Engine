@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "action.tuzora.light_signal",
+  "name": "Light Signal",
+  "nodes": [
+    { "id": "install_parts", "type": "inventory_spend", "parameters": { "resource": "signal", "amount": "1" }, "tags": ["tuzora.signal", "repair"] },
+    { "id": "confirm_lamp", "type": "query_world_flag", "parameters": { "flag": "tuzora.lamp_near_signal" }, "tags": ["tuzora.signal", "lamp"] },
+    { "id": "ignite", "type": "set_flag", "parameters": { "flag": "tuzora.signal_lit", "value": "true" }, "tags": ["tuzora.signal", "ending"] }
+  ],
+  "reaction_contracts": [
+    { "id": "night_shift_payoff", "minimum_score": 0.80, "required_channels": ["light_bloom", "hud_state", "event_residue"], "required_events": ["install_parts", "ignite"] }
+  ]
+}

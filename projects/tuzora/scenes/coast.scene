@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "id": "scene.tuzora.coast",
+  "name": "Tuzora Coast Vertical Slice",
+  "entities": [
+    {
+      "id": "player_spawn",
+      "name": "Player Spawn",
+      "components": {
+        "transform": { "translation": [6.2, 0.0, 1.92] },
+        "spawn_point": { "spawn_kind": "player", "side_view": true },
+        "tuzora_actor": { "role": "player", "command_source": "lockstep" }
+      }
+    },
+    {
+      "id": "warm_sand_supply",
+      "name": "Warm Sand Supply",
+      "components": {
+        "transform": { "translation": [8.4, 0.0, 1.38] },
+        "mesh_renderer": { "mesh": "mesh.tuzora.pickup_quad", "material": "material.tuzora.shell" },
+        "interactable": { "action_graph": "action.tuzora.collect_supply", "prompt_action": "Gather", "prompt_subject": "Shells", "radius": 1.1 }
+      }
+    },
+    {
+      "id": "roof_scrap_supply",
+      "name": "Roof Scrap Supply",
+      "components": {
+        "transform": { "translation": [23.6, 0.0, 6.36] },
+        "mesh_renderer": { "mesh": "mesh.tuzora.pickup_quad", "material": "material.tuzora.scrap" },
+        "interactable": { "action_graph": "action.tuzora.collect_supply", "prompt_action": "Gather", "prompt_subject": "Scrap", "radius": 1.1 }
+      }
+    },
+    {
+      "id": "coast_tile_layer",
+      "name": "Sparse Coast Tile Layer",
+      "components": {
+        "transform": { "translation": [0.0, 0.0, 0.0] },
+        "tuzora_tile_layer": {
+          "tile_size": 1.0,
+          "solid_layers": ["sand", "pier", "roof"],
+          "buildable_slots": ["sand", "wood", "shade", "lamp", "signal"]
+        }
+      }
+    },
+    {
+      "id": "rooftop_signal",
+      "name": "Rooftop Signal",
+      "components": {
+        "transform": { "translation": [34.5, 0.0, 6.45] },
+        "mesh_renderer": { "mesh": "mesh.tuzora.signal_quad", "material": "material.tuzora.signal" },
+        "interactable": { "action_graph": "action.tuzora.light_signal", "prompt_action": "Repair", "prompt_subject": "Signal", "radius": 1.65 }
+      }
+    },
+    {
+      "id": "friend_presence_balcony",
+      "name": "Friend Presence Balcony",
+      "components": {
+        "transform": { "translation": [22.0, -8.0, 7.1] },
+        "mesh_renderer": { "mesh": "mesh.tuzora.band_quad", "material": "material.tuzora.balcony_silhouette" },
+        "ambient_presence": { "line": "distant voices over warm concrete", "networked": false }
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "action.tuzora.collect_supply",
+  "name": "Collect Supply",
+  "nodes": [
+    { "id": "collect", "type": "inventory_add", "parameters": { "resource": "context.resource", "amount": "context.amount" }, "tags": ["tuzora.collect", "supply"] },
+    { "id": "presence_ping", "type": "emit_event", "parameters": { "event": "balcony_voice_response" }, "tags": ["tuzora.presence", "atmosphere"] }
+  ],
+  "reaction_contracts": [
+    { "id": "supply_readability", "minimum_score": 0.72, "required_channels": ["ui_feedback", "event_residue"], "required_events": ["collect"] }
+  ]
+}

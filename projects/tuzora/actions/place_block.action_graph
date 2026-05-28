@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "action.tuzora.place_block",
+  "name": "Place Block",
+  "nodes": [
+    { "id": "validate_cell", "type": "query_tile_space", "parameters": { "solid_overlap": "reject", "player_overlap": "reject" }, "tags": ["tuzora.build", "placement"] },
+    { "id": "consume_resource", "type": "inventory_spend", "parameters": { "slot": "context.slot" }, "tags": ["tuzora.build", "inventory"] },
+    { "id": "write_tile", "type": "tile_layer_write", "parameters": { "layer": "context.layer", "tile": "context.tile" }, "tags": ["tuzora.build", "tilemap"] }
+  ],
+  "reaction_contracts": [
+    { "id": "build_clarity", "minimum_score": 0.74, "required_channels": ["placement_preview", "ui_feedback"], "required_events": ["validate_cell", "write_tile"] }
+  ]
+}
