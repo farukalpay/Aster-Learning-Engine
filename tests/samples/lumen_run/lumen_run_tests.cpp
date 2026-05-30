@@ -3,6 +3,10 @@
 
 #include "test_support.hpp"
 
+#include "aster/material/material_asset.hpp"
+#include "aster/material/material_compiler.hpp"
+#include "aster/material/procedural_surface.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -25,6 +29,21 @@ void setEnvFlag(const char *name, const bool enabled) {
     (void)unsetenv(name);
   }
 #endif
+}
+
+std::filesystem::path repoPath(const std::filesystem::path &relative) {
+  std::filesystem::path base = std::filesystem::current_path();
+  for (int i = 0; i < 4; ++i) {
+    const std::filesystem::path candidate = base / relative;
+    if (std::filesystem::exists(candidate)) {
+      return candidate;
+    }
+    if (!base.has_parent_path() || base == base.parent_path()) {
+      break;
+    }
+    base = base.parent_path();
+  }
+  return relative;
 }
 
 void testLumenSceneCoherenceReport() {
@@ -671,6 +690,7 @@ void testLumenCaveVisualContracts() {
       cave_shell_objects.push_back(&object);
       assert(object.material.opacity >= 0.999f);
       assert(object.material.cull_mode == aster::FaceCullMode::Back);
+      assert(!aster::isDoubleSidedMaterial(object.material));
       assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
       assert(object.viewer_cull_volume.enabled);
       assert(object.viewer_cull_volume.outside == aster::FaceCullMode::Back);
@@ -689,7 +709,11 @@ void testLumenCaveVisualContracts() {
       cave_shell_objects.push_back(&object);
       assert(object.material.opacity >= 0.999f);
       assert(object.material.cull_mode == aster::FaceCullMode::Back);
+      assert(!aster::isDoubleSidedMaterial(object.material));
       assert(object.material.surface_pattern == aster::SurfacePattern::CaveRock);
+      assert(object.viewer_cull_volume.enabled);
+      assert(object.viewer_cull_volume.outside == aster::FaceCullMode::Back);
+      assert(object.viewer_cull_volume.inside == aster::FaceCullMode::Back);
       assert(object.custom_mesh != nullptr);
       assert(!object.custom_mesh->vertices.empty());
       assert(!object.dynamic_mesh.valid());
@@ -838,6 +862,113 @@ void testLumenCaveVisualContracts() {
   assert(chest_floor_height > -999.0f);
   assert(parkour_chest_base->transform.position.y - parkour_chest_base->transform.scale.y >=
          chest_floor_height - 0.015f);
+}
+
+void testLumenCaveMeshCullingCapsuleTriplanarTraceHarness() {
+  const aster::MaterialAssetLoadResult cave_rock_asset = aster::loadMaterialAsset(
+      repoPath("projects/lumen_run/materials/cave_rock.astermat"));
+  assert(cave_rock_asset.ok());
+  const aster::MaterialFeatureSet features = aster::materialFeatureSet(cave_rock_asset.value);
+  assert(features.textured);
+  assert(features.triplanar);
+  assert(features.normal_map);
+  assert(features.height);
+  assert(features.parallax);
+  assert(!features.double_sided);
+  assert((aster::materialFeatureMask(features) & (1ull << 6ull)) != 0u);
+
+  const aster::CompiledMaterialAsset compiled_asset =
+      aster::compileMaterialAssetForRendering(cave_rock_asset.value);
+  assert((compiled_asset.fallback_material.permutation_flags &
+          aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::Textured)) != 0u);
+  assert((compiled_asset.fallback_material.permutation_flags &
+          aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::Procedural)) != 0u);
+  assert((compiled_asset.fallback_material.permutation_flags &
+          aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::DoubleSided)) == 0u);
+  assert(compiled_asset.fallback_material.pipeline_tag.find(".culled") != std::string::npos);
+  expectNear(compiled_asset.fallback_material.material.detail_scale, 3.5f, 0.0001f);
+  expectNear(compiled_asset.fallback_material.material.procedural.wetness, 0.30f, 0.0001f);
+  assert(aster::resolveMaterialSurfaceProfile(compiled_asset.fallback_material.material) ==
+         aster::MaterialSurfaceProfile::StratifiedRock);
+
+  const aster::Vec3 axis_weights = aster::asterSurfaceTriplanarWeights({0.0f, 1.0f, 0.0f});
+  expectNear(axis_weights.x + axis_weights.y + axis_weights.z, 1.0f, 0.0001f);
+  assert(axis_weights.y > 0.999f);
+  const aster::Vec3 seam_weights =
+      aster::asterSurfaceTriplanarWeights(aster::normalize(aster::Vec3{1.0f, 1.0f, 0.0f}));
+  expectNear(seam_weights.x, seam_weights.y, 0.0001f);
+  assert(seam_weights.z < 0.001f);
+
+  aster::LumenRun run({.shard_count = 3, .sentinel_count = 0});
+  aster::RenderScene render_scene;
+  render_scene.rebuild(run.scene());
+
+  bool saw_entry_cave_chunk = false;
+  bool saw_deep_cave_chunk = false;
+  bool saw_planned_cave_chunk = false;
+  bool saw_capsule_support = false;
+  for (std::size_t object_index = 0; object_index < run.scene().objects().size(); ++object_index) {
+    const aster::RenderObject &object = run.scene().objects()[object_index];
+    if (object.name != "Authored cave interior" && object.name != "Authored deep cave interior") {
+      continue;
+    }
+    saw_entry_cave_chunk = saw_entry_cave_chunk || object.name == "Authored cave interior";
+    saw_deep_cave_chunk = saw_deep_cave_chunk || object.name == "Authored deep cave interior";
+    assert(object.custom_mesh != nullptr);
+    assert(!object.custom_mesh->vertices.empty());
+    assert(countFacesOpposingVertexNormals(*object.custom_mesh) == 0u);
+    assert(object.material.asset_id == "material.cave_rock");
+    const aster::CompiledMaterial compiled =
+        aster::compileMaterialForRendering(object.material, false, object.material.asset_id);
+    assert((compiled.permutation_flags &
+            aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::Procedural)) != 0u);
+    assert((compiled.permutation_flags &
+            aster::materialPermutationFlagBit(aster::MaterialPermutationFlag::DoubleSided)) == 0u);
+    assert(compiled.pipeline_tag.find(".culled") != std::string::npos);
+    assert(object.viewer_cull_volume.enabled);
+
+    aster::OrbitCamera camera;
+    camera.target = aster::renderBoundsForObject(object).center;
+    camera.yaw = run.caveFrameReportCameraYaw(object.name == "Authored deep cave interior" ? 38.0f
+                                                                                           : 16.0f);
+    camera.pitch = aster::radians(8.0f);
+    camera.radius = 3.2f;
+    camera.vertical_fov = aster::radians(58.0f);
+    camera.far_plane = 80.0f;
+    const aster::FrameRenderPlan plan =
+        aster::buildFrameRenderPlan(render_scene, camera, {}, 160, 96);
+    saw_planned_cave_chunk =
+        saw_planned_cave_chunk ||
+        std::any_of(plan.instances.begin(), plan.instances.end(),
+                    [object_index](const aster::FrameRenderInstance &instance) {
+                      return instance.object_index == object_index;
+                    });
+  }
+
+  const float support_extent = aster::LumenTuning{}.player_height * 0.5f;
+  for (const float progress : {8.0f, 24.0f, 38.0f}) {
+    const aster::Vec3 capsule_center = run.caveFrameReportPosition(progress);
+    const aster::TerrainSurfaceSample support =
+        run.debugSupportSample(capsule_center - aster::Vec3{0.0f, support_extent, 0.0f},
+                               0.16f, 1.10f);
+    assert(support.valid);
+    assert(support.normal.y > 0.30f);
+    assert(std::abs(capsule_center.y - (support.height + support_extent)) < 0.20f);
+    const aster::VerticalCapsuleContactVolume player_capsule{
+        capsule_center, aster::LumenTuning{}.player_radius, support_extent};
+    const aster::VerticalCapsuleContactVolume floor_probe{
+        {capsule_center.x, support.height - aster::LumenTuning{}.player_radius * 0.52f,
+         capsule_center.z},
+        aster::LumenTuning{}.player_radius,
+        0.02f};
+    assert(aster::overlaps(player_capsule, floor_probe));
+    saw_capsule_support = true;
+  }
+
+  assert(saw_entry_cave_chunk);
+  assert(saw_deep_cave_chunk);
+  assert(saw_planned_cave_chunk);
+  assert(saw_capsule_support);
 }
 
 void testLumenDeepCaveCaptureLightingContract() {
@@ -1803,6 +1934,8 @@ int main(const int argc, const char **argv) {
       {"lumen_supply_crate_inventory_contract", testLumenSupplyCrateInventoryContract},
       {"lumen_prism_relay_proximity_interaction", testLumenPrismRelayProximityInteraction},
       {"lumen_cave_visual_contracts", testLumenCaveVisualContracts},
+      {"lumen_cave_mesh_culling_capsule_triplanar_trace_harness",
+       testLumenCaveMeshCullingCapsuleTriplanarTraceHarness},
       {"lumen_deep_cave_capture_lighting_contract", testLumenDeepCaveCaptureLightingContract},
       {"lumen_held_torch_lights_deep_cave_and_replays_deterministically",
        testLumenHeldTorchLightsDeepCaveAndReplaysDeterministically},

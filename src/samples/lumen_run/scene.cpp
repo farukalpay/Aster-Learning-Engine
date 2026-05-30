@@ -604,7 +604,7 @@ void LumenRun::rebuildScene() {
                11.8f, 0.30f, 0.56f, SurfacePattern::CaveRock, {2.9f, 5.6f}, 0.132f, 0.92f,
                0.052f);
   cave_wall.cull_mode = FaceCullMode::Back;
-  cave_wall.double_sided = true;
+  cave_wall.double_sided = false;
   cave_wall.camera_occlusion = CameraOcclusionPolicy::Solid;
   cave_wall.asset_id = "material.cave_rock";
   cave_wall.procedural = {.macro_variation = 0.78f,
@@ -623,6 +623,8 @@ void LumenRun::rebuildScene() {
   cave_entrance_wall.emission_strength = 0.016f;
   cave_entrance_wall.ambient_occlusion = 0.48f;
   cave_entrance_wall.procedural.wetness = 0.12f;
+  Material cave_mouth_liner = cave_entrance_wall;
+  cave_mouth_liner.double_sided = true;
   Material cave_floor = makeSupportSurfaceMaterial(cave_wall);
   cave_floor.base_color = {0.046f, 0.044f, 0.041f};
   cave_floor.pattern_scale = {4.0f, 5.8f};
@@ -1578,6 +1580,9 @@ void LumenRun::rebuildScene() {
   cave_entrance_light_position_ = caveEntranceLightPosition(cave_floor_y);
   cave_viewer_cull_volume_ = viewerCullVolumeForMesh(cave_complex.collision_mesh, 0.20f,
                                                      FaceCullMode::Back, FaceCullMode::Back);
+  const ViewerCullVolume deep_cave_viewer_cull_volume =
+      viewerCullVolumeForMesh(deep_cave_complex.collision_mesh, 0.20f, FaceCullMode::Back,
+                              FaceCullMode::Back);
   cave_collision_meshes_.push_back(makeSharedMesh(std::move(cave_complex.collision_mesh)));
   cave_collision_meshes_.push_back(makeSharedMesh(std::move(deep_cave_complex.collision_mesh)));
   for (const AuthoredCaveSection &section : cave_sections_) {
@@ -2312,7 +2317,7 @@ void LumenRun::rebuildScene() {
   appendGeneratedStructuralScenery(
       "Opaque recessed cave mouth liner", cave_portal_shell_mesh,
       {cave_entrance.x, cave_floor_y + 0.015f, cave_entrance.z + 0.05f}, {1.0f, 1.0f, 1.0f},
-      {0.0f, cave_yaw, 0.0f}, cave_entrance_wall);
+      {0.0f, cave_yaw, 0.0f}, cave_mouth_liner);
   const std::shared_ptr<const CpuMesh> cave_portal_formation_mesh =
       makeSharedMesh(std::move(cave_complex.portal_formation_mesh));
   appendGeneratedStructuralScenery(
@@ -2371,9 +2376,10 @@ void LumenRun::rebuildScene() {
     ++cave_chunk_index;
   }
   for (CpuMesh &chunk : deep_cave_complex.tunnel_chunks) {
-    appendGeneratedStructuralScenery("Authored deep cave interior", makeSharedMesh(std::move(chunk)),
-                                     {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f},
-                                     {0.0f, 0.0f, 0.0f}, cave_wall);
+    const std::size_t chunk_index = appendGeneratedStructuralScenery(
+        "Authored deep cave interior", makeSharedMesh(std::move(chunk)), {0.0f, 0.0f, 0.0f},
+        {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, cave_wall);
+    scene_.objects()[chunk_index].viewer_cull_volume = deep_cave_viewer_cull_volume;
   }
   for (std::size_t section_index = 0u; section_index < cave_sections_.size(); ++section_index) {
     appendCaveAgingPass(cave_sections_[section_index], section_index > 0u);

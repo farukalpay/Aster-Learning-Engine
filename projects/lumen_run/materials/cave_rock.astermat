@@ -6,7 +6,7 @@ material material.cave_rock {
   name: "Cave Rock"
   shading_model: LitPBR
   blend_mode: Opaque
-  cull_mode: None
+  cull_mode: Back
   receives_decals: true
   receives_shadows: true
 

@@ -416,8 +416,7 @@ sampleTraversableManifoldSupport(const TraversableManifold &manifold,
   const float vertical = dot(offset, station.up);
   const float lateral_abs = std::abs(lateral);
   const float actor_radius = std::max(query.actor_radius, 0.0f);
-  const float walkable_half_width = std::max(station.floor_half_width - actor_radius * 0.72f,
-                                             station.floor_half_width * 0.48f);
+  const float walkable_half_width = std::max(station.floor_half_width - actor_radius, 0.0f);
   const float lateral_normalized =
       clamp(lateral / std::max(station.floor_half_width, kEpsilon), -1.0f, 1.0f);
   const float floor_offset = floorOffsetAt(station, lateral_normalized);
@@ -433,7 +432,8 @@ sampleTraversableManifoldSupport(const TraversableManifold &manifold,
 
   sample.valid = vertical_in_range && inside_width && inside_height;
   sample.inside_envelope = inside_width && inside_height;
-  sample.walkable = sample.valid && lateral_abs <= walkable_half_width + actor_radius * 0.30f;
+  sample.walkable =
+      sample.valid && lateral_abs <= walkable_half_width + std::max(actor_radius * 0.05f, 0.006f);
   sample.tunnel_t = station.t;
   sample.height = world_height;
   sample.ground_distance = ground_distance;

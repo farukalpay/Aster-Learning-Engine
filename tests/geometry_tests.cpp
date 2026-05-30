@@ -814,6 +814,21 @@ void testCaveInteriorVolume() {
     assert(!wall_support.walkable);
     assert(wall_support.lateral_penetration > 0.0f);
     assert(aster::dot(wall_support.obstacle_normal, frame.side) < -0.80f);
+
+    const float actor_radius = 0.30f;
+    const aster::Vec3 capsule_clip_probe =
+        frame.floor_center + frame.side * (frame.floor_half_width - actor_radius + 0.16f) +
+        frame.up * 0.34f;
+    const aster::TraversableManifoldSupportSample capsule_clip_support =
+        aster::sampleTraversableManifoldSupport(
+            manifold, {.position = capsule_clip_probe,
+                       .actor_radius = actor_radius,
+                       .max_above = 0.70f,
+                       .max_below = 0.70f});
+    assert(capsule_clip_support.inside_envelope);
+    assert(!capsule_clip_support.walkable);
+    assert(capsule_clip_support.lateral_penetration > 0.0f);
+    assert(aster::length(capsule_clip_support.depenetration) > 0.0f);
   }
   assert(!complex.features.empty());
   assert(complex.portal_mesh.vertices.size() > 18u);
@@ -871,14 +886,37 @@ void testCaveInteriorVolume() {
       aster::SurfaceSupportQuery{{portal_floor_center.x, portal_floor_center.z}}, 0.36f);
   assert(portal_floor_support.valid);
   assert(complex.chest_position.y < -0.4f);
-  const aster::Vec3 chamber_center = aster::evaluateCaveTunnelCenter(tunnel, tunnel.chamber_t);
-  const aster::Vec3 chamber_tangent = aster::evaluateCaveTunnelTangent(tunnel, tunnel.chamber_t);
-  const aster::Vec3 chamber_side =
-      aster::normalize(aster::cross({0.0f, 1.0f, 0.0f}, chamber_tangent));
+  const aster::CaveTunnelFrame chamber_frame = aster::sampleCaveTunnelFrame(tunnel, tunnel.chamber_t);
+  const float actor_radius = 0.28f;
   const aster::CaveTraversalConstraint side_constraint = aster::constrainCaveTraversalPosition(
-      tunnel, chamber_center + chamber_side * 2.4f + aster::Vec3{0.0f, 0.55f, 0.0f}, 0.28f);
+      tunnel,
+      chamber_frame.floor_center + chamber_frame.side * (chamber_frame.floor_half_width + 0.35f) +
+          chamber_frame.up * 0.55f,
+      actor_radius);
   assert(side_constraint.active);
   assert(aster::length(side_constraint.correction) > 0.0f);
+  const aster::CaveTraversalConstraint capsule_clearance_constraint =
+      aster::constrainCaveTraversalPosition(
+          tunnel,
+          chamber_frame.floor_center +
+              chamber_frame.side * (chamber_frame.floor_half_width - actor_radius + 0.05f) +
+              chamber_frame.up * 0.55f,
+          actor_radius);
+  assert(capsule_clearance_constraint.active);
+  assert(capsule_clearance_constraint.side_limit <=
+         chamber_frame.floor_half_width - actor_radius + 0.001f);
+  aster::CaveTunnelProfile clipped_collision_span = tunnel;
+  clipped_collision_span.collision_end_t = 0.70f;
+  clipped_collision_span.end_constraint_enabled = false;
+  const aster::CaveTunnelFrame after_collision_span =
+      aster::sampleCaveTunnelFrame(clipped_collision_span, 0.88f);
+  const aster::CaveTraversalConstraint past_collision_end =
+      aster::constrainCaveTraversalPosition(
+          clipped_collision_span,
+          after_collision_span.floor_center + after_collision_span.side * 2.2f +
+              after_collision_span.up * 0.55f,
+          actor_radius);
+  assert(!past_collision_end.active);
   const aster::Vec3 end = aster::evaluateCaveTunnelCenter(tunnel, 1.0f);
   const aster::Vec3 end_tangent = aster::evaluateCaveTunnelTangent(tunnel, 1.0f);
   const aster::CaveTraversalConstraint end_constraint = aster::constrainCaveTraversalPosition(

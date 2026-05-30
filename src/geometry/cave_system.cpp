@@ -1079,11 +1079,14 @@ CaveTraversalConstraint constrainCaveTraversalPosition(const CaveTunnelProfile &
   const float vertical = dot(offset, frame.up);
   const float actor = std::max(actor_radius, 0.0f);
   const float collision_start = clamp(profile.collision_start_t, 0.0f, 0.96f);
+  const float collision_end = clamp(std::max(profile.collision_end_t, collision_start),
+                                    collision_start, 1.0f);
   const float end_tolerance = std::max(actor * 0.85f, 0.20f);
-  const float side_limit = std::max(frame.floor_half_width - actor * 0.34f, actor * 1.15f);
+  const float side_limit = std::max(frame.floor_half_width - actor, 0.0f);
   const float lateral_margin =
       std::max(frame.half_width, actor + std::max(profile.floor_edge_raise, 0.0f) + 0.38f);
-  const bool near_traversal_volume = frame.t >= collision_start - 0.035f && vertical >= -0.62f &&
+  const bool near_traversal_volume = frame.t >= collision_start - 0.035f &&
+                                     frame.t <= collision_end + 0.040f && vertical >= -0.62f &&
                                      vertical <= frame.height * 1.38f &&
                                      std::abs(signed_lateral) <= side_limit + lateral_margin;
 
