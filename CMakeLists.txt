@@ -145,6 +145,7 @@ set(ASTER_GAME_SDK_SOURCES
 
 set(ASTER_LEARNING_SOURCES
   "${PROJECT_SOURCE_DIR}/src/learning/learning_runtime.cpp"
+  "${PROJECT_SOURCE_DIR}/src/learning/learning_session.cpp"
   "${PROJECT_SOURCE_DIR}/src/learning/memory_controller.cpp"
 )
 
@@ -407,6 +408,7 @@ set(ASTER_SAMPLES_SOURCES
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/construction_yard.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/lumen_run.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/interaction.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/learning_proof.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/mining.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/scene.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/simulation.cpp"
@@ -843,8 +845,11 @@ if(ASTER_BUILD_TESTS)
   add_test(NAME aster_game_sdk_public_consumer COMMAND aster_game_sdk_public_consumer)
 
   add_executable(aster_learning_runtime_tests tests/learning_runtime_tests.cpp)
-  target_link_libraries(aster_learning_runtime_tests PRIVATE aster_engine_internal)
+  target_link_libraries(aster_learning_runtime_tests PRIVATE aster_engine_internal aster_game_sdk)
   target_include_directories(aster_learning_runtime_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  target_compile_definitions(aster_learning_runtime_tests PRIVATE
+    ASTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+  )
   aster_configure_test_target(aster_learning_runtime_tests)
   foreach(learning_runtime_case
       good_lumen_trace
@@ -852,6 +857,7 @@ if(ASTER_BUILD_TESTS)
       unsupported_scaffold_rationale
       false_mastery_rejected
       missing_workflow_evaluation
+      live_session_project_round_trip
       memory_controller_reducer
       memory_controller_provider_block
   )
@@ -872,6 +878,9 @@ if(ASTER_BUILD_TESTS)
                      --lighting-width 480 --lighting-height 270 --no-vsync)
     add_test(NAME aster_lumen_run_smoke_test
              COMMAND aster_lumen_run --smoke-test --no-vsync)
+    add_test(NAME aster_lumen_run_learning_proof
+             COMMAND aster_lumen_run --learning-proof-run
+                     --learning-out "${PROJECT_BINARY_DIR}/test-artifacts/lumen_learning_proof")
     add_test(NAME aster_spark_threshold_smoke_test
              COMMAND aster_spark_threshold --smoke-test --no-vsync)
     add_test(NAME aster_spark_threshold_title_capture_test
@@ -1044,6 +1053,7 @@ if(ASTER_BUILD_TESTS)
   aster_add_test(aster_systems_tests tests/systems_tests.cpp)
   aster_add_test(aster_physics_tests tests/physics_tests.cpp)
   aster_add_test(aster_lumen_run_tests tests/samples/lumen_run/lumen_run_tests.cpp)
+  target_link_libraries(aster_lumen_run_tests PRIVATE aster_game_sdk)
   aster_add_test(aster_spark_threshold_tests
                  tests/samples/spark_threshold/spark_threshold_tests.cpp)
   foreach(spark_threshold_case

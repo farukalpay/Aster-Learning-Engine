@@ -7,6 +7,9 @@ misconceptions, scaffold rules, safety checks, and workflow stages.
 The canonical V1 path is Lumen Run:
 
 ```bash
+./build/aster_lumen_run --learning-proof-run \
+  --learning-out /tmp/aster_lumen_live_learning
+
 cargo run -p aster_assetc --bin aster_assetc -- lesson-inspect \
   --project projects/lumen_run/lumen_run.asterproj \
   --lesson lesson.lumen_mining \
@@ -15,10 +18,24 @@ cargo run -p aster_assetc --bin aster_assetc -- lesson-inspect \
 cargo run -p aster_assetc --bin aster_assetc -- learning-proof-run \
   --project projects/lumen_run/lumen_run.asterproj \
   --lesson lesson.lumen_mining \
-  --trace projects/lumen_run/lessons/lumen_mining.trace.jsonl \
+  --trace /tmp/aster_lumen_live_learning/trace.jsonl \
   --output /tmp/aster_lumen_learning_proof \
   --output-schema
 ```
+
+`LearningSession` is the runtime bridge between source Game SDK lesson assets
+and gameplay. Games emit lesson-neutral signals containing an event, asset id,
+and evidence channels. The session accumulates the declared event/channel
+requirements, diagnoses misconceptions, proposes only grounded scaffolds,
+rejects premature mastery, and writes replayable `trace.jsonl` plus `proof.json`
+artifacts. Its proof passes only when the Game SDK evaluator and the internal
+learning runtime agree on coverage and verdict.
+
+Lumen Run emits these signals from actual focus, inventory, equipment, and
+mining behavior. Normal interactive runs show learning coverage and the active
+scaffold in the HUD debug log. Pass `--learning-out <directory>` to persist that
+live session when the app exits. `--learning-proof-run` executes the same mining
+loop headlessly, without opening a render window.
 
 A learning proof passes only when the trace covers declared objectives, covers
 the diagnose -> design -> teach -> evaluate workflow, grounds scaffold decisions

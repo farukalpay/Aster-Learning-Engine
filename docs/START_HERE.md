@@ -29,7 +29,9 @@ surfaces.
    Lab, Pipe Lab, and Primate Lab as showcase/regression content, not as the
    engine boundary.
 6. Inspect the learning contract:
-   run `cargo run -p aster_assetc --bin aster_assetc -- learning-proof-run --project projects/lumen_run/lumen_run.asterproj --lesson lesson.lumen_mining --trace projects/lumen_run/lessons/lumen_mining.trace.jsonl --output /tmp/aster_lumen_learning_proof --output-schema`,
+   run `./build/aster_lumen_run --learning-proof-run --learning-out /tmp/aster_lumen_live_learning`,
+   then independently validate its gameplay-produced trace with
+   `cargo run -p aster_assetc --bin aster_assetc -- learning-proof-run --project projects/lumen_run/lumen_run.asterproj --lesson lesson.lumen_mining --trace /tmp/aster_lumen_live_learning/trace.jsonl --output /tmp/aster_lumen_learning_proof --output-schema`,
    then read [LEARNING_CONTRACT.md](LEARNING_CONTRACT.md).
 7. Inspect durable memory:
    run `cargo run -p aster_assetc --bin aster_assetc -- memory-proof-run --project projects/lumen_run/lumen_run.asterproj --policy memory.policy.lumen_mining --trace projects/lumen_run/lessons/lumen_mining.trace.jsonl --store /tmp/aster_lumen_memory.sqlite --output /tmp/aster_lumen_memory_proof --output-schema`.
@@ -56,7 +58,7 @@ surfaces.
 - `tests/golden/render/*.ppm` are deterministic software-reference baselines.
 - `aster_materialc`, `aster_texturec`, and `aster_assetc` expose material,
   texture, bundle, project, and generated-region checks separately.
-- `lesson-inspect`, `learning-proof-run`, `memory-proof-run`,
+- `aster_lumen_run --learning-proof-run`, `lesson-inspect`, `learning-proof-run`, `memory-proof-run`,
   `memory-bench-run`, and `memory-bench-compare` expose objective,
   learner-state, scaffold, intervention, safety, workflow, typed trace, SQLite
   memory graph, provider artifact, ablation, and regression replay proof for

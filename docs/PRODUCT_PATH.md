@@ -24,6 +24,10 @@ research, and samples do not blur into one claim.
 - Asset compiler base: `aster_materialc`, `aster_texturec`, and `aster_assetc`
   for material packages, texture packages, graph/package inspection, project
   cooking, reports, diagnostics, and asset proof-run bundles.
+- Live learning path: `LearningSession` binds lesson-neutral gameplay signals
+  to Game SDK evidence contracts, grounded scaffolds, mastery safety, replayable
+  JSONL traces, and agreement between authoring/runtime evaluators. Lumen Run's
+  headless learning proof is the first complete runtime cartridge.
 
 ## Product Boundary
 

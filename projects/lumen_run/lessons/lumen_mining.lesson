@@ -42,7 +42,7 @@
       "asset": "action.item.pickup",
       "source": "projects/lumen_run/actions/item_pickup.action_graph",
       "required_events": ["inventory_transfer"],
-      "required_channels": ["interaction.pickup"]
+      "required_channels": ["interaction.pickup", "item.pickaxe"]
     },
     {
       "id": "evidence.torch_use",

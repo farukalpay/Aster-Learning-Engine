@@ -38,8 +38,9 @@ Start here: [docs/START_HERE.md](docs/START_HERE.md)
   a visible result needs explanation.
 - Use `aster_assetc asset-proof-run` when an agent-authored asset needs a
   proof bundle before it becomes runtime content.
-- Use `aster_assetc learning-proof-run` when Lumen learning content needs
-  objective, learner-state, scaffold, safety, and workflow proof.
+- Use `aster_lumen_run --learning-proof-run` to generate proof from real
+  gameplay, then `aster_assetc learning-proof-run` to independently validate
+  objective, learner-state, scaffold, safety, and workflow coverage.
 - Treat samples and labs as evidence and examples, not as the product boundary.
 
 ## Maturity Map
