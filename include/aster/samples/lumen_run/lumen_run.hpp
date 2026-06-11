@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "aster/game_sdk/game_sdk.hpp"
 #include "aster/core/belief_extraction.hpp"
 #include "aster/core/frame_control.hpp"
 #include "aster/core/perceptual_causality_graph.hpp"
@@ -10,18 +11,6 @@
 #include "aster/core/world_perception_ledger.hpp"
 #include "aster/core/world_perceptual_primitive.hpp"
 #include "aster/core/world_state.hpp"
-#include "aster/game_sdk/game_sdk.hpp"
-#include "aster/geometry/cave_system.hpp"
-#include "aster/geometry/terrain_mesh.hpp"
-#include "aster/learning/learning_session.hpp"
-#include "aster/math/vec.hpp"
-#include "aster/physics/climb_locomotion.hpp"
-#include "aster/physics/physics_world.hpp"
-#include "aster/physics/surface_support.hpp"
-#include "aster/scene/avatar.hpp"
-#include "aster/scene/scene.hpp"
-#include "aster/scene/scene_coherence.hpp"
-#include "aster/scene/scene_trace.hpp"
 #include "aster/systems/animation_system.hpp"
 #include "aster/systems/classic_actor_runtime.hpp"
 #include "aster/systems/creature_motion.hpp"
@@ -33,6 +22,17 @@
 #include "aster/systems/mining_system.hpp"
 #include "aster/systems/particle_system.hpp"
 #include "aster/systems/world_mechanism.hpp"
+#include "aster/geometry/cave_system.hpp"
+#include "aster/geometry/terrain_mesh.hpp"
+#include "aster/learning/learning_session.hpp"
+#include "aster/math/vec.hpp"
+#include "aster/physics/climb_locomotion.hpp"
+#include "aster/physics/physics_world.hpp"
+#include "aster/physics/surface_support.hpp"
+#include "aster/scene/avatar.hpp"
+#include "aster/scene/scene.hpp"
+#include "aster/scene/scene_coherence.hpp"
+#include "aster/scene/scene_trace.hpp"
 #include "aster/ui/hud_layer.hpp"
 
 #include <array>
@@ -314,8 +314,9 @@ public:
   [[nodiscard]] std::optional<DynamicPointLight> prismRelayLight() const;
   [[nodiscard]] CaveLightingState caveLightingState() const;
   [[nodiscard]] CaveLightingState caveLightingStateAt(Vec3 position) const;
-  [[nodiscard]] TerrainSurfaceSample
-  debugSupportSample(Vec3 support_position, float max_above = 0.34f, float max_below = 2.0f) const;
+  [[nodiscard]] TerrainSurfaceSample debugSupportSample(Vec3 support_position,
+                                                        float max_above = 0.34f,
+                                                        float max_below = 2.0f) const;
   [[nodiscard]] float heldTorchLightGain(const CaveLightingState &light) const;
   [[nodiscard]] bool classicGauntletActive() const;
   [[nodiscard]] const AutomapModel &classicGauntletAutomap() const;
@@ -652,12 +653,12 @@ private:
   void updateSceneObjects(float animation_dt);
   void resetWorldProof();
   void rebuildCaveWorldGate();
-  [[nodiscard]] PerceptualWorldRuntimeOptions
-  perceptualRuntimeOptions(std::uint64_t region_id) const;
-  [[nodiscard]] PerceptualCausalityGraphOptions
-  perceptualCausalityGraphOptions(std::uint64_t region_id) const;
-  [[nodiscard]] WorldPerceptionLedgerReport
-  buildPerceptionLedgerReport(std::uint64_t region_id) const;
+  [[nodiscard]] PerceptualWorldRuntimeOptions perceptualRuntimeOptions(
+      std::uint64_t region_id) const;
+  [[nodiscard]] PerceptualCausalityGraphOptions perceptualCausalityGraphOptions(
+      std::uint64_t region_id) const;
+  [[nodiscard]] WorldPerceptionLedgerReport buildPerceptionLedgerReport(
+      std::uint64_t region_id) const;
   [[nodiscard]] std::vector<WorldPerceptionObjectTrace>
   buildPerceptionObjectTraces(const WorldPerceptionLedgerReport &ledger) const;
   [[nodiscard]] PerceptualWorldObservation
@@ -665,7 +666,8 @@ private:
   [[nodiscard]] PerceptualWorldScheduleReport
   buildPerceptualScheduleReport(float frame_cost_ms) const;
   [[nodiscard]] BeliefExtractionReport buildBeliefExtractionReport() const;
-  [[nodiscard]] std::vector<WorldPerceptualPrimitive> buildWorldPerceptualPrimitives();
+  [[nodiscard]] std::vector<WorldPerceptualPrimitive>
+  buildWorldPerceptualPrimitives();
   void refreshWorldTruthAuditHash();
   void refreshWorldPerceptualPrimitives();
   void applyWorldPerceptualPrimitivesToScene();
@@ -720,8 +722,8 @@ private:
   [[nodiscard]] bool isSwimmableWater(Vec3 support_position) const;
   [[nodiscard]] TerrainSurfaceSample sampleCaveFloorSupport(const SurfaceSupportQuery &query) const;
   [[nodiscard]] TerrainSurfaceSample sampleWorldSupport(const SurfaceSupportQuery &query) const;
-  [[nodiscard]] const AuthoredCaveSection *
-  caveSectionAt(Vec3 position, CaveInteriorSample *sample = nullptr) const;
+  [[nodiscard]] const AuthoredCaveSection *caveSectionAt(Vec3 position,
+                                                         CaveInteriorSample *sample = nullptr) const;
   [[nodiscard]] CaveTunnelFrame caveRouteFrameAt(float progress_distance) const;
   [[nodiscard]] bool mineFocusedOre(std::size_t ore_index);
   [[nodiscard]] bool mineFocusedCaveWeb(std::size_t web_index);

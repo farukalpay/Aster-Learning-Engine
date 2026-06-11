@@ -41,12 +41,10 @@ aster::LearningTraceForest goodForest() {
                    .stage = "diagnose",
                    .evidence_id = "evidence.mine_attempt",
                    .hypothesis_id = "hypothesis.tool_affordance_gap"});
-  forest.addEvent(
-      {.id = "t2",
-       .stage = "design",
-       .scaffold_id = "scaffold.pickaxe_prompt",
-       .metadata = {
-           {"rationale", "evidence.mine_attempt supports hypothesis.tool_affordance_gap"}}});
+  forest.addEvent({.id = "t2",
+                   .stage = "design",
+                   .scaffold_id = "scaffold.pickaxe_prompt",
+                   .metadata = {{"rationale", "evidence.mine_attempt supports hypothesis.tool_affordance_gap"}}});
   forest.addEvent({.id = "t3", .stage = "teach", .evidence_id = "evidence.pickaxe_pickup"});
   forest.addEvent({.id = "t4", .stage = "teach", .evidence_id = "evidence.torch_use"});
   forest.addEvent({.id = "t5", .stage = "teach", .evidence_id = "evidence.ore_identified"});
@@ -103,11 +101,9 @@ void testFalseMasteryRejected() {
                    .evidence_id = "evidence.mine_attempt",
                    .hypothesis_id = "hypothesis.tool_affordance_gap",
                    .claims_mastery = true});
-  forest.addEvent(
-      {.stage = "design",
-       .scaffold_id = "scaffold.pickaxe_prompt",
-       .metadata = {
-           {"rationale", "evidence.mine_attempt supports hypothesis.tool_affordance_gap"}}});
+  forest.addEvent({.stage = "design",
+                   .scaffold_id = "scaffold.pickaxe_prompt",
+                   .metadata = {{"rationale", "evidence.mine_attempt supports hypothesis.tool_affordance_gap"}}});
   forest.addEvent({.stage = "teach", .evidence_id = "evidence.pickaxe_pickup"});
   forest.addEvent({.stage = "teach", .evidence_id = "evidence.torch_use"});
   forest.addEvent({.stage = "teach", .evidence_id = "evidence.ore_identified"});
@@ -156,12 +152,13 @@ void testLiveSessionProjectRoundTrip() {
                    .channels = {"item.light", "lighting_atmosphere"}});
   session.observe({.event = "focus_resource_target",
                    .asset = "scene.cave_entry",
-                   .channels = {"interaction.mineable", "resource.coal", "gameplay_affordance"}});
+                   .channels = {"interaction.mineable", "resource.coal",
+                                "gameplay_affordance"}});
   for (const char *event : {"mining_attempt", "surface_hit", "crack"}) {
-    session.observe(
-        {.event = event,
-         .asset = "action.mine.coal_ore",
-         .channels = {"material_memory", "event_residue", "resource_state", "ui_feedback"}});
+    session.observe({.event = event,
+                     .asset = "action.mine.coal_ore",
+                     .channels = {"material_memory", "event_residue", "resource_state",
+                                  "ui_feedback"}});
   }
   for (const char *event : {"carve_resource_state_write", "ui_feedback"}) {
     session.observe({.event = event,
@@ -240,12 +237,15 @@ void testMemoryControllerReducerBudgetConflictAndReplay() {
   assert(graph.node_count >= 1u);
   assert(graph.conflict_count >= 1u);
 
-  const aster::MemoryDecision replay = controller.step(
-      world, {.task = "resolve_conflict",
-              .subject = "entity.player",
-              .semantic_key = "lesson.lumen_mining.tool",
-              .budget = {.token_budget = 128u, .byte_budget = 2048u, .time_budget_ms = 10.0},
-              .allowed_actions = {aster::MemoryActionKind::Replay, aster::MemoryActionKind::Stop}});
+  const aster::MemoryDecision replay =
+      controller.step(world, {.task = "resolve_conflict",
+                              .subject = "entity.player",
+                              .semantic_key = "lesson.lumen_mining.tool",
+                              .budget = {.token_budget = 128u,
+                                         .byte_budget = 2048u,
+                                         .time_budget_ms = 10.0},
+                              .allowed_actions = {aster::MemoryActionKind::Replay,
+                                                  aster::MemoryActionKind::Stop}});
   assert(replay.action == aster::MemoryActionKind::Replay);
   assert(replay.rationale.find("conflict") != std::string::npos);
 
@@ -272,12 +272,13 @@ void testMemoryControllerBudgetedEvictionAndProviderBlock() {
        .budget = {.token_budget = 64u, .byte_budget = 1u, .time_budget_ms = 5.0},
        .provider = {},
        .trace_window = 8u});
-  const aster::MemoryDecision evict = evicting.step(
-      world, {.task = "pressure",
-              .subject = "entity.player",
-              .semantic_key = "lesson.lumen_mining.long_window",
-              .budget = {.token_budget = 64u, .byte_budget = 1u, .time_budget_ms = 5.0},
-              .allowed_actions = {aster::MemoryActionKind::Evict, aster::MemoryActionKind::Stop}});
+  const aster::MemoryDecision evict =
+      evicting.step(world, {.task = "pressure",
+                            .subject = "entity.player",
+                            .semantic_key = "lesson.lumen_mining.long_window",
+                            .budget = {.token_budget = 64u, .byte_budget = 1u, .time_budget_ms = 5.0},
+                            .allowed_actions = {aster::MemoryActionKind::Evict,
+                                                aster::MemoryActionKind::Stop}});
   assert(evict.action == aster::MemoryActionKind::Evict);
   assert(evict.saved_bytes > 0u);
 
@@ -289,12 +290,15 @@ void testMemoryControllerBudgetedEvictionAndProviderBlock() {
        .budget = {.token_budget = 64u, .byte_budget = 1024u, .time_budget_ms = 5.0},
        .provider = required_provider,
        .trace_window = 8u});
-  const aster::MemoryDecision decision = blocked.step(
-      world, {.task = "provider_required",
-              .subject = "entity.player",
-              .semantic_key = "lesson.lumen_mining.tool",
-              .budget = {.token_budget = 64u, .byte_budget = 1024u, .time_budget_ms = 5.0},
-              .allowed_actions = {aster::MemoryActionKind::Write, aster::MemoryActionKind::Stop}});
+  const aster::MemoryDecision decision =
+      blocked.step(world, {.task = "provider_required",
+                           .subject = "entity.player",
+                           .semantic_key = "lesson.lumen_mining.tool",
+                           .budget = {.token_budget = 64u,
+                                      .byte_budget = 1024u,
+                                      .time_budget_ms = 5.0},
+                           .allowed_actions = {aster::MemoryActionKind::Write,
+                                               aster::MemoryActionKind::Stop}});
   assert(decision.status == aster::MemoryDecisionStatus::Blocked);
   assert(decision.provider_status == "provider_url_missing");
 }

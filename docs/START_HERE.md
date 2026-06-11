@@ -32,7 +32,7 @@ surfaces.
    run `./build/aster_lumen_run --learning-proof-run --learning-out /tmp/aster_lumen_live_learning`,
    then independently validate its gameplay-produced trace with
    `cargo run -p aster_assetc --bin aster_assetc -- learning-proof-run --project projects/lumen_run/lumen_run.asterproj --lesson lesson.lumen_mining --trace /tmp/aster_lumen_live_learning/trace.jsonl --output /tmp/aster_lumen_learning_proof --output-schema`,
-   then read [LEARNING_CONTRACT.md](LEARNING_CONTRACT.md).
+   and read [LEARNING_CONTRACT.md](LEARNING_CONTRACT.md).
 7. Inspect durable memory:
    run `cargo run -p aster_assetc --bin aster_assetc -- memory-proof-run --project projects/lumen_run/lumen_run.asterproj --policy memory.policy.lumen_mining --trace projects/lumen_run/lessons/lumen_mining.trace.jsonl --store /tmp/aster_lumen_memory.sqlite --output /tmp/aster_lumen_memory_proof --output-schema`.
    For provider-backed benchmark validation, set `ASTER_MEMORY_PROVIDER_URL`

@@ -275,10 +275,9 @@ void addDiagnostic(std::vector<Diagnostic> &diagnostics, const std::filesystem::
   return path + "[" + std::to_string(index) + "]";
 }
 
-[[nodiscard]] std::optional<std::string> readString(const Json &object, const char *key,
-                                                    std::vector<Diagnostic> &diagnostics,
-                                                    const std::filesystem::path &source,
-                                                    const std::string &path, const bool required) {
+[[nodiscard]] std::optional<std::string>
+readString(const Json &object, const char *key, std::vector<Diagnostic> &diagnostics,
+           const std::filesystem::path &source, const std::string &path, const bool required) {
   const Json *value = member(object, key);
   if (value == nullptr) {
     if (required) {
@@ -295,10 +294,9 @@ void addDiagnostic(std::vector<Diagnostic> &diagnostics, const std::filesystem::
 
 [[nodiscard]] std::string readStringOr(const Json &object, const char *key,
                                        std::vector<Diagnostic> &diagnostics,
-                                       const std::filesystem::path &source, const std::string &path,
-                                       const std::string_view fallback) {
-  const std::optional<std::string> value =
-      readString(object, key, diagnostics, source, path, false);
+                                       const std::filesystem::path &source,
+                                       const std::string &path, const std::string_view fallback) {
+  const std::optional<std::string> value = readString(object, key, diagnostics, source, path, false);
   return value.value_or(std::string(fallback));
 }
 
@@ -493,10 +491,9 @@ void addDiagnostic(std::vector<Diagnostic> &diagnostics, const std::filesystem::
   return {};
 }
 
-[[nodiscard]] std::map<std::string, std::string> readStringMap(const Json &object, const char *key,
-                                                               std::vector<Diagnostic> &diagnostics,
-                                                               const std::filesystem::path &source,
-                                                               const std::string &path) {
+[[nodiscard]] std::map<std::string, std::string>
+readStringMap(const Json &object, const char *key, std::vector<Diagnostic> &diagnostics,
+              const std::filesystem::path &source, const std::string &path) {
   std::map<std::string, std::string> values;
   const Json *map_json = member(object, key);
   if (map_json == nullptr) {
@@ -566,7 +563,8 @@ void hashNumber(std::uint64_t &hash, const std::uint64_t value) {
 }
 
 [[nodiscard]] std::uint64_t actionEventStamp(const ActionGraphDocument &graph,
-                                             const ActionNode &node, const ActionContext &context) {
+                                             const ActionNode &node,
+                                             const ActionContext &context) {
   std::uint64_t hash = beginContractHash();
   hashString(hash, "aster.action_event.v1");
   hashString(hash, graph.id);
@@ -598,9 +596,9 @@ void hashNumber(std::uint64_t &hash, const std::uint64_t value) {
   return out;
 }
 
-[[nodiscard]] CaveTunnelProfileDocument
-parseCaveTunnelProfileDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                               const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveTunnelProfileDocument parseCaveTunnelProfileDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveTunnelProfileDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -631,24 +629,23 @@ parseCaveTunnelProfileDocument(const Json &value, std::vector<Diagnostic> &diagn
   out.chamber_t = readFloatOr(value, "chamber_t", diagnostics, source, path, out.chamber_t);
   out.chamber_falloff =
       readFloatOr(value, "chamber_falloff", diagnostics, source, path, out.chamber_falloff);
-  out.chamber_width_scale =
-      readFloatOr(value, "chamber_width_scale", diagnostics, source, path, out.chamber_width_scale);
+  out.chamber_width_scale = readFloatOr(value, "chamber_width_scale", diagnostics, source, path,
+                                        out.chamber_width_scale);
   out.chamber_height_scale = readFloatOr(value, "chamber_height_scale", diagnostics, source, path,
                                          out.chamber_height_scale);
   out.end_constraint_enabled = readBoolOr(value, "end_constraint_enabled", diagnostics, source,
-                                          path, out.end_constraint_enabled);
+                                           path, out.end_constraint_enabled);
   return out;
 }
 
-[[nodiscard]] CavePortalProfileDocument
-parseCavePortalProfileDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                               const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CavePortalProfileDocument parseCavePortalProfileDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CavePortalProfileDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
   }
-  out.arch_segments =
-      readIntOr(value, "arch_segments", diagnostics, source, path, out.arch_segments);
+  out.arch_segments = readIntOr(value, "arch_segments", diagnostics, source, path, out.arch_segments);
   out.inner_half_width =
       readFloatOr(value, "inner_half_width", diagnostics, source, path, out.inner_half_width);
   out.inner_height =
@@ -666,9 +663,9 @@ parseCavePortalProfileDocument(const Json &value, std::vector<Diagnostic> &diagn
   return out;
 }
 
-[[nodiscard]] CaveOreVeinProfileDocument
-parseCaveOreVeinProfileDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveOreVeinProfileDocument parseCaveOreVeinProfileDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveOreVeinProfileDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -680,25 +677,26 @@ parseCaveOreVeinProfileDocument(const Json &value, std::vector<Diagnostic> &diag
       readFloatOr(value, "field_frequency_a", diagnostics, source, path, out.field_frequency_a);
   out.field_frequency_b =
       readFloatOr(value, "field_frequency_b", diagnostics, source, path, out.field_frequency_b);
-  out.intersection_threshold_a = readFloatOr(value, "intersection_threshold_a", diagnostics, source,
-                                             path, out.intersection_threshold_a);
-  out.intersection_threshold_b = readFloatOr(value, "intersection_threshold_b", diagnostics, source,
-                                             path, out.intersection_threshold_b);
+  out.intersection_threshold_a = readFloatOr(value, "intersection_threshold_a", diagnostics,
+                                             source, path, out.intersection_threshold_a);
+  out.intersection_threshold_b = readFloatOr(value, "intersection_threshold_b", diagnostics,
+                                             source, path, out.intersection_threshold_b);
   out.wall_inset = readFloatOr(value, "wall_inset", diagnostics, source, path, out.wall_inset);
   out.min_spacing = readFloatOr(value, "min_spacing", diagnostics, source, path, out.min_spacing);
   return out;
 }
 
-[[nodiscard]] CaveFeatureProfileDocument
-parseCaveFeatureProfileDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveFeatureProfileDocument parseCaveFeatureProfileDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveFeatureProfileDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
   }
   out.seed = static_cast<std::uint32_t>(readIntOr(value, "seed", diagnostics, source, path, 1));
   out.candidates = readIntOr(value, "candidates", diagnostics, source, path, out.candidates);
-  out.max_features = readIntOr(value, "max_features", diagnostics, source, path, out.max_features);
+  out.max_features =
+      readIntOr(value, "max_features", diagnostics, source, path, out.max_features);
   out.start_t = readFloatOr(value, "start_t", diagnostics, source, path, out.start_t);
   out.end_t = readFloatOr(value, "end_t", diagnostics, source, path, out.end_t);
   out.min_spacing = readFloatOr(value, "min_spacing", diagnostics, source, path, out.min_spacing);
@@ -714,9 +712,9 @@ parseCaveFeatureProfileDocument(const Json &value, std::vector<Diagnostic> &diag
   return out;
 }
 
-[[nodiscard]] CaveWallFixtureProfileDocument
-parseCaveWallFixtureProfileDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                    const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveWallFixtureProfileDocument parseCaveWallFixtureProfileDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveWallFixtureProfileDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -734,16 +732,14 @@ parseCaveWallFixtureProfileDocument(const Json &value, std::vector<Diagnostic> &
   out.normal_up_bias =
       readFloatOr(value, "normal_up_bias", diagnostics, source, path, out.normal_up_bias);
   out.lens_offset = readFloatOr(value, "lens_offset", diagnostics, source, path, out.lens_offset);
-  out.light_offset =
-      readFloatOr(value, "light_offset", diagnostics, source, path, out.light_offset);
+  out.light_offset = readFloatOr(value, "light_offset", diagnostics, source, path, out.light_offset);
   out.light_color = readVec3Or(value, "light_color", diagnostics, source, path, out.light_color);
   return out;
 }
 
-[[nodiscard]] CaveSectionDocument parseCaveSectionDocument(const Json &value,
-                                                           std::vector<Diagnostic> &diagnostics,
-                                                           const std::filesystem::path &source,
-                                                           const std::string &path) {
+[[nodiscard]] CaveSectionDocument parseCaveSectionDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveSectionDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -753,18 +749,18 @@ parseCaveWallFixtureProfileDocument(const Json &value, std::vector<Diagnostic> &
   out.terrain_cover_fit =
       readBoolOr(value, "terrain_cover_fit", diagnostics, source, path, out.terrain_cover_fit);
   out.derive_from_previous = readBoolOr(value, "derive_from_previous", diagnostics, source, path,
-                                        out.derive_from_previous);
+                                         out.derive_from_previous);
   out.contributes_entrance_light = readBoolOr(value, "contributes_entrance_light", diagnostics,
                                               source, path, out.contributes_entrance_light);
   const Json *tunnel = member(value, "tunnel");
   if (tunnel != nullptr) {
-    out.tunnel =
-        parseCaveTunnelProfileDocument(*tunnel, diagnostics, source, childPath(path, "tunnel"));
+    out.tunnel = parseCaveTunnelProfileDocument(*tunnel, diagnostics, source,
+                                                childPath(path, "tunnel"));
   }
   const Json *portal = member(value, "portal");
   if (portal != nullptr) {
-    out.portal =
-        parseCavePortalProfileDocument(*portal, diagnostics, source, childPath(path, "portal"));
+    out.portal = parseCavePortalProfileDocument(*portal, diagnostics, source,
+                                                childPath(path, "portal"));
   }
   const Json *ore = member(value, "ore");
   if (ore != nullptr) {
@@ -773,7 +769,7 @@ parseCaveWallFixtureProfileDocument(const Json &value, std::vector<Diagnostic> &
   const Json *features = member(value, "features");
   if (features != nullptr) {
     out.features = parseCaveFeatureProfileDocument(*features, diagnostics, source,
-                                                   childPath(path, "features"));
+                                                    childPath(path, "features"));
   }
   const Json *fixtures = member(value, "fixtures");
   if (fixtures != nullptr) {
@@ -790,10 +786,9 @@ parseCaveWallFixtureProfileDocument(const Json &value, std::vector<Diagnostic> &
   return out;
 }
 
-[[nodiscard]] CavePlacementDocument parseCavePlacementDocument(const Json &value,
-                                                               std::vector<Diagnostic> &diagnostics,
-                                                               const std::filesystem::path &source,
-                                                               const std::string &path) {
+[[nodiscard]] CavePlacementDocument parseCavePlacementDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CavePlacementDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -806,30 +801,30 @@ parseCaveWallFixtureProfileDocument(const Json &value, std::vector<Diagnostic> &
   out.position = readVec3Or(value, "position", diagnostics, source, path, {});
   out.rotation = readVec3Or(value, "rotation", diagnostics, source, path, {});
   out.scale = readVec3Or(value, "scale", diagnostics, source, path, {1.0f, 1.0f, 1.0f});
-  out.floor_relative =
-      readBoolOr(value, "floor_relative", diagnostics, source, path, out.floor_relative);
+  out.floor_relative = readBoolOr(value, "floor_relative", diagnostics, source, path,
+                                  out.floor_relative);
   return out;
 }
 
-[[nodiscard]] CaveRouteValidationDocument
-parseCaveRouteValidationDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                 const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveRouteValidationDocument parseCaveRouteValidationDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveRouteValidationDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
   }
   out.id = readStringOr(value, "id", diagnostics, source, path, {});
   out.points = readVec3Array(value, "points", diagnostics, source, path);
-  out.max_segment_length =
-      readFloatOr(value, "max_segment_length", diagnostics, source, path, out.max_segment_length);
-  out.support_tolerance =
-      readFloatOr(value, "support_tolerance", diagnostics, source, path, out.support_tolerance);
+  out.max_segment_length = readFloatOr(value, "max_segment_length", diagnostics, source, path,
+                                       out.max_segment_length);
+  out.support_tolerance = readFloatOr(value, "support_tolerance", diagnostics, source, path,
+                                      out.support_tolerance);
   return out;
 }
 
-[[nodiscard]] CaveVolumeValidationDocument
-parseCaveVolumeValidationDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                  const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveVolumeValidationDocument parseCaveVolumeValidationDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveVolumeValidationDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -841,9 +836,9 @@ parseCaveVolumeValidationDocument(const Json &value, std::vector<Diagnostic> &di
   return out;
 }
 
-[[nodiscard]] CaveCameraValidationDocument
-parseCaveCameraValidationDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                  const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveCameraValidationDocument parseCaveCameraValidationDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveCameraValidationDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -856,9 +851,9 @@ parseCaveCameraValidationDocument(const Json &value, std::vector<Diagnostic> &di
   return out;
 }
 
-[[nodiscard]] CaveProbeAgentDocument
-parseCaveProbeAgentDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                            const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveProbeAgentDocument parseCaveProbeAgentDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveProbeAgentDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -871,9 +866,9 @@ parseCaveProbeAgentDocument(const Json &value, std::vector<Diagnostic> &diagnost
   return out;
 }
 
-[[nodiscard]] CaveWorldProbeDocument
-parseCaveWorldProbeDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                            const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveWorldProbeDocument parseCaveWorldProbeDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveWorldProbeDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -882,8 +877,7 @@ parseCaveWorldProbeDocument(const Json &value, std::vector<Diagnostic> &diagnost
   out.kind = readStringOr(value, "kind", diagnostics, source, path, {});
   out.position = readVec3Or(value, "position", diagnostics, source, path, {});
   out.radius = readFloatOr(value, "radius", diagnostics, source, path, out.radius);
-  out.minimum_count =
-      readIntOr(value, "minimum_count", diagnostics, source, path, out.minimum_count);
+  out.minimum_count = readIntOr(value, "minimum_count", diagnostics, source, path, out.minimum_count);
   out.minimum_budget =
       readFloatOr(value, "minimum_budget", diagnostics, source, path, out.minimum_budget);
   out.maximum_budget =
@@ -891,9 +885,9 @@ parseCaveWorldProbeDocument(const Json &value, std::vector<Diagnostic> &diagnost
   return out;
 }
 
-[[nodiscard]] CavePerceptualBudgetDocument
-parseCavePerceptualBudgetDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                  const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CavePerceptualBudgetDocument parseCavePerceptualBudgetDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CavePerceptualBudgetDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -904,9 +898,9 @@ parseCavePerceptualBudgetDocument(const Json &value, std::vector<Diagnostic> &di
   return out;
 }
 
-[[nodiscard]] CaveReactionPackageDocument
-parseCaveReactionPackageDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                 const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveReactionPackageDocument parseCaveReactionPackageDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveReactionPackageDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -914,12 +908,14 @@ parseCaveReactionPackageDocument(const Json &value, std::vector<Diagnostic> &dia
   out.id = readStringOr(value, "id", diagnostics, source, path, {});
   out.action = readStringOr(value, "action", diagnostics, source, path, {});
   out.minimum_score = readFloatOr(value, "minimum_score", diagnostics, source, path, 0.0f);
-  out.required_channels = readStringArray(value, "required_channels", diagnostics, source, path);
+  out.required_channels =
+      readStringArray(value, "required_channels", diagnostics, source, path);
   return out;
 }
 
 [[nodiscard]] CavePerceptualContinuityBudgetDocument
-parseCavePerceptualContinuityBudgetDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
+parseCavePerceptualContinuityBudgetDocument(const Json &value,
+                                            std::vector<Diagnostic> &diagnostics,
                                             const std::filesystem::path &source,
                                             const std::string &path) {
   CavePerceptualContinuityBudgetDocument out;
@@ -929,7 +925,8 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value, std::vector<Diagn
   out.id = readStringOr(value, "id", diagnostics, source, path, {});
   out.minimum_score =
       readFloatOr(value, "minimum_score", diagnostics, source, path, out.minimum_score);
-  out.required_channels = readStringArray(value, "required_channels", diagnostics, source, path);
+  out.required_channels =
+      readStringArray(value, "required_channels", diagnostics, source, path);
   const Json *reaction_packages = member(value, "reaction_packages");
   if (reaction_packages != nullptr) {
     if (reaction_packages->kind != Json::Kind::Array) {
@@ -937,32 +934,32 @@ parseCavePerceptualContinuityBudgetDocument(const Json &value, std::vector<Diagn
                     "expected reaction package array");
     } else {
       for (std::size_t i = 0; i < reaction_packages->array.size(); ++i) {
-        out.reaction_packages.push_back(
-            parseCaveReactionPackageDocument(reaction_packages->array[i], diagnostics, source,
-                                             indexPath(childPath(path, "reaction_packages"), i)));
+        out.reaction_packages.push_back(parseCaveReactionPackageDocument(
+            reaction_packages->array[i], diagnostics, source,
+            indexPath(childPath(path, "reaction_packages"), i)));
       }
     }
   }
   return out;
 }
 
-[[nodiscard]] CavePerceptionLedgerCellDocument
-parseCavePerceptionLedgerCellDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                      const std::filesystem::path &source,
-                                      const std::string &path) {
+[[nodiscard]] CavePerceptionLedgerCellDocument parseCavePerceptionLedgerCellDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CavePerceptionLedgerCellDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
   }
   out.id = readStringOr(value, "id", diagnostics, source, path, {});
   out.minimum_score = readFloatOr(value, "minimum_score", diagnostics, source, path, 0.0f);
-  out.required_channels = readStringArray(value, "required_channels", diagnostics, source, path);
+  out.required_channels =
+      readStringArray(value, "required_channels", diagnostics, source, path);
   return out;
 }
 
-[[nodiscard]] CavePerceptionLedgerDocument
-parseCavePerceptionLedgerDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                  const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CavePerceptionLedgerDocument parseCavePerceptionLedgerDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CavePerceptionLedgerDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -970,7 +967,8 @@ parseCavePerceptionLedgerDocument(const Json &value, std::vector<Diagnostic> &di
   out.id = readStringOr(value, "id", diagnostics, source, path, {});
   out.minimum_score =
       readFloatOr(value, "minimum_score", diagnostics, source, path, out.minimum_score);
-  out.required_channels = readStringArray(value, "required_channels", diagnostics, source, path);
+  out.required_channels =
+      readStringArray(value, "required_channels", diagnostics, source, path);
   const Json *cells = member(value, "cells");
   if (cells != nullptr) {
     if (cells->kind != Json::Kind::Array) {
@@ -986,20 +984,20 @@ parseCavePerceptionLedgerDocument(const Json &value, std::vector<Diagnostic> &di
   return out;
 }
 
-[[nodiscard]] CavePerceptualRuntimeDocument
-parseCavePerceptualRuntimeDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                   const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CavePerceptualRuntimeDocument parseCavePerceptualRuntimeDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CavePerceptualRuntimeDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
   }
   out.id = readStringOr(value, "id", diagnostics, source, path, {});
-  out.exposure_horizon_seconds = readFloatOr(value, "exposure_horizon_seconds", diagnostics, source,
-                                             path, out.exposure_horizon_seconds);
-  out.minimum_continuity_score = readFloatOr(value, "minimum_continuity_score", diagnostics, source,
-                                             path, out.minimum_continuity_score);
-  out.minimum_occlusion_trust = readFloatOr(value, "minimum_occlusion_trust", diagnostics, source,
-                                            path, out.minimum_occlusion_trust);
+  out.exposure_horizon_seconds = readFloatOr(value, "exposure_horizon_seconds", diagnostics,
+                                             source, path, out.exposure_horizon_seconds);
+  out.minimum_continuity_score = readFloatOr(value, "minimum_continuity_score", diagnostics,
+                                             source, path, out.minimum_continuity_score);
+  out.minimum_occlusion_trust = readFloatOr(value, "minimum_occlusion_trust", diagnostics,
+                                            source, path, out.minimum_occlusion_trust);
   out.minimum_lighting_believability =
       readFloatOr(value, "minimum_lighting_believability", diagnostics, source, path,
                   out.minimum_lighting_believability);
@@ -1010,7 +1008,8 @@ parseCavePerceptualRuntimeDocument(const Json &value, std::vector<Diagnostic> &d
 }
 
 [[nodiscard]] CavePerceptualCausalityGraphDocument
-parseCavePerceptualCausalityGraphDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
+parseCavePerceptualCausalityGraphDocument(const Json &value,
+                                          std::vector<Diagnostic> &diagnostics,
                                           const std::filesystem::path &source,
                                           const std::string &path) {
   CavePerceptualCausalityGraphDocument out;
@@ -1018,8 +1017,9 @@ parseCavePerceptualCausalityGraphDocument(const Json &value, std::vector<Diagnos
     return out;
   }
   out.id = readStringOr(value, "id", diagnostics, source, path, {});
-  out.minimum_decision_impact = readFloatOr(value, "minimum_decision_impact", diagnostics, source,
-                                            path, out.minimum_decision_impact);
+  out.minimum_decision_impact =
+      readFloatOr(value, "minimum_decision_impact", diagnostics, source, path,
+                  out.minimum_decision_impact);
   out.required_causal_edges =
       readStringArray(value, "required_causal_edges", diagnostics, source, path);
   out.required_decision_channels =
@@ -1029,9 +1029,9 @@ parseCavePerceptualCausalityGraphDocument(const Json &value, std::vector<Diagnos
   return out;
 }
 
-[[nodiscard]] CaveBeliefContractDocument
-parseCaveBeliefContractDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveBeliefContractDocument parseCaveBeliefContractDocument(
+    const Json &value, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveBeliefContractDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -1043,9 +1043,9 @@ parseCaveBeliefContractDocument(const Json &value, std::vector<Diagnostic> &diag
   return out;
 }
 
-[[nodiscard]] CaveValidationDocument
-parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnostics,
-                            const std::filesystem::path &source, const std::string &path) {
+[[nodiscard]] CaveValidationDocument parseCaveValidationDocument(
+    const Json &root, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveValidationDocument out;
   const Json *routes = member(root, "walkable_routes");
   if (routes != nullptr) {
@@ -1054,16 +1054,16 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
                     "expected route array");
     } else {
       for (std::size_t i = 0; i < routes->array.size(); ++i) {
-        out.walkable_routes.push_back(
-            parseCaveRouteValidationDocument(routes->array[i], diagnostics, source,
-                                             indexPath(childPath(path, "walkable_routes"), i)));
+        out.walkable_routes.push_back(parseCaveRouteValidationDocument(
+            routes->array[i], diagnostics, source, indexPath(childPath(path, "walkable_routes"), i)));
       }
     }
   }
   const Json *spawn = member(root, "spawn_volumes");
   if (spawn != nullptr) {
     if (spawn->kind != Json::Kind::Array) {
-      addDiagnostic(diagnostics, source, childPath(path, "spawn_volumes"), "expected volume array");
+      addDiagnostic(diagnostics, source, childPath(path, "spawn_volumes"),
+                    "expected volume array");
     } else {
       for (std::size_t i = 0; i < spawn->array.size(); ++i) {
         out.spawn_volumes.push_back(parseCaveVolumeValidationDocument(
@@ -1078,9 +1078,9 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
                     "expected volume array");
     } else {
       for (std::size_t i = 0; i < collision->array.size(); ++i) {
-        out.collision_volumes.push_back(
-            parseCaveVolumeValidationDocument(collision->array[i], diagnostics, source,
-                                              indexPath(childPath(path, "collision_volumes"), i)));
+        out.collision_volumes.push_back(parseCaveVolumeValidationDocument(
+            collision->array[i], diagnostics, source,
+            indexPath(childPath(path, "collision_volumes"), i)));
       }
     }
   }
@@ -1097,8 +1097,8 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
     }
   }
   if (const Json *probe_agent = member(root, "probe_agent")) {
-    out.probe_agent = parseCaveProbeAgentDocument(*probe_agent, diagnostics, source,
-                                                  childPath(path, "probe_agent"));
+    out.probe_agent =
+        parseCaveProbeAgentDocument(*probe_agent, diagnostics, source, childPath(path, "probe_agent"));
   }
   const Json *resource_probes = member(root, "resource_probes");
   if (resource_probes != nullptr) {
@@ -1107,9 +1107,9 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
                     "expected resource probe array");
     } else {
       for (std::size_t i = 0; i < resource_probes->array.size(); ++i) {
-        out.resource_probes.push_back(
-            parseCaveWorldProbeDocument(resource_probes->array[i], diagnostics, source,
-                                        indexPath(childPath(path, "resource_probes"), i)));
+        out.resource_probes.push_back(parseCaveWorldProbeDocument(
+            resource_probes->array[i], diagnostics, source,
+            indexPath(childPath(path, "resource_probes"), i)));
       }
     }
   }
@@ -1120,23 +1120,23 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
                     "expected encounter probe array");
     } else {
       for (std::size_t i = 0; i < encounter_probes->array.size(); ++i) {
-        out.encounter_probes.push_back(
-            parseCaveWorldProbeDocument(encounter_probes->array[i], diagnostics, source,
-                                        indexPath(childPath(path, "encounter_probes"), i)));
+        out.encounter_probes.push_back(parseCaveWorldProbeDocument(
+            encounter_probes->array[i], diagnostics, source,
+            indexPath(childPath(path, "encounter_probes"), i)));
       }
     }
   }
   if (const Json *perceptual = member(root, "perceptual_budget")) {
-    out.perceptual_budget = parseCavePerceptualBudgetDocument(*perceptual, diagnostics, source,
-                                                              childPath(path, "perceptual_budget"));
+    out.perceptual_budget = parseCavePerceptualBudgetDocument(
+        *perceptual, diagnostics, source, childPath(path, "perceptual_budget"));
   }
   if (const Json *continuity = member(root, "perceptual_continuity_budget")) {
     out.perceptual_continuity_budget = parseCavePerceptualContinuityBudgetDocument(
         *continuity, diagnostics, source, childPath(path, "perceptual_continuity_budget"));
   }
   if (const Json *ledger = member(root, "perception_ledger")) {
-    out.perception_ledger = parseCavePerceptionLedgerDocument(*ledger, diagnostics, source,
-                                                              childPath(path, "perception_ledger"));
+    out.perception_ledger = parseCavePerceptionLedgerDocument(
+        *ledger, diagnostics, source, childPath(path, "perception_ledger"));
   }
   if (const Json *runtime = member(root, "perceptual_runtime")) {
     out.perceptual_runtime = parseCavePerceptualRuntimeDocument(
@@ -1147,8 +1147,8 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
         *causality, diagnostics, source, childPath(path, "perceptual_causality_graph"));
   }
   if (const Json *belief = member(root, "belief_contract")) {
-    out.belief_contract = parseCaveBeliefContractDocument(*belief, diagnostics, source,
-                                                          childPath(path, "belief_contract"));
+    out.belief_contract = parseCaveBeliefContractDocument(
+        *belief, diagnostics, source, childPath(path, "belief_contract"));
   }
   return out;
 }
@@ -1203,7 +1203,8 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
   if (value == "kinematic") {
     return RigidBodyType::Kinematic;
   }
-  addDiagnostic(diagnostics, source, path, "unknown rigid body type '" + std::string(value) + "'");
+  addDiagnostic(diagnostics, source, path,
+                "unknown rigid body type '" + std::string(value) + "'");
   return RigidBodyType::Static;
 }
 
@@ -1218,10 +1219,9 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
   return out;
 }
 
-[[nodiscard]] MeshRendererComponent parseMeshRendererComponent(const Json &component,
-                                                               std::vector<Diagnostic> &diagnostics,
-                                                               const std::filesystem::path &source,
-                                                               const std::string &path) {
+[[nodiscard]] MeshRendererComponent parseMeshRendererComponent(
+    const Json &component, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   MeshRendererComponent out;
   out.mesh = readString(component, "mesh", diagnostics, source, path, true).value_or("");
   out.material = readString(component, "material", diagnostics, source, path, true).value_or("");
@@ -1230,8 +1230,8 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
 }
 
 [[nodiscard]] PerceptualPlacementBindingComponent parsePerceptualPlacementBindingComponent(
-    const Json &component, std::vector<Diagnostic> &diagnostics,
-    const std::filesystem::path &source, const std::string &path) {
+    const Json &component, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   PerceptualPlacementBindingComponent out;
   out.template_ref =
       readString(component, "template", diagnostics, source, path, true).value_or("");
@@ -1303,10 +1303,9 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
   return out;
 }
 
-[[nodiscard]] InteractableComponent parseInteractableComponent(const Json &component,
-                                                               std::vector<Diagnostic> &diagnostics,
-                                                               const std::filesystem::path &source,
-                                                               const std::string &path) {
+[[nodiscard]] InteractableComponent parseInteractableComponent(
+    const Json &component, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   InteractableComponent out;
   out.tags = readTags(component, "tags", diagnostics, source, path);
   out.action_graph =
@@ -1339,9 +1338,8 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
     if (!expectObject(slot, diagnostics, source, slot_path)) {
       continue;
     }
-    out.slots.push_back(
-        {readString(slot, "item", diagnostics, source, slot_path, true).value_or(""),
-         readIntOr(slot, "quantity", diagnostics, source, slot_path, 0)});
+    out.slots.push_back({readString(slot, "item", diagnostics, source, slot_path, true).value_or(""),
+                         readIntOr(slot, "quantity", diagnostics, source, slot_path, 0)});
   }
   return out;
 }
@@ -1359,10 +1357,9 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
   return out;
 }
 
-[[nodiscard]] CaveSceneComponent parseCaveSceneComponent(const Json &component,
-                                                         std::vector<Diagnostic> &diagnostics,
-                                                         const std::filesystem::path &source,
-                                                         const std::string &path) {
+[[nodiscard]] CaveSceneComponent parseCaveSceneComponent(
+    const Json &component, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveSceneComponent out;
   out.cave = readString(component, "cave", diagnostics, source, path, true).value_or("");
   out.section = readStringOr(component, "section", diagnostics, source, path, {});
@@ -1384,17 +1381,17 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
                                                      const std::filesystem::path &source,
                                                      const std::string &path) {
   OreNodeComponent out;
-  out.resource_item = readStringOr(component, "resource_item", diagnostics, source, path, {});
+  out.resource_item =
+      readStringOr(component, "resource_item", diagnostics, source, path, {});
   out.health = readIntOr(component, "health", diagnostics, source, path, 1);
   out.yield_quantity = readIntOr(component, "yield_quantity", diagnostics, source, path, 1);
   out.radius = readFloatOr(component, "radius", diagnostics, source, path, 0.25f);
   return out;
 }
 
-[[nodiscard]] TorchSocketComponent parseTorchSocketComponent(const Json &component,
-                                                             std::vector<Diagnostic> &diagnostics,
-                                                             const std::filesystem::path &source,
-                                                             const std::string &path) {
+[[nodiscard]] TorchSocketComponent parseTorchSocketComponent(
+    const Json &component, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   TorchSocketComponent out;
   out.color = readVec3Or(component, "color", diagnostics, source, path, {1.0f, 0.5f, 0.2f});
   out.intensity = readFloatOr(component, "intensity", diagnostics, source, path, 1.0f);
@@ -1402,10 +1399,9 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
   return out;
 }
 
-[[nodiscard]] SpawnPointComponent parseSpawnPointComponent(const Json &component,
-                                                           std::vector<Diagnostic> &diagnostics,
-                                                           const std::filesystem::path &source,
-                                                           const std::string &path) {
+[[nodiscard]] SpawnPointComponent parseSpawnPointComponent(
+    const Json &component, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   SpawnPointComponent out;
   out.spawn_kind = readStringOr(component, "spawn_kind", diagnostics, source, path, {});
   out.radius = readFloatOr(component, "radius", diagnostics, source, path, 0.35f);
@@ -1426,10 +1422,9 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
   return out;
 }
 
-[[nodiscard]] CaveDebugComponent parseCaveDebugComponent(const Json &component,
-                                                         std::vector<Diagnostic> &diagnostics,
-                                                         const std::filesystem::path &source,
-                                                         const std::string &path) {
+[[nodiscard]] CaveDebugComponent parseCaveDebugComponent(
+    const Json &component, std::vector<Diagnostic> &diagnostics, const std::filesystem::path &source,
+    const std::string &path) {
   CaveDebugComponent out;
   out.layers = readTags(component, "layers", diagnostics, source, path);
   out.color = readVec3Or(component, "color", diagnostics, source, path, {1.0f, 1.0f, 1.0f});
@@ -1446,9 +1441,9 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
   }
 
   const std::set<std::string> known_components = {
-      "transform", "mesh_renderer", "perceptual_binding", "collider",    "rigid_body",
-      "light",     "interactable",  "inventory",          "camera",      "cave_scene",
-      "fixture",   "ore_node",      "torch_socket",       "spawn_point", "mining",
+      "transform",    "mesh_renderer", "perceptual_binding", "collider",   "rigid_body",
+      "light",        "interactable",  "inventory",          "camera",     "cave_scene",
+      "fixture",      "ore_node",      "torch_socket",       "spawn_point", "mining",
       "cave_debug"};
   for (const auto &[key, value] : components.object) {
     if (!known_components.contains(key)) {
@@ -1464,8 +1459,8 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
       out.mesh_renderer =
           parseMeshRendererComponent(value, diagnostics, source, childPath(path, key));
     } else if (key == "perceptual_binding") {
-      out.perceptual_binding = parsePerceptualPlacementBindingComponent(value, diagnostics, source,
-                                                                        childPath(path, key));
+      out.perceptual_binding =
+          parsePerceptualPlacementBindingComponent(value, diagnostics, source, childPath(path, key));
     } else if (key == "collider") {
       out.collider = parseColliderComponent(value, diagnostics, source, childPath(path, key));
     } else if (key == "rigid_body") {
@@ -1519,8 +1514,7 @@ parseCaveValidationDocument(const Json &root, std::vector<Diagnostic> &diagnosti
   if (components == nullptr) {
     addDiagnostic(diagnostics, source, childPath(path, "components"), "missing components object");
   } else {
-    out.components =
-        parseComponents(*components, diagnostics, source, childPath(path, "components"));
+    out.components = parseComponents(*components, diagnostics, source, childPath(path, "components"));
   }
   return out;
 }
@@ -1561,8 +1555,7 @@ template <typename Document>
       return result;
     }
     result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
-    result.value.id =
-        readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
+    result.value.id = readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
     result.value.name = readStringOr(root, "name", result.diagnostics, source_path, "$", {});
     result.value.entities = parseEntityArray(root, result.diagnostics, source_path);
   } catch (const std::exception &error) {
@@ -1591,8 +1584,7 @@ template <typename Document, typename Parser>
     return result;
   }
   result = parser(*source, path);
-  result.diagnostics.insert(result.diagnostics.begin(), io_diagnostics.begin(),
-                            io_diagnostics.end());
+  result.diagnostics.insert(result.diagnostics.begin(), io_diagnostics.begin(), io_diagnostics.end());
   return result;
 }
 
@@ -1689,8 +1681,8 @@ LoadResult<ProjectDocument> parseProjectDocument(std::string_view source_text,
       return result;
     }
     result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
-    result.value.name =
-        readString(root, "name", result.diagnostics, source_path, "$", true).value_or("");
+    result.value.name = readString(root, "name", result.diagnostics, source_path, "$", true)
+                            .value_or("");
     result.value.startup_scene =
         readString(root, "startup_scene", result.diagnostics, source_path, "$", true).value_or("");
 
@@ -1720,14 +1712,15 @@ LoadResult<ProjectDocument> parseProjectDocument(std::string_view source_text,
         addDiagnostic(result.diagnostics, source_path, childPath(path, "kind"),
                       "unknown asset kind '" + kind + "'");
       }
-      ref.path = std::filesystem::path(
-          readString(asset, "path", result.diagnostics, source_path, path, true).value_or(""));
+      ref.path =
+          std::filesystem::path(readString(asset, "path", result.diagnostics, source_path, path, true)
+                                    .value_or(""));
       if (!ref.id.empty() && !asset_ids.insert(ref.id).second) {
         addDiagnostic(result.diagnostics, source_path, childPath(path, "id"),
                       "duplicate asset id '" + ref.id + "'");
       }
-      startup_scene_found = startup_scene_found ||
-                            (ref.id == result.value.startup_scene && ref.kind == AssetKind::Scene);
+      startup_scene_found =
+          startup_scene_found || (ref.id == result.value.startup_scene && ref.kind == AssetKind::Scene);
       result.value.assets.push_back(std::move(ref));
     }
     if (!result.value.startup_scene.empty() && !startup_scene_found) {
@@ -1759,8 +1752,7 @@ LoadResult<CaveDocument> parseCaveDocument(std::string_view source_text,
       return result;
     }
     result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
-    result.value.id =
-        readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
+    result.value.id = readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
     result.value.name = readStringOr(root, "name", result.diagnostics, source_path, "$", {});
     const Json *seeds = member(root, "seeds");
     if (seeds != nullptr) {
@@ -1769,8 +1761,9 @@ LoadResult<CaveDocument> parseCaveDocument(std::string_view source_text,
       } else {
         std::set<std::string> seed_ids;
         for (std::size_t i = 0; i < seeds->array.size(); ++i) {
-          CaveSeedRecord seed = parseCaveSeedRecord(seeds->array[i], result.diagnostics,
-                                                    source_path, indexPath("$.seeds", i));
+          CaveSeedRecord seed =
+              parseCaveSeedRecord(seeds->array[i], result.diagnostics, source_path,
+                                  indexPath("$.seeds", i));
           if (!seed.id.empty() && !seed_ids.insert(seed.id).second) {
             addDiagnostic(result.diagnostics, source_path, indexPath("$.seeds", i) + ".id",
                           "duplicate seed id '" + seed.id + "'");
@@ -1788,8 +1781,9 @@ LoadResult<CaveDocument> parseCaveDocument(std::string_view source_text,
       } else {
         std::set<std::string> ids;
         for (std::size_t i = 0; i < sections->array.size(); ++i) {
-          CaveSectionDocument section = parseCaveSectionDocument(
-              sections->array[i], result.diagnostics, source_path, indexPath("$.sections", i));
+          CaveSectionDocument section = parseCaveSectionDocument(sections->array[i],
+                                                                  result.diagnostics, source_path,
+                                                                  indexPath("$.sections", i));
           if (!section.id.empty() && !ids.insert(section.id).second) {
             addDiagnostic(result.diagnostics, source_path, indexPath("$.sections", i) + ".id",
                           "duplicate section id '" + section.id + "'");
@@ -1801,7 +1795,8 @@ LoadResult<CaveDocument> parseCaveDocument(std::string_view source_text,
     const Json *placements = member(root, "placements");
     if (placements != nullptr) {
       if (placements->kind != Json::Kind::Array) {
-        addDiagnostic(result.diagnostics, source_path, "$.placements", "expected placement array");
+        addDiagnostic(result.diagnostics, source_path, "$.placements",
+                      "expected placement array");
       } else {
         std::set<std::string> ids;
         for (std::size_t i = 0; i < placements->array.size(); ++i) {
@@ -1839,8 +1834,7 @@ LoadResult<MaterialDocument> parseMaterialDocument(std::string_view source_text,
       return result;
     }
     result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
-    result.value.id =
-        readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
+    result.value.id = readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
     result.value.name = readStringOr(root, "name", result.diagnostics, source_path, "$", {});
     const Vec3 base_color =
         readVec3Or(root, "base_color", result.diagnostics, source_path, "$", {1.0f, 1.0f, 1.0f});
@@ -1857,18 +1851,19 @@ LoadResult<MaterialDocument> parseMaterialDocument(std::string_view source_text,
                                                  source_path, "$", result.value.emission_strength);
     result.value.opacity =
         readFloatOr(root, "opacity", result.diagnostics, source_path, "$", result.value.opacity);
-    result.value.double_sided = readBoolOr(root, "double_sided", result.diagnostics, source_path,
-                                           "$", result.value.double_sided);
-    result.value.alpha_mode = readStringOr(root, "alpha_mode", result.diagnostics, source_path, "$",
-                                           result.value.alpha_mode);
+    result.value.double_sided =
+        readBoolOr(root, "double_sided", result.diagnostics, source_path, "$",
+                   result.value.double_sided);
+    result.value.alpha_mode = readStringOr(root, "alpha_mode", result.diagnostics, source_path,
+                                           "$", result.value.alpha_mode);
     result.value.depth_write = readStringOr(root, "depth_write", result.diagnostics, source_path,
-                                            "$", result.value.depth_write);
-    result.value.surface_pattern = readStringOr(root, "surface_pattern", result.diagnostics,
-                                                source_path, "$", result.value.surface_pattern);
-    result.value.texture_slots =
-        readPathMap(root, "textures", result.diagnostics, source_path, "$");
-    result.value.compiler_hints =
-        readStringMap(root, "compiler_hints", result.diagnostics, source_path, "$");
+                                             "$", result.value.depth_write);
+    result.value.surface_pattern =
+        readStringOr(root, "surface_pattern", result.diagnostics, source_path, "$",
+                     result.value.surface_pattern);
+    result.value.texture_slots = readPathMap(root, "textures", result.diagnostics, source_path, "$");
+    result.value.compiler_hints = readStringMap(root, "compiler_hints", result.diagnostics,
+                                                source_path, "$");
     result.value.tags = readTags(root, "tags", result.diagnostics, source_path, "$");
   } catch (const std::exception &error) {
     addDiagnostic(result.diagnostics, source_path, "$", error.what());
@@ -1885,14 +1880,13 @@ LoadResult<ItemDocument> parseItemDocument(std::string_view source_text,
       return result;
     }
     result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
-    result.value.id =
-        readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
+    result.value.id = readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
     result.value.display_name =
         readString(root, "display_name", result.diagnostics, source_path, "$", true).value_or("");
     result.value.short_label =
         readStringOr(root, "short_label", result.diagnostics, source_path, "$", {});
-    result.value.stackable =
-        readBoolOr(root, "stackable", result.diagnostics, source_path, "$", result.value.stackable);
+    result.value.stackable = readBoolOr(root, "stackable", result.diagnostics, source_path, "$",
+                                        result.value.stackable);
     result.value.max_stack =
         readIntOr(root, "max_stack", result.diagnostics, source_path, "$", result.value.max_stack);
     result.value.icon = readStringOr(root, "icon", result.diagnostics, source_path, "$", {});
@@ -1923,8 +1917,7 @@ LoadResult<ActionGraphDocument> parseActionGraphDocument(std::string_view source
       return result;
     }
     result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
-    result.value.id =
-        readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
+    result.value.id = readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
     result.value.name = readStringOr(root, "name", result.diagnostics, source_path, "$", {});
     const Json *nodes = member(root, "nodes");
     if (nodes == nullptr) {
@@ -1943,12 +1936,10 @@ LoadResult<ActionGraphDocument> parseActionGraphDocument(std::string_view source
         continue;
       }
       ActionNode node;
-      node.id =
-          readString(node_json, "id", result.diagnostics, source_path, path, true).value_or("");
+      node.id = readString(node_json, "id", result.diagnostics, source_path, path, true).value_or("");
       node.type =
           readString(node_json, "type", result.diagnostics, source_path, path, true).value_or("");
-      node.parameters =
-          readStringMap(node_json, "parameters", result.diagnostics, source_path, path);
+      node.parameters = readStringMap(node_json, "parameters", result.diagnostics, source_path, path);
       node.tags = readTags(node_json, "tags", result.diagnostics, source_path, path);
       if (!node.id.empty() && !node_ids.insert(node.id).second) {
         addDiagnostic(result.diagnostics, source_path, childPath(path, "id"),
@@ -1972,12 +1963,15 @@ LoadResult<ActionGraphDocument> parseActionGraphDocument(std::string_view source
           ActionReactionContractDocument contract;
           contract.id = readString(contract_json, "id", result.diagnostics, source_path, path, true)
                             .value_or("");
-          contract.minimum_score = readFloatOr(contract_json, "minimum_score", result.diagnostics,
-                                               source_path, path, contract.minimum_score);
-          contract.required_channels = readStringArray(contract_json, "required_channels",
-                                                       result.diagnostics, source_path, path);
-          contract.required_events = readStringArray(contract_json, "required_events",
-                                                     result.diagnostics, source_path, path);
+          contract.minimum_score =
+              readFloatOr(contract_json, "minimum_score", result.diagnostics, source_path, path,
+                          contract.minimum_score);
+          contract.required_channels =
+              readStringArray(contract_json, "required_channels", result.diagnostics,
+                              source_path, path);
+          contract.required_events =
+              readStringArray(contract_json, "required_events", result.diagnostics,
+                              source_path, path);
           if (!contract.id.empty() && !contract_ids.insert(contract.id).second) {
             addDiagnostic(result.diagnostics, source_path, childPath(path, "id"),
                           "duplicate reaction contract id '" + contract.id + "'");
@@ -2001,8 +1995,7 @@ LoadResult<InputMapDocument> parseInputMapDocument(std::string_view source_text,
       return result;
     }
     result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
-    result.value.id =
-        readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
+    result.value.id = readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
     result.value.name = readStringOr(root, "name", result.diagnostics, source_path, "$", {});
     const Json *bindings = member(root, "bindings");
     if (bindings == nullptr) {
@@ -2031,8 +2024,8 @@ LoadResult<InputMapDocument> parseInputMapDocument(std::string_view source_text,
       binding.key = readStringOr(binding_json, "key", result.diagnostics, source_path, path, {});
       binding.button =
           readStringOr(binding_json, "button", result.diagnostics, source_path, path, {});
-      binding.scale =
-          readFloatOr(binding_json, "scale", result.diagnostics, source_path, path, binding.scale);
+      binding.scale = readFloatOr(binding_json, "scale", result.diagnostics, source_path, path,
+                                  binding.scale);
       binding.deadzone = readFloatOr(binding_json, "deadzone", result.diagnostics, source_path,
                                      path, binding.deadzone);
       binding.tags = readTags(binding_json, "tags", result.diagnostics, source_path, path);
@@ -2106,7 +2099,8 @@ parseLearningObjectiveDocument(const Json &value, std::vector<Diagnostic> &diagn
 
 [[nodiscard]] LearningMisconceptionDocument
 parseLearningMisconceptionDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                   const std::filesystem::path &source, const std::string &path) {
+                                   const std::filesystem::path &source,
+                                   const std::string &path) {
   LearningMisconceptionDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -2121,7 +2115,8 @@ parseLearningMisconceptionDocument(const Json &value, std::vector<Diagnostic> &d
 
 [[nodiscard]] LearnerStateHypothesisDocument
 parseLearnerStateHypothesisDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                    const std::filesystem::path &source, const std::string &path) {
+                                    const std::filesystem::path &source,
+                                    const std::string &path) {
   LearnerStateHypothesisDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -2136,7 +2131,8 @@ parseLearnerStateHypothesisDocument(const Json &value, std::vector<Diagnostic> &
 
 [[nodiscard]] LearningScaffoldRuleDocument
 parseLearningScaffoldRuleDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                  const std::filesystem::path &source, const std::string &path) {
+                                  const std::filesystem::path &source,
+                                  const std::string &path) {
   LearningScaffoldRuleDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -2155,7 +2151,8 @@ parseLearningScaffoldRuleDocument(const Json &value, std::vector<Diagnostic> &di
 
 [[nodiscard]] PedagogicalSafetyCheckDocument
 parsePedagogicalSafetyCheckDocument(const Json &value, std::vector<Diagnostic> &diagnostics,
-                                    const std::filesystem::path &source, const std::string &path) {
+                                    const std::filesystem::path &source,
+                                    const std::string &path) {
   PedagogicalSafetyCheckDocument out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -2168,10 +2165,9 @@ parsePedagogicalSafetyCheckDocument(const Json &value, std::vector<Diagnostic> &
   return out;
 }
 
-[[nodiscard]] LearningTraceEvent parseLearningTraceEvent(const Json &value,
-                                                         std::vector<Diagnostic> &diagnostics,
-                                                         const std::filesystem::path &source,
-                                                         const std::string &path) {
+[[nodiscard]] LearningTraceEvent
+parseLearningTraceEvent(const Json &value, std::vector<Diagnostic> &diagnostics,
+                        const std::filesystem::path &source, const std::string &path) {
   LearningTraceEvent out;
   if (!expectObject(value, diagnostics, source, path)) {
     return out;
@@ -2185,8 +2181,9 @@ parsePedagogicalSafetyCheckDocument(const Json &value, std::vector<Diagnostic> &
   out.scaffold_id = readStringOr(value, "scaffold_id", diagnostics, source, path, {});
   out.misconception_id = readStringOr(value, "misconception_id", diagnostics, source, path, {});
   out.metadata = readStringMap(value, "metadata", diagnostics, source, path);
-  out.timestamp = static_cast<std::uint64_t>(
-      std::max(0, readIntOr(value, "timestamp", diagnostics, source, path, 0)));
+  out.timestamp =
+      static_cast<std::uint64_t>(std::max(0, readIntOr(value, "timestamp", diagnostics, source,
+                                                       path, 0)));
   out.claims_mastery = readBoolOr(value, "claims_mastery", diagnostics, source, path, false);
   return out;
 }
@@ -2200,8 +2197,7 @@ LoadResult<LessonDocument> parseLessonDocument(std::string_view source_text,
       return result;
     }
     result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
-    result.value.id =
-        readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
+    result.value.id = readString(root, "id", result.diagnostics, source_path, "$", true).value_or("");
     result.value.name = readStringOr(root, "name", result.diagnostics, source_path, "$", {});
     result.value.workflow_stages =
         readStringArray(root, "workflow_stages", result.diagnostics, source_path, "$");
@@ -2227,16 +2223,18 @@ LoadResult<LessonDocument> parseLessonDocument(std::string_view source_text,
     read_array("misconceptions", parseLearningMisconceptionDocument, result.value.misconceptions);
     read_array("learner_state_hypotheses", parseLearnerStateHypothesisDocument,
                result.value.learner_state_hypotheses);
-    read_array("scaffold_rules", parseLearningScaffoldRuleDocument, result.value.scaffold_rules);
-    read_array("safety_checks", parsePedagogicalSafetyCheckDocument, result.value.safety_checks);
+    read_array("scaffold_rules", parseLearningScaffoldRuleDocument,
+               result.value.scaffold_rules);
+    read_array("safety_checks", parsePedagogicalSafetyCheckDocument,
+               result.value.safety_checks);
   } catch (const std::exception &error) {
     addDiagnostic(result.diagnostics, source_path, "$", error.what());
   }
   return result;
 }
 
-LoadResult<LearningTraceDocument> parseLearningTraceDocument(std::string_view source_text,
-                                                             std::filesystem::path source_path) {
+LoadResult<LearningTraceDocument>
+parseLearningTraceDocument(std::string_view source_text, std::filesystem::path source_path) {
   LoadResult<LearningTraceDocument> result;
   try {
     const Json root = JsonParser(source_text).parse();
@@ -2245,8 +2243,8 @@ LoadResult<LearningTraceDocument> parseLearningTraceDocument(std::string_view so
     }
     result.value.schema_version = readSchemaVersion(root, result.diagnostics, source_path);
     result.value.id = readStringOr(root, "id", result.diagnostics, source_path, "$", {});
-    result.value.lesson =
-        readString(root, "lesson", result.diagnostics, source_path, "$", true).value_or("");
+    result.value.lesson = readString(root, "lesson", result.diagnostics, source_path, "$", true)
+                              .value_or("");
     const Json *events = member(root, "events");
     if (events == nullptr) {
       addDiagnostic(result.diagnostics, source_path, "$.events", "missing required event array");
@@ -2258,7 +2256,8 @@ LoadResult<LearningTraceDocument> parseLearningTraceDocument(std::string_view so
     }
     for (std::size_t i = 0u; i < events->array.size(); ++i) {
       result.value.events.push_back(parseLearningTraceEvent(events->array[i], result.diagnostics,
-                                                            source_path, indexPath("$.events", i)));
+                                                            source_path,
+                                                            indexPath("$.events", i)));
     }
   } catch (const std::exception &error) {
     addDiagnostic(result.diagnostics, source_path, "$", error.what());
@@ -2267,7 +2266,8 @@ LoadResult<LearningTraceDocument> parseLearningTraceDocument(std::string_view so
 }
 
 LoadResult<CaveWorldGateReportDocument>
-parseCaveWorldGateReportDocument(std::string_view source_text, std::filesystem::path source_path) {
+parseCaveWorldGateReportDocument(std::string_view source_text,
+                                 std::filesystem::path source_path) {
   LoadResult<CaveWorldGateReportDocument> result;
   try {
     const Json root = JsonParser(source_text).parse();
@@ -2289,32 +2289,37 @@ parseCaveWorldGateReportDocument(std::string_view source_text, std::filesystem::
 
     if (const Json *navigation = member(root, "navigation")) {
       if (expectObject(*navigation, result.diagnostics, source_path, "$.navigation")) {
-        result.value.navigation_valid = readBoolOr(*navigation, "valid", result.diagnostics,
-                                                   source_path, "$.navigation", false);
+        result.value.navigation_valid =
+            readBoolOr(*navigation, "valid", result.diagnostics, source_path, "$.navigation",
+                       false);
       }
     }
     if (const Json *runtime = member(root, "perceptual_runtime")) {
       if (expectObject(*runtime, result.diagnostics, source_path, "$.perceptual_runtime")) {
-        result.value.perceptual_runtime_accepted = readBoolOr(
-            *runtime, "accepted", result.diagnostics, source_path, "$.perceptual_runtime", false);
+        result.value.perceptual_runtime_accepted =
+            readBoolOr(*runtime, "accepted", result.diagnostics, source_path,
+                       "$.perceptual_runtime", false);
       }
     }
     if (const Json *scheduler = member(root, "perceptual_world_scheduler")) {
       if (expectObject(*scheduler, result.diagnostics, source_path,
                        "$.perceptual_world_scheduler")) {
         CavePerceptualWorldSchedulerReport report;
-        report.accepted = readBoolOr(*scheduler, "accepted", result.diagnostics, source_path,
-                                     "$.perceptual_world_scheduler", false);
-        report.scheduler_hash = readStringOr(*scheduler, "scheduler_hash", result.diagnostics,
-                                             source_path, "$.perceptual_world_scheduler", {});
+        report.accepted =
+            readBoolOr(*scheduler, "accepted", result.diagnostics, source_path,
+                       "$.perceptual_world_scheduler", false);
+        report.scheduler_hash =
+            readStringOr(*scheduler, "scheduler_hash", result.diagnostics, source_path,
+                         "$.perceptual_world_scheduler", {});
         report.memory_residue_hash =
             readStringOr(*scheduler, "memory_residue_hash", result.diagnostics, source_path,
                          "$.perceptual_world_scheduler", {});
         report.threat_signal_hash =
             readStringOr(*scheduler, "threat_signal_hash", result.diagnostics, source_path,
                          "$.perceptual_world_scheduler", {});
-        report.material_age_hash = readStringOr(*scheduler, "material_age_hash", result.diagnostics,
-                                                source_path, "$.perceptual_world_scheduler", {});
+        report.material_age_hash =
+            readStringOr(*scheduler, "material_age_hash", result.diagnostics, source_path,
+                         "$.perceptual_world_scheduler", {});
         report.interaction_debt_hash =
             readStringOr(*scheduler, "interaction_debt_hash", result.diagnostics, source_path,
                          "$.perceptual_world_scheduler", {});
@@ -2324,43 +2329,54 @@ parseCaveWorldGateReportDocument(std::string_view source_text, std::filesystem::
         report.streaming_budget_hash =
             readStringOr(*scheduler, "streaming_budget_hash", result.diagnostics, source_path,
                          "$.perceptual_world_scheduler", {});
-        report.memory_residue = readFloatOr(*scheduler, "memory_residue", result.diagnostics,
-                                            source_path, "$.perceptual_world_scheduler", 0.0f);
-        report.threat_signal = readFloatOr(*scheduler, "threat_signal", result.diagnostics,
-                                           source_path, "$.perceptual_world_scheduler", 0.0f);
-        report.material_age = readFloatOr(*scheduler, "material_age", result.diagnostics,
-                                          source_path, "$.perceptual_world_scheduler", 0.0f);
-        report.interaction_debt = readFloatOr(*scheduler, "interaction_debt", result.diagnostics,
-                                              source_path, "$.perceptual_world_scheduler", 0.0f);
+        report.memory_residue =
+            readFloatOr(*scheduler, "memory_residue", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.threat_signal =
+            readFloatOr(*scheduler, "threat_signal", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.material_age =
+            readFloatOr(*scheduler, "material_age", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.interaction_debt =
+            readFloatOr(*scheduler, "interaction_debt", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
         report.perceptual_priority =
             readFloatOr(*scheduler, "perceptual_priority", result.diagnostics, source_path,
                         "$.perceptual_world_scheduler", 0.0f);
-        report.streaming_budget = readFloatOr(*scheduler, "streaming_budget", result.diagnostics,
-                                              source_path, "$.perceptual_world_scheduler", 0.0f);
-        report.belief_stability = readFloatOr(*scheduler, "belief_stability", result.diagnostics,
-                                              source_path, "$.perceptual_world_scheduler", 0.0f);
+        report.streaming_budget =
+            readFloatOr(*scheduler, "streaming_budget", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
+        report.belief_stability =
+            readFloatOr(*scheduler, "belief_stability", result.diagnostics, source_path,
+                        "$.perceptual_world_scheduler", 0.0f);
         report.decision_impact_score =
             readFloatOr(*scheduler, "decision_impact_score", result.diagnostics, source_path,
                         "$.perceptual_world_scheduler", 0.0f);
-        report.diagnostic = readStringOr(*scheduler, "diagnostic", result.diagnostics, source_path,
-                                         "$.perceptual_world_scheduler", {});
+        report.diagnostic =
+            readStringOr(*scheduler, "diagnostic", result.diagnostics, source_path,
+                         "$.perceptual_world_scheduler", {});
         result.value.perceptual_world_scheduler = std::move(report);
       }
     }
     if (const Json *falseness = member(root, "falseness_report")) {
       if (expectObject(*falseness, result.diagnostics, source_path, "$.falseness_report")) {
         CaveBeliefFalsenessReport report;
-        report.accepted = readBoolOr(*falseness, "accepted", result.diagnostics, source_path,
-                                     "$.falseness_report", false);
-        report.score = readFloatOr(*falseness, "score", result.diagnostics, source_path,
-                                   "$.falseness_report", 0.0f);
-        report.minimum_score = readFloatOr(*falseness, "minimum_score", result.diagnostics,
-                                           source_path, "$.falseness_report", 0.70f);
+        report.accepted =
+            readBoolOr(*falseness, "accepted", result.diagnostics, source_path,
+                       "$.falseness_report", false);
+        report.score =
+            readFloatOr(*falseness, "score", result.diagnostics, source_path,
+                        "$.falseness_report", 0.0f);
+        report.minimum_score =
+            readFloatOr(*falseness, "minimum_score", result.diagnostics, source_path,
+                        "$.falseness_report", 0.70f);
         report.world_transition_hash =
             readStringOr(*falseness, "world_transition_hash", result.diagnostics, source_path,
                          "$.falseness_report", {});
-        report.extraction_hash = readStringOr(*falseness, "extraction_hash", result.diagnostics,
-                                              source_path, "$.falseness_report", {});
+        report.extraction_hash =
+            readStringOr(*falseness, "extraction_hash", result.diagnostics, source_path,
+                         "$.falseness_report", {});
         report.belief_contract_hash =
             readStringOr(*falseness, "belief_contract_hash", result.diagnostics, source_path,
                          "$.falseness_report", {});
@@ -2368,8 +2384,8 @@ parseCaveWorldGateReportDocument(std::string_view source_text, std::filesystem::
             readStringOr(*falseness, "readability_audit_hash", result.diagnostics, source_path,
                          "$.falseness_report", {});
         report.perceptual_scheduler_hash =
-            readStringOr(*falseness, "perceptual_scheduler_hash", result.diagnostics, source_path,
-                         "$.falseness_report", {});
+            readStringOr(*falseness, "perceptual_scheduler_hash", result.diagnostics,
+                         source_path, "$.falseness_report", {});
         report.decision_impact_score =
             readFloatOr(*falseness, "decision_impact_score", result.diagnostics, source_path,
                         "$.falseness_report", 0.0f);
@@ -2395,8 +2411,9 @@ parseCaveWorldGateReportDocument(std::string_view source_text, std::filesystem::
                   readFloatOr(finding_json, "score", result.diagnostics, source_path, path, 0.0f);
               finding.threshold = readFloatOr(finding_json, "threshold", result.diagnostics,
                                               source_path, path, 0.0f);
-              finding.evidence_hash = readStringOr(finding_json, "evidence_hash",
-                                                   result.diagnostics, source_path, path, {});
+              finding.evidence_hash =
+                  readStringOr(finding_json, "evidence_hash", result.diagnostics, source_path,
+                               path, {});
               finding.source =
                   readStringOr(finding_json, "source", result.diagnostics, source_path, path, {});
               finding.message =
@@ -2464,8 +2481,9 @@ LoadResult<LearningTraceDocument> loadLearningTraceDocument(const std::filesyste
     std::size_t line_number = 0u;
     while (std::getline(lines, line)) {
       ++line_number;
-      if (std::all_of(line.begin(), line.end(),
-                      [](const unsigned char character) { return std::isspace(character) != 0; })) {
+      if (std::all_of(line.begin(), line.end(), [](const unsigned char character) {
+            return std::isspace(character) != 0;
+          })) {
         continue;
       }
       const std::string event_path = "$[" + std::to_string(line_number - 1u) + "]";
@@ -2520,9 +2538,9 @@ InstantiateResult World::instantiate(const PrefabDocument &prefab) {
 }
 
 const EntityInstance *World::findEntity(const std::string_view id) const {
-  const auto it =
-      std::find_if(entities_.begin(), entities_.end(),
-                   [id](const EntityInstance &entity) { return entity.definition.id == id; });
+  const auto it = std::find_if(entities_.begin(), entities_.end(), [id](const EntityInstance &entity) {
+    return entity.definition.id == id;
+  });
   return it == entities_.end() ? nullptr : &*it;
 }
 
@@ -2962,8 +2980,8 @@ LearningProofReport evaluateLearningTrace(const LessonDocument &lesson,
         bool accepted = true;
         if (rule.stage != event.stage) {
           append_unique(report.unsupported_interventions,
-                        rule.id + ": selected at stage '" + event.stage + "' but rule stage is '" +
-                            rule.stage + "'");
+                        rule.id + ": selected at stage '" + event.stage +
+                            "' but rule stage is '" + rule.stage + "'");
           accepted = false;
         }
         for (const std::string &evidence : rule.evidence_ids) {
@@ -2989,12 +3007,12 @@ LearningProofReport evaluateLearningTrace(const LessonDocument &lesson,
         } else {
           bool rationale_grounded = false;
           for (const std::string &evidence : rule.evidence_ids) {
-            rationale_grounded =
-                rationale_grounded || decision.rationale.find(evidence) != std::string::npos;
+            rationale_grounded = rationale_grounded ||
+                                 decision.rationale.find(evidence) != std::string::npos;
           }
           for (const std::string &hypothesis : rule.hypothesis_ids) {
-            rationale_grounded =
-                rationale_grounded || decision.rationale.find(hypothesis) != std::string::npos;
+            rationale_grounded = rationale_grounded ||
+                                 decision.rationale.find(hypothesis) != std::string::npos;
           }
           if (!rationale_grounded) {
             append_unique(report.unsupported_interventions,
@@ -3013,9 +3031,11 @@ LearningProofReport evaluateLearningTrace(const LessonDocument &lesson,
 
   std::size_t covered_objectives = 0u;
   for (const LearningObjectiveDocument &objective : lesson.objectives) {
-    const bool covered = std::all_of(
-        objective.evidence_ids.begin(), objective.evidence_ids.end(),
-        [&](const std::string &evidence) { return observed_evidence.contains(evidence); });
+    const bool covered =
+        std::all_of(objective.evidence_ids.begin(), objective.evidence_ids.end(),
+                    [&](const std::string &evidence) {
+                      return observed_evidence.contains(evidence);
+                    });
     if (covered) {
       ++covered_objectives;
     } else {
@@ -3027,10 +3047,10 @@ LearningProofReport evaluateLearningTrace(const LessonDocument &lesson,
       }
     }
   }
-  report.objective_coverage =
-      lesson.objectives.empty()
-          ? 0.0f
-          : static_cast<float>(covered_objectives) / static_cast<float>(lesson.objectives.size());
+  report.objective_coverage = lesson.objectives.empty()
+                                  ? 0.0f
+                                  : static_cast<float>(covered_objectives) /
+                                        static_cast<float>(lesson.objectives.size());
 
   std::size_t covered_stages = 0u;
   for (const std::string &stage : lesson.workflow_stages) {
@@ -3040,10 +3060,10 @@ LearningProofReport evaluateLearningTrace(const LessonDocument &lesson,
       append_unique(report.missing_workflow_stages, stage);
     }
   }
-  report.workflow_coverage =
-      lesson.workflow_stages.empty()
-          ? 0.0f
-          : static_cast<float>(covered_stages) / static_cast<float>(lesson.workflow_stages.size());
+  report.workflow_coverage = lesson.workflow_stages.empty()
+                                 ? 0.0f
+                                 : static_cast<float>(covered_stages) /
+                                       static_cast<float>(lesson.workflow_stages.size());
 
   if (false_mastery) {
     append_unique(report.safety_failures,
@@ -3144,14 +3164,14 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
     if (section.archetype.empty()) {
       addError("$.sections." + section.id, "section archetype must not be empty");
     }
-    if (project != nullptr && !section.archetype.empty() &&
-        !asset_ids.contains(section.archetype)) {
+    if (project != nullptr && !section.archetype.empty() && !asset_ids.contains(section.archetype)) {
       addError("$.sections." + section.id,
                "section references missing archetype asset '" + section.archetype + "'");
     }
     if (project != nullptr && !section.archetype.empty() &&
         asset_kinds[section.archetype] != AssetKind::Prefab) {
-      addError("$.sections." + section.id, "section archetype must reference a prefab asset");
+      addError("$.sections." + section.id,
+               "section archetype must reference a prefab asset");
     }
     if (section.tunnel.length_segments < 8) {
       addError("$.sections." + section.id + ".tunnel.length_segments",
@@ -3177,7 +3197,8 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
       addError("$.placements", "duplicate placement id '" + placement.id + "'");
     }
     if (placement.prefab.empty() && placement.archetype.empty()) {
-      addError("$.placements." + placement.id, "placement must define either prefab or archetype");
+      addError("$.placements." + placement.id,
+               "placement must define either prefab or archetype");
     }
     if (project != nullptr && !placement.prefab.empty() && !asset_ids.contains(placement.prefab)) {
       addError("$.placements." + placement.id,
@@ -3185,7 +3206,8 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
     }
     if (project != nullptr && !placement.prefab.empty() &&
         asset_kinds[placement.prefab] != AssetKind::Prefab) {
-      addError("$.placements." + placement.id, "placement prefab must reference a prefab asset");
+      addError("$.placements." + placement.id,
+               "placement prefab must reference a prefab asset");
     }
     if (project != nullptr && !placement.archetype.empty() &&
         !asset_ids.contains(placement.archetype)) {
@@ -3208,8 +3230,7 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
       addError("$.validation.walkable_routes", "duplicate route id '" + route.id + "'");
     }
     if (route.points.size() < 2u) {
-      addError("$.validation.walkable_routes." + route.id,
-               "route must contain at least two points");
+      addError("$.validation.walkable_routes." + route.id, "route must contain at least two points");
     }
   }
 
@@ -3262,16 +3283,19 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
                "camera probe min_clearance must be positive");
     }
     for (const CaveVolumeValidationDocument &collision : cave.validation.collision_volumes) {
-      const bool inside_x = std::abs(camera.camera.x - collision.center.x) <
-                            collision.half_extents.x + camera.min_clearance;
-      const bool inside_y = std::abs(camera.camera.y - collision.center.y) <
-                            collision.half_extents.y + camera.min_clearance;
-      const bool inside_z = std::abs(camera.camera.z - collision.center.z) <
-                            collision.half_extents.z + camera.min_clearance;
+      const bool inside_x =
+          std::abs(camera.camera.x - collision.center.x) <
+          collision.half_extents.x + camera.min_clearance;
+      const bool inside_y =
+          std::abs(camera.camera.y - collision.center.y) <
+          collision.half_extents.y + camera.min_clearance;
+      const bool inside_z =
+          std::abs(camera.camera.z - collision.center.z) <
+          collision.half_extents.z + camera.min_clearance;
       if (inside_x && inside_y && inside_z) {
         addError("$.validation.camera_probes." + camera.id,
-                 "camera probe starts inside or too close to collision volume '" + collision.id +
-                     "'");
+                 "camera probe starts inside or too close to collision volume '" +
+                     collision.id + "'");
       }
     }
   }
@@ -3295,8 +3319,7 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
       continue;
     }
     if (probe.radius <= 0.0f) {
-      addError("$.validation.resource_probes." + probe.id,
-               "resource probe radius must be positive");
+      addError("$.validation.resource_probes." + probe.id, "resource probe radius must be positive");
     }
     if (probe.minimum_count <= 0) {
       addError("$.validation.resource_probes." + probe.id,
@@ -3381,7 +3404,8 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
     };
     const CavePerceptionLedgerDocument &ledger = *cave.validation.perception_ledger;
     if (ledger.id.empty()) {
-      addError("$.validation.perception_ledger.id", "perception ledger id must not be empty");
+      addError("$.validation.perception_ledger.id",
+               "perception ledger id must not be empty");
     }
     if (ledger.minimum_score < 0.0f || ledger.minimum_score > 1.0f) {
       addError("$.validation.perception_ledger.minimum_score",
@@ -3422,9 +3446,12 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
 
   if (cave.validation.perceptual_runtime.has_value()) {
     const CavePerceptualRuntimeDocument &runtime = *cave.validation.perceptual_runtime;
-    const auto scoreInRange = [](const float value) { return value >= 0.0f && value <= 1.0f; };
+    const auto scoreInRange = [](const float value) {
+      return value >= 0.0f && value <= 1.0f;
+    };
     if (runtime.id.empty()) {
-      addError("$.validation.perceptual_runtime.id", "perceptual runtime id must not be empty");
+      addError("$.validation.perceptual_runtime.id",
+               "perceptual runtime id must not be empty");
     }
     if (runtime.exposure_horizon_seconds <= 0.0f) {
       addError("$.validation.perceptual_runtime.exposure_horizon_seconds",
@@ -3449,8 +3476,11 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
   }
 
   if (cave.validation.perceptual_causality_graph.has_value()) {
-    const CavePerceptualCausalityGraphDocument &graph = *cave.validation.perceptual_causality_graph;
-    const auto scoreInRange = [](const float value) { return value >= 0.0f && value <= 1.0f; };
+    const CavePerceptualCausalityGraphDocument &graph =
+        *cave.validation.perceptual_causality_graph;
+    const auto scoreInRange = [](const float value) {
+      return value >= 0.0f && value <= 1.0f;
+    };
     const auto validCausalityChannel = [](const std::string &channel) {
       return channel == "material_memory" || channel == "contact_residue" ||
              channel == "light_history" || channel == "acoustic_surface" ||
@@ -3531,7 +3561,8 @@ std::vector<Diagnostic> validateCaveDocument(const CaveDocument &cave,
           entity.components.rigid_body->mass <= 0.0f) {
         addError("$.scene.entities." + entity.id, "dynamic rigid bodies must define mass > 0");
       }
-      if (entity.components.interactable.has_value() && !entity.components.collider.has_value() &&
+      if (entity.components.interactable.has_value() &&
+          !entity.components.collider.has_value() &&
           !entity.components.spawn_point.has_value()) {
         addError("$.scene.entities." + entity.id,
                  "interactable cave entities should define a collider or spawn point");

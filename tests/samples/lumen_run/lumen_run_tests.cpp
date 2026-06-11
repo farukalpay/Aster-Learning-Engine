@@ -11,8 +11,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
+#include <cstdlib>
 #include <utility>
 
 #if defined(_WIN32)
@@ -136,14 +136,16 @@ void testLumenCoalMiningReactionContinuity() {
   assert(prompt.action == "Mine");
   assert(prompt.subject == "Coal Ore");
 
-  const std::uint64_t before_hash = run.worldForensics().coal_mining_reaction.reaction_package_hash;
+  const std::uint64_t before_hash =
+      run.worldForensics().coal_mining_reaction.reaction_package_hash;
   const std::uint64_t before_perceptual_hash =
       run.worldForensics().perceptual_state.perceptual_state_hash;
   const std::uint64_t before_scheduler_hash =
       run.worldForensics().perceptual_schedule.scheduler_hash;
   run.interactFocused();
   run.update(1.0f / 60.0f, {}, false, false);
-  const aster::LumenReactionPackageReport &reaction = run.worldForensics().coal_mining_reaction;
+  const aster::LumenReactionPackageReport &reaction =
+      run.worldForensics().coal_mining_reaction;
   assert(reaction.accepted);
   assert(reaction.reaction_package_hash != 0u);
   assert(reaction.reaction_package_hash != before_hash);
@@ -424,7 +426,8 @@ void testLumenPerceptualWorldRuntimeExposure() {
   assert(state.ecology_signal > 0.35f);
   assert(state.player_readable_cause > 0.45f);
   assert(state.semantic_budget_hash != 0u);
-  const aster::PerceptualWorldScheduleReport &schedule = run.worldForensics().perceptual_schedule;
+  const aster::PerceptualWorldScheduleReport &schedule =
+      run.worldForensics().perceptual_schedule;
   assert(schedule.accepted);
   assert(schedule.belief_stability >= 0.70f);
   assert(schedule.streaming_budget > 0.0f);
@@ -585,7 +588,8 @@ void testLumenPrismRelayProximityInteraction() {
 
   const aster::Vec3 base = run.prismRelayBasePosition();
   run.relocatePlayer(base + aster::Vec3{1.35f, 0.0f, 0.95f}, 0.0f);
-  run.updateInteractionFocus({base.x, base.y + 8.0f, base.z}, {0.0f, 0.0f, 1.0f}, 1.0f / 240.0f);
+  run.updateInteractionFocus({base.x, base.y + 8.0f, base.z}, {0.0f, 0.0f, 1.0f},
+                             1.0f / 240.0f);
   const aster::FocusPromptModel prompt = run.focusPromptModel();
   assert(prompt.visible);
   assert(prompt.action == "Ignite");
@@ -745,7 +749,8 @@ void testLumenCaveVisualContracts() {
     if (object.name == "Continuous streaming cave connector shell" ||
         object.name == "Walkable streaming cave connector floor" ||
         object.name == "Chunked procedural cave interior" ||
-        object.name == "Rock voxel cave surface" || object.name == "Ironstone voxel cave surface") {
+        object.name == "Rock voxel cave surface" ||
+        object.name == "Ironstone voxel cave surface") {
       assert(false);
     }
     if (object.name == "Oval cave spider web span") {
@@ -844,24 +849,28 @@ void testLumenCaveVisualContracts() {
   };
   for (const float progress : {8.0f, 16.0f, 24.0f, 32.0f}) {
     const aster::Vec3 cave_position = run.caveFrameReportPosition(progress);
-    const aster::TerrainSurfaceSample visible_support = sample_visible_cave_support(
-        {{cave_position.x, cave_position.z}, cave_position.y, 0.10f, 1.15f});
+    const aster::TerrainSurfaceSample visible_support =
+        sample_visible_cave_support({{cave_position.x, cave_position.z},
+                                     cave_position.y,
+                                     0.10f,
+                                     1.15f});
     assert(visible_support.valid);
     assert(visible_support.normal.y > 0.30f);
   }
   float chest_floor_height = -1000.0f;
-  for (const aster::Vec3 local_offset : {aster::Vec3{0.0f, 0.0f, 0.0f},
-                                         aster::Vec3{-parkour_chest_base->transform.scale.x, 0.0f,
-                                                     -parkour_chest_base->transform.scale.z},
-                                         aster::Vec3{-parkour_chest_base->transform.scale.x, 0.0f,
-                                                     parkour_chest_base->transform.scale.z},
-                                         aster::Vec3{parkour_chest_base->transform.scale.x, 0.0f,
-                                                     -parkour_chest_base->transform.scale.z},
-                                         aster::Vec3{parkour_chest_base->transform.scale.x, 0.0f,
-                                                     parkour_chest_base->transform.scale.z}}) {
+  for (const aster::Vec3 local_offset :
+       {aster::Vec3{0.0f, 0.0f, 0.0f},
+        aster::Vec3{-parkour_chest_base->transform.scale.x, 0.0f,
+                    -parkour_chest_base->transform.scale.z},
+        aster::Vec3{-parkour_chest_base->transform.scale.x, 0.0f,
+                    parkour_chest_base->transform.scale.z},
+        aster::Vec3{parkour_chest_base->transform.scale.x, 0.0f,
+                    -parkour_chest_base->transform.scale.z},
+        aster::Vec3{parkour_chest_base->transform.scale.x, 0.0f,
+                    parkour_chest_base->transform.scale.z}}) {
     const aster::Vec3 sample_position =
-        parkour_chest_base->transform.position +
-        aster::rotate(parkour_chest_base->transform.rotation, local_offset);
+        parkour_chest_base->transform.position + aster::rotate(parkour_chest_base->transform.rotation,
+                                                               local_offset);
     const aster::SurfaceSupportQuery query{{sample_position.x, sample_position.z},
                                            parkour_chest_base->transform.position.y + 0.50f,
                                            1.20f,
@@ -877,8 +886,8 @@ void testLumenCaveVisualContracts() {
 }
 
 void testLumenCaveMeshCullingCapsuleTriplanarTraceHarness() {
-  const aster::MaterialAssetLoadResult cave_rock_asset =
-      aster::loadMaterialAsset(repoPath("projects/lumen_run/materials/cave_rock.astermat"));
+  const aster::MaterialAssetLoadResult cave_rock_asset = aster::loadMaterialAsset(
+      repoPath("projects/lumen_run/materials/cave_rock.astermat"));
   assert(cave_rock_asset.ok());
   const aster::MaterialFeatureSet features = aster::materialFeatureSet(cave_rock_asset.value);
   assert(features.textured);
@@ -941,8 +950,8 @@ void testLumenCaveMeshCullingCapsuleTriplanarTraceHarness() {
 
     aster::OrbitCamera camera;
     camera.target = aster::renderBoundsForObject(object).center;
-    camera.yaw =
-        run.caveFrameReportCameraYaw(object.name == "Authored deep cave interior" ? 38.0f : 16.0f);
+    camera.yaw = run.caveFrameReportCameraYaw(object.name == "Authored deep cave interior" ? 38.0f
+                                                                                           : 16.0f);
     camera.pitch = aster::radians(8.0f);
     camera.radius = 3.2f;
     camera.vertical_fov = aster::radians(58.0f);
@@ -960,8 +969,9 @@ void testLumenCaveMeshCullingCapsuleTriplanarTraceHarness() {
   const float support_extent = aster::LumenTuning{}.player_height * 0.5f;
   for (const float progress : {8.0f, 24.0f, 38.0f}) {
     const aster::Vec3 capsule_center = run.caveFrameReportPosition(progress);
-    const aster::TerrainSurfaceSample support = run.debugSupportSample(
-        capsule_center - aster::Vec3{0.0f, support_extent, 0.0f}, 0.16f, 1.10f);
+    const aster::TerrainSurfaceSample support =
+        run.debugSupportSample(capsule_center - aster::Vec3{0.0f, support_extent, 0.0f},
+                               0.16f, 1.10f);
     assert(support.valid);
     assert(support.normal.y > 0.30f);
     assert(std::abs(capsule_center.y - (support.height + support_extent)) < 0.20f);
@@ -1013,8 +1023,7 @@ void testLumenDeepCaveCaptureLightingContract() {
   settings.sun_light.direction_to_light = {-0.46f, 0.86f, 0.30f};
   settings.atmosphere.enabled = false;
   for (const aster::CaveWallLightSample &light : cave_light.wall_lights) {
-    settings.light_rig.push_back(
-        {light.position, light.color, light.intensity, light.source_radius});
+    settings.light_rig.push_back({light.position, light.color, light.intensity, light.source_radius});
   }
 
   aster::OrbitCamera camera;
@@ -1101,8 +1110,8 @@ void testLumenHeldTorchLightsDeepCaveAndReplaysDeterministically() {
     settings.sun_light.intensity = 0.0f;
     settings.atmosphere.enabled = false;
     for (const aster::CaveWallLightSample &light : cave_light.wall_lights) {
-      settings.light_rig.push_back(
-          {light.position, light.color, light.intensity, light.source_radius});
+      settings.light_rig.push_back({light.position, light.color, light.intensity,
+                                    light.source_radius});
     }
     if (const std::optional<aster::DynamicPointLight> light = run.equippedLight();
         light.has_value() && light->active) {
@@ -1129,8 +1138,9 @@ void testLumenHeldTorchLightsDeepCaveAndReplaysDeterministically() {
     std::size_t lit_pixels = 0u;
     for (const aster::SoftwareLightingProbePixel &pixel : result.lighting.pixels) {
       metrics.average_direct += pixel.direct_light_luminance;
-      metrics.max_source_readability = std::max(
-          metrics.max_source_readability, static_cast<double>(pixel.source_readability_luminance));
+      metrics.max_source_readability =
+          std::max(metrics.max_source_readability,
+                   static_cast<double>(pixel.source_readability_luminance));
       if (pixel.direct_light_luminance > 0.0001f) {
         ++lit_pixels;
       }
@@ -1203,13 +1213,14 @@ void testLumenCaveTraversalAndLightingContracts() {
   const aster::Vec3 entrance_recovered_position = run.playerPosition();
   require_lumen_transition(run.status().lives == entrance_recovery_lives,
                            "cave entrance floor recovery respawned the player");
-  require_lumen_transition(
-      aster::length({entrance_recovered_position.x, 0.0f, entrance_recovered_position.z}) > 55.0f,
-      "cave entrance floor recovery dropped the player below world bounds");
+  require_lumen_transition(aster::length({entrance_recovered_position.x, 0.0f,
+                                          entrance_recovered_position.z}) > 55.0f,
+                           "cave entrance floor recovery dropped the player below world bounds");
   require_lumen_transition(entrance_recovered_position.y > 5.0f,
                            "cave entrance floor recovery failed to snap back to the threshold");
 
-  const aster::Vec3 web_approach_position = cave_web_center + aster::Vec3{0.0f, -0.10f, 2.35f};
+  const aster::Vec3 web_approach_position =
+      cave_web_center + aster::Vec3{0.0f, -0.10f, 2.35f};
   run.relocatePlayer(web_approach_position, aster::radians(180.0f));
   const int health_before_web = run.status().health;
   for (int i = 0; i < 90; ++i) {
@@ -1263,9 +1274,8 @@ void testLumenCaveTraversalAndLightingContracts() {
   run.relocatePlayer(traversal_target + aster::Vec3{0.0f, 2.25f, 0.0f},
                      run.caveFrameReportCameraYaw(38.0f));
   const aster::Vec3 snapped_cave_position = run.playerPosition();
-  require_lumen_transition(
-      std::abs(snapped_cave_position.y - traversal_target.y) < 0.45f,
-      "player snapped to an upper terrain/roof surface instead of the cave floor");
+  require_lumen_transition(std::abs(snapped_cave_position.y - traversal_target.y) < 0.45f,
+                           "player snapped to an upper terrain/roof surface instead of the cave floor");
   for (const float progress : {8.0f, 16.0f, 24.0f, 32.0f}) {
     const aster::Vec3 expected_floor = run.caveFrameReportPosition(progress);
     run.relocatePlayer(expected_floor + aster::Vec3{0.0f, 2.25f, 0.0f},
@@ -1274,9 +1284,8 @@ void testLumenCaveTraversalAndLightingContracts() {
     const aster::Vec2 planar_delta{snapped.x - expected_floor.x, snapped.z - expected_floor.z};
     require_lumen_transition(aster::length(planar_delta) < 0.35f,
                              "deep cave relocation drifted to another chunk footprint");
-    require_lumen_transition(
-        std::abs(snapped.y - expected_floor.y) < 0.45f,
-        "deep cave relocation chose hidden shell support instead of the visible floor");
+    require_lumen_transition(std::abs(snapped.y - expected_floor.y) < 0.45f,
+                             "deep cave relocation chose hidden shell support instead of the visible floor");
     require_lumen_transition(aster::length({snapped.x, 0.0f, snapped.z}) > 40.0f,
                              "deep cave relocation reset the player toward the spawn arena");
   }
@@ -1517,8 +1526,7 @@ void testLumenClassicGauntletVisibleAndAutomapped() {
     assert(support.normal.y > 0.22f);
     max_foot_gap = std::max(max_foot_gap, std::abs(foot.y - support.height));
   }
-  assert(planar_distance_to_gauntlet_target(run.playerPosition()) <
-         initial_target_distance - 2.40f);
+  assert(planar_distance_to_gauntlet_target(run.playerPosition()) < initial_target_distance - 2.40f);
   assert(max_foot_gap < 0.14f);
 }
 
@@ -1560,28 +1568,28 @@ void testLumenConstructionYardPlacementAndAssets() {
   bool press_vertical_leg_visible = false;
   bool raw_runtime_dependency = false;
   for (const aster::RenderObject &object : run.scene().objects()) {
-    forklift_visible =
-        forklift_visible || object.name.find("Construction forklift") != std::string::npos;
-    site_visible =
-        site_visible || object.name.find("Modular construction site") != std::string::npos;
+    forklift_visible = forklift_visible ||
+                       object.name.find("Construction forklift") != std::string::npos;
+    site_visible = site_visible || object.name.find("Modular construction site") != std::string::npos;
     shredder_visible =
         shredder_visible || object.name.find("Recycler shredder") != std::string::npos;
-    open_cutters_visible =
-        open_cutters_visible || object.name.find("Recycler shredder") != std::string::npos &&
-                                    object.name.find("cutter") != std::string::npos;
-    shredder_drive_visible =
-        shredder_drive_visible || object.name.find("Recycler shredder") != std::string::npos &&
-                                      (object.name.find("motor") != std::string::npos ||
-                                       object.name.find("gearbox") != std::string::npos);
+    open_cutters_visible = open_cutters_visible ||
+                           object.name.find("Recycler shredder") != std::string::npos &&
+                               object.name.find("cutter") != std::string::npos;
+    shredder_drive_visible = shredder_drive_visible ||
+                             object.name.find("Recycler shredder") != std::string::npos &&
+                                 (object.name.find("motor") != std::string::npos ||
+                                  object.name.find("gearbox") != std::string::npos);
     crane_visible =
         crane_visible || object.name.find("Mobile construction crane") != std::string::npos;
-    crane_outrigger_visible = crane_outrigger_visible ||
-                              object.name.find("Mobile construction crane") != std::string::npos &&
-                                  object.name.find("outrigger") != std::string::npos;
-    press_visible = press_visible || object.name.find("Hydraulic scrap press") != std::string::npos;
-    press_ram_visible =
-        press_ram_visible || object.name.find("Hydraulic scrap press") != std::string::npos &&
-                                 object.name.find("ram") != std::string::npos;
+    crane_outrigger_visible =
+        crane_outrigger_visible || object.name.find("Mobile construction crane") != std::string::npos &&
+                                      object.name.find("outrigger") != std::string::npos;
+    press_visible =
+        press_visible || object.name.find("Hydraulic scrap press") != std::string::npos;
+    press_ram_visible = press_ram_visible ||
+                        object.name.find("Hydraulic scrap press") != std::string::npos &&
+                            object.name.find("ram") != std::string::npos;
     rack_visible =
         rack_visible || object.name.find("Pressed bale delivery rack") != std::string::npos;
     scrap_pool_present =
@@ -1602,8 +1610,9 @@ void testLumenConstructionYardPlacementAndAssets() {
         object.name.find("Remote construction yard draped compacted gravel pad") !=
             std::string::npos;
     shredder_hopper_visible =
-        shredder_hopper_visible || (object.name.find("Recycler shredder") != std::string::npos &&
-                                    object.name.find("hopper") != std::string::npos);
+        shredder_hopper_visible ||
+        (object.name.find("Recycler shredder") != std::string::npos &&
+         object.name.find("hopper") != std::string::npos);
     site_foundation_slab_visible =
         site_foundation_slab_visible ||
         object.name.find("Modular construction site construction site concrete foundation") !=
@@ -1617,8 +1626,7 @@ void testLumenConstructionYardPlacementAndAssets() {
         press_vertical_leg_visible ||
         object.name.find("Hydraulic scrap press hydraulic press vertical ground pin leg") !=
             std::string::npos;
-    raw_runtime_dependency = raw_runtime_dependency ||
-                             object.name.find(".glb") != std::string::npos ||
+    raw_runtime_dependency = raw_runtime_dependency || object.name.find(".glb") != std::string::npos ||
                              object.name.find(".fbx") != std::string::npos ||
                              object.material_asset_id.find(".glb") != std::string::npos ||
                              object.material_asset_id.find(".fbx") != std::string::npos;
@@ -1732,8 +1740,9 @@ void testLumenCaveEntrySupportContinuityNoTeleport() {
   const aster::Vec3 crate = run.supplyCratePosition();
   run.relocatePlayer(crate + aster::Vec3{1.10f, 0.0f, 1.00f}, aster::radians(180.0f));
   aster::Vec3 previous_position = run.playerPosition();
-  aster::TerrainSurfaceSample previous_route_support = run.debugSupportSample(
-      previous_position - aster::Vec3{0.0f, support_extent, 0.0f}, 0.55f, 2.80f);
+  aster::TerrainSurfaceSample previous_route_support =
+      run.debugSupportSample(previous_position - aster::Vec3{0.0f, support_extent, 0.0f},
+                             0.55f, 2.80f);
   assert(previous_route_support.valid);
 
   float max_body_delta_y = 0.0f;
@@ -1743,8 +1752,8 @@ void testLumenCaveEntrySupportContinuityNoTeleport() {
   bool saw_cave_interior = false;
   for (int frame = 0; frame < 480; ++frame) {
     const float seconds = static_cast<float>(frame) / 60.0f;
-    run.update(1.0f / 60.0f, lumenCaveEntryAxisForTest(seconds), lumenCaveEntryRunForTest(seconds),
-               false);
+    run.update(1.0f / 60.0f, lumenCaveEntryAxisForTest(seconds),
+               lumenCaveEntryRunForTest(seconds), false);
     const aster::Vec3 position = run.playerPosition();
     const aster::Vec3 foot = position - aster::Vec3{0.0f, support_extent, 0.0f};
     const aster::TerrainSurfaceSample support = run.debugSupportSample(foot, 0.55f, 2.80f);
@@ -1757,7 +1766,8 @@ void testLumenCaveEntrySupportContinuityNoTeleport() {
           std::max(max_support_delta_y, std::abs(support.height - previous_route_support.height));
     }
     max_foot_gap = std::max(max_foot_gap, std::abs(foot.y - support.height));
-    saw_cave_interior = saw_cave_interior || run.caveLightingStateAt(position).interior > 0.08f;
+    saw_cave_interior =
+        saw_cave_interior || run.caveLightingStateAt(position).interior > 0.08f;
     previous_position = position;
     previous_route_support = support;
   }
@@ -1779,8 +1789,7 @@ void testLumenCaveSectionSeamContinuity() {
   for (int i = 0; i <= 64; ++i) {
     const float progress = static_cast<float>(i) * 0.70f;
     const aster::Vec3 player_position = run.caveFrameReportPosition(progress);
-    const aster::Vec3 foot =
-        player_position - aster::Vec3{0.0f, aster::LumenTuning{}.player_height * 0.5f, 0.0f};
+    const aster::Vec3 foot = player_position - aster::Vec3{0.0f, aster::LumenTuning{}.player_height * 0.5f, 0.0f};
     const aster::TerrainSurfaceSample support = run.debugSupportSample(foot, 0.50f, 1.35f);
     assert(support.valid);
     assert(support.normal.y > 0.24f);
@@ -1808,7 +1817,8 @@ void mountConstructionForkliftForTest(aster::LumenRun &run) {
   const aster::Vec3 forklift = run.constructionForkliftPosition();
   run.relocatePlayer(forklift + aster::Vec3{-0.95f, 0.0f, -0.35f}, aster::radians(90.0f));
   const aster::Vec3 focus_origin = run.playerPosition() + aster::Vec3{0.0f, 0.62f, 0.0f};
-  run.updateInteractionFocus(focus_origin, aster::normalize(forklift - focus_origin), 1.0f / 60.0f);
+  run.updateInteractionFocus(focus_origin, aster::normalize(forklift - focus_origin),
+                             1.0f / 60.0f);
   assert(run.focusPromptModel().visible);
   run.interactFocused();
   assert(run.constructionForkliftMounted());
@@ -1902,7 +1912,8 @@ void testLumenConstructionDemolitionPressAndCraneLoop() {
   crane_run.interactFocused();
   assert(crane_run.constructionCraneMounted());
   crane_run.update(1.0f / 60.0f, {1.0f, 1.0f}, false, true);
-  crane_run.updateInteractionFocus(crane_run.playerPosition(), {0.0f, 0.0f, 1.0f}, 1.0f / 60.0f);
+  crane_run.updateInteractionFocus(crane_run.playerPosition(), {0.0f, 0.0f, 1.0f},
+                                   1.0f / 60.0f);
   crane_run.interactFocused();
   assert(!crane_run.constructionCraneMounted());
 }
@@ -1935,7 +1946,8 @@ int main(const int argc, const char **argv) {
       {"lumen_world_renderable_perceptual_coverage", testLumenWorldRenderablePerceptualCoverage},
       {"lumen_mine_ore_torch_deterministic_perceptual_replay",
        testLumenMineOreTorchDeterministicPerceptualReplay},
-      {"lumen_perceptual_causality_graph_replay_240", testLumenPerceptualCausalityGraphReplay240},
+      {"lumen_perceptual_causality_graph_replay_240",
+       testLumenPerceptualCausalityGraphReplay240},
       {"lumen_perceptual_world_runtime_exposure", testLumenPerceptualWorldRuntimeExposure},
       {"lumen_camera_collision_can_beat_comfort_radius",
        testLumenCameraCollisionCanBeatComfortRadius},
@@ -1949,16 +1961,18 @@ int main(const int argc, const char **argv) {
       {"lumen_deep_cave_capture_lighting_contract", testLumenDeepCaveCaptureLightingContract},
       {"lumen_held_torch_lights_deep_cave_and_replays_deterministically",
        testLumenHeldTorchLightsDeepCaveAndReplaysDeterministically},
-      {"lumen_cave_traversal_and_lighting_contracts", testLumenCaveTraversalAndLightingContracts},
-      {"lumen_pond_wall_light_is_mounted_outside_water",
-       testLumenPondWallLightIsMountedOutsideWater},
+      {"lumen_cave_traversal_and_lighting_contracts",
+       testLumenCaveTraversalAndLightingContracts},
+      {"lumen_pond_wall_light_is_mounted_outside_water", testLumenPondWallLightIsMountedOutsideWater},
       {"lumen_classic_gauntlet_visible_and_automapped",
        testLumenClassicGauntletVisibleAndAutomapped},
-      {"lumen_construction_yard_placement_and_assets", testLumenConstructionYardPlacementAndAssets},
+      {"lumen_construction_yard_placement_and_assets",
+       testLumenConstructionYardPlacementAndAssets},
       {"lumen_cave_entry_support_continuity_no_teleport",
        testLumenCaveEntrySupportContinuityNoTeleport},
       {"lumen_cave_section_seam_continuity", testLumenCaveSectionSeamContinuity},
-      {"lumen_forklift_forward_left_right_steering", testLumenForkliftForwardLeftRightSteering},
+      {"lumen_forklift_forward_left_right_steering",
+       testLumenForkliftForwardLeftRightSteering},
       {"lumen_forklift_four_wheel_support", testLumenForkliftFourWheelSupport},
       {"lumen_construction_demolition_press_and_crane_loop",
        testLumenConstructionDemolitionPressAndCraneLoop},

@@ -70,8 +70,9 @@ void LumenRun::spawnMiningFractureEffect(const Vec3 center, Vec3 normal, Vec3 ha
   cut.impact_point = center + normal * half_extents.z;
   cut.impact_normal = normal;
   cut.seed = seed;
-  cut.plane_count = std::clamp(
-      static_cast<int>(std::ceil(std::log2(static_cast<float>(requested_shards)))), 2, 5);
+  cut.plane_count =
+      std::clamp(static_cast<int>(std::ceil(std::log2(static_cast<float>(requested_shards)))),
+                 2, 5);
   cut.angular_spread = 0.54f;
   cut.offset_spread = 0.18f;
   cut.minimum_fragment_area = 0.00004f;
@@ -99,11 +100,11 @@ void LumenRun::spawnMiningFractureEffect(const Vec3 center, Vec3 normal, Vec3 ha
         return &visual;
       }
     }
-    return &*std::max_element(
-        mining_fracture_shards_.begin(), mining_fracture_shards_.end(),
-        [](const MiningFractureShardVisual &lhs, const MiningFractureShardVisual &rhs) {
-          return lhs.age < rhs.age;
-        });
+    return &*std::max_element(mining_fracture_shards_.begin(), mining_fracture_shards_.end(),
+                              [](const MiningFractureShardVisual &lhs,
+                                 const MiningFractureShardVisual &rhs) {
+                                return lhs.age < rhs.age;
+                              });
   };
 
   const float golden_angle = kPi * (3.0f - std::sqrt(5.0f));
@@ -117,22 +118,23 @@ void LumenRun::spawnMiningFractureEffect(const Vec3 center, Vec3 normal, Vec3 ha
       vertex.position = vertex.position - fragments[i].centroid;
     }
 
-    const float fill = fragments.size() <= 1u
-                           ? 0.0f
-                           : static_cast<float>(i) / static_cast<float>(fragments.size() - 1u);
+    const float fill =
+        fragments.size() <= 1u ? 0.0f
+                               : static_cast<float>(i) / static_cast<float>(fragments.size() - 1u);
     const float area_fraction =
         total_area > 0.0001f ? fragments[i].surface_area / total_area : 0.0f;
     const float volume_factor = std::clamp(1.0f - area_fraction, 0.35f, 1.0f);
-    const Vec3 tangent_kick = axis_x * std::cos(golden_angle * static_cast<float>(i)) +
-                              axis_y * std::sin(golden_angle * static_cast<float>(i));
+    const Vec3 tangent_kick =
+        axis_x * std::cos(golden_angle * static_cast<float>(i)) +
+        axis_y * std::sin(golden_angle * static_cast<float>(i));
 
     visual->active = true;
     visual->position = fragments[i].centroid;
     visual->velocity = fragments[i].impulse_direction * (0.78f + volume_factor * 0.72f) +
                        tangent_kick * (0.18f + fill * 0.18f) + normal * 0.18f;
     visual->rotation = {fill * 0.7f, fill * 1.3f, fill * 0.5f};
-    visual->angular_velocity = {1.8f + fill * 2.0f, 2.4f + volume_factor * 2.3f,
-                                1.2f + fill * 1.7f};
+    visual->angular_velocity =
+        {1.8f + fill * 2.0f, 2.4f + volume_factor * 2.3f, 1.2f + fill * 1.7f};
     visual->age = 0.0f;
     visual->lifetime = 0.68f + volume_factor * 0.32f;
     visual->base_scale = 1.0f;
@@ -320,12 +322,13 @@ bool LumenRun::mineFocusedCaveWeb(const std::size_t web_index) {
   const MiningToolStats tool = activePickaxeStats();
   Vec3 hit_normal = player_position_ - web.center;
   hit_normal = length(hit_normal) > 0.0001f ? normalize(hit_normal) : web.normal;
-  const MineableHit web_hit{
-      .hit = true,
-      .target_key = web.id.empty() ? "lumen.cave_web." + std::to_string(web_index) : web.id,
-      .point = web.center,
-      .normal = hit_normal,
-      .material = VoxelCaveMaterial::Rock};
+  const MineableHit web_hit{.hit = true,
+                            .target_key = web.id.empty()
+                                              ? "lumen.cave_web." + std::to_string(web_index)
+                                              : web.id,
+                            .point = web.center,
+                            .normal = hit_normal,
+                            .material = VoxelCaveMaterial::Rock};
   const MineableAttempt mine_attempt{.now_seconds = status_.elapsed_seconds,
                                      .hit = web_hit,
                                      .tool = tool,
@@ -340,9 +343,9 @@ bool LumenRun::mineFocusedCaveWeb(const std::size_t web_index) {
 
   web.hit_flash = 1.0f;
   setAvatarPointTarget(feedback.impact_point);
-  Material fracture_material = web.object_index < scene_.objects().size()
-                                   ? scene_.objects()[web.object_index].material
-                                   : Material{};
+  Material fracture_material =
+      web.object_index < scene_.objects().size() ? scene_.objects()[web.object_index].material
+                                                 : Material{};
   fracture_material.surface_pattern = SurfacePattern::CaveWeb;
   fracture_material.opacity = std::max(fracture_material.opacity, 0.62f);
   const Vec3 fracture_extent{std::max(web.radius_x * 0.22f, 0.16f),
@@ -358,10 +361,11 @@ bool LumenRun::mineFocusedCaveWeb(const std::size_t web_index) {
 
   web.broken = true;
   if (web.object_index < scene_.objects().size()) {
-    spawnMiningFractureEffect(
-        feedback.impact_point, feedback.impact_normal,
-        {std::max(web.radius_x * 0.42f, 0.22f), std::max(web.radius_y * 0.20f, 0.14f), 0.045f},
-        fracture_material, fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 8729u), 14);
+    spawnMiningFractureEffect(feedback.impact_point, feedback.impact_normal,
+                              {std::max(web.radius_x * 0.42f, 0.22f),
+                               std::max(web.radius_y * 0.20f, 0.14f), 0.045f},
+                              fracture_material,
+                              fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 8729u), 14);
     hideRenderObject(scene_.objects()[web.object_index]);
   }
   for (CaveSkitter &skitter : cave_skitters_) {
@@ -409,13 +413,13 @@ bool LumenRun::mineFocusedCaveSkitter(const std::size_t skitter_index) {
   const MiningToolStats tool = activePickaxeStats();
   Vec3 hit_normal = player_position_ - skitter.state.position;
   hit_normal = length(hit_normal) > 0.0001f ? normalize(hit_normal) : Vec3{0.0f, 1.0f, 0.0f};
-  const MineableHit skitter_hit{.hit = true,
-                                .target_key = skitter.id.empty() ? "lumen.cave_skitter." +
-                                                                       std::to_string(skitter_index)
-                                                                 : skitter.id,
-                                .point = skitter.state.position + Vec3{0.0f, 0.08f, 0.0f},
-                                .normal = hit_normal,
-                                .material = VoxelCaveMaterial::Rock};
+  const MineableHit skitter_hit{
+      .hit = true,
+      .target_key =
+          skitter.id.empty() ? "lumen.cave_skitter." + std::to_string(skitter_index) : skitter.id,
+      .point = skitter.state.position + Vec3{0.0f, 0.08f, 0.0f},
+      .normal = hit_normal,
+      .material = VoxelCaveMaterial::Rock};
   const MiningFeedback feedback =
       mining_.tryMine({.now_seconds = status_.elapsed_seconds,
                        .hit = skitter_hit,
@@ -432,16 +436,16 @@ bool LumenRun::mineFocusedCaveSkitter(const std::size_t skitter_index) {
   skitter.last_hit_normal = feedback.impact_normal;
   skitter.state.flinch_seconds = 0.36f;
   setAvatarPointTarget(feedback.impact_point);
-  skitter.health =
-      std::max(feedback.carved ? 0 : 1,
-               static_cast<int>(std::ceil((1.0f - feedback.crack_fraction) *
-                                          static_cast<float>(std::max(skitter.max_health, 1)))));
-  const Material fracture_material = skitter.object_index < scene_.objects().size()
-                                         ? scene_.objects()[skitter.object_index].material
-                                         : Material{};
+  skitter.health = std::max(
+      feedback.carved ? 0 : 1,
+      static_cast<int>(std::ceil((1.0f - feedback.crack_fraction) *
+                                 static_cast<float>(std::max(skitter.max_health, 1)))));
+  const Material fracture_material =
+      skitter.object_index < scene_.objects().size() ? scene_.objects()[skitter.object_index].material
+                                                     : Material{};
   if (!feedback.carved) {
-    spawnMiningFractureEffect(feedback.impact_point, feedback.impact_normal, {0.24f, 0.16f, 0.26f},
-                              fracture_material,
+    spawnMiningFractureEffect(feedback.impact_point, feedback.impact_normal,
+                              {0.24f, 0.16f, 0.26f}, fracture_material,
                               fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 8819u),
                               8 + static_cast<int>(std::ceil(feedback.crack_fraction * 7.0f)));
     return true;
@@ -452,8 +456,8 @@ bool LumenRun::mineFocusedCaveSkitter(const std::size_t skitter_index) {
   skitter.state.velocity = {};
   spawnBloodBurst(skitter.state.position + Vec3{0.0f, 0.08f, 0.0f}, feedback.impact_point, 1.0f);
   if (skitter.object_index < scene_.objects().size()) {
-    spawnMiningFractureEffect(feedback.impact_point, feedback.impact_normal, {0.24f, 0.14f, 0.28f},
-                              fracture_material,
+    spawnMiningFractureEffect(feedback.impact_point, feedback.impact_normal,
+                              {0.24f, 0.14f, 0.28f}, fracture_material,
                               fractureSeedFor(feedback.impact_point, kLumenCaveSeed + 8829u), 18);
     hideRenderObject(scene_.objects()[skitter.object_index]);
   }
@@ -488,29 +492,29 @@ bool LumenRun::mineFocusedOre(const std::size_t ore_index) {
   ore_hit.point = ore.position;
   ore_hit.normal = length(ore.normal) > 0.0001f ? normalize(ore.normal) : Vec3{0.0f, 1.0f, 0.0f};
   ore_hit.material = VoxelCaveMaterial::Coal;
-  MiningFeedback feedback =
-      mining_.tryMine({.now_seconds = status_.elapsed_seconds,
-                       .hit = ore_hit,
-                       .tool = tool,
-                       .material_hardness = static_cast<float>(std::max(ore.max_health, 1)),
-                       .resource_item_id = "coal",
-                       .resource_quantity = ore.yield_quantity});
+  MiningFeedback feedback = mining_.tryMine({.now_seconds = status_.elapsed_seconds,
+                                             .hit = ore_hit,
+                                             .tool = tool,
+                                             .material_hardness =
+                                                 static_cast<float>(std::max(ore.max_health, 1)),
+                                             .resource_item_id = "coal",
+                                             .resource_quantity = ore.yield_quantity});
   if (!feedback.accepted) {
     return false;
   }
 
-  const std::vector<std::string> mining_channels = {"material_memory", "event_residue",
-                                                    "resource_state", "ui_feedback"};
-  const std::map<std::string, std::string> mining_metadata = {{"target", ore_hit.target_key},
-                                                              {"resource", "coal"}};
+  const std::vector<std::string> mining_channels = {
+      "material_memory", "event_residue", "resource_state", "ui_feedback"};
+  const std::map<std::string, std::string> mining_metadata = {
+      {"target", ore_hit.target_key}, {"resource", "coal"}};
   for (const char *event : {"mining_attempt", "surface_hit", "crack"}) {
     emitLearningSignal({.event = event,
                         .asset = "action.mine.coal_ore",
                         .channels = mining_channels,
                         .metadata = mining_metadata});
   }
-  const std::vector<std::string> feedback_channels = {"resource_state", "sensory_feedback",
-                                                      "ui_feedback"};
+  const std::vector<std::string> feedback_channels = {
+      "resource_state", "sensory_feedback", "ui_feedback"};
   for (const char *event : {"carve_resource_state_write", "ui_feedback"}) {
     emitLearningSignal({.event = event,
                         .asset = "action.mine.coal_ore",
@@ -521,10 +525,10 @@ bool LumenRun::mineFocusedOre(const std::size_t ore_index) {
 
   ore.hit_flash = 1.0f;
   setAvatarPointTarget(feedback.impact_point);
-  ore.health =
-      std::max(feedback.carved ? 0 : 1,
-               static_cast<int>(std::ceil((1.0f - feedback.crack_fraction) *
-                                          static_cast<float>(std::max(ore.max_health, 1)))));
+  ore.health = std::max(
+      feedback.carved ? 0 : 1,
+      static_cast<int>(std::ceil((1.0f - feedback.crack_fraction) *
+                                 static_cast<float>(std::max(ore.max_health, 1)))));
   if (!feedback.carved) {
     recordCoalMiningReaction(ore_index, feedback, ore);
     return true;
