@@ -406,6 +406,7 @@ set(ASTER_NET_SOURCES
 set(ASTER_SAMPLES_SOURCES
   "${PROJECT_SOURCE_DIR}/src/samples/aster_grid_tactics/aster_grid_tactics.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/construction_yard.cpp"
+  "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/lumen_campaign.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/lumen_run.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/interaction.cpp"
   "${PROJECT_SOURCE_DIR}/src/samples/lumen_run/learning_proof.cpp"
@@ -1054,6 +1055,8 @@ if(ASTER_BUILD_TESTS)
   aster_add_test(aster_physics_tests tests/physics_tests.cpp)
   aster_add_test(aster_lumen_run_tests tests/samples/lumen_run/lumen_run_tests.cpp)
   target_link_libraries(aster_lumen_run_tests PRIVATE aster_game_sdk)
+  aster_add_test(aster_lumen_campaign_tests tests/samples/lumen_run/lumen_campaign_tests.cpp)
+  target_link_libraries(aster_lumen_campaign_tests PRIVATE aster_game_sdk)
   aster_add_test(aster_spark_threshold_tests
                  tests/samples/spark_threshold/spark_threshold_tests.cpp)
   foreach(spark_threshold_case

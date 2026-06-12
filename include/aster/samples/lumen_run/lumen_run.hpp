@@ -86,6 +86,10 @@ struct LumenSandboxStats {
   int processed_loads = 0;
   int pending_press_loads = 0;
   int delivered_bales = 0;
+  int cave_webs_cleared = 0;
+  int cave_webs_total = 0;
+  int skitters_defeated = 0;
+  int skitters_total = 0;
   bool prism_relay_active = false;
   bool forklift_mounted = false;
   bool crane_mounted = false;

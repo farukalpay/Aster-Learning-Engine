@@ -9,6 +9,7 @@
 #include "aster/game_sdk/game_sdk.hpp"
 #include "aster/learning/learning_session.hpp"
 #include "aster/samples/lumen_run/learning_proof.hpp"
+#include "aster/samples/lumen_run/lumen_campaign.hpp"
 #include "aster/samples/lumen_run/lumen_run.hpp"
 #include "aster/systems/third_person_camera.hpp"
 #include "aster/input/control_scheme.hpp"
@@ -32,6 +33,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <optional>
 #include <sstream>
 #include <span>
@@ -1426,7 +1428,7 @@ aster::InventoryOverlayModel inventoryModel(const aster::LumenSandboxStats &sand
 
 aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_open,
                          const aster::LumenSandboxStats &sandbox,
-                         std::vector<std::string> sandbox_log,
+                         std::vector<std::string> sandbox_log, std::string objective_line,
                          const int torch_count, const bool supply_crate_nearby,
                          const bool pause_open, const bool pause_options_open,
                          const aster::PointerCueModel pointer,
@@ -1437,8 +1439,11 @@ aster::HudModel hudModel(const aster::LumenStatus &status, const bool inventory_
                          const aster::ClassicHudSignalModel classic_signals,
                          const aster::TransitionWipeFrame transition_wipe) {
   aster::HudModel model;
-  model.title = "Lumen Sandbox";
-  model.subtitle = "Farm cave approach, mineable ore, placeable resources, and yard machines.";
+  model.title = "Lumen Expedition";
+  model.subtitle =
+      objective_line.empty()
+          ? "Farm cave approach, mineable ore, placeable resources, and yard machines."
+          : std::move(objective_line);
   model.score = sandbox.mined_ores + sandbox.placed_resources + sandbox.processed_loads;
   model.total = 0;
   model.lives = status.lives;
@@ -1509,6 +1514,8 @@ int main(int argc, char **argv) {
     const bool capture_hud = hasArgument(argc, argv, "--capture-hud");
     const bool smoke_test = hasArgument(argc, argv, "--smoke-test");
     const bool learning_proof_run = hasArgument(argc, argv, "--learning-proof-run");
+    const std::filesystem::path campaign_report_path =
+        argumentPath(argc, argv, "--campaign-report");
     std::filesystem::path learning_out = argumentPath(argc, argv, "--learning-out");
     if (learning_proof_run && learning_out.empty()) {
       learning_out = std::filesystem::path("build") / "tmp" / "lumen_learning_proof";
@@ -1741,13 +1748,40 @@ int main(int argc, char **argv) {
     }
 
     aster::LumenRun game(authoring);
+    aster::LumenCampaign campaign;
+    const auto campaign_observation = [&]() {
+      const aster::LumenStatus &status = game.status();
+      const aster::LumenSandboxStats sandbox = game.sandboxStats();
+      aster::LumenCampaignObservation observation;
+      observation.elapsed_seconds = status.elapsed_seconds;
+      observation.torches_held = game.torchCount();
+      observation.torch_equipped = game.equippedLight().has_value();
+      observation.cave_interior = game.caveLightingState().interior;
+      observation.mined_ores = sandbox.mined_ores;
+      observation.cave_webs_cleared = sandbox.cave_webs_cleared;
+      observation.cave_webs_total = sandbox.cave_webs_total;
+      observation.skitters_defeated = sandbox.skitters_defeated;
+      observation.skitters_total = sandbox.skitters_total;
+      observation.prism_relay_active = sandbox.prism_relay_active;
+      observation.processed_loads = sandbox.processed_loads;
+      observation.delivered_bales = sandbox.delivered_bales;
+      observation.construction_yard_complete = sandbox.construction_yard_complete;
+      observation.lives = status.lives;
+      observation.health = status.health;
+      observation.defeated = status.defeated;
+      return observation;
+    };
     std::string learning_scaffold_message;
     const auto pump_learning = [&]() {
+      campaign.update(campaign_observation());
+      std::vector<aster::LearningSignal> signals = game.drainLearningSignals();
+      std::vector<aster::LearningSignal> campaign_signals = campaign.drainSignals();
+      signals.insert(signals.end(), std::make_move_iterator(campaign_signals.begin()),
+                     std::make_move_iterator(campaign_signals.end()));
       if (!learning_session.has_value()) {
-        (void)game.drainLearningSignals();
         return;
       }
-      learning_session->observe(game.drainLearningSignals());
+      learning_session->observe(signals);
       const std::vector<aster::LearningScaffoldCandidate> candidates =
           learning_session->scaffoldCandidates();
       if (!candidates.empty() &&
@@ -2141,6 +2175,7 @@ int main(int argc, char **argv) {
       }
       if (control_state.justPressed(kReset)) {
         game.reset();
+        campaign.reset();
         if (learning_session.has_value()) {
           learning_session->reset();
           learning_scaffold_message.clear();
@@ -2583,6 +2618,8 @@ int main(int argc, char **argv) {
         hud.beginFrame({static_cast<float>(hud_width), static_cast<float>(hud_height)},
                        control_state.snapshot());
         std::vector<std::string> sandbox_log = game.sandboxLogLines();
+        const std::vector<std::string> campaign_lines = campaign.statusLines();
+        sandbox_log.insert(sandbox_log.end(), campaign_lines.begin(), campaign_lines.end());
         if (learning_session.has_value()) {
           const std::vector<std::string> learning_lines = learning_session->statusLines();
           sandbox_log.insert(sandbox_log.end(), learning_lines.begin(), learning_lines.end());
@@ -2592,6 +2629,7 @@ int main(int argc, char **argv) {
         }
         const aster::HudAction hud_action = hud.draw(
             hudModel(game.status(), inventory_open, game.sandboxStats(), std::move(sandbox_log),
+                     campaign.objectiveLine(),
                      game.torchCount(), game.supplyCrateNearby(), pause_open, pause_options_open,
                      pointer_cue, game_cursor, game.focusPromptModel(), game.hotbarHudModel(),
                      game.chestContentsHudModel(), game.classicGauntletAutomap(),
@@ -2716,6 +2754,31 @@ int main(int argc, char **argv) {
     }
     if (startup_report_enabled) {
       printStartupSummary(startup_samples);
+    }
+    pump_learning();
+    {
+      const aster::LumenCampaignReport expedition = campaign.report();
+      std::size_t completed_stages = 0;
+      for (const aster::LumenCampaignStageProgress &stage : expedition.stages) {
+        if (stage.completed) {
+          ++completed_stages;
+        }
+      }
+      std::cout << "Lumen expedition: completed=" << (expedition.completed ? 1 : 0)
+                << " failed=" << (expedition.failed ? 1 : 0)
+                << " stages=" << completed_stages << "/" << aster::kLumenCampaignStageCount
+                << " score=" << expedition.score << " rank="
+                << aster::lumenCampaignRankName(expedition.rank)
+                << " deaths=" << expedition.deaths << " elapsed_s=" << std::fixed
+                << std::setprecision(2) << expedition.elapsed_seconds << '\n';
+      std::cout << "Lumen expedition objective: " << campaign.objectiveLine() << '\n';
+      if (!campaign_report_path.empty()) {
+        if (!campaign.writeReportJson(campaign_report_path)) {
+          throw std::runtime_error("failed to write campaign report: " +
+                                   campaign_report_path.string());
+        }
+        std::cout << "Lumen expedition report: " << campaign_report_path << '\n';
+      }
     }
     if (learning_session.has_value() && !learning_out.empty()) {
       pump_learning();

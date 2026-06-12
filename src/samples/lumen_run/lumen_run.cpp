@@ -616,6 +616,14 @@ LumenSandboxStats LumenRun::sandboxStats() const {
   stats.processed_loads = construction_shredder_.processed_load_count;
   stats.pending_press_loads = construction_press_.pending_load_count;
   stats.delivered_bales = constructionDeliveredBaleCount();
+  stats.cave_webs_total = static_cast<int>(cave_webs_.size());
+  stats.cave_webs_cleared = static_cast<int>(
+      std::count_if(cave_webs_.begin(), cave_webs_.end(),
+                    [](const CaveWebObstacle &web) { return web.broken; }));
+  stats.skitters_total = static_cast<int>(cave_skitters_.size());
+  stats.skitters_defeated = static_cast<int>(std::count_if(
+      cave_skitters_.begin(), cave_skitters_.end(),
+      [](const CaveSkitter &skitter) { return skitter.dead || skitter.state.dead; }));
   stats.prism_relay_active = prism_relay_active_;
   stats.forklift_mounted = construction_forklift_.mounted;
   stats.crane_mounted = construction_crane_.mounted;

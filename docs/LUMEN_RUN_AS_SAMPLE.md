@@ -62,6 +62,27 @@ For long-horizon cave reports, it also needs the perceptual runtime state hash,
 semantic budget hash, continuity debt, and accepted/rejected runtime verdict so
 authors can see whether the space still carries the player's prior behavior.
 
+## Expedition Campaign
+
+The sandbox is fronted by a staged campaign director (`LumenCampaign`,
+`include/aster/samples/lumen_run/lumen_campaign.hpp`) that strings the existing
+systems into one playable expedition with a real outcome. Eight sequential
+objectives — Provision (supply-crate torch), Descent (cave entry), Coal Vein
+(mining), Web Breaker (cave webs), Skitter Hunt (encounter combat), Prism
+Ignition (relay activation), Salvage Contract (shredder load + bale delivery),
+and Yard Mastery (the full salvage-yard contract) — are observed purely through
+`LumenCampaignObservation` snapshots, so the director is deterministic and
+headless-testable (`tests/samples/lumen_run/lumen_campaign_tests.cpp`).
+
+Progress made out of order still counts, but stages complete sequentially so
+the run reads as a campaign. Completion grants per-stage score, a time bonus,
+and a death penalty, resolved into an S/A/B/C/D rank. The active objective is
+shown in the HUD subtitle and console; every stage transition emits
+`campaign_stage_started` / `campaign_stage_completed` learning signals into the
+same `LearningSession` that powers the mining lesson, and the final outcome is
+printed at exit. `--campaign-report <path>` writes the machine-readable JSON
+expedition report (stage timings, score breakdown, rank).
+
 ## Classic Gauntlet
 
 The deep cave includes a Classic Gauntlet route built from Aster-native systems
@@ -75,6 +96,8 @@ Useful commands:
 ```bash
 ./build/aster_lumen_run --validate-cave
 ./build/aster_lumen_run --smoke-test --no-vsync
+./build/aster_lumen_run --campaign-report /tmp/lumen_expedition.json
+./build/aster_lumen_campaign_tests
 ./build/aster_lumen_run --frame-report --run-frames 240 --window-width 1280 --window-height 720
 ./build/aster_lumen_run --screenshot /tmp/lumen_run.ppm --screenshot-frame 8 --capture-hud
 ./build/aster_lumen_run --screenshot /tmp/lumen_classic.ppm --capture-route classic-gauntlet --screenshot-frame 160 --capture-hud --msaa 0 --window-width 1280 --window-height 720
